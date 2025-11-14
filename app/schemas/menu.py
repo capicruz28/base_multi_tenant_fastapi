@@ -5,12 +5,13 @@ Esquemas Pydantic para la gestión de menús del sistema.
 Este módulo define todos los esquemas de validación, creación, actualización 
 y lectura de menús, que representan la estructura de navegación del sistema.
 
-Los menús organizan las funcionalidades del sistema en una estructura jerárquica
-que se presenta a los usuarios según sus roles y permisos.
+Se implementa el soporte para multi-tenancy añadiendo el campo 'cliente_id'
+para garantizar el aislamiento de datos entre diferentes clientes.
 
 Características principales:
 - Validaciones robustas con mensajes de error en español
 - Gestión completa de la jerarquía de menús
+- Soporte Multi-Tenant (cliente_id)
 - Validación de relaciones con áreas y menús padres
 - Documentación clara para desarrolladores
 """
@@ -26,7 +27,7 @@ class MenuBase(BaseModel):
     Schema base para menús con validaciones fundamentales.
     
     Define la estructura básica de un ítem de menú y establece las reglas 
-    de validación esenciales para mantener la organización del sistema.
+    de validación esenciales, incluyendo el identificador de cliente.
     """
     
     nombre: str = Field(
@@ -75,25 +76,18 @@ class MenuBase(BaseModel):
         description="Indica si el menú está activo y disponible para uso"
     )
 
+    cliente_id: int = Field(
+        ...,
+        ge=1,
+        description="ID del cliente al que pertenece el menú (soporte Multi-Tenant)",
+        examples=[1, 5, 10]
+    )
+
     @field_validator('nombre')
     @classmethod
     def validar_formato_nombre_menu(cls, valor: str) -> str:
         """
         Valida que el nombre del menú tenga un formato válido.
-        
-        Reglas:
-        - Solo permite letras, números, espacios y caracteres especiales comunes
-        - No permite caracteres especiales potencialmente peligrosos
-        - Convierte a formato de título para consistencia
-        
-        Args:
-            valor: El nombre del menú a validar
-            
-        Returns:
-            str: Nombre del menú validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato no es válido
         """
         if not valor:
             raise ValueError('El nombre del menú no puede estar vacío')
@@ -133,18 +127,6 @@ class MenuBase(BaseModel):
     def validar_formato_icono(cls, valor: Optional[str]) -> Optional[str]:
         """
         Valida el formato del nombre del icono.
-        
-        Los iconos típicamente son nombres de clases CSS o identificadores
-        de sistemas de iconos como FontAwesome, Material Icons, etc.
-        
-        Args:
-            valor: El nombre del icono a validar
-            
-        Returns:
-            Optional[str]: Nombre del icono validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato del icono no es válido
         """
         if valor is None:
             return None
@@ -172,18 +154,6 @@ class MenuBase(BaseModel):
     def validar_formato_ruta(cls, valor: Optional[str]) -> Optional[str]:
         """
         Valida el formato de la ruta del menú.
-        
-        Las rutas deben seguir convenciones de URL y ser seguras para
-        la navegación en el sistema.
-        
-        Args:
-            valor: La ruta a validar
-            
-        Returns:
-            Optional[str]: Ruta validada y normalizada
-            
-        Raises:
-            ValueError: Cuando el formato de la ruta no es válido
         """
         if valor is None:
             return None
@@ -220,15 +190,6 @@ class MenuBase(BaseModel):
     def validar_orden_menu(cls, valor: Optional[int]) -> Optional[int]:
         """
         Valida que el orden sea un valor positivo.
-        
-        Args:
-            valor: El orden a validar
-            
-        Returns:
-            Optional[int]: Orden validado
-            
-        Raises:
-            ValueError: Cuando el orden es negativo
         """
         if valor is not None and valor < 0:
             raise ValueError('El orden no puede ser negativo')
@@ -236,16 +197,10 @@ class MenuBase(BaseModel):
         return valor
 
     @model_validator(mode='after')
-    def validar_consistencia_menu(self) -> MenuBase:
+    def validar_consistencia_menu(self) -> 'MenuBase':
         """
         Valida consistencias adicionales después de procesar todos los campos.
-        
-        Realiza validaciones que requieren múltiples campos o que dependen
-        de transformaciones realizadas en validadores individuales.
         """
-        # Validar que menús con ruta no tengan hijos (esto se validaría en el servicio)
-        # Aquí solo podemos hacer validaciones básicas
-        
         # Validar que el nombre no sea demasiado genérico
         nombres_genericos = ['menú', 'menu', 'nuevo menú', 'nuevo menu', 'test', 'prueba']
         if hasattr(self, 'nombre') and self.nombre.lower() in nombres_genericos:
@@ -258,8 +213,7 @@ class MenuCreate(MenuBase):
     """
     Schema para la creación de nuevos menús.
     
-    Extiende MenuBase sin agregar campos adicionales, pero se utiliza
-    para documentar específicamente la operación de creación.
+    Requiere que todos los campos obligatorios de MenuBase estén presentes.
     """
     pass
 
@@ -268,8 +222,7 @@ class MenuUpdate(BaseModel):
     Schema para actualización parcial de menús.
     
     Todos los campos son opcionales y solo se validan los que se proporcionen.
-    Diseñado específicamente para operaciones PATCH que actualizan solo
-    algunos campos del menú.
+    El cliente_id no es actualizable.
     """
     
     nombre: Optional[str] = Field(
@@ -383,6 +336,12 @@ class MenuItem(BaseModel):
     children: List[MenuItem] = Field(
         default_factory=list,
         description="Lista de menús hijos (estructura jerárquica)"
+    )
+
+    cliente_id: int = Field(
+        ...,
+        description="ID del cliente al que pertenece el menú",
+        examples=[1, 5, 10]
     )
 
     class Config:

@@ -25,40 +25,42 @@ logger = logging.getLogger(__name__)
 
 class AreaService(BaseService):
     """
-    Servicio para gestión de áreas del sistema.
+    Servicio para gestión de áreas del sistema en arquitectura multi-tenant.
     
     ⚠️ IMPORTANTE: Esta clase maneja todas las operaciones relacionadas con áreas
-    manteniendo la integridad de los datos y aplicando las reglas de negocio.
+    manteniendo la integridad de los datos y aplicando las reglas de negocio **por cliente**.
     
     CARACTERÍSTICAS PRINCIPALES:
     - Herencia de BaseService para manejo automático de errores
     - Validaciones consistentes usando el nuevo sistema de excepciones
     - Logging detallado para auditoría y debugging
-    - Mantenimiento de funcionalidad existente sin cambios
+    - Aislamiento total de datos por cliente_id
+    - Soporte para áreas del sistema (cliente_id IS NULL) y áreas custom del cliente
     """
 
     @staticmethod
-    async def _verificar_nombre_existente(nombre: str, excluir_id: Optional[int] = None) -> bool:
+    async def _verificar_nombre_existente(cliente_id: int, nombre: str, excluir_id: Optional[int] = None) -> bool:
         """
-        Verifica si ya existe un área con el mismo nombre (case-insensitive).
+        Verifica si ya existe un área con el mismo nombre **dentro del cliente** (case-insensitive).
         
         🔍 PROPÓSITO: Prevenir duplicados en la base de datos que violarían
-        constraints únicos y causarían errores de integridad.
+        constraints únicos y causarían errores de integridad **por cliente**.
         
         Args:
+            cliente_id: ID del cliente
             nombre: Nombre del área a verificar
             excluir_id: ID de área a excluir (útil en actualizaciones)
             
         Returns:
-            bool: True si ya existe un área con ese nombre, False en caso contrario
+            bool: True si ya existe un área con ese nombre en el cliente, False en caso contrario
             
         🛡️ SEGURIDAD: Este método es interno y no expone detalles de errores de BD
         """
         id_a_excluir = excluir_id if excluir_id is not None else -1
-        params = (nombre.lower(), id_a_excluir)
+        params = (cliente_id, nombre.lower(), id_a_excluir)
         
         try:
-            # 🗃️ CONSULTA A BD: Verificar existencia sin exponer detalles internos
+            # 🗃️ CONSULTA A BD: Verificar existencia **dentro del cliente**
             resultado_lista = execute_query(CHECK_AREA_EXISTS_BY_NAME_QUERY, params)
             
             if resultado_lista:
@@ -75,36 +77,38 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_area(area_data: AreaCreate) -> AreaRead:
+    async def crear_area(cliente_id: int, area_data: AreaCreate) -> AreaRead:
         """
-        Crea una nueva área en el sistema.
+        Crea una nueva área en el sistema **para un cliente específico**.
         
         📝 FLUJO PRINCIPAL:
-        1. Validar que el nombre no exista (prevenir duplicados)
-        2. Insertar en base de datos
+        1. Validar que el nombre no exista en el cliente (prevenir duplicados)
+        2. Insertar en base de datos con el cliente_id
         3. Retornar el área creada
         
         Args:
+            cliente_id: ID del cliente
             area_data: Datos validados del área a crear
             
         Returns:
             AreaRead: El área creada con todos sus datos
             
         Raises:
-            ConflictError: Si ya existe un área con el mismo nombre
+            ConflictError: Si ya existe un área con el mismo nombre en el cliente
             ServiceError: Si la inserción falla por razones internas
         """
-        logger.info(f"Iniciando creación de área: {area_data.nombre}")
+        logger.info(f"Iniciando creación de área para cliente {cliente_id}: {area_data.nombre}")
         
-        # 🚫 VALIDACIÓN DE NEGOCIO: Prevenir nombres duplicados
-        if await AreaService._verificar_nombre_existente(area_data.nombre):
+        # 🚫 VALIDACIÓN DE NEGOCIO: Prevenir nombres duplicados en el cliente
+        if await AreaService._verificar_nombre_existente(cliente_id, area_data.nombre):
             raise ConflictError(
-                detail=f"Ya existe un área con el nombre '{area_data.nombre}'.",
+                detail=f"Ya existe un área con el nombre '{area_data.nombre}' en este cliente.",
                 internal_code="AREA_NAME_CONFLICT"
             )
 
         # 🗃️ PREPARAR DATOS PARA INSERCIÓN
         params = (
+            cliente_id,
             area_data.nombre,
             area_data.descripcion,
             area_data.icono,
@@ -124,14 +128,14 @@ class AreaService(BaseService):
 
         # ✅ CONVERSIÓN Y LOG DE ÉXITO
         created_area = AreaRead(**resultado_insert)
-        logger.info(f"Área '{created_area.nombre}' creada con ID: {created_area.area_id}")
+        logger.info(f"Área '{created_area.nombre}' creada para cliente {cliente_id} con ID: {created_area.area_id}")
         return created_area
 
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_area_por_id(area_id: int) -> Optional[AreaRead]:
         """
-        Obtiene un área específica por su ID.
+        Obtiene un área específica por su ID **(cliente_id se obtiene del área)**.
         
         🔍 CARACTERÍSTICAS:
         - Retorna None si el área no existe (no lanza excepción)
@@ -145,7 +149,7 @@ class AreaService(BaseService):
         """
         logger.debug(f"Buscando área con ID: {area_id}")
         
-        # 🗃️ CONSULTA SIMPLE POR ID
+        # 🗃️ CONSULTA SIMPLE POR ID (incluye cliente_id en el resultado)
         resultado_lista = execute_query(GET_AREA_BY_ID_QUERY, (area_id,))
         
         if not resultado_lista:
@@ -158,19 +162,21 @@ class AreaService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_areas_paginadas(
+        cliente_id: int,
         skip: int = 0,
         limit: int = 10,
         search: Optional[str] = None
     ) -> PaginatedAreaResponse:
         """
-        Obtiene una lista paginada y filtrada de áreas.
+        Obtiene una lista paginada y filtrada de áreas **de un cliente**.
         
         📊 PAGINACIÓN EFICIENTE:
-        - Realiza 2 consultas: conteo total y datos paginados
+        - Realiza 2 consultas: conteo total y datos paginados **dentro del cliente**
         - Calcula metadatos de paginación automáticamente
         - Soporte para búsqueda por nombre o descripción
         
         Args:
+            cliente_id: ID del cliente
             skip: Número de registros a saltar (offset)
             limit: Número máximo de registros por página
             search: Término de búsqueda opcional
@@ -178,11 +184,11 @@ class AreaService(BaseService):
         Returns:
             PaginatedAreaResponse: Respuesta con datos paginados y metadatos
         """
-        logger.info(f"Obteniendo áreas paginadas: skip={skip}, limit={limit}, search='{search}'")
+        logger.info(f"Obteniendo áreas paginadas para cliente {cliente_id}: skip={skip}, limit={limit}, search='{search}'")
         
         # 🔍 PREPARAR PARÁMETROS DE BÚSQUEDA
         search_param = f"%{search}%" if search else None
-        where_params = (search, search_param, search_param)
+        where_params = (cliente_id, search, search_param, search_param)
         
         # 1. 📊 OBTENER CONTEO TOTAL (para calcular páginas)
         count_result_list = execute_query(COUNT_AREAS_QUERY, where_params)
@@ -207,7 +213,7 @@ class AreaService(BaseService):
         total_pages = math.ceil(total_count / limit) if limit > 0 else 0
         current_page = (skip // limit) + 1 if limit > 0 else 1
 
-        logger.info(f"Paginación completada: {len(areas_lista)} áreas de {total_count} totales")
+        logger.info(f"Paginación completada para cliente {cliente_id}: {len(areas_lista)} áreas de {total_count} totales")
         
         return PaginatedAreaResponse(
             areas=areas_lista,
@@ -220,24 +226,24 @@ class AreaService(BaseService):
     @BaseService.handle_service_errors
     async def actualizar_area(area_id: int, area_data: AreaUpdate) -> AreaRead:
         """
-        Actualiza un área existente con validaciones de negocio.
+        Actualiza un área existente con validaciones de negocio **por cliente**.
         
         🔄 FLUJO DE ACTUALIZACIÓN:
-        1. Verificar que el área existe
-        2. Validar que el nuevo nombre no cause conflictos
+        1. Verificar que el área existe y obtener su cliente_id
+        2. Validar que el nuevo nombre no cause conflictos en el cliente
         3. Aplicar actualización parcial (solo campos proporcionados)
         4. Retornar área actualizada
         
         Args:
             area_id: ID del área a actualizar
-            area_data: Campos a actualizar (parcial)
+            area_ Campos a actualizar (parcial)
             
         Returns:
             AreaRead: El área actualizada
             
         Raises:
             NotFoundError: Si el área no existe
-            ConflictError: Si el nuevo nombre ya está en uso
+            ConflictError: Si el nuevo nombre ya está en uso en el cliente
             ValidationError: Si no se proporcionan datos para actualizar
         """
         logger.info(f"Intentando actualizar área ID: {area_id}")
@@ -250,19 +256,20 @@ class AreaService(BaseService):
                 internal_code="NO_UPDATE_DATA"
             )
 
-        # 🔍 VERIFICAR EXISTENCIA DEL ÁREA
+        # 🔍 VERIFICAR EXISTENCIA DEL ÁREA Y OBTENER SU CLIENTE_ID
         area_existente = await AreaService.obtener_area_por_id(area_id)
         if not area_existente:
             raise NotFoundError(
                 detail=f"Área con ID {area_id} no encontrada para actualizar.",
                 internal_code="AREA_NOT_FOUND"
             )
+        cliente_id = area_existente.cliente_id
 
         # 🚫 VALIDACIÓN DE NOMBRE ÚNICO (si se está cambiando)
         if 'nombre' in update_payload and update_payload['nombre'].lower() != area_existente.nombre.lower():
-            if await AreaService._verificar_nombre_existente(update_payload['nombre'], excluir_id=area_id):
+            if await AreaService._verificar_nombre_existente(cliente_id, update_payload['nombre'], excluir_id=area_id):
                 raise ConflictError(
-                    detail=f"Ya existe otra área con el nombre '{update_payload['nombre']}'.",
+                    detail=f"Ya existe otra área con el nombre '{update_payload['nombre']}' en este cliente.",
                     internal_code="AREA_NAME_CONFLICT"
                 )
 
@@ -272,9 +279,10 @@ class AreaService(BaseService):
         for key, value in update_payload.items():
             fields_to_update.append(f"{key} = ?")
             params_list.append(value)
+        params_list.append(cliente_id)
+        params_list.append(area_id)
 
         # 💾 EJECUTAR ACTUALIZACIÓN
-        params_list.append(area_id)
         update_query = UPDATE_AREA_BASE_QUERY_TEMPLATE.format(fields=", ".join(fields_to_update))
         resultado_update = execute_update(update_query, tuple(params_list))
         
@@ -288,11 +296,11 @@ class AreaService(BaseService):
                     detail="Error crítico: Área actualizada pero no se pudo recuperar.",
                     internal_code="AREA_UPDATE_RETRIEVAL_FAILED"
                 )
-            logger.info(f"Área ID: {area_id} actualizada (verificada post-actualización)")
+            logger.info(f"Área ID: {area_id} del cliente {cliente_id} actualizada (verificada post-actualización)")
             return updated_area
             
         # ✅ ÉXITO: Retornar datos de la actualización
-        logger.info(f"Área ID: {area_id} actualizada exitosamente")
+        logger.info(f"Área ID: {area_id} del cliente {cliente_id} actualizada exitosamente")
         return AreaRead(**resultado_update)
 
     @staticmethod
@@ -335,7 +343,7 @@ class AreaService(BaseService):
                 internal_code="AREA_ALREADY_IN_STATE"
             )
 
-        # 💾 EJECUTAR CAMBIO DE ESTADO
+        # 💾 EJECUTAR CAMBIO DE ESTADO **(el cliente_id ya está en el área)**
         resultado_toggle = execute_update(TOGGLE_AREA_STATUS_QUERY, (activar, area_id))
         
         # 🔄 FALLBACK: Verificar cambio si no retorna datos
@@ -357,21 +365,22 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_lista_simple_areas_activas() -> List[AreaSimpleList]:
+    async def obtener_lista_simple_areas_activas(cliente_id: int) -> List[AreaSimpleList]:
         """
-        Obtiene una lista simplificada de áreas activas.
+        Obtiene una lista simplificada de áreas activas **de un cliente**.
         
         🎯 PROPÓSITO: Optimizado para listas desplegables y selectores
         donde solo se necesitan ID y nombre.
         
         Returns:
-            List[AreaSimpleList]: Lista de áreas activas simplificadas
+            List[AreaSimpleList]: Lista de áreas activas simplificadas del cliente
         """
-        logger.info("Obteniendo lista simple de áreas activas")
+        logger.info(f"Obteniendo lista simple de áreas activas para cliente {cliente_id}")
         
-        rows = execute_query(GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY)
+        params = (cliente_id,)
+        rows = execute_query(GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY, params)
         if not rows:
-            logger.info("No se encontraron áreas activas para la lista simple")
+            logger.info(f"No se encontraron áreas activas para el cliente {cliente_id} en la lista simple")
             return []
 
         # 🎯 MAPEO SEGURO: Continuar incluso si algún registro falla
@@ -380,8 +389,8 @@ class AreaService(BaseService):
             try:
                 areas_list.append(AreaSimpleList(**row))
             except Exception as map_err:
-                logger.error(f"Error mapeando área simple: {map_err}")
+                logger.error(f"Error mapeando área simple para cliente {cliente_id}: {map_err}")
                 continue
 
-        logger.info(f"Lista simple obtenida: {len(areas_list)} áreas activas")
+        logger.info(f"Lista simple obtenida para cliente {cliente_id}: {len(areas_list)} áreas activas")
         return areas_list

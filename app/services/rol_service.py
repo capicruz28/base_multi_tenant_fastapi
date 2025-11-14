@@ -29,25 +29,111 @@ logger = logging.getLogger(__name__)
 
 class RolService(BaseService):
     """
-    Servicio para gestión completa de roles del sistema.
+    Servicio para gestión completa de roles del sistema en arquitectura multi-tenant.
     
     ⚠️ IMPORTANTE: Este servicio maneja operaciones críticas relacionadas con:
-    - Creación, actualización y desactivación de roles
+    - Creación, actualización y desactivación de roles **por cliente**
     - Gestión de permisos de roles sobre menús
-    - Asignación de roles a usuarios
+    - Asignación de roles a usuarios **dentro de un cliente**
     
     CARACTERÍSTICAS PRINCIPALES:
     - Herencia de BaseService para manejo automático de errores
-    - Validaciones robustas de nombres únicos y relaciones
+    - Validaciones robustas de nombres únicos **por cliente**
     - Manejo de transacciones para operaciones críticas
     - Logging detallado para auditoría de seguridad
+    - Aislamiento total de datos por cliente_id
     """
 
     @staticmethod
-    @BaseService.handle_service_errors
-    async def _verificar_nombre_rol_unico(nombre: str, rol_id_excluir: Optional[int] = None) -> None:
+    async def get_min_required_access_level(role_names: List[str]) -> int:
         """
-        Verifica que el nombre del rol sea único (case-insensitive).
+        Consulta el nivel de acceso más bajo (MIN) necesario para la lista de nombres de rol dados.
+        Ej: Si se requiere ['Administrador', 'Editor'], y los niveles son [50, 30],
+        el nivel mínimo requerido es 30.
+        
+        Args:
+            role_names: Lista de nombres de rol requeridos (ej: ['Administrador']).
+
+        Returns:
+            El nivel de acceso más bajo requerido (int), o 0 si no se encuentra ninguno.
+        """
+        if not role_names:
+            return 0  # Si no se requiere ningún rol, el nivel es 0 (cualquiera pasa)
+
+        # ⚠️ Construcción dinámica de la cláusula IN: Evita inyección SQL
+        placeholders = ', '.join(['?' for _ in role_names])
+        
+        # BUSCAR EL NIVEL DE ACCESO MÁS BAJO entre los roles permitidos
+        QUERY = f"""
+        SELECT MIN(nivel_acceso) AS min_level
+        FROM rol
+        WHERE nombre IN ({placeholders}) AND es_activo = 1;
+        """
+        
+        try:
+            # execute_query devuelve List[Dict]
+            result = execute_query(QUERY, tuple(role_names))
+            
+            if result and result[0]['min_level'] is not None:
+                # El valor de min_level no es NULL
+                return int(result[0]['min_level'])
+            
+            # Si la lista de nombres no coincide con ningún rol activo
+            logger.warning(f"No se encontraron niveles de acceso para los roles: {role_names}")
+            # Devolvemos un nivel muy alto si no se encuentra (para forzar la denegación)
+            return 999 
+            
+        except DatabaseError as db_err:
+            logger.error(f"Error de BD en get_min_required_access_level: {db_err.detail}", exc_info=True)
+            raise ServiceError(
+                status_code=500,
+                detail="Error de base de datos al obtener nivel de rol requerido.",
+                internal_code="ROLE_LEVEL_DB_ERROR"
+            )
+
+    @staticmethod
+    async def get_user_max_access_level(usuario_id: int) -> int:
+        """
+        Consulta el nivel de acceso más alto (MAX) entre todos los roles asignados al usuario.
+
+        Args:
+            usuario_id: ID del usuario.
+
+        Returns:
+            El nivel de acceso más alto que posee el usuario (int), o 0 si no tiene roles activos.
+        """
+        # BUSCAR EL NIVEL DE ACCESO MÁS ALTO del usuario
+        QUERY = """
+        SELECT MAX(r.nivel_acceso) AS max_level
+        FROM usuario_rol ur
+        JOIN rol r ON ur.rol_id = r.rol_id
+        WHERE ur.usuario_id = ? AND r.es_activo = 1;
+        """
+        
+        try:
+            # execute_query devuelve List[Dict]
+            result = execute_query(QUERY, (usuario_id,))
+            
+            if result and result[0]['max_level'] is not None:
+                # El valor de max_level no es NULL
+                return int(result[0]['max_level'])
+            
+            # Si no tiene roles o son inactivos
+            return 0 
+            
+        except DatabaseError as db_err:
+            logger.error(f"Error de BD en get_user_max_access_level: {db_err.detail}", exc_info=True)
+            raise ServiceError(
+                status_code=500,
+                detail="Error de base de datos al obtener nivel máximo del usuario.",
+                internal_code="USER_LEVEL_DB_ERROR"
+            )
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def _verificar_nombre_rol_unico(cliente_id: int, nombre: str, rol_id_excluir: Optional[int] = None) -> None:
+        """
+        Verifica que el nombre del rol sea único **dentro del cliente** (case-insensitive).
         
         🛡️ PREVENCIÓN DE DUPLICADOS:
         - Evita violaciones de constraints únicos en la base de datos
@@ -55,15 +141,16 @@ class RolService(BaseService):
         - Soporte para exclusiones en actualizaciones
         
         Args:
+            cliente_id: ID del cliente
             nombre: Nombre del rol a verificar
             rol_id_excluir: ID del rol a excluir (para actualizaciones)
             
         Raises:
-            ConflictError: Si ya existe un rol con el mismo nombre
+            ConflictError: Si ya existe un rol con el mismo nombre en el cliente
         """
         try:
-            query = "SELECT rol_id FROM rol WHERE LOWER(nombre) = LOWER(?)"
-            params = [nombre]
+            query = "SELECT rol_id FROM rol WHERE cliente_id = ? AND LOWER(nombre) = LOWER(?)"
+            params = [cliente_id, nombre]
             
             if rol_id_excluir is not None:
                 query += " AND rol_id != ?"
@@ -73,14 +160,14 @@ class RolService(BaseService):
 
             if resultados:
                 raise ConflictError(
-                    detail=f"El nombre de rol '{nombre}' ya está en uso.",
+                    detail=f"El nombre de rol '{nombre}' ya está en uso en este cliente.",
                     internal_code="ROLE_NAME_CONFLICT"
                 )
                 
         except ConflictError:
             raise
         except DatabaseError as db_err:
-            logger.error(f"Error de BD en _verificar_nombre_rol_unico: {db_err.detail}")
+            logger.error(f"Error de BD en _verificar_nombre_rol_unico para cliente {cliente_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al verificar nombre de rol",
@@ -96,26 +183,27 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_rol(rol_data: Dict) -> Dict:
+    async def crear_rol(cliente_id: int, rol_data: Dict) -> Dict:
         """
-        Crea un nuevo rol en el sistema con validaciones completas.
+        Crea un nuevo rol en el sistema **para un cliente específico**.
         
         🆕 CREACIÓN SEGURA:
-        - Valida nombre único
+        - Valida nombre único **dentro del cliente**
         - Aplica valores por defecto seguros
         - Registra la creación para auditoría
         
         Args:
+            cliente_id: ID del cliente
             rol_data: Datos del rol a crear
             
         Returns:
             Dict: Rol creado con todos sus datos
             
         Raises:
-            ConflictError: Si el nombre ya existe
+            ConflictError: Si el nombre ya existe en el cliente
             ServiceError: Si la creación falla
         """
-        logger.info(f"Intentando crear rol: {rol_data.get('nombre')}")
+        logger.info(f"Intentando crear rol para cliente {cliente_id}: {rol_data.get('nombre')}")
         
         try:
             nombre_rol = rol_data.get('nombre')
@@ -127,18 +215,19 @@ class RolService(BaseService):
                     internal_code="ROLE_NAME_REQUIRED"
                 )
 
-            # 🛡️ VERIFICAR NOMBRE ÚNICO
-            await RolService._verificar_nombre_rol_unico(nombre_rol)
+            # 🛡️ VERIFICAR NOMBRE ÚNICO DENTRO DEL CLIENTE
+            await RolService._verificar_nombre_rol_unico(cliente_id, nombre_rol)
 
             # 💾 EJECUTAR INSERCIÓN
             insert_query = """
-            INSERT INTO rol (nombre, descripcion, es_activo)
-            OUTPUT INSERTED.rol_id, INSERTED.nombre, INSERTED.descripcion,
+            INSERT INTO rol (cliente_id, nombre, descripcion, es_activo)
+            OUTPUT INSERTED.rol_id, INSERTED.cliente_id, INSERTED.nombre, INSERTED.descripcion,
                    INSERTED.es_activo, INSERTED.fecha_creacion
-            VALUES (?, ?, ?)
+            VALUES (?, ?, ?, ?)
             """
             
             params = (
+                cliente_id,
                 nombre_rol,
                 rol_data.get('descripcion'),
                 rol_data.get('es_activo', True)  # ✅ Valor por defecto seguro
@@ -153,20 +242,20 @@ class RolService(BaseService):
                     internal_code="ROLE_CREATION_FAILED"
                 )
 
-            logger.info(f"Rol '{result.get('nombre')}' creado con ID: {result.get('rol_id')}")
+            logger.info(f"Rol '{result.get('nombre')}' creado con ID: {result.get('rol_id')} para cliente {cliente_id}")
             return result
 
         except (ValidationError, ConflictError):
             raise
         except DatabaseError as db_err:
-            logger.error(f"Error de BD al crear rol: {db_err.detail}")
+            logger.error(f"Error de BD al crear rol para cliente {cliente_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al crear rol",
                 internal_code="ROLE_CREATION_DB_ERROR"
             )
         except Exception as e:
-            logger.exception(f"Error inesperado creando rol: {str(e)}")
+            logger.exception(f"Error inesperado creando rol para cliente {cliente_id}: {str(e)}")
             raise ServiceError(
                 status_code=500,
                 detail="Error interno al crear rol",
@@ -177,7 +266,7 @@ class RolService(BaseService):
     @BaseService.handle_service_errors
     async def obtener_rol_por_id(rol_id: int, incluir_inactivos: bool = False) -> Optional[Dict]:
         """
-        Obtiene un rol por su ID con opción de incluir inactivos.
+        Obtiene un rol por su ID **(el cliente_id se obtiene del rol)**.
         
         🔍 BÚSQUEDA FLEXIBLE:
         - Por defecto solo retorna roles activos
@@ -193,7 +282,7 @@ class RolService(BaseService):
         """
         try:
             query = """
-            SELECT rol_id, nombre, descripcion, es_activo, fecha_creacion
+            SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion
             FROM rol
             WHERE rol_id = ?
             """
@@ -233,12 +322,13 @@ class RolService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_roles_paginados(
+        cliente_id: int,
         page: int = 1,
         limit: int = 10,
         search: Optional[str] = None
     ) -> Dict:
         """
-        Obtiene una lista paginada de roles con búsqueda.
+        Obtiene una lista paginada de roles **de un cliente** con búsqueda.
         
         📊 PAGINACIÓN EFICIENTE:
         - Búsqueda insensible en nombre y descripción
@@ -246,6 +336,7 @@ class RolService(BaseService):
         - Ordenamiento consistente
         
         Args:
+            cliente_id: ID del cliente
             page: Número de página (comienza en 1)
             limit: Límite de resultados por página
             search: Término de búsqueda opcional
@@ -257,7 +348,7 @@ class RolService(BaseService):
             ValidationError: Si los parámetros son inválidos
             ServiceError: Si hay errores en la consulta
         """
-        logger.info(f"Obteniendo roles paginados: page={page}, limit={limit}, search='{search}'")
+        logger.info(f"Obteniendo roles paginados para cliente {cliente_id}: page={page}, limit={limit}, search='{search}'")
 
         # 🚫 VALIDAR PARÁMETROS
         if page < 1:
@@ -274,16 +365,17 @@ class RolService(BaseService):
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
         
-        count_params = (search_param, search_param, search_param)
-        select_params = (search_param, search_param, search_param, offset, limit)
+        # Para roles de cliente, la búsqueda es solo dentro del cliente
+        count_params = (cliente_id, search_param, search_param, search_param)
+        select_params = (cliente_id, search_param, search_param, search_param, offset, limit)
 
         try:
             # 📊 CONTAR TOTAL DE ROLES
-            logger.debug(f"Contando roles con parámetros: {count_params}")
+            logger.debug(f"Contando roles para cliente {cliente_id} con parámetros: {count_params}")
             count_result = execute_query(COUNT_ROLES_PAGINATED, count_params)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
-                logger.error(f"Error al contar roles: resultado inesperado: {count_result}")
+                logger.error(f"Error al contar roles para cliente {cliente_id}: resultado inesperado: {count_result}")
                 raise ServiceError(
                     status_code=500,
                     detail="Error al obtener el total de roles",
@@ -291,12 +383,12 @@ class RolService(BaseService):
                 )
 
             total_roles = count_result[0]['total']
-            logger.debug(f"Total de roles encontrados: {total_roles}")
+            logger.debug(f"Total de roles encontrados para cliente {cliente_id}: {total_roles}")
 
             # 📋 OBTENER ROLES PAGINADOS
             lista_roles = []
             if total_roles > 0 and limit > 0:
-                logger.debug(f"Obteniendo roles con parámetros: {select_params}")
+                logger.debug(f"Obteniendo roles para cliente {cliente_id} con parámetros: {select_params}")
                 lista_roles = execute_query(SELECT_ROLES_PAGINATED, select_params)
                 logger.debug(f"Obtenidos {len(lista_roles)} roles para la página {page}")
 
@@ -317,13 +409,13 @@ class RolService(BaseService):
                 "total_paginas": total_paginas
             }
 
-            logger.info(f"Obtención paginada de roles completada exitosamente")
+            logger.info(f"Obtención paginada de roles para cliente {cliente_id} completada exitosamente")
             return response_data
 
         except (ValidationError, ServiceError):
             raise
         except DatabaseError as db_err:
-            logger.error(f"Error de BD en obtener_roles_paginados: {db_err.detail}")
+            logger.error(f"Error de BD en obtener_roles_paginados para cliente {cliente_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al obtener roles paginados",
@@ -341,7 +433,7 @@ class RolService(BaseService):
     @BaseService.handle_service_errors
     async def actualizar_rol(rol_id: int, rol_data: Dict) -> Dict:
         """
-        Actualiza un rol existente con validaciones de integridad.
+        Actualiza un rol existente **dentro de su cliente** con validaciones de integridad.
         
         🔄 ACTUALIZACIÓN PARCIAL:
         - Solo actualiza campos proporcionados
@@ -357,24 +449,25 @@ class RolService(BaseService):
             
         Raises:
             NotFoundError: Si el rol no existe
-            ConflictError: Si el nuevo nombre ya existe
+            ConflictError: Si el nuevo nombre ya existe en el cliente
             ServiceError: Si la actualización falla
         """
         logger.info(f"Intentando actualizar rol ID: {rol_id}")
 
         try:
-            # 🔍 VERIFICAR EXISTENCIA DEL ROL
+            # 🔍 VERIFICAR EXISTENCIA DEL ROL Y OBTENER SU CLIENTE_ID
             rol_actual = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
             if not rol_actual:
                 raise NotFoundError(
                     detail=f"Rol con ID {rol_id} no encontrado.",
                     internal_code="ROLE_NOT_FOUND"
                 )
+            cliente_id = rol_actual['cliente_id']
 
             # 🛡️ VALIDAR NOMBRE ÚNICO (si se cambia)
             nuevo_nombre = rol_data.get('nombre')
             if nuevo_nombre and nuevo_nombre != rol_actual.get('nombre'):
-                await RolService._verificar_nombre_rol_unico(nuevo_nombre, rol_id)
+                await RolService._verificar_nombre_rol_unico(cliente_id, nuevo_nombre, rol_id)
 
             # 🛠️ CONSTRUIR ACTUALIZACIÓN DINÁMICA
             update_parts = []
@@ -405,7 +498,7 @@ class RolService(BaseService):
             update_query = f"""
             UPDATE rol
             SET {', '.join(update_parts)}
-            OUTPUT INSERTED.rol_id, INSERTED.nombre, INSERTED.descripcion,
+            OUTPUT INSERTED.rol_id, INSERTED.cliente_id, INSERTED.nombre, INSERTED.descripcion,
                    INSERTED.es_activo, INSERTED.fecha_creacion
             WHERE rol_id = ?
             """
@@ -600,9 +693,9 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_all_active_roles() -> List[Dict]:
+    async def get_all_active_roles(cliente_id: int) -> List[Dict]:
         """
-        Obtiene todos los roles activos (sin paginación).
+        Obtiene todos los roles activos **de un cliente** (sin paginación).
         
         📋 LISTA COMPLETA:
         - Optimizado para listas desplegables
@@ -610,22 +703,22 @@ class RolService(BaseService):
         - Solo roles activos
         
         Returns:
-            List[Dict]: Lista de roles activos
+            List[Dict]: Lista de roles activos del cliente
             
         Raises:
             ServiceError: Si hay errores en la consulta
         """
-        logger.debug("📋 Obteniendo todos los roles activos")
+        logger.debug(f"📋 Obteniendo todos los roles activos para cliente {cliente_id}")
         
         query = """
-            SELECT rol_id, nombre, descripcion, es_activo, fecha_creacion
+            SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion
             FROM rol
-            WHERE es_activo = 1
+            WHERE cliente_id = ? AND es_activo = 1
             ORDER BY nombre ASC;
         """
         
         try:
-            resultados = execute_query(query)
+            resultados = execute_query(query, (cliente_id,))
             
             roles_procesados = []
             for rol_dict in resultados:
@@ -633,11 +726,11 @@ class RolService(BaseService):
                     rol_dict['es_activo'] = bool(rol_dict['es_activo'])
                 roles_procesados.append(rol_dict)
 
-            logger.info(f"Se encontraron {len(roles_procesados)} roles activos")
+            logger.info(f"Se encontraron {len(roles_procesados)} roles activos para cliente {cliente_id}")
             return roles_procesados
 
         except DatabaseError as db_err:
-            logger.error(f"Error de BD en get_all_active_roles: {db_err.detail}")
+            logger.error(f"Error de BD en get_all_active_roles para cliente {cliente_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al obtener roles activos",
@@ -753,9 +846,30 @@ class RolService(BaseService):
                 logger.debug(f"Insertando {len(nuevos_permisos)} nuevos permisos")
                 insert_count = 0
                 for permiso in nuevos_permisos:
+                    # Obtener el cliente_id del menú para mantener la coherencia
+                    menu_id = permiso.menu_id
+                    menu_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
+                    menu_result = execute_query(menu_query, (menu_id,))
+                    if not menu_result:
+                        raise ServiceError(
+                            status_code=404,
+                            detail=f"Menú con ID {menu_id} no encontrado.",
+                            internal_code="MENU_NOT_FOUND_FOR_PERM"
+                        )
+                    menu_cliente_id = menu_result[0]['cliente_id']
+                    
+                    # Validar que el menú pertenezca al mismo cliente que el rol
+                    if menu_cliente_id != rol_existente['cliente_id']:
+                        raise ServiceError(
+                            status_code=400,
+                            detail="El menú y el rol deben pertenecer al mismo cliente.",
+                            internal_code="MENU_ROLE_CLIENT_MISMATCH"
+                        )
+                    
                     params = (
+                        rol_existente['cliente_id'],
                         rol_id, 
-                        permiso.menu_id, 
+                        menu_id, 
                         permiso.puede_ver, 
                         permiso.puede_editar, 
                         permiso.puede_eliminar
@@ -771,6 +885,9 @@ class RolService(BaseService):
             execute_transaction(_operaciones_permisos)
             logger.info(f"Permisos actualizados exitosamente para el rol ID: {rol_id}")
 
+        except (ValidationError, ServiceError) as e:
+            # Re-lanzar errores específicos de validación o lógica de negocio
+            raise e
         except DatabaseError as db_err:
             logger.error(f"Error de BD en actualizar_permisos_rol: {db_err.detail}")
             raise ServiceError(

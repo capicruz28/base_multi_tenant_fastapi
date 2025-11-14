@@ -1,5 +1,4 @@
 # app/services/menu_service.py
-
 from typing import List, Dict, Optional, Any
 import logging
 
@@ -32,18 +31,18 @@ logger = logging.getLogger(__name__)
 
 class MenuService(BaseService):
     """
-    Servicio para gestión completa de menús del sistema.
+    Servicio para gestión completa de menús del sistema en arquitectura multi-tenant.
     
     ⚠️ IMPORTANTE: Este servicio maneja operaciones críticas relacionadas con:
-    - Estructura jerárquica de menús
+    - Estructura jerárquica de menús **por cliente**
+    - Menús del sistema (cliente_id IS NULL) vs. menús custom del cliente
     - Permisos y accesos basados en roles
-    - Gestión de áreas y su relación con menús
     
     CARACTERÍSTICAS PRINCIPALES:
     - Herencia de BaseService para manejo automático de errores
-    - Validaciones de integridad referencial y reglas de negocio
-    - Construcción eficiente de árboles de menús
-    - Mantenimiento de funcionalidad existente sin cambios
+    - Validaciones de integridad referencial **por cliente**
+    - Aislamiento total de datos por cliente_id
+    - Soporte para menús del sistema y menús custom
     """
 
     @staticmethod
@@ -102,44 +101,49 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_todos_menus_estructurados_admin() -> MenuResponse:
+    async def obtener_todos_menus_estructurados_admin(cliente_id: int) -> MenuResponse:
         """
-        Obtiene la estructura completa de menús para administración.
+        Obtiene la estructura completa de menús **de un cliente** para administración.
         
         📊 VISIÓN COMPLETA:
-        - Incluye todos los menús (activos e inactivos)
+        - Incluye todos los menús (activos e inactivos) del cliente
         - Estructura jerárquica completa
         - Ideal para interfaces de administración
         
+        Args:
+            cliente_id: ID del cliente
+            
         Returns:
-            MenuResponse: Estructura completa de menús
+            MenuResponse: Estructura completa de menús del cliente
             
         Raises:
             ServiceError: Si hay errores al obtener la estructura
         """
-        logger.info("Obteniendo estructura completa de menús para admin")
+        logger.info(f"Obteniendo estructura completa de menús para cliente {cliente_id}")
         
         try:
-            resultado_sp = execute_procedure(GET_ALL_MENUS_ADMIN)
+            # ✅ NUEVO: Pasar cliente_id al SP
+            params_dict = {'ClienteID': cliente_id}
+            resultado_sp = execute_procedure_params("sp_GetAllMenuItemsAdmin", params_dict)
             
             if not resultado_sp:
-                logger.warning(f"{GET_ALL_MENUS_ADMIN} no devolvió resultados.")
+                logger.warning(f"sp_GetAllMenuItemsAdmin no devolvió resultados para cliente {cliente_id}.")
                 return MenuResponse(menu=[])
             
             menu_tree: List[MenuItem] = build_menu_tree(resultado_sp)
-            logger.info(f"Estructura de menú admin construida con {len(menu_tree)} items raíz.")
+            logger.info(f"Estructura de menú para cliente {cliente_id} construida con {len(menu_tree)} items raíz.")
             
             return MenuResponse(menu=menu_tree)
 
         except DatabaseError as db_err:
-            logger.error(f"Error de BD al obtener estructura admin: {db_err.detail}")
+            logger.error(f"Error de BD al obtener estructura admin para cliente {cliente_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al obtener estructura de menús",
                 internal_code="MENU_ADMIN_RETRIEVAL_DB_ERROR"
             )
         except Exception as e:
-            logger.exception(f"Error inesperado al obtener menús admin: {str(e)}")
+            logger.exception(f"Error inesperado al obtener menús admin para cliente {cliente_id}: {str(e)}")
             raise ServiceError(
                 status_code=500,
                 detail="Error interno al procesar estructura de menús",
@@ -150,7 +154,7 @@ class MenuService(BaseService):
     @BaseService.handle_service_errors
     async def obtener_menu_por_id(menu_id: int) -> Optional[MenuReadSingle]:
         """
-        Obtiene los detalles de un menú específico por su ID.
+        Obtiene los detalles de un menú específico por su ID **(cliente_id se obtiene del menú)**.
         
         🔍 DETALLES COMPLETOS:
         - Incluye información del área asociada
@@ -169,6 +173,7 @@ class MenuService(BaseService):
         logger.debug(f"🔍 Buscando menú con ID: {menu_id}")
         
         try:
+            # ✅ NUEVO: SELECT_MENU_BY_ID debe incluir cliente_id en su query
             resultado = execute_query(SELECT_MENU_BY_ID, (menu_id,))
             
             if not resultado:
@@ -195,16 +200,17 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_menu(menu_data: MenuCreate) -> MenuReadSingle:
+    async def crear_menu(cliente_id: int, menu_data: MenuCreate) -> MenuReadSingle:
         """
-        Crea un nuevo menú en el sistema con validaciones completas.
+        Crea un nuevo menú en el sistema **para un cliente específico** con validaciones completas.
         
         🆕 CREACIÓN SEGURA:
-        - Valida existencia del área y menú padre
+        - Valida existencia del área y menú padre **del mismo cliente**
         - Calcula automáticamente el orden
         - Aplica reglas de negocio para la jerarquía
         
         Args:
+            cliente_id: ID del cliente
             menu_data: Datos validados del menú a crear
             
         Returns:
@@ -214,16 +220,24 @@ class MenuService(BaseService):
             ValidationError: Si los datos son inválidos
             ServiceError: Si la creación falla
         """
-        logger.info(f"Intentando crear menú: {menu_data.nombre}")
+        logger.info(f"Intentando crear menú para cliente {cliente_id}: {menu_data.nombre}")
         
         try:
             # 🚫 VALIDACIONES PREVIAS
             if menu_data.padre_menu_id:
-                padre_exists = execute_query(CHECK_MENU_EXISTS, (menu_data.padre_menu_id,))
-                if not padre_exists:
+                # Verificar que el menú padre exista Y pertenezca al mismo cliente
+                padre_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
+                padre_result = execute_query(padre_query, (menu_data.padre_menu_id,))
+                if not padre_result:
                     raise ValidationError(
                         detail=f"El menú padre con ID {menu_data.padre_menu_id} no existe.",
                         internal_code="MENU_PARENT_NOT_FOUND"
+                    )
+                padre_cliente_id = padre_result[0]['cliente_id']
+                if padre_cliente_id != cliente_id:
+                    raise ValidationError(
+                        detail=f"El menú padre con ID {menu_data.padre_menu_id} no pertenece al cliente {cliente_id}.",
+                        internal_code="MENU_PARENT_WRONG_CLIENT"
                     )
                     
             if not menu_data.area_id:
@@ -232,11 +246,19 @@ class MenuService(BaseService):
                     internal_code="MENU_AREA_REQUIRED"
                 )
             else:
-                area_exists = execute_query(CHECK_AREA_EXISTS, (menu_data.area_id,))
-                if not area_exists:
+                # Verificar que el área exista Y pertenezca al mismo cliente
+                area_query = "SELECT cliente_id FROM area_menu WHERE area_id = ?"
+                area_result = execute_query(area_query, (menu_data.area_id,))
+                if not area_result:
                     raise ValidationError(
                         detail=f"El área con ID {menu_data.area_id} no existe.",
                         internal_code="MENU_AREA_NOT_FOUND"
+                    )
+                area_cliente_id = area_result[0]['cliente_id']
+                if area_cliente_id != cliente_id:
+                    raise ValidationError(
+                        detail=f"El área con ID {menu_data.area_id} no pertenece al cliente {cliente_id}.",
+                        internal_code="MENU_AREA_WRONG_CLIENT"
                     )
 
             # 🧮 CALCULAR ORDEN AUTOMÁTICAMENTE
@@ -244,12 +266,12 @@ class MenuService(BaseService):
             if menu_data.padre_menu_id:
                 max_orden_result = execute_query(
                     GET_MAX_ORDEN_FOR_SIBLINGS, 
-                    (menu_data.area_id, menu_data.padre_menu_id)
+                    (cliente_id, menu_data.area_id, menu_data.padre_menu_id)
                 )
             else:
                 max_orden_result = execute_query(
                     GET_MAX_ORDEN_FOR_ROOT, 
-                    (menu_data.area_id,)
+                    (cliente_id, menu_data.area_id)
                 )
 
             max_orden = 0
@@ -261,6 +283,7 @@ class MenuService(BaseService):
 
             # 💾 EJECUTAR INSERCIÓN
             params = (
+                cliente_id,
                 menu_data.nombre,
                 menu_data.icono,
                 menu_data.ruta,
@@ -290,21 +313,21 @@ class MenuService(BaseService):
                     area_nombre = area_info[0]['nombre']
 
             created_menu = MenuReadSingle(**resultado, area_nombre=area_nombre)
-            logger.info(f"Menú '{created_menu.nombre}' creado con ID: {created_menu.menu_id}")
+            logger.info(f"Menú '{created_menu.nombre}' creado para cliente {cliente_id} con ID: {created_menu.menu_id}")
             
             return created_menu
 
         except (ValidationError, ServiceError):
             raise
         except DatabaseError as db_err:
-            logger.error(f"Error de BD al crear menú: {db_err.detail}")
+            logger.error(f"Error de BD al crear menú para cliente {cliente_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al crear menú",
                 internal_code="MENU_CREATION_DB_ERROR"
             )
         except Exception as e:
-            logger.exception(f"Error inesperado al crear menú: {str(e)}")
+            logger.exception(f"Error inesperado al crear menú para cliente {cliente_id}: {str(e)}")
             raise ServiceError(
                 status_code=500,
                 detail="Error interno al crear menú",
@@ -315,11 +338,11 @@ class MenuService(BaseService):
     @BaseService.handle_service_errors
     async def actualizar_menu(menu_id: int, menu_data: MenuUpdate) -> MenuReadSingle:
         """
-        Actualiza un menú existente con validaciones de integridad.
+        Actualiza un menú existente con validaciones de integridad **por cliente**.
         
         🔄 ACTUALIZACIÓN PARCIAL:
         - Solo actualiza los campos proporcionados
-        - Valida relaciones (padre, área)
+        - Valida relaciones (padre, área) **del mismo cliente**
         - Mantiene la integridad jerárquica
         
         Args:
@@ -344,13 +367,14 @@ class MenuService(BaseService):
                 internal_code="MENU_UPDATE_NO_DATA"
             )
 
-        # 🔍 VERIFICAR EXISTENCIA DEL MENÚ
+        # 🔍 VERIFICAR EXISTENCIA DEL MENÚ Y OBTENER SU CLIENTE_ID
         menu_existente = await MenuService.obtener_menu_por_id(menu_id)
         if not menu_existente:
             raise NotFoundError(
                 detail=f"Menú con ID {menu_id} no encontrado para actualizar.",
                 internal_code="MENU_NOT_FOUND"
             )
+        cliente_id = menu_existente.cliente_id
 
         try:
             # 🚫 VALIDACIONES DE INTEGRIDAD
@@ -361,19 +385,33 @@ class MenuService(BaseService):
                         internal_code="MENU_SELF_REFERENCE"
                     )
                     
-                padre_exists = execute_query(CHECK_MENU_EXISTS, (update_payload['padre_menu_id'],))
-                if not padre_exists:
+                padre_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
+                padre_result = execute_query(padre_query, (update_payload['padre_menu_id'],))
+                if not padre_result:
                     raise ValidationError(
                         detail=f"El menú padre con ID {update_payload['padre_menu_id']} no existe.",
                         internal_code="MENU_PARENT_NOT_FOUND"
                     )
+                padre_cliente_id = padre_result[0]['cliente_id']
+                if padre_cliente_id != cliente_id:
+                    raise ValidationError(
+                        detail=f"El menú padre con ID {update_payload['padre_menu_id']} no pertenece al cliente {cliente_id}.",
+                        internal_code="MENU_PARENT_WRONG_CLIENT"
+                    )
                     
             if 'area_id' in update_payload and update_payload['area_id'] is not None:
-                area_exists = execute_query(CHECK_AREA_EXISTS, (update_payload['area_id'],))
-                if not area_exists:
+                area_query = "SELECT cliente_id FROM area_menu WHERE area_id = ?"
+                area_result = execute_query(area_query, (update_payload['area_id'],))
+                if not area_result:
                     raise ValidationError(
                         detail=f"El área con ID {update_payload['area_id']} no existe.",
                         internal_code="MENU_AREA_NOT_FOUND"
+                    )
+                area_cliente_id = area_result[0]['cliente_id']
+                if area_cliente_id != cliente_id:
+                    raise ValidationError(
+                        detail=f"El área con ID {update_payload['area_id']} no pertenece al cliente {cliente_id}.",
+                        internal_code="MENU_AREA_WRONG_CLIENT"
                     )
 
             # 💾 EJECUTAR ACTUALIZACIÓN
@@ -385,6 +423,7 @@ class MenuService(BaseService):
                 update_payload.get('orden'),
                 update_payload.get('area_id'),
                 update_payload.get('es_activo'),
+                cliente_id,
                 menu_id
             )
             
@@ -408,7 +447,7 @@ class MenuService(BaseService):
                     area_nombre = area_info[0]['nombre']
 
             updated_menu = MenuReadSingle(**resultado, area_nombre=area_nombre)
-            logger.info(f"Menú ID: {menu_id} actualizado exitosamente.")
+            logger.info(f"Menú ID: {menu_id} del cliente {cliente_id} actualizado exitosamente.")
             
             return updated_menu
 
@@ -549,16 +588,17 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_arbol_menu_por_area(area_id: int) -> MenuResponse:
+    async def obtener_arbol_menu_por_area(cliente_id: int, area_id: int) -> MenuResponse:
         """
-        Obtiene la estructura jerárquica de menús para un área específica.
+        Obtiene la estructura jerárquica de menús para un área específica **de un cliente**.
         
         🌳 ÁRBOL POR ÁREA:
-        - Filtra menús por área específica
+        - Filtra menús por área específica del cliente
         - Construye estructura jerárquica completa
         - Útil para administración por áreas
         
         Args:
+            cliente_id: ID del cliente
             area_id: ID del área a filtrar
             
         Returns:
@@ -567,30 +607,30 @@ class MenuService(BaseService):
         Raises:
             ServiceError: Si hay errores al obtener el árbol
         """
-        logger.info(f"Obteniendo árbol de menú para area_id: {area_id}")
+        logger.info(f"Obteniendo árbol de menú para cliente {cliente_id}, area_id: {area_id}")
         
         try:
-            params = (area_id,)
+            params = (cliente_id, area_id)
             menu_items_raw_list = execute_query(GET_MENUS_BY_AREA_FOR_TREE_QUERY, params)
 
             if not menu_items_raw_list:
-                logger.info(f"No se encontraron menús para el área ID: {area_id}.")
+                logger.info(f"No se encontraron menús para el cliente {cliente_id}, área ID: {area_id}.")
                 return MenuResponse(menu=[])
 
             menu_tree = build_menu_tree(menu_items_raw_list)
-            logger.info(f"Árbol de menú del área {area_id} construido con {len(menu_tree)} items raíz.")
+            logger.info(f"Árbol de menú del cliente {cliente_id}, área {area_id} construido con {len(menu_tree)} items raíz.")
             
             return MenuResponse(menu=menu_tree)
 
         except DatabaseError as db_err:
-            logger.error(f"Error de BD al obtener árbol de menú para área {area_id}: {db_err.detail}")
+            logger.error(f"Error de BD al obtener árbol de menú para cliente {cliente_id}, área {area_id}: {db_err.detail}")
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al obtener menú del área",
                 internal_code="MENU_AREA_RETRIEVAL_DB_ERROR"
             )
         except Exception as e:
-            logger.exception(f"Error inesperado al obtener menú del área {area_id}: {str(e)}")
+            logger.exception(f"Error inesperado al obtener menú del cliente {cliente_id}, área {area_id}: {str(e)}")
             raise ServiceError(
                 status_code=500,
                 detail="Error interno al procesar el menú del área",

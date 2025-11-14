@@ -3,13 +3,15 @@
 Esquemas Pydantic para la gestión de usuarios en el sistema.
 
 Este módulo define todos los esquemas de validación, creación, actualización 
-y lectura de usuarios, incluyendo validaciones de negocio y seguridad.
+y lectura de usuarios, incluyendo validaciones de negocio y seguridad,
+adaptados para la arquitectura **multi-tenant** y compatible con la estructura REAL de la BD.
 
 Características principales:
-- Validaciones robustas con mensajes de error en español
-- Seguridad en el manejo de contraseñas
-- Compatibilidad con la estructura de base de datos existente
-- Documentación clara para desarrolladores
+- CRÍTICO: Inclusión del campo cliente_id para aislamiento de datos.
+- Compatibilidad TOTAL con la estructura real de la base de datos.
+- Validaciones robustas con mensajes de error en español.
+- Seguridad en el manejo de contraseñas.
+- Documentación clara para desarrolladores.
 """
 
 from pydantic import BaseModel, Field, EmailStr, field_validator, model_validator
@@ -22,36 +24,43 @@ from .rol import RolRead
 
 class UsuarioBase(BaseModel):
     """
-    Schema base para usuarios con validaciones fundamentales.
-    
-    Este schema define los campos básicos que todos los usuarios deben tener
-    y establece las reglas de validación esenciales para la integridad de los datos.
+    Schema base para usuarios con validaciones fundamentales,
+    incluyendo el campo crítico de aislamiento multi-tenant.
     """
     
+    # === CRÍTICO: MULTI-TENANT AWARENESS ===
+    cliente_id: int = Field(
+        ...,
+        description="Identificador único del cliente/tenant al que pertenece el usuario. Obligatorio para el aislamiento.",
+        examples=[1, 10]
+    )
+    
+    # === DATOS BÁSICOS ===
     nombre_usuario: str = Field(
         ...,
         min_length=3,
-        max_length=50,
-        description="Nombre único de usuario para identificación en el sistema",
-        examples=["juan_perez", "maria.garcia"]
+        max_length=100,
+        description="Nombre único de usuario para identificación en el sistema (único por cliente). Puede ser username, DNI, email o código.",
+        examples=["juan_perez", "42799662", "usuario@empresa.com", "EMP001"]
     )
     
-    correo: str = Field(
-        ...,
-        description="Dirección de correo electrónico válida",
+    correo: Optional[str] = Field(
+        None,
+        max_length=150,
+        description="Dirección de correo electrónico válida (puede ser diferente de nombre_usuario)",
         examples=["usuario@empresa.com", "nombre.apellido@dominio.org"]
     )
     
     nombre: Optional[str] = Field(
         None,
-        max_length=50,
+        max_length=100,
         description="Nombre real del usuario (solo letras y espacios)",
         examples=["Juan", "María José"]
     )
     
     apellido: Optional[str] = Field(
         None, 
-        max_length=50,
+        max_length=100,
         description="Apellido del usuario (solo letras y espacios)",
         examples=["Pérez García", "López"]
     )
@@ -61,110 +70,43 @@ class UsuarioBase(BaseModel):
         description="Indica si el usuario está activo en el sistema"
     )
 
+    # === CAMPOS DE SEGURIDAD ===
+    es_superadmin: bool = Field(
+        False,
+        description="Indica si el usuario es un superadministrador global del sistema (solo cliente_id=1)."
+    )
+
+    # === VALIDATORS REUTILIZADOS ===
     @field_validator('nombre_usuario')
     @classmethod
     def validar_formato_nombre_usuario(cls, valor: str) -> str:
-        """
-        Valida que el nombre de usuario tenga un formato válido.
-        
-        Reglas:
-        - Solo permite letras, números y guiones bajos
-        - No permite espacios ni caracteres especiales
-        - Convierte a minúsculas para consistencia
-        
-        Args:
-            valor: El nombre de usuario a validar
-            
-        Returns:
-            str: Nombre de usuario validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato no es válido
-        """
+        """Valida que el nombre de usuario tenga un formato válido."""
         if not valor:
             raise ValueError('El nombre de usuario no puede estar vacío')
         
-        # Eliminar espacios en blanco al inicio y final
         valor = valor.strip()
         
         if not valor:
             raise ValueError('El nombre de usuario no puede contener solo espacios')
         
-        # Validar caracteres permitidos: letras, números y guiones bajos
-        if not re.match(r'^[a-zA-Z0-9_]+$', valor):
+        # Validación más flexible para permitir DNI, emails, códigos
+        if not re.match(r'^[a-zA-Z0-9@._-]+$', valor):
             raise ValueError(
-                'El nombre de usuario solo puede contener letras, números y guiones bajos (_). '
-                'No se permiten espacios ni caracteres especiales.'
+                'El nombre de usuario solo puede contener letras, números, @, ., _ y -. '
+                'No se permiten espacios ni otros caracteres especiales.'
             )
         
-        # Validar que no sea solo números
-        if valor.isdigit():
-            raise ValueError(
-                'El nombre de usuario no puede contener solo números. '
-                'Debe incluir al menos una letra.'
-            )
-        
-        # Convertir a minúsculas para consistencia
-        return valor.lower()
-
-    @field_validator('correo')
-    @classmethod
-    def validar_formato_correo(cls, valor: str) -> str:
-        """
-        Valida el formato del correo electrónico con regex específico.
-        
-        Esta validación es más estricta que la simple validación de EmailStr
-        para garantizar direcciones de correo profesionales válidas.
-        
-        Args:
-            valor: La dirección de correo a validar
-            
-        Returns:
-            str: Correo electrónico validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato del correo no es válido
-        """
-        if not valor:
-            raise ValueError('La dirección de correo electrónico no puede estar vacía')
-        
-        valor = valor.strip().lower()
-        
-        # Patrón regex para validación estricta de email
-        patron_email = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        
-        if not re.match(patron_email, valor):
-            raise ValueError(
-                'La dirección de correo electrónico no tiene un formato válido. '
-                'Ejemplo de formato correcto: usuario@dominio.com'
-            )
-        
-        # Validación adicional: dominio no puede empezar o terminar con guión
-        dominio = valor.split('@')[1]
-        if dominio.startswith('-') or dominio.endswith('-'):
-            raise ValueError('El dominio del correo electrónico no puede empezar ni terminar con guión')
+        if len(valor) < 3:
+            raise ValueError('El nombre de usuario debe tener al menos 3 caracteres')
         
         return valor
 
-    @field_validator('nombre', 'apellido')
+    @field_validator('correo')
     @classmethod
-    def validar_nombre_apellido(cls, valor: Optional[str]) -> Optional[str]:
+    def validar_formato_correo(cls, valor: Optional[str]) -> Optional[str]:
         """
-        Valida que nombres y apellidos contengan solo caracteres alfabéticos válidos.
-        
-        Permite:
-        - Letras del alfabeto español (incluyendo ñ y acentos)
-        - Espacios para nombres compuestos
-        - Guiones para nombres compuestos
-        
-        Args:
-            valor: El nombre o apellido a validar
-            
-        Returns:
-            Optional[str]: Nombre o apellido validado y formateado
-            
-        Raises:
-            ValueError: Cuando contiene caracteres no permitidos
+        Valida un formato básico de correo electrónico.
+        Solo verifica la presencia de un '@' y un punto en la parte del dominio.
         """
         if valor is None or valor == "":
             return None
@@ -173,40 +115,49 @@ class UsuarioBase(BaseModel):
         
         if not valor:
             return None
+            
+        # Validación básica: debe contener '@' y al menos un '.' después del '@'
+        if '@' not in valor:
+            raise ValueError('El correo debe contener un símbolo "@"')
+            
+        local, dominio = valor.split('@', 1)
         
-        # Patrón que permite letras, espacios, guiones y caracteres españoles
+        if not local:
+            raise ValueError('El correo debe tener una parte local antes del "@"')
+            
+        if not dominio or '.' not in dominio:
+            raise ValueError('El dominio del correo debe contener al menos un punto "."')
+        
+        return valor.lower()
+
+    @field_validator('nombre', 'apellido')
+    @classmethod
+    def validar_nombre_apellido(cls, valor: Optional[str]) -> Optional[str]:
+        """Valida que nombres y apellidos contengan solo caracteres alfabéticos válidos."""
+        if valor is None or valor == "":
+            return None
+        
+        valor = valor.strip()
+        
+        if not valor:
+            return None
+        
         if not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s\-]+$', valor):
             raise ValueError(
                 'El nombre y apellido solo pueden contener letras, espacios y guiones. '
                 'No se permiten números ni caracteres especiales.'
             )
         
-        # Validar que no sea solo espacios o guiones
         if valor.replace(' ', '').replace('-', '') == '':
             raise ValueError('El nombre no puede contener solo espacios o guiones')
         
-        # Formatear con capitalización adecuada
         return valor.title()
-
-    @model_validator(mode='after')
-    def validar_longitud_minima_nombre_usuario(self) -> 'UsuarioBase':
-        """
-        Valida la longitud mínima del nombre de usuario después de la normalización.
-        
-        Esta validación se ejecuta después de que todos los campos han sido procesados
-        para asegurar que las normalizaciones no hayan afectado la longitud.
-        """
-        if hasattr(self, 'nombre_usuario') and len(self.nombre_usuario) < 3:
-            raise ValueError('El nombre de usuario debe tener al menos 3 caracteres')
-        
-        return self
 
 class UsuarioCreate(UsuarioBase):
     """
     Schema para la creación de nuevos usuarios.
     
-    Extiende UsuarioBase agregando validaciones específicas para la creación,
-    incluyendo políticas de seguridad para contraseñas.
+    Requiere contraseña y utiliza la validación de UsuarioBase.
     """
     
     contrasena: str = Field(
@@ -216,33 +167,35 @@ class UsuarioCreate(UsuarioBase):
         description="Contraseña segura con mínimo 8 caracteres, una mayúscula, una minúscula y un número",
         examples=["MiContraseñaSegura123", "OtraPassword123!"]
     )
+    
+    # Campos opcionales adicionales de tu BD
+    dni: Optional[str] = Field(
+        None,
+        max_length=8,
+        description="DNI del usuario (solo para registro, no para login)",
+        examples=["42799662", "12345678"]
+    )
+    
+    telefono: Optional[str] = Field(
+        None,
+        max_length=20,
+        description="Número de teléfono del usuario",
+        examples=["+51987654321", "012345678"]
+    )
+    
+    proveedor_autenticacion: str = Field(
+        'local',
+        max_length=30,
+        description="Método de autenticación: 'local', 'azure_ad', 'google', 'okta', 'oidc', 'saml'"
+    )
 
     @field_validator('contrasena')
     @classmethod
     def validar_fortaleza_contrasena(cls, valor: str) -> str:
-        """
-        Valida que la contraseña cumpla con las políticas de seguridad.
-        
-        Requisitos mínimos:
-        - Mínimo 8 caracteres
-        - Al menos una letra mayúscula
-        - Al menos una letra minúscula  
-        - Al menos un número
-        - Se recomiendan caracteres especiales
-        
-        Args:
-            valor: La contraseña a validar
-            
-        Returns:
-            str: Contraseña validada
-            
-        Raises:
-            ValueError: Cuando la contraseña no cumple los requisitos de seguridad
-        """
+        """Valida que la contraseña cumpla con las políticas de seguridad."""
         if len(valor) < 8:
             raise ValueError('La contraseña debe tener al menos 8 caracteres')
         
-        # Verificar complejidad
         errores = []
         
         if not any(c.isupper() for c in valor):
@@ -259,59 +212,55 @@ class UsuarioCreate(UsuarioBase):
                 f'La contraseña no cumple con los requisitos de seguridad. '
                 f'Debe contener: {", ".join(errores)}.'
             )
-        
-        # Advertencia sobre caracteres especiales (pero no requeridos)
-        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?/' for c in valor):
-            # Solo log warning, no error
-            pass
-        
+            
         return valor
 
-    @model_validator(mode='after')
-    def validar_unicidad_datos(self) -> 'UsuarioCreate':
-        """
-        Valida lógicas de negocio que requieren múltiples campos.
-        
-        En un escenario real, aquí se podrían incluir validaciones que
-        requieran verificar múltiples campos simultáneamente.
-        """
-        # Ejemplo: Validar que nombre de usuario no sea igual al correo
-        if (hasattr(self, 'nombre_usuario') and hasattr(self, 'correo') and
-            self.nombre_usuario == self.correo.split('@')[0]):
-            # Esto no es un error, pero podría ser una advertencia
-            pass
+    @field_validator('dni')
+    @classmethod
+    def validar_dni(cls, valor: Optional[str]) -> Optional[str]:
+        """Valida el formato del DNI."""
+        if valor is None or valor == "":
+            return None
             
-        return self
+        valor = valor.strip()
+        
+        if not valor.isdigit():
+            raise ValueError('El DNI debe contener solo números')
+            
+        if len(valor) != 8:
+            raise ValueError('El DNI debe tener exactamente 8 dígitos')
+            
+        return valor
 
 class UsuarioUpdate(BaseModel):
     """
-    Schema para actualización parcial de usuarios.
+    Schema para actualización parcial de usuarios (PATCH).
     
     Todos los campos son opcionales y solo se validan los que se proporcionen.
-    Diseñado específicamente para operaciones PATCH.
     """
     
     nombre_usuario: Optional[str] = Field(
         None,
         min_length=3,
-        max_length=50,
+        max_length=100,
         description="Nuevo nombre de usuario (opcional)"
     )
     
     correo: Optional[str] = Field(
         None,
+        max_length=150,
         description="Nueva dirección de correo electrónico (opcional)"
     )
     
     nombre: Optional[str] = Field(
         None,
-        max_length=50,
+        max_length=100,
         description="Nuevo nombre (opcional)"
     )
     
     apellido: Optional[str] = Field(
         None,
-        max_length=50, 
+        max_length=100, 
         description="Nuevo apellido (opcional)"
     )
     
@@ -319,18 +268,37 @@ class UsuarioUpdate(BaseModel):
         None,
         description="Nuevo estado activo/inactivo (opcional)"
     )
+    
+    dni: Optional[str] = Field(
+        None,
+        max_length=8,
+        description="Nuevo DNI (opcional)"
+    )
+    
+    telefono: Optional[str] = Field(
+        None,
+        max_length=20,
+        description="Nuevo teléfono (opcional)"
+    )
+    
+    # Nuevo campo para actualizar el estado de superadministrador (solo accesible para SUPER_ADMIN)
+    es_superadmin: Optional[bool] = Field(
+        None,
+        description="Nuevo estado de superadministrador (opcional)"
+    )
 
     # Reutilizar validadores específicos para campos opcionales
     _validar_nombre_usuario = field_validator('nombre_usuario')(UsuarioBase.validar_formato_nombre_usuario.__func__)
     _validar_correo = field_validator('correo')(UsuarioBase.validar_formato_correo.__func__)
     _validar_nombre_apellido = field_validator('nombre', 'apellido')(UsuarioBase.validar_nombre_apellido.__func__)
+    _validar_dni = field_validator('dni')(UsuarioCreate.validar_dni.__func__)
 
 class UsuarioRead(UsuarioBase):
     """
-    Schema para lectura de datos básicos de usuario.
+    Schema para lectura de datos completos de usuario.
     
-    Incluye todos los campos de UsuarioBase más metadatos del sistema
-    que se generan automáticamente.
+    Incluye todos los campos de UsuarioBase más metadatos del sistema, seguridad
+    y campos de sincronización COMPATIBLES con la estructura REAL de la BD.
     """
     
     usuario_id: int = Field(
@@ -348,9 +316,89 @@ class UsuarioRead(UsuarioBase):
         description="Fecha y hora del último acceso del usuario al sistema"
     )
     
-    correo_confirmado: bool = Field(
-        ...,
+    correo_confirmado: Optional[bool] = Field(
+        False,
         description="Indica si el usuario ha confirmado su dirección de correo electrónico"
+    )
+    
+    # === CAMPOS DE SEGURIDAD DE TU BD REAL ===
+    proveedor_autenticacion: str = Field(
+        'local',
+        description="Método de autenticación del usuario"
+    )
+    
+    fecha_ultimo_cambio_contrasena: Optional[datetime] = Field(
+        None,
+        description="Fecha y hora del último cambio de contraseña"
+    )
+    
+    requiere_cambio_contrasena: Optional[bool] = Field(
+        False,
+        description="Indica si el usuario debe cambiar la contraseña en el próximo login"
+    )
+    
+    intentos_fallidos: Optional[int] = Field(
+        0,
+        description="Número de intentos de login fallidos consecutivos"
+    )
+    
+    fecha_bloqueo: Optional[datetime] = Field(
+        None,
+        description="Fecha y hora en que la cuenta fue bloqueada"
+    )
+    
+    # === CAMPOS DE SINCRONIZACIÓN DE TU BD REAL ===
+    sincronizado_desde: Optional[str] = Field(
+        None,
+        description="Origen de la sincronización del usuario"
+    )
+    
+    fecha_ultima_sincronizacion: Optional[datetime] = Field(
+        None,
+        description="Fecha de la última sincronización"
+    )
+    
+    # === CAMPOS ADICIONALES DE TU BD REAL ===
+    dni: Optional[str] = Field(
+        None,
+        description="DNI del usuario"
+    )
+    
+    telefono: Optional[str] = Field(
+        None,
+        description="Teléfono del usuario"
+    )
+    
+    referencia_externa_id: Optional[str] = Field(
+        None,
+        description="ID del usuario en proveedor externo de autenticación"
+    )
+    
+    referencia_externa_email: Optional[str] = Field(
+        None,
+        description="Email del usuario en proveedor externo"
+    )
+    
+    # === CAMPOS DE AUDITORÍA ===
+    es_eliminado: bool = Field(
+        False,
+        description="Indicador de borrado lógico"
+    )
+    
+    fecha_actualizacion: Optional[datetime] = Field(
+        None,
+        description="Fecha de última actualización del registro"
+    )
+
+    # === CAMPOS COMPATIBILIDAD (para mantener compatibilidad con código existente) ===
+    origen_creacion: str = Field(
+        default='local',
+        description="Método de creación del usuario (compatibilidad)"
+    )
+    
+    ultimo_cambio_contrasena: Optional[datetime] = Field(
+        None,
+        description="Fecha del último cambio de contraseña (compatibilidad)"
     )
 
     class Config:
@@ -413,5 +461,5 @@ class PaginatedUsuarioResponse(BaseModel):
         """Configuración para respuestas paginadas."""
         from_attributes = True
         json_encoders = {
-            datetime: lambda v: v.isoformat()
+            datetime: lambda v: v.isoformat() if v else None
         }

@@ -1,18 +1,15 @@
 # app/schemas/rol.py
 """
-Esquemas Pydantic para la gestión de roles y permisos del sistema.
+Esquemas Pydantic para la gestión de roles y permisos del sistema,
+adaptados para la arquitectura **multi-tenant**.
 
 Este módulo define todos los esquemas de validación, creación, actualización 
 y lectura de roles y sus permisos asociados sobre menús.
 
-Los roles permiten agrupar permisos y asignarlos a usuarios de manera eficiente,
-facilitando la gestión de accesos en el sistema.
-
 Características principales:
+- CRÍTICO: Inclusión del campo cliente_id (opcional) para roles de sistema vs cliente.
+- Campo codigo_rol para identificar roles inmutables del sistema.
 - Validaciones robustas con mensajes de error en español
-- Gestión completa de roles y permisos
-- Validación de nombres únicos y reglas de negocio
-- Documentación clara para desarrolladores
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
@@ -22,17 +19,28 @@ import re
 
 class RolBase(BaseModel):
     """
-    Schema base para roles con validaciones fundamentales.
-    
-    Define la estructura básica de un rol y establece las reglas de validación
-    esenciales para mantener la seguridad del sistema.
+    Schema base para roles con validaciones fundamentales,
+    adaptado a la estructura multi-tenant.
     """
     
+    # === CRÍTICO: MULTI-TENANT AWARENESS ===
+    cliente_id: Optional[int] = Field(
+        None,
+        description="Identificador único del cliente/tenant. NULL para roles de sistema globales e inmutables."
+    )
+    
+    codigo_rol: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Código único en MAYÚSCULAS para roles predefinidos por el sistema (ej: 'SUPER_ADMIN', 'ADMIN'). NULL para roles definidos por el cliente."
+    )
+    
+    # === DATOS BÁSICOS ===
     nombre: str = Field(
         ...,
         min_length=3,
         max_length=50,
-        description="Nombre único del rol para identificación en el sistema",
+        description="Nombre único del rol para identificación en el sistema (único por cliente_id)",
         examples=["Administrador", "Usuario", "Supervisor", "Reportes"]
     )
     
@@ -48,43 +56,48 @@ class RolBase(BaseModel):
         description="Indica si el rol está activo y disponible para asignación"
     )
 
+    # === VALIDATORS ===
+    @field_validator('codigo_rol')
+    @classmethod
+    def validar_formato_codigo_rol(cls, valor: Optional[str]) -> Optional[str]:
+        """
+        Valida que el código del rol (si existe) esté en mayúsculas y contenga solo letras y guiones bajos.
+        """
+        if valor is None:
+            return None
+            
+        valor = valor.strip().upper()
+        
+        if not valor:
+            return None
+        
+        # Validar formato: solo letras, números y guiones bajos
+        if not re.match(r'^[A-Z0-9_]+$', valor):
+            raise ValueError(
+                'El código del rol solo puede contener letras mayúsculas, números y guiones bajos (_). '
+                'No se permiten espacios ni caracteres especiales.'
+            )
+            
+        if len(valor) < 3:
+            raise ValueError('El código del rol debe tener al menos 3 caracteres')
+            
+        return valor
+
     @field_validator('nombre')
     @classmethod
     def validar_formato_nombre_rol(cls, valor: str) -> str:
-        """
-        Valida que el nombre del rol tenga un formato válido.
-        
-        Reglas:
-        - Solo permite letras, números, espacios y caracteres especiales comunes
-        - No permite caracteres especiales potencialmente peligrosos
-        - Convierte a formato de título para consistencia
-        
-        Args:
-            valor: El nombre del rol a validar
-            
-        Returns:
-            str: Nombre del rol validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato no es válido
-        """
+        """Valida que el nombre del rol tenga un formato válido."""
         if not valor:
             raise ValueError('El nombre del rol no puede estar vacío')
         
-        # Eliminar espacios en blanco al inicio y final
         valor = valor.strip()
         
         if not valor:
             raise ValueError('El nombre del rol no puede contener solo espacios')
         
-        # Validar longitud después del trim
-        if len(valor) < 3:
-            raise ValueError('El nombre del rol debe tener al menos 3 caracteres')
+        if len(valor) < 3 or len(valor) > 50:
+            raise ValueError(f'El nombre del rol debe tener entre 3 y 50 caracteres (actual: {len(valor)})')
         
-        if len(valor) > 50:
-            raise ValueError('El nombre del rol no puede exceder los 50 caracteres')
-        
-        # Patrón de caracteres permitidos: letras, números, espacios y caracteres especiales comunes
         patron_permitido = r"^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\.,\-_()/!?@#$%&*+:=;'\"»«]+$"
         
         if not re.match(patron_permitido, valor):
@@ -94,31 +107,15 @@ class RolBase(BaseModel):
                 '.,-_()/!?@#$%&*+:=;\'"»«'
             )
         
-        # Validar que no sea solo caracteres especiales
         if re.match(r"^[\s\.,\-_()/!?@#$%&*+:=;'\"]+$", valor):
             raise ValueError('El nombre del rol debe contener texto significativo, no solo caracteres especiales')
         
-        # Formatear con capitalización adecuada
         return valor.title()
 
     @field_validator('descripcion')
     @classmethod
     def validar_descripcion_rol(cls, valor: Optional[str]) -> Optional[str]:
-        """
-        Valida el formato y contenido de la descripción del rol.
-        
-        Permite una amplia gama de caracteres para descripciones detalladas
-        pero previene contenido potencialmente peligroso.
-        
-        Args:
-            valor: La descripción a validar
-            
-        Returns:
-            Optional[str]: Descripción validada y normalizada
-            
-        Raises:
-            ValueError: Cuando la descripción contiene caracteres no permitidos
-        """
+        """Valida el formato y contenido de la descripción del rol."""
         if valor is None:
             return None
         
@@ -127,11 +124,9 @@ class RolBase(BaseModel):
         if not valor:
             return None
         
-        # Validar longitud máxima
         if len(valor) > 255:
             raise ValueError('La descripción no puede exceder los 255 caracteres')
         
-        # Patrón más flexible para descripciones
         patron_descripcion = r"^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\.,;:\-\_\(\)\!\?\@\#\$\%\&\*\+\=\[\]\{\}\"\'»«]+$"
         
         if not re.match(patron_descripcion, valor):
@@ -143,27 +138,29 @@ class RolBase(BaseModel):
         return valor
 
     @model_validator(mode='after')
-    def validar_consistencia_nombre_rol(self) -> 'RolBase':  # 🔥 CORRECCIÓN: Usar string para forward reference
+    def validar_consistencia_nombre_rol(self) -> 'RolBase':
         """
         Valida consistencias adicionales después de procesar todos los campos.
         
-        Realiza validaciones que requieren múltiples campos o que dependen
-        de transformaciones realizadas en validadores individuales.
+        CRÍTICO: Validar que un rol de sistema (con codigo_rol) NO tenga cliente_id asignado, o viceversa.
         """
-        # Validar que el nombre no sea demasiado genérico
-        nombres_genericos = ['rol', 'role', 'nuevo rol', 'nuevo role', 'test', 'prueba']
-        if hasattr(self, 'nombre') and self.nombre.lower() in nombres_genericos:
-            # Esto no es un error, pero podría ser una advertencia en logs
+        if self.codigo_rol is not None and self.cliente_id is not None:
+             if self.cliente_id != 1: # Permitir codigo_rol para el cliente SUPER ADMIN (ID=1)
+                raise ValueError(
+                    'Un rol con codigo_rol (rol de sistema) solo puede pertenecer al cliente SUPER ADMIN (cliente_id=1). '
+                    'Para otros clientes, cree un rol de cliente (codigo_rol=NULL).'
+                )
+        elif self.codigo_rol is None and self.cliente_id is None:
+            # Si no tiene código de rol y no tiene cliente_id, es un error, debe ser rol de sistema o de cliente.
+            # Asumimos que si no hay cliente_id, es un rol global que *debería* tener un codigo_rol.
+            # Permitimos la creación de roles de cliente sin codigo_rol (cliente_id != NULL).
             pass
-        
+            
         return self
 
 class RolCreate(RolBase):
     """
     Schema para la creación de nuevos roles.
-    
-    Extiende RolBase sin agregar campos adicionales, pero se utiliza
-    para documentar específicamente la operación de creación.
     """
     pass
 
@@ -171,9 +168,7 @@ class RolUpdate(BaseModel):
     """
     Schema para actualización parcial de roles.
     
-    Todos los campos son opcionales y solo se validan los que se proporcionen.
-    Diseñado específicamente para operaciones PATCH que actualizan solo
-    algunos campos del rol.
+    Todos los campos son opcionales.
     """
     
     nombre: Optional[str] = Field(
@@ -193,6 +188,14 @@ class RolUpdate(BaseModel):
         None,
         description="Nuevo estado activo/inactivo del rol (opcional)"
     )
+    
+    # Nota: cliente_id y codigo_rol generalmente no se actualizan en un PATCH normal
+    # Sin embargo, se incluyen aquí como referencia si fuera necesario por lógica de negocio específica.
+    codigo_rol: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Código del rol (solo actualizable por SUPER_ADMIN en roles de sistema)."
+    )
 
     # Reutilizar validadores específicos para campos opcionales
     _validar_nombre_rol = field_validator('nombre')(RolBase.validar_formato_nombre_rol.__func__)
@@ -200,10 +203,8 @@ class RolUpdate(BaseModel):
 
 class RolRead(RolBase):
     """
-    Schema para lectura de datos básicos de un rol.
-    
-    Incluye todos los campos de RolBase más metadatos del sistema
-    que se generan automáticamente durante la creación del rol.
+    Schema para lectura de datos básicos de un rol, incluyendo la identificación
+    multi-tenant.
     """
     
     rol_id: int = Field(
@@ -216,6 +217,11 @@ class RolRead(RolBase):
         ...,
         description="Fecha y hora en que se creó el registro del rol"
     )
+    
+    es_eliminado: bool = Field(
+        False,
+        description="Indicador de borrado lógico."
+    )
 
     class Config:
         """Configuración de Pydantic para el schema."""
@@ -223,12 +229,11 @@ class RolRead(RolBase):
         str_strip_whitespace = True
         validate_assignment = True
 
+# Los siguientes esquemas no requieren cambios, pero se incluyen para el código completo
+
 class PaginatedRolResponse(BaseModel):
     """
     Schema para respuestas paginadas de listas de roles.
-    
-    Utilizado en endpoints que devuelven listas paginadas de roles
-    con metadatos de paginación para la navegación en interfaces.
     """
     
     roles: List[RolRead] = Field(
@@ -264,9 +269,6 @@ class PaginatedRolResponse(BaseModel):
 class PermisoBase(BaseModel):
     """
     Schema base para permisos de roles sobre menús.
-    
-    Define los permisos básicos que un rol puede tener sobre un menú
-    específico en el sistema.
     """
     
     menu_id: int = Field(
@@ -296,18 +298,7 @@ class PermisoBase(BaseModel):
     @field_validator('menu_id')
     @classmethod
     def validar_menu_id(cls, valor: int) -> int:
-        """
-        Valida que el ID del menú sea un valor positivo.
-        
-        Args:
-            valor: ID del menú a validar
-            
-        Returns:
-            int: ID del menú validado
-            
-        Raises:
-            ValueError: Cuando el ID no es positivo
-        """
+        """Valida que el ID del menú sea un valor positivo."""
         if valor < 1:
             raise ValueError('El ID del menú debe ser un número positivo')
         
@@ -322,9 +313,6 @@ class PermisoBase(BaseModel):
 class PermisoRead(PermisoBase):
     """
     Schema para lectura de permisos existentes.
-    
-    Incluye todos los campos de PermisoBase más los identificadores
-    de la relación rol-menú y el rol asociado.
     """
     
     rol_menu_id: int = Field(
@@ -342,9 +330,6 @@ class PermisoRead(PermisoBase):
 class PermisoUpdatePayload(BaseModel):
     """
     Schema para actualización masiva de permisos de un rol.
-    
-    Utilizado en operaciones que reemplazan todos los permisos
-    de un rol con una nueva configuración.
     """
     
     permisos: List[PermisoBase] = Field(
@@ -359,18 +344,7 @@ class PermisoUpdatePayload(BaseModel):
     @field_validator('permisos')
     @classmethod
     def validar_permisos_no_vacios(cls, valor: List[PermisoBase]) -> List[PermisoBase]:
-        """
-        Valida que la lista de permisos no esté vacía cuando se proporciona.
-        
-        Args:
-            valor: Lista de permisos a validar
-            
-        Returns:
-            List[PermisoBase]: Lista de permisos validada
-            
-        Raises:
-            ValueError: Cuando la lista está vacía
-        """
+        """Valida que la lista de permisos no esté vacía cuando se proporciona."""
         if not valor:
             raise ValueError('La lista de permisos no puede estar vacía')
         

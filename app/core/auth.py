@@ -1,6 +1,6 @@
 # app/core/auth.py
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 import logging
 
 from fastapi import Depends, HTTPException, status, Cookie, Request, Body
@@ -83,26 +83,73 @@ def decode_refresh_token(token: str) -> dict:
         )
 
 
-async def authenticate_user(username: str, password: str) -> Dict:
+async def authenticate_user(cliente_id: int, username: str, password: str) -> Dict:
     """
-    Autentica un usuario y retorna sus datos (sin contraseña) si las credenciales son correctas
+    Autentica un usuario **dentro de un cliente específico**.
+    
+    ✅ CORRECCIÓN MULTI-TENANT: 
+    - Si es el Super Admin, se usa el ID del Cliente SYSTEM (ID 1).
+    - Si es un usuario regular, se usa el cliente_id resuelto por el middleware.
     """
+    
+    # ✅ LOGGING CRÍTICO: Verificar qué cliente_id llegó
+    logger.info(f"[AUTH] Intento de login: username='{username}', cliente_id_recibido={cliente_id}")
+    
+    # 1. Ajustar el cliente_id para el Super Admin
+    if username == settings.SUPERADMIN_USERNAME:
+        search_cliente_id = settings.SUPERADMIN_CLIENTE_ID
+        logger.info(
+            f"[AUTH] SUPERADMIN detectado. "
+            f"Forzando búsqueda en cliente_id={search_cliente_id} (SYSTEM)"
+        )
+    else:
+        # ✅ CORRECCIÓN: Para usuarios regulares, SIEMPRE usar el cliente_id del middleware
+        search_cliente_id = cliente_id
+        logger.info(
+            f"[AUTH] Usuario regular. "
+            f"Buscando en cliente_id={search_cliente_id} (del middleware)"
+        )
+
     try:
         query = """
-        SELECT usuario_id, nombre_usuario, correo, contrasena,
+        SELECT usuario_id, cliente_id, nombre_usuario, correo, contrasena,
                nombre, apellido, es_activo
         FROM usuario
-        WHERE nombre_usuario = ? AND es_eliminado = 0
+        WHERE cliente_id = ? AND nombre_usuario = ? AND es_eliminado = 0
         """
-        user = execute_auth_query(query, (username,))
+        
+        # ✅ LOGGING: Antes de ejecutar query
+        logger.debug(f"[AUTH] Ejecutando query con: cliente_id={search_cliente_id}, username='{username}'")
+        
+        user = execute_auth_query(query, (search_cliente_id, username))
 
-        if not user or not verify_password(password, user['contrasena']):
+        if not user:
+            logger.warning(
+                f"[AUTH] Usuario NO ENCONTRADO: "
+                f"username='{username}', "
+                f"cliente_id_buscado={search_cliente_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas"
+            )
+        
+        # ✅ LOGGING: Usuario encontrado
+        logger.debug(f"[AUTH] Usuario encontrado: usuario_id={user['usuario_id']}, cliente_id={user['cliente_id']}")
+        
+        if not verify_password(password, user['contrasena']):
+            logger.warning(
+                f"[AUTH] Contraseña incorrecta para: "
+                f"username='{username}', "
+                f"usuario_id={user['usuario_id']}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Credenciales incorrectas"
             )
 
         if not user['es_activo']:
+            logger.warning(f"[AUTH] Usuario inactivo: usuario_id={user['usuario_id']}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Usuario inactivo"
@@ -118,16 +165,56 @@ async def authenticate_user(username: str, password: str) -> Dict:
 
         # Eliminar la contraseña del resultado
         user.pop('contrasena', None)
+        
+        logger.info(
+            f"[AUTH] Login exitoso: "
+            f"username='{username}', "
+            f"usuario_id={user['usuario_id']}, "
+            f"cliente_id={user['cliente_id']}"
+        )
+        
         return user
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error en autenticación: {str(e)}", exc_info=True)
+        logger.error(
+            f"[AUTH] Error en autenticación: "
+            f"username='{username}', "
+            f"cliente_id={cliente_id}, "
+            f"error={str(e)}", 
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error en el proceso de autenticación"
         )
+
+
+# --- NUEVOS MÉTODOS PARA SSO ---
+async def authenticate_user_sso_azure_ad(cliente_id: int, token: str) -> Dict:
+    """
+    Autentica un usuario utilizando un token de Azure AD.
+    """
+    # Esta es una implementación placeholder. En la práctica, deberías:
+    # 1. Validar el token JWT contra el tenant de Azure del cliente.
+    # 2. Extraer el `oid` (Object ID) del usuario.
+    # 3. Buscar en la tabla `usuario` con `proveedor_autenticacion = 'azure_ad'` y `referencia_externa_id = <oid>`.
+    logger.info(f"Autenticando usuario SSO (Azure AD) para cliente {cliente_id}")
+    raise NotImplementedError("Autenticación SSO con Azure AD no implementada.")
+
+
+async def authenticate_user_sso_google(cliente_id: int, token: str) -> Dict:
+    """
+    Autentica un usuario utilizando un token de Google Workspace.
+    """
+    # Esta es una implementación placeholder. En la práctica, deberías:
+    # 1. Validar el token JWT contra Google.
+    # 2. Extraer el `sub` (Subject) del usuario.
+    # 3. Buscar en la tabla `usuario` con `proveedor_autenticacion = 'google'` y `referencia_externa_id = <sub>`.
+    logger.info(f"Autenticando usuario SSO (Google) para cliente {cliente_id}")
+    raise NotImplementedError("Autenticación SSO con Google no implementada.")
+# --- FIN NUEVOS MÉTODOS PARA SSO ---
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
@@ -160,8 +247,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
         logger.error(f"Error procesando payload del token: {str(e)}")
         raise credentials_exception
 
+    # ✅ NOTA: Esta consulta NO necesita el cliente_id porque el nombre_usuario (sub) 
+    # es único globalmente (o se asume que lo es) y el JWT ya está validado.
+    # Sin embargo, si tu DB requiere unicidad por (cliente_id, nombre_usuario), 
+    # necesitarías obtener el cliente_id del token o de otra dependencia.
+    # Asumimos que la combinación username/correo es única globalmente para la validación del token.
     query = """
-    SELECT usuario_id, nombre_usuario, correo, nombre, apellido, es_activo
+    SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
     FROM usuario
     WHERE nombre_usuario = ? AND es_eliminado = 0
     """
@@ -240,7 +332,7 @@ async def get_current_user_from_refresh(
         username = token_data.sub
 
         query = """
-        SELECT usuario_id, nombre_usuario, correo, nombre, apellido, es_activo
+        SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
         FROM usuario
         WHERE nombre_usuario = ? AND es_eliminado = 0
         """
@@ -258,7 +350,7 @@ async def get_current_user_from_refresh(
                 detail="Usuario inactivo"
             )
 
-        logger.info(f"[REFRESH] Token validado exitosamente (BD OK) para usuario: {username} (Cliente: {client_type})")
+        logger.info(f"[REFRESH] Token validado exitosamente (BD OK) para usuario: {username} (Cliente: {user['cliente_id']})")
         return user
 
     except HTTPException:

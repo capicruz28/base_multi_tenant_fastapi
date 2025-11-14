@@ -12,6 +12,7 @@ Características principales:
 - Manejo consistente de errores utilizando CustomException.
 - Operación de asignación/actualización unificada (PUT).
 - Eliminación (Revocación) del registro de permiso.
+- **✅ MULTI-TENANT: Aislamiento de permisos por cliente_id.**
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body
@@ -81,6 +82,7 @@ require_admin = RoleChecker(["Administrador"])
 
     **Respuestas:**
     - 200: Permiso creado/actualizado exitosamente
+    - 403: Acceso denegado (rol o menú de otro cliente)
     - 404: Rol o Menú no encontrado
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
@@ -90,7 +92,8 @@ require_admin = RoleChecker(["Administrador"])
 async def set_permission(
     rol_id: int,
     menu_id: int,
-    permisos_in: PermisoCreateUpdate = Body(...)
+    permisos_in: PermisoCreateUpdate = Body(...),
+    current_user: Any = Depends(get_current_active_user)
 ):
     """
     Asigna o actualiza los permisos `puede_ver`, `puede_editar`, `puede_eliminar`
@@ -100,6 +103,7 @@ async def set_permission(
         rol_id: ID del rol al que se le asigna el permiso.
         menu_id: ID del menú sobre el que se asigna el permiso.
         permisos_in: Objeto con los flags booleanos (puede_ver, puede_editar, puede_eliminar) a establecer.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         PermisoRead: La asignación de permiso resultante, con sus IDs de relación.
@@ -107,20 +111,21 @@ async def set_permission(
     Raises:
         HTTPException: En caso de rol/menú no encontrado (404), error de validación (422) o error interno (500).
     """
-    logger.info(f"Solicitud PUT /permisos/roles/{rol_id}/menus/{menu_id}/ recibida para crear/actualizar")
+    logger.info(f"Solicitud PUT /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear/actualizar")
     try:
         updated_perm = await PermisoService.asignar_o_actualizar_permiso(
+            cliente_id=current_user.cliente_id,
             rol_id=rol_id,
             menu_id=menu_id,
             puede_ver=permisos_in.puede_ver,
             puede_editar=permisos_in.puede_editar,
             puede_eliminar=permisos_in.puede_eliminar
         )
-        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} gestionado exitosamente.")
+        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} gestionado exitosamente en cliente {current_user.cliente_id}.")
         return updated_perm
     # MODIFICACIÓN: Capturar CustomException en lugar de ServiceError/ValidationError
     except CustomException as ce:
-        logger.warning(f"Error de negocio al gestionar permiso (Rol: {rol_id}, Menú: {menu_id}): {ce.detail}")
+        logger.warning(f"Error de negocio al gestionar permiso (Rol: {rol_id}, Menú: {menu_id}) en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint PUT /permisos/roles/{rol_id}/menus/{menu_id}/")
@@ -141,17 +146,22 @@ async def set_permission(
 
     **Respuestas:**
     - 200: Lista de permisos recuperada exitosamente
+    - 403: Acceso denegado (rol de otro cliente)
     - 404: Rol no encontrado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def get_permissions_for_role(rol_id: int):
+async def get_permissions_for_role(
+    rol_id: int,
+    current_user: Any = Depends(get_current_active_user)
+):
     """
     Obtiene la lista de permisos para el rol con el ID especificado, con detalles de menú.
 
     Args:
         rol_id: ID del rol cuyos permisos se desean consultar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         List[PermisoReadWithMenu]: Lista de permisos del rol, con información del menú.
@@ -159,14 +169,17 @@ async def get_permissions_for_role(rol_id: int):
     Raises:
         HTTPException: En caso de rol no encontrado (404) o error interno (500).
     """
-    logger.debug(f"Solicitud GET /permisos/roles/{rol_id}/permisos/ recibida")
+    logger.debug(f"Solicitud GET /permisos/roles/{rol_id}/permisos/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
-        permisos = await PermisoService.obtener_permisos_por_rol(rol_id=rol_id)
+        permisos = await PermisoService.obtener_permisos_por_rol(
+            cliente_id=current_user.cliente_id,
+            rol_id=rol_id
+        )
         logger.debug(f"Permisos para Rol {rol_id} recuperados - Total: {len(permisos)}")
         return permisos
     # MODIFICACIÓN: Capturar CustomException
     except CustomException as ce:
-        logger.error(f"Error de negocio al obtener permisos para Rol {rol_id}: {ce.detail}")
+        logger.error(f"Error de negocio al obtener permisos para Rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint GET /permisos/roles/{rol_id}/permisos/")
@@ -187,18 +200,24 @@ async def get_permissions_for_role(rol_id: int):
 
     **Respuestas:**
     - 200: Permiso encontrado y devuelto
+    - 403: Acceso denegado (permiso de otro cliente)
     - 404: Permiso (asignación Rol-Menú) no encontrado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def get_specific_permission(rol_id: int, menu_id: int):
+async def get_specific_permission(
+    rol_id: int,
+    menu_id: int,
+    current_user: Any = Depends(get_current_active_user)
+):
     """
     Obtiene el permiso específico para el `rol_id` y `menu_id`.
 
     Args:
         rol_id: ID del rol asociado al permiso.
         menu_id: ID del menú asociado al permiso.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         PermisoRead: La asignación de permiso encontrada.
@@ -206,16 +225,20 @@ async def get_specific_permission(rol_id: int, menu_id: int):
     Raises:
         HTTPException: Si la asignación de permiso no existe (404) o hay error interno (500).
     """
-    logger.debug(f"Solicitud GET /permisos/roles/{rol_id}/menus/{menu_id}/ recibida")
+    logger.debug(f"Solicitud GET /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
-        permiso = await PermisoService.obtener_permiso_especifico(rol_id=rol_id, menu_id=menu_id)
+        permiso = await PermisoService.obtener_permiso_especifico(
+            cliente_id=current_user.cliente_id,
+            rol_id=rol_id,
+            menu_id=menu_id
+        )
         if permiso is None:
-            logger.warning(f"Permiso no encontrado para Rol {rol_id} y Menú {menu_id}")
+            logger.warning(f"Permiso no encontrado para Rol {rol_id} y Menú {menu_id} en cliente {current_user.cliente_id}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Permiso no encontrado para Rol {rol_id} y Menú {menu_id}.")
         return permiso
     # MODIFICACIÓN: Capturar CustomException
     except CustomException as ce:
-        logger.error(f"Error de negocio al obtener permiso específico (Rol: {rol_id}, Menú: {menu_id}): {ce.detail}")
+        logger.error(f"Error de negocio al obtener permiso específico (Rol: {rol_id}, Menú: {menu_id}) en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint GET /permisos/roles/{rol_id}/menus/{menu_id}/")
@@ -237,18 +260,24 @@ async def get_specific_permission(rol_id: int, menu_id: int):
 
     **Respuestas:**
     - 200: Permiso revocado exitosamente
+    - 403: Acceso denegado (permiso de otro cliente)
     - 404: Permiso no encontrado (no se puede eliminar lo que no existe)
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def revoke_permission(rol_id: int, menu_id: int):
+async def revoke_permission(
+    rol_id: int,
+    menu_id: int,
+    current_user: Any = Depends(get_current_active_user)
+):
     """
     Elimina el permiso asociado al `rol_id` y `menu_id`.
 
     Args:
         rol_id: ID del rol al que se le revoca el permiso.
         menu_id: ID del menú del que se revoca el permiso.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         Dict[str, str]: Mensaje de éxito de la operación.
@@ -256,14 +285,18 @@ async def revoke_permission(rol_id: int, menu_id: int):
     Raises:
         HTTPException: Si el permiso no existe (404) o hay error interno (500).
     """
-    logger.info(f"Solicitud DELETE /permisos/roles/{rol_id}/menus/{menu_id}/ recibida para revocar")
+    logger.info(f"Solicitud DELETE /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para revocar")
     try:
-        result = await PermisoService.revocar_permiso(rol_id=rol_id, menu_id=menu_id)
-        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} revocado exitosamente.")
+        result = await PermisoService.revocar_permiso(
+            cliente_id=current_user.cliente_id,
+            rol_id=rol_id,
+            menu_id=menu_id
+        )
+        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} revocado exitosamente en cliente {current_user.cliente_id}.")
         return result
     # MODIFICACIÓN: Capturar CustomException
     except CustomException as ce:
-        logger.warning(f"Error de negocio al revocar permiso (Rol: {rol_id}, Menú: {menu_id}): {ce.detail}")
+        logger.warning(f"Error de negocio al revocar permiso (Rol: {rol_id}, Menú: {menu_id}) en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint DELETE /permisos/roles/{rol_id}/menus/{menu_id}/")

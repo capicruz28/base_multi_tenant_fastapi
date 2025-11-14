@@ -18,6 +18,18 @@ class CustomException(Exception):
         self.internal_code = internal_code  # Código interno para tracking y debugging
         super().__init__(self.detail)
 
+class ClientNotFoundException(CustomException):
+    """
+    Excepción lanzada por el TenantMiddleware cuando el subdominio 
+    no corresponde a un cliente activo o no se encuentra en la BD.
+    
+    Responde con un HTTP 404 (Not Found) ya que el recurso (el cliente/tenant) 
+    no existe en la URL solicitada.
+    """
+    def __init__(self, detail: str = "Cliente (tenant) no encontrado o inactivo."):
+        # Hereda de CustomException, estableciendo el status_code a 404
+        super().__init__(status_code=404, detail=detail)
+
 class DatabaseError(CustomException):
     """
     Errores específicos de base de datos.

@@ -15,6 +15,7 @@ Características principales:
 - Borrado lógico (`es_eliminado`) como mecanismo de eliminación.
 - Manejo detallado de la relación Usuario-Rol (asignar/revocar).
 - Gestión consistente de errores de negocio mediante CustomException.
+- **✅ MULTI-TENANT: Todas las operaciones están aisladas por cliente_id.**
 """
 
 from fastapi import APIRouter, HTTPException, Depends, status, Query
@@ -56,7 +57,7 @@ require_admin = RoleChecker(["Administrador"])
     response_model=PaginatedUsuarioResponse,
     summary="Obtener lista paginada de usuarios",
     description="""
-    Recupera una lista paginada de usuarios activos con sus roles.
+    Recupera una lista paginada de usuarios activos con sus roles **del cliente actual**.
     
     **Permisos requeridos:**
     - Rol 'Administrador'
@@ -74,15 +75,17 @@ require_admin = RoleChecker(["Administrador"])
     dependencies=[Depends(require_admin)]
 )
 async def list_usuarios(
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     page: int = Query(1, ge=1, description="Número de página a mostrar"),
     limit: int = Query(10, ge=1, le=100, description="Número de usuarios por página"),
     search: Optional[str] = Query(None, min_length=1, max_length=50, 
                                  description="Término de búsqueda opcional (nombre, apellido, correo, nombre_usuario)")
 ):
     """
-    Endpoint para obtener una lista paginada y filtrada de usuarios activos.
+    Endpoint para obtener una lista paginada y filtrada de usuarios activos **del cliente del usuario actual**.
     
     Args:
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         page: Número de página solicitada
         limit: Límite de resultados por página
         search: Término opcional para búsqueda textual
@@ -94,27 +97,28 @@ async def list_usuarios(
         HTTPException: En caso de error en los parámetros o error interno
     """
     logger.info(
-        f"Solicitud GET /usuarios/ recibida - "
+        f"Solicitud GET /usuarios/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - "
         f"Paginación: page={page}, limit={limit}, "
         f"Búsqueda: '{search}'"
     )
     
     try:
         paginated_data = await UsuarioService.get_usuarios_paginated(
+            cliente_id=current_user.cliente_id, # ✅ MULTI-TENANT: Filtrar por cliente
             page=page,
             limit=limit,
             search=search
         )
         
         logger.info(
-            f"Lista paginada de usuarios recuperada - "
+            f"Lista paginada de usuarios recuperada para cliente {current_user.cliente_id} - "
             f"Total: {paginated_data['total_usuarios']}, "
             f"Página: {paginated_data['pagina_actual']}"
         )
         return paginated_data
         
     except CustomException as ce:
-        logger.warning(f"Error de negocio al listar usuarios: {ce.detail}")
+        logger.warning(f"Error de negocio al listar usuarios para cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -133,31 +137,35 @@ async def list_usuarios(
     status_code=status.HTTP_201_CREATED,
     summary="Crear un nuevo usuario",
     description="""
-    Crea un nuevo usuario en el sistema.
+    Crea un nuevo usuario en el sistema **dentro del cliente del administrador que lo crea**.
     
     **Permisos requeridos:**
     - Rol 'Administrador'
     
     **Validaciones:**
-    - Nombre de usuario único
-    - Correo electrónico único
+    - Nombre de usuario único **dentro del cliente**
+    - Correo electrónico único **dentro del cliente**
     - Formato válido de contraseña (mínimo 8 caracteres, mayúscula, minúscula y número)
     - Campos obligatorios: nombre_usuario, correo, contrasena
     
     **Respuestas:**
     - 201: Usuario creado exitosamente
-    - 409: Conflicto - Nombre de usuario o correo ya existen
+    - 409: Conflicto - Nombre de usuario o correo ya existen **en el cliente**
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def crear_usuario(usuario_in: UsuarioCreate):
+async def crear_usuario(
+    usuario_in: UsuarioCreate,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
-    Endpoint para crear un nuevo usuario en el sistema.
+    Endpoint para crear un nuevo usuario en el sistema **asociado al cliente del administrador**.
     
     Args:
         usuario_in: Datos validados del usuario a crear
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         UsuarioRead: Usuario creado con todos sus datos incluyendo ID generado
@@ -165,17 +173,20 @@ async def crear_usuario(usuario_in: UsuarioCreate):
     Raises:
         HTTPException: En caso de error de validación, conflicto o error interno
     """
-    logger.info(f"Solicitud POST /usuarios/ recibida para crear usuario: '{usuario_in.nombre_usuario}'")
+    logger.info(f"Solicitud POST /usuarios/ recibida para crear usuario: '{usuario_in.nombre_usuario}' en cliente {current_user.cliente_id}")
     
     try:
+        # ✅ MULTI-TENANT: Agregar cliente_id al payload
         usuario_dict = usuario_in.model_dump()
+        usuario_dict['cliente_id'] = current_user.cliente_id
+        
         created_usuario = await UsuarioService.crear_usuario(usuario_dict)
         
-        logger.info(f"Usuario '{created_usuario['nombre_usuario']}' creado exitosamente con ID: {created_usuario['usuario_id']}")
+        logger.info(f"Usuario '{created_usuario['nombre_usuario']}' creado exitosamente en cliente {current_user.cliente_id} con ID: {created_usuario['usuario_id']}")
         return created_usuario
         
     except CustomException as ce:
-        logger.warning(f"Error de negocio al crear usuario '{usuario_in.nombre_usuario}': {ce.detail}")
+        logger.warning(f"Error de negocio al crear usuario '{usuario_in.nombre_usuario}' en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -197,50 +208,62 @@ async def crear_usuario(usuario_in: UsuarioCreate):
     
     **Permisos requeridos:**
     - Autenticación básica (usuario puede ver su propia información)
+    - **Los administradores solo pueden ver usuarios de su mismo cliente**
     
     **Parámetros de ruta:**
     - usuario_id: ID numérico del usuario a consultar
     
     **Respuestas:**
     - 200: Usuario encontrado y devuelto
+    - 403: Acceso denegado (intentar acceder a usuario de otro cliente)
     - 404: Usuario no encontrado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(get_current_active_user)]
 )
-async def read_usuario(usuario_id: int):
+async def read_usuario(
+    usuario_id: int,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para obtener los detalles completos de un usuario específico.
     
     Args:
         usuario_id: Identificador único del usuario a consultar
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         UsuarioReadWithRoles: Detalles completos del usuario solicitado con roles
         
     Raises:
-        HTTPException: Si el usuario no existe o hay error interno
+        HTTPException: Si el usuario no existe, es de otro cliente, o hay error interno
     """
-    logger.debug(f"Solicitud GET /usuarios/{usuario_id}/ recibida")
+    logger.debug(f"Solicitud GET /usuarios/{usuario_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     
     try:
-        usuario = await UsuarioService.obtener_usuario_por_id(usuario_id=usuario_id)
+        usuario = await UsuarioService.obtener_usuario_por_id(
+            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            usuario_id=usuario_id
+        )
         
         if usuario is None:
-            logger.warning(f"Usuario con ID {usuario_id} no encontrado")
+            logger.warning(f"Usuario con ID {usuario_id} no encontrado en cliente {current_user.cliente_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Usuario con ID {usuario_id} no encontrado."
             )
 
-        roles = await UsuarioService.obtener_roles_de_usuario(usuario_id=usuario_id)
+        roles = await UsuarioService.obtener_roles_de_usuario(
+            cliente_id=current_user.cliente_id, # ✅ Validar pertenencia al cliente
+            usuario_id=usuario_id
+        )
         usuario_con_roles = UsuarioReadWithRoles(**usuario, roles=roles)
         
-        logger.debug(f"Usuario ID {usuario_id} encontrado: '{usuario_con_roles.nombre_usuario}'")
+        logger.debug(f"Usuario ID {usuario_id} encontrado en cliente {current_user.cliente_id}: '{usuario_con_roles.nombre_usuario}'")
         return usuario_con_roles
         
     except CustomException as ce:
-        logger.error(f"Error de negocio obteniendo usuario {usuario_id}: {ce.detail}")
+        logger.error(f"Error de negocio obteniendo usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -268,25 +291,31 @@ async def read_usuario(usuario_id: int):
     
     **Validaciones:**
     - Al menos un campo debe ser proporcionado para actualizar
-    - Si se actualiza nombre_usuario o correo, deben mantenerse únicos
+    - Si se actualiza nombre_usuario o correo, deben mantenerse únicos **dentro del cliente**
     
     **Respuestas:**
     - 200: Usuario actualizado exitosamente
     - 400: Cuerpo de solicitud vacío
+    - 403: Acceso denegado (intentar actualizar usuario de otro cliente)
     - 404: Usuario no encontrado
-    - 409: Conflicto - Nuevo nombre_usuario o correo ya existen
+    - 409: Conflicto - Nuevo nombre_usuario o correo ya existen **en el cliente**
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def actualizar_usuario(usuario_id: int, usuario_in: UsuarioUpdate):
+async def actualizar_usuario(
+    usuario_id: int,
+    usuario_in: UsuarioUpdate,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para actualizar parcialmente un usuario existente.
     
     Args:
         usuario_id: Identificador único del usuario a actualizar
         usuario_in: Campos a actualizar (actualización parcial)
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         UsuarioRead: Usuario actualizado con los nuevos datos
@@ -294,25 +323,28 @@ async def actualizar_usuario(usuario_id: int, usuario_in: UsuarioUpdate):
     Raises:
         HTTPException: En caso de error de validación, no encontrado o conflicto
     """
-    logger.info(f"Solicitud PUT /usuarios/{usuario_id}/ recibida para actualizar")
-    
+    logger.info(f"Solicitud PUT /usuarios/{usuario_id}/ recibida para actualizar en cliente {current_user.cliente_id}")
+
     # Validar que hay datos para actualizar
     update_data = usuario_in.model_dump(exclude_unset=True)
-    if not update_data:
+    if not update_:
         logger.warning(f"Intento de actualizar usuario {usuario_id} sin datos")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Se debe proporcionar al menos un campo para actualizar el usuario."
         )
-    
+
     try:
-        updated_usuario = await UsuarioService.actualizar_usuario(usuario_id, update_data)
-        
+        updated_usuario = await UsuarioService.actualizar_usuario(
+            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            usuario_id=usuario_id,
+            update_data=update_data
+        )
         logger.info(f"Usuario ID {usuario_id} actualizado exitosamente: '{updated_usuario['nombre_usuario']}'")
         return updated_usuario
         
     except CustomException as ce:
-        logger.warning(f"Error de negocio al actualizar usuario {usuario_id}: {ce.detail}")
+        logger.warning(f"Error de negocio al actualizar usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -342,37 +374,45 @@ async def actualizar_usuario(usuario_id: int, usuario_in: UsuarioUpdate):
     - Operación reversible mediante actualización directa en BD
     - No elimina físicamente el registro
     - Desactiva automáticamente todas las asignaciones de roles del usuario
+    - **Solo puede eliminar usuarios de su mismo cliente**
     
     **Respuestas:**
     - 200: Usuario eliminado exitosamente
+    - 403: Acceso denegado (intentar eliminar usuario de otro cliente)
     - 404: Usuario no encontrado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def eliminar_usuario(usuario_id: int):
+async def eliminar_usuario(
+    usuario_id: int,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para eliminar lógicamente un usuario (borrado lógico).
     
     Args:
         usuario_id: Identificador único del usuario a eliminar
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         dict: Resultado de la eliminación con metadatos
         
     Raises:
-        HTTPException: Si el usuario no existe o hay error interno
+        HTTPException: Si el usuario no existe, es de otro cliente o hay error interno
     """
-    logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/ recibida (eliminar lógicamente)")
-    
+    logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/ recibida (eliminar lógicamente) en cliente {current_user.cliente_id}")
+
     try:
-        result = await UsuarioService.eliminar_usuario(usuario_id)
-        
-        logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente")
+        result = await UsuarioService.eliminar_usuario(
+            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            usuario_id=usuario_id
+        )
+        logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente en cliente {current_user.cliente_id}")
         return result
         
     except CustomException as ce:
-        logger.warning(f"Error de negocio al eliminar usuario {usuario_id}: {ce.detail}")
+        logger.warning(f"Error de negocio al eliminar usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -384,6 +424,8 @@ async def eliminar_usuario(usuario_id: int):
             detail="Error interno del servidor al eliminar el usuario."
         )
 
+
+# --- ENDPOINTS PARA GESTIÓN DE ROLES DE USUARIO ---
 
 @router.post(
     "/{usuario_id}/roles/{rol_id}/",
@@ -401,24 +443,30 @@ async def eliminar_usuario(usuario_id: int):
     - rol_id: ID numérico del rol a asignar
     
     **Validaciones:**
-    - El usuario debe existir y no estar eliminado
-    - El rol debe existir y estar activo
+    - El usuario debe existir y no estar eliminado **en el cliente**
+    - El rol debe existir y estar activo **en el cliente o ser un rol del sistema**
     
     **Respuestas:**
     - 201: Rol asignado exitosamente
+    - 403: Acceso denegado (operación cruzada de cliente)
     - 404: Usuario o rol no encontrado
     - 409: El rol ya está asignado y activo
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def assign_rol_to_usuario(usuario_id: int, rol_id: int):
+async def assign_rol_to_usuario(
+    usuario_id: int,
+    rol_id: int,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para asignar un rol a un usuario.
     
     Args:
         usuario_id: Identificador único del usuario
         rol_id: Identificador único del rol a asignar
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         UsuarioRolRead: Asignación usuario-rol creada o reactivada
@@ -426,16 +474,19 @@ async def assign_rol_to_usuario(usuario_id: int, rol_id: int):
     Raises:
         HTTPException: Si el usuario/rol no existen o hay error interno
     """
-    logger.info(f"Solicitud POST /usuarios/{usuario_id}/roles/{rol_id}/ recibida")
+    logger.info(f"Solicitud POST /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
     
     try:
-        assignment = await UsuarioService.asignar_rol_a_usuario(usuario_id, rol_id)
-        
-        logger.info(f"Rol {rol_id} asignado exitosamente al usuario {usuario_id}")
+        assignment = await UsuarioService.asignar_rol_a_usuario(
+            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            usuario_id=usuario_id,
+            rol_id=rol_id
+        )
+        logger.info(f"Rol {rol_id} asignado exitosamente al usuario {usuario_id} en cliente {current_user.cliente_id}")
         return assignment
         
     except CustomException as ce:
-        logger.warning(f"Error de negocio asignando rol {rol_id} a usuario {usuario_id}: {ce.detail}")
+        logger.warning(f"Error de negocio asignando rol {rol_id} a usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -465,21 +516,28 @@ async def assign_rol_to_usuario(usuario_id: int, rol_id: int):
     **Notas:**
     - No elimina físicamente el registro, solo lo desactiva
     - Operación reversible mediante re-asignación
+    - **Solo puede revocar roles de usuarios de su mismo cliente**
     
     **Respuestas:**
     - 200: Rol revocado exitosamente
+    - 403: Acceso denegado (operación cruzada de cliente)
     - 404: Asignación no encontrada
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def revoke_rol_from_usuario(usuario_id: int, rol_id: int):
+async def revoke_rol_from_usuario(
+    usuario_id: int,
+    rol_id: int,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para revocar un rol de un usuario.
     
     Args:
         usuario_id: Identificador único del usuario
         rol_id: Identificador único del rol a revocar
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         UsuarioRolRead: Asignación usuario-rol revocada
@@ -487,16 +545,19 @@ async def revoke_rol_from_usuario(usuario_id: int, rol_id: int):
     Raises:
         HTTPException: Si la asignación no existe o hay error interno
     """
-    logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/roles/{rol_id}/ recibida")
+    logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
     
     try:
-        assignment = await UsuarioService.revocar_rol_de_usuario(usuario_id, rol_id)
-        
-        logger.info(f"Rol {rol_id} revocado exitosamente del usuario {usuario_id}")
+        assignment = await UsuarioService.revocar_rol_de_usuario(
+            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            usuario_id=usuario_id,
+            rol_id=rol_id
+        )
+        logger.info(f"Rol {rol_id} revocado exitosamente del usuario {usuario_id} en cliente {current_user.cliente_id}")
         return assignment
         
     except CustomException as ce:
-        logger.warning(f"Error de negocio revocando rol {rol_id} de usuario {usuario_id}: {ce.detail}")
+        logger.warning(f"Error de negocio revocando rol {rol_id} de usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail
@@ -518,39 +579,48 @@ async def revoke_rol_from_usuario(usuario_id: int, rol_id: int):
     
     **Permisos requeridos:**
     - Autenticación básica (usuario puede ver sus propios roles)
+    - **Los administradores solo pueden ver roles de usuarios de su mismo cliente**
     
     **Parámetros de ruta:**
     - usuario_id: ID numérico del usuario
     
     **Respuestas:**
     - 200: Lista de roles recuperada exitosamente
+    - 403: Acceso denegado (intentar acceder a roles de usuario de otro cliente)
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(get_current_active_user)]
 )
-async def read_usuario_roles(usuario_id: int):
+async def read_usuario_roles(
+    usuario_id: int,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para obtener los roles activos de un usuario.
     
     Args:
         usuario_id: Identificador único del usuario
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         
     Returns:
         List[RolRead]: Lista de roles activos asignados al usuario
         
     Raises:
-        HTTPException: En caso de error interno del servidor
+        HTTPException: En caso de error interno del servidor o acceso denegado
     """
-    logger.debug(f"Solicitud GET /usuarios/{usuario_id}/roles/ recibida")
+    logger.debug(f"Solicitud GET /usuarios/{usuario_id}/roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     
     try:
-        roles = await UsuarioService.obtener_roles_de_usuario(usuario_id)
+        roles = await UsuarioService.obtener_roles_de_usuario(
+            cliente_id=current_user.cliente_id, # ✅ Validar que el usuario_id pertenece al mismo cliente
+            usuario_id=usuario_id
+        )
         
         logger.debug(f"Roles del usuario {usuario_id} recuperados - Total: {len(roles)}")
         return roles
         
     except CustomException as ce:
-        logger.error(f"Error de negocio obteniendo roles para usuario {usuario_id}: {ce.detail}")
+        logger.error(f"Error de negocio obteniendo roles para usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(
             status_code=ce.status_code, 
             detail=ce.detail

@@ -26,7 +26,7 @@ import logging
 from app.db.queries import (
     execute_insert, execute_query, execute_update,
     INSERT_REFRESH_TOKEN, GET_REFRESH_TOKEN_BY_HASH,
-    REVOKE_REFRESH_TOKEN, REVOKE_ALL_USER_TOKENS,
+    REVOKE_REFRESH_TOKEN, REVOKE_REFRESH_TOKEN_BY_USER, REVOKE_ALL_USER_TOKENS,
     DELETE_EXPIRED_TOKENS, GET_ACTIVE_SESSIONS_BY_USER,
     GET_ALL_ACTIVE_SESSIONS, REVOKE_REFRESH_TOKEN_BY_ID
 )
@@ -34,6 +34,7 @@ from app.core.config import settings
 # Importamos las excepciones personalizadas para un manejo de errores consistente
 from app.core.exceptions import DatabaseError, AuthenticationError, CustomException 
 from app.services.base_service import BaseService # Asumimos la clase base para el decorador handle_service_errors
+from app.core.tenant_context import get_current_client_id
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class RefreshTokenService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors 
     async def store_refresh_token(
+        cliente_id: int,
         usuario_id: int,
         token: str,
         client_type: str = "web",
@@ -62,7 +64,7 @@ class RefreshTokenService(BaseService):
         user_agent: Optional[str] = None
     ) -> Dict:
         """
-        Almacena un nuevo refresh token en la base de datos.
+        Almacena un nuevo refresh token en la base de datos **para un cliente específico**.
         
         **MITIGACIÓN DE SEGURIDAD CLAVE:** Si la inserción falla por llave duplicada
         (el `token_hash` ya existe), revoca todas las sesiones del usuario y lanza
@@ -75,20 +77,21 @@ class RefreshTokenService(BaseService):
             expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
             
             # 2) Preparar parámetros
-            params = (
+            params = (                
                 usuario_id,
                 token_hash,
                 expires_at,
                 client_type,
                 ip_address,
-                user_agent[:500] if user_agent else None 
+                user_agent[:500] if user_agent else None, 
+                cliente_id,
             )
             
             # 3) Intentar insertar en BD
             result = execute_insert(INSERT_REFRESH_TOKEN, params)
             
             logger.info(
-                f"[STORE-TOKEN] Usuario {usuario_id} - Cliente: {client_type} - "
+                f"[STORE-TOKEN] Cliente {cliente_id}, Usuario {usuario_id} - Cliente: {client_type} - "
                 f"Token ID: {result.get('token_id')}"
             )
             
@@ -103,12 +106,12 @@ class RefreshTokenService(BaseService):
                 
                 # 🚨 MEDIDA DE SEGURIDAD CRÍTICA: REVOCACIÓN MASIVA 
                 logger.critical(
-                    f"[SECURITY ALERT - TOKEN REUSE] Colisión de Refresh Token (hash) detectada para usuario {usuario_id}. "
+                    f"[SECURITY ALERT - TOKEN REUSE] Colisión de Refresh Token (hash) detectada para cliente {cliente_id}, usuario {usuario_id}. "
                     "Revocando todas las sesiones del usuario para mitigar el riesgo."
                 )
                 
                 # Ejecutar revocación global (logout de emergencia)
-                await RefreshTokenService.revoke_all_user_tokens(usuario_id)
+                await RefreshTokenService.revoke_all_user_tokens(cliente_id, usuario_id)
                 
                 # Lanzar AuthenticationError para forzar un 401 en el endpoint
                 raise AuthenticationError(
@@ -127,7 +130,7 @@ class RefreshTokenService(BaseService):
             raise
         except Exception as e:
             # Para errores inesperados que no sean CustomException
-            logger.exception(f"Error inesperado almacenando refresh token: {str(e)}")
+            logger.exception(f"Error inesperado almacenando refresh token para cliente {cliente_id}: {str(e)}")
             raise DatabaseError(
                 detail="Error no manejado al almacenar el refresh token",
                 internal_code="REFRESH_TOKEN_STORE_UNHANDLED_ERROR"
@@ -145,8 +148,9 @@ class RefreshTokenService(BaseService):
         - No haya expirado (expires_at > NOW)
         """
         try:
+            cliente_id = get_current_client_id()
             token_hash = RefreshTokenService.hash_token(token)
-            result = execute_query(GET_REFRESH_TOKEN_BY_HASH, (token_hash,))
+            result = execute_query(GET_REFRESH_TOKEN_BY_HASH, (token_hash,cliente_id))
             
             if not result:
                 logger.warning("[VALIDATE-TOKEN] Token no encontrado, revocado o expirado")
@@ -154,7 +158,7 @@ class RefreshTokenService(BaseService):
             
             token_data = result[0]
             logger.info(
-                f"[VALIDATE-TOKEN] Token válido para usuario {token_data['usuario_id']} - "
+                f"[VALIDATE-TOKEN] Token válido para cliente {token_data['cliente_id']}, usuario {token_data['usuario_id']} - "
                 f"Cliente: {token_data.get('client_type', 'unknown')}"
             )
             
@@ -171,27 +175,28 @@ class RefreshTokenService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def revoke_token(token: str) -> bool:
+    async def revoke_token(cliente_id: int, usuario_id: int, token: str) -> bool:
         """
-        Revoca un refresh token específico.
+        Revoca un refresh token específico **para un cliente y usuario**.
+        Utiliza la versión segura `REVOKE_REFRESH_TOKEN_BY_USER` para evitar ataques de revocación cruzada.
         """
         try:
             token_hash = RefreshTokenService.hash_token(token)
-            result = execute_update(REVOKE_REFRESH_TOKEN, (token_hash,))
+            result = execute_update(REVOKE_REFRESH_TOKEN_BY_USER, (token_hash, usuario_id, cliente_id))
             
             rows_affected = result.get('rows_affected', 0)
             
             if rows_affected > 0:
-                logger.info(f"[REVOKE-TOKEN] Token revocado exitosamente")
+                logger.info(f"[REVOKE-TOKEN] Token revocado exitosamente para cliente {cliente_id}, usuario {usuario_id}")
                 return True
             
-            logger.warning("[REVOKE-TOKEN] Token no encontrado o ya estaba revocado")
+            logger.warning(f"[REVOKE-TOKEN] Token no encontrado o ya estaba revocado para cliente {cliente_id}, usuario {usuario_id}")
             return False
         
         except CustomException:
             raise
         except Exception as e:
-            logger.exception(f"Error inesperado revocando token: {str(e)}")
+            logger.exception(f"Error inesperado revocando token para cliente {cliente_id}, usuario {usuario_id}: {str(e)}")
             raise DatabaseError(
                 detail="Error al revocar el refresh token",
                 internal_code="REFRESH_TOKEN_REVOKE_ERROR"
@@ -200,16 +205,17 @@ class RefreshTokenService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def revoke_all_user_tokens(usuario_id: int) -> int:
+    async def revoke_all_user_tokens(cliente_id: int, usuario_id: int) -> int:
         """
-        Revoca todos los tokens activos de un usuario (logout global).
+        Revoca todos los tokens activos de un usuario **en un cliente específico** (logout global).
         """
         try:
-            result = execute_update(REVOKE_ALL_USER_TOKENS, (usuario_id,))
+            # Pasar ambos IDs para mayor seguridad y precisión
+            result = execute_update(REVOKE_ALL_USER_TOKENS, (cliente_id, usuario_id))
             rows_affected = result.get('rows_affected', 0)
             
             logger.info(
-                f"[REVOKE-ALL] {rows_affected} tokens revocados para usuario {usuario_id}"
+                f"[REVOKE-ALL] {rows_affected} tokens revocados para cliente {cliente_id}, usuario {usuario_id}"
             )
             
             return rows_affected
@@ -217,7 +223,7 @@ class RefreshTokenService(BaseService):
         except CustomException:
             raise
         except Exception as e:
-            logger.exception(f"Error inesperado revocando tokens del usuario: {str(e)}")
+            logger.exception(f"Error inesperado revocando tokens del usuario para cliente {cliente_id}: {str(e)}")
             raise DatabaseError(
                 detail="Error al revocar los tokens del usuario",
                 internal_code="REFRESH_TOKEN_REVOKE_ALL_ERROR"
@@ -225,15 +231,15 @@ class RefreshTokenService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_active_sessions(usuario_id: int) -> List[Dict]:
+    async def get_active_sessions(cliente_id: int, usuario_id: int) -> List[Dict]:
         """
-        Obtiene todas las sesiones activas de un usuario.
+        Obtiene todas las sesiones activas de un usuario **en un cliente específico**.
         """
         try:
-            sessions = execute_query(GET_ACTIVE_SESSIONS_BY_USER, (usuario_id,))
+            sessions = execute_query(GET_ACTIVE_SESSIONS_BY_USER, (cliente_id, usuario_id))
             
             logger.info(
-                f"[SESSIONS] Usuario {usuario_id} tiene {len(sessions)} sesiones activas"
+                f"[SESSIONS] Cliente {cliente_id}, Usuario {usuario_id} tiene {len(sessions)} sesiones activas"
             )
             
             return sessions
@@ -241,7 +247,7 @@ class RefreshTokenService(BaseService):
         except CustomException:
             raise
         except Exception as e:
-            logger.exception(f"Error inesperado obteniendo sesiones: {str(e)}")
+            logger.exception(f"Error inesperado obteniendo sesiones para cliente {cliente_id}, usuario {usuario_id}: {str(e)}")
             raise DatabaseError(
                 detail="Error al obtener las sesiones activas",
                 internal_code="REFRESH_TOKEN_SESSIONS_ERROR"
@@ -252,6 +258,7 @@ class RefreshTokenService(BaseService):
     async def cleanup_expired_tokens() -> int:
         """
         Limpia tokens expirados y revocados de la base de datos.
+        Esta operación no necesita cliente_id porque es global.
         """
         try:
             result = execute_update(DELETE_EXPIRED_TOKENS, ())
@@ -276,7 +283,7 @@ class RefreshTokenService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_all_active_sessions_for_admin() -> List[Dict]:
+    async def get_all_active_sessions_for_admin(cliente_id: int) -> List[Dict]:
         """
         [ADMIN] Obtiene todas las sesiones activas en el sistema para auditoría
         y administración.
@@ -285,7 +292,7 @@ class RefreshTokenService(BaseService):
         """
         try:
             # La consulta no requiere parámetros
-            sessions = execute_query(GET_ALL_ACTIVE_SESSIONS, ())
+            sessions = execute_query(GET_ALL_ACTIVE_SESSIONS, (cliente_id))
             
             logger.info(
                 f"[ADMIN-SESSIONS] Se recuperaron {len(sessions)} sesiones activas totales."
@@ -314,7 +321,7 @@ class RefreshTokenService(BaseService):
             # ✅ Validar por OUTPUT en lugar de rows_affected
             if result and result.get('token_id'):
                 logger.info(
-                    f"[ADMIN-REVOKE] Token ID {token_id} revocado - Usuario: {result.get('usuario_id')}"
+                    f"[ADMIN-REVOKE] Token ID {token_id} revocado - Cliente: {result.get('cliente_id')}, Usuario: {result.get('usuario_id')}"
                 )
                 return True
             

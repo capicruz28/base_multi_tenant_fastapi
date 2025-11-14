@@ -12,6 +12,7 @@ Características principales:
 - Autenticación JWT.
 - Requerimiento de rol 'Administrador' para todas las operaciones de gestión (CRUD y listados completos).
 - Manejo consistente de errores de negocio con CustomException y mensajes descriptivos.
+- **✅ MULTI-TENANT: Gestión de menús del sistema y menús por cliente.**
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Path
@@ -43,6 +44,13 @@ router = APIRouter()
 # Requiere rol de administrador para todas las operaciones de gestión
 # Asumiendo que 'Administrador' es el rol usado en la BD
 require_admin = RoleChecker(["Administrador"])
+
+
+# --- FUNCIÓN DE AYUDA PARA ROLES DEL SISTEMA ---
+def _can_manage_system_menu(current_user: UsuarioReadWithRoles) -> bool:
+    """Verifica si el usuario actual puede gestionar menús del sistema."""
+    user_role_names = [role.nombre for role in current_user.roles]
+    return "SUPER_ADMIN" in user_role_names
 
 
 # ----------------------------------------------------------------------
@@ -80,7 +88,7 @@ async def get_menu(
     Raises:
         HTTPException: En caso de error de servicio (ServiceError -> CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud GET /menus/getmenu/ recibida para usuario ID: {current_user.usuario_id}")
+    logger.info(f"Solicitud GET /menus/getmenu/ recibida para usuario ID: {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         menu_response = await MenuService.get_menu_for_user(current_user.usuario_id)
         return menu_response
@@ -116,12 +124,14 @@ async def get_menu(
     """,
     dependencies=[Depends(require_admin)]
 )
-async def get_all_menus_admin_structured_endpoint():
+async def get_all_menus_admin_structured_endpoint(
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para obtener el árbol jerárquico completo de todos los ítems de menú (incluyendo inactivos).
 
     Args:
-        None.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         MenuResponse: Estructura jerárquica completa del menú.
@@ -129,9 +139,9 @@ async def get_all_menus_admin_structured_endpoint():
     Raises:
         HTTPException: En caso de error de servicio (CustomException) o error interno (500).
     """
-    logger.info("Solicitud recibida en GET /menus/all-structured/ (Admin)")
+    logger.info(f"Solicitud recibida en GET /menus/all-structured/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} (Admin)")
     try:
-        response = await MenuService.obtener_todos_menus_estructurados_admin()
+        response = await MenuService.obtener_todos_menus_estructurados_admin(cliente_id=current_user.cliente_id)
         return response
     except CustomException as ce:
         logger.error(f"Error de servicio en GET /menus/all-structured/: {ce.detail}")
@@ -172,13 +182,15 @@ async def get_all_menus_admin_structured_endpoint():
     dependencies=[Depends(require_admin)]
 )
 async def create_menu_endpoint(
-    menu_in: MenuCreate = Body(...)
+    menu_in: MenuCreate = Body(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
     Endpoint para crear un nuevo ítem de menú.
 
     Args:
         menu_in: Datos validados del ítem de menú a crear (MenuCreate).
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         MenuReadSingle: El ítem de menú creado con su ID.
@@ -186,9 +198,14 @@ async def create_menu_endpoint(
     Raises:
         HTTPException: En caso de conflicto, error de validación de negocio (CustomException) o error interno (500).
     """
-    logger.info(f"Recibida solicitud POST /menus/ para crear menú: {menu_in.nombre}")
+    logger.info(f"Recibida solicitud POST /menus/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear menú: {menu_in.nombre}")
+    
+    # ✅ MULTI-TENANT: Preparar datos con cliente_id
+    menu_dict = menu_in.model_dump()
+    menu_dict['cliente_id'] = current_user.cliente_id
+
     try:
-        created_menu = await MenuService.crear_menu(menu_in)
+        created_menu = await MenuService.crear_menu(menu_dict)
         return created_menu
     except CustomException as ce:
         logger.warning(f"Error de servicio (posible validación) al crear menú: {ce.detail}")
@@ -221,12 +238,16 @@ async def create_menu_endpoint(
     """,
     dependencies=[Depends(require_admin)]
 )
-async def get_menu_by_id_endpoint(menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a consultar")):
+async def get_menu_by_id_endpoint(
+    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a consultar"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para obtener los detalles completos de un ítem de menú específico.
 
     Args:
         menu_id: Identificador único del ítem de menú.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         MenuReadSingle: Detalles completos del ítem solicitado.
@@ -234,13 +255,19 @@ async def get_menu_by_id_endpoint(menu_id: int = Path(..., title="ID del Menú",
     Raises:
         HTTPException: Si el ítem no existe (404), error de servicio (CustomException) o hay error interno (500).
     """
-    logger.debug(f"Recibida solicitud GET /menus/{menu_id}/")
+    logger.debug(f"Recibida solicitud GET /menus/{menu_id}/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
-        menu = await MenuService.obtener_menu_por_id(menu_id)
+        menu = await MenuService.obtener_menu_por_id(menu_id=menu_id, cliente_id=current_user.cliente_id)
         if menu is None:
             # Si el servicio devuelve None, lanzamos 404 aquí
             logger.warning(f"Menú con ID {menu_id} no encontrado (servicio devolvió None).")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Menú con ID {menu_id} no encontrado.")
+        
+        # ✅ VALIDAR: Acceso a menú del sistema
+        if menu.get('cliente_id') is None and not _can_manage_system_menu(current_user):
+            logger.warning(f"Usuario {current_user.usuario_id} intentó acceder a menú del sistema sin permisos.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para acceder a menús del sistema.")
+        
         logger.debug(f"Menú ID {menu_id} encontrado.")
         return menu
     except CustomException as ce: # Captura CustomException si el servicio lo lanza
@@ -280,7 +307,8 @@ async def get_menu_by_id_endpoint(menu_id: int = Path(..., title="ID del Menú",
 )
 async def update_menu_endpoint(
     menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a actualizar"),
-    menu_in: MenuUpdate = Body(...)
+    menu_in: MenuUpdate = Body(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
     Endpoint para actualizar parcialmente un ítem de menú existente.
@@ -288,6 +316,7 @@ async def update_menu_endpoint(
     Args:
         menu_id: Identificador único del ítem de menú a actualizar.
         menu_in: Campos a actualizar (actualización parcial).
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         MenuReadSingle: Ítem de menú actualizado con los nuevos datos.
@@ -296,7 +325,7 @@ async def update_menu_endpoint(
         HTTPException: En caso de cuerpo vacío (400), no encontrado (404),
                        error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Recibida solicitud PUT /menus/{menu_id}/")
+    logger.info(f"Recibida solicitud PUT /menus/{menu_id}/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         update_data = menu_in.model_dump(exclude_unset=True)
         if not update_data:
@@ -306,7 +335,15 @@ async def update_menu_endpoint(
                 detail="El cuerpo de la solicitud no puede estar vacío para actualizar."
             )
 
-        updated_menu = await MenuService.actualizar_menu(menu_id, menu_in)
+        # ✅ VALIDAR: Acceso a menú del sistema
+        menu_existente = await MenuService.obtener_menu_por_id(menu_id=menu_id, cliente_id=current_user.cliente_id)
+        if menu_existente is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Menú con ID {menu_id} no encontrado.")
+        
+        if menu_existente.get('cliente_id') is None and not _can_manage_system_menu(current_user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para editar menús del sistema.")
+
+        updated_menu = await MenuService.actualizar_menu(menu_id, menu_in, cliente_id=current_user.cliente_id)
         return updated_menu
     except CustomException as ce: # Captura CustomException directamente (puede ser 404, 400, 500)
         logger.warning(f"Error de servicio al actualizar menú {menu_id}: {ce.detail}")
@@ -333,6 +370,7 @@ async def update_menu_endpoint(
     **Notas:**
     - Operación reversible mediante el endpoint de reactivación.
     - No elimina físicamente el registro.
+    - **No se puede desactivar un menú del sistema.**
 
     **Respuestas:**
     - 200: Ítem de menú desactivado exitosamente (devuelve el ID y estado).
@@ -343,12 +381,16 @@ async def update_menu_endpoint(
     """,
     dependencies=[Depends(require_admin)]
 )
-async def deactivate_menu_endpoint(menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a desactivar")):
+async def deactivate_menu_endpoint(
+    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a desactivar"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para desactivar un ítem de menú (borrado lógico).
 
     Args:
         menu_id: Identificador único del ítem de menú a desactivar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         Dict[str, Any]: Mensaje de confirmación y el estado `es_activo=False`.
@@ -356,8 +398,16 @@ async def deactivate_menu_endpoint(menu_id: int = Path(..., title="ID del Menú"
     Raises:
         HTTPException: Si no existe (404), error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud DELETE /menus/{menu_id}/ recibida (desactivar)")
+    logger.info(f"Solicitud DELETE /menus/{menu_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
+        # ✅ VALIDAR: Acceso a menú del sistema
+        menu_existente = await MenuService.obtener_menu_por_id(menu_id=menu_id, cliente_id=current_user.cliente_id)
+        if menu_existente is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Menú con ID {menu_id} no encontrado.")
+        
+        if menu_existente.get('cliente_id') is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden desactivar los menús del sistema.")
+
         result = await MenuService.desactivar_menu(menu_id)
         logger.info(f"Menú ID {menu_id} desactivado exitosamente")
         return {"message": f"Menú ID {result.get('menu_id')} desactivado exitosamente.", "menu_id": result.get('menu_id'), "es_activo": result.get('es_activo')}
@@ -391,12 +441,16 @@ async def deactivate_menu_endpoint(menu_id: int = Path(..., title="ID del Menú"
     """,
     dependencies=[Depends(require_admin)]
 )
-async def reactivate_menu_endpoint(menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a reactivar")):
+async def reactivate_menu_endpoint(
+    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a reactivar"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para reactivar un ítem de menú inactivo.
 
     Args:
         menu_id: Identificador único del ítem de menú a reactivar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         Dict[str, Any]: Mensaje de confirmación y el estado `es_activo=True`.
@@ -404,8 +458,16 @@ async def reactivate_menu_endpoint(menu_id: int = Path(..., title="ID del Menú"
     Raises:
         HTTPException: Si no existe (404), error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud PUT /menus/{menu_id}/reactivate/ recibida")
+    logger.info(f"Solicitud PUT /menus/{menu_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
+        # ✅ VALIDAR: Acceso a menú del sistema
+        menu_existente = await MenuService.obtener_menu_por_id(menu_id=menu_id, cliente_id=current_user.cliente_id)
+        if menu_existente is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Menú con ID {menu_id} no encontrado.")
+        
+        if menu_existente.get('cliente_id') is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden reactivar los menús del sistema.")
+
         result = await MenuService.reactivar_menu(menu_id)
         logger.info(f"Menú ID {menu_id} reactivado exitosamente")
         return {"message": f"Menú ID {result.get('menu_id')} reactivado exitosamente.", "menu_id": result.get('menu_id'), "es_activo": result.get('es_activo')}
@@ -439,12 +501,16 @@ async def reactivate_menu_endpoint(menu_id: int = Path(..., title="ID del Menú"
     """,
     dependencies=[Depends(require_admin)]
 )
-async def get_menu_tree_by_area_endpoint(area_id: int = Path(..., title="ID del Área", description="El ID del área a la que pertenece el menú")):
+async def get_menu_tree_by_area_endpoint(
+    area_id: int = Path(..., title="ID del Área", description="El ID del área a la que pertenece el menú"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+):
     """
     Endpoint para obtener el árbol de menú filtrado por el ID del área proporcionado.
 
     Args:
         area_id: Identificador único del área.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         MenuResponse: Estructura jerárquica del menú del área.
@@ -452,9 +518,9 @@ async def get_menu_tree_by_area_endpoint(area_id: int = Path(..., title="ID del 
     Raises:
         HTTPException: En caso de error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud GET /menus/area/{area_id}/tree/ recibida.")
+    logger.info(f"Solicitud GET /menus/area/{area_id}/tree/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}.")
     try:
-        menu_response = await MenuService.obtener_arbol_menu_por_area(area_id)
+        menu_response = await MenuService.obtener_arbol_menu_por_area(area_id=area_id, cliente_id=current_user.cliente_id)
         # El servicio ya devuelve MenuResponse(menu=[]) si no hay menús
         return menu_response
     except CustomException as ce:

@@ -2,39 +2,46 @@
 """
 Módulo de endpoints para la gestión de la autenticación de usuarios (Login, Logout, Refresh Token).
 
-Este módulo maneja el flujo de autenticación basado en JWT y cookies seguras.
+Este módulo maneja el flujo de autenticación basado en JWT y cookies seguras en una arquitectura multi-tenant.
 
 Características principales:
-- **Login:** Verifica credenciales, genera un Access Token y un Refresh Token (establecido en cookie HttpOnly).
-- **Me:** Permite al usuario obtener su información y roles usando el Access Token.
-- **Refresh:** Genera un nuevo Access Token usando el Refresh Token de la cookie (implementando rotación de refresh token).
-- **Logout:** Elimina la cookie del Refresh Token para cerrar la sesión.
-- **✅ NUEVO: Detección de cliente:** Diferencia entre peticiones web y móvil mediante header X-Client-Type.
+- **Login:** Verifica credenciales dentro del contexto de un cliente, genera Access/Refresh Tokens.
+- **Me:** Obtiene información del usuario autenticado.
+- **Refresh:** Genera un nuevo Access Token usando el Refresh Token.
+- **Logout:** Revoca el Refresh Token para cerrar la sesión.
+- **✅ MULTI-TENANT:** Autenticación segmentada por cliente (subdominio o cliente_id).
+- **✅ SSO:** Soporte para Azure AD y Google Workspace.
 """
-from typing import List, Dict # Importación necesaria para el nuevo endpoint /sessions/
-from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path
+from typing import List, Dict, Optional
+from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 
-from app.schemas.auth import Token, UserDataWithRoles
+# Importar la función que lee el ContextVar del cliente (¡Asume que está definida!)
+from app.core.tenant_context import get_current_client_id 
+
+from app.schemas.auth import Token, UserDataWithRoles, LoginData
 from app.core.auth import (
     authenticate_user,
     create_access_token,
     create_refresh_token,
     get_current_user,
     get_current_user_from_refresh,
+    authenticate_user_sso_azure_ad,
+    authenticate_user_sso_google
 )
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.services.usuario_service import UsuarioService
 from app.services.refresh_token_service import RefreshTokenService
-from app.api.deps import RoleChecker 
+from app.services.cliente_service import ClienteService
+from app.api.deps import RoleChecker
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 # Dependencia específica para requerir rol 'admin'
-require_admin = RoleChecker(["Administrador"])
-
+require_admin = RoleChecker(["Super Administrador"])
 
 # ✅ NUEVO: Función para detectar tipo de cliente
 def get_client_type(request: Request) -> str:
@@ -54,7 +61,6 @@ def get_client_type(request: Request) -> str:
     logger.debug(f"Cliente detectado: {client_type}")
     return client_type
 
-
 # ----
 # --- Endpoint para Login ---
 # ----
@@ -63,10 +69,12 @@ def get_client_type(request: Request) -> str:
     response_model=Token,
     summary="Autenticar usuario y obtener token",
     description="""
-    Verifica credenciales (nombre de usuario/email y contraseña) proporcionadas mediante formulario `OAuth2PasswordRequestForm`. 
-    Genera un **Access Token** (retornado en el cuerpo de la respuesta) y un **Refresh Token**.
+    Verifica credenciales (nombre de usuario/email y contraseña) **dentro del contexto de un cliente**.
+    El cliente se identifica mediante `cliente_id` o `subdominio` en el cuerpo de la solicitud.
     
-    **✅ NUEVO - Estrategia de tokens según cliente:**
+    Genera un **Access Token** y un **Refresh Token**.
+    
+    **✅ MULTI-TENANT: Estrategia de tokens según cliente:**
     - **Web (X-Client-Type: web):** Access Token en JSON, Refresh Token en HttpOnly cookie
     - **Móvil (X-Client-Type: mobile):** Ambos tokens en JSON (sin cookie)
     
@@ -74,54 +82,74 @@ def get_client_type(request: Request) -> str:
 
     **Respuestas:**
     - 200: Autenticación exitosa y tokens generados.
-    - 401: Credenciales inválidas.
-    - 500: Error interno del servidor durante el proceso.
+    - 400: No se proporcionó identificador de cliente (cliente_id o subdominio).
+    - 401: Credenciales inválidas o cliente inactivo.
+    - 404: Cliente no encontrado.
+    - 500: Error interno del servidor.
     """
 )
 async def login(
-    request: Request,  # ✅ NUEVO: Para detectar tipo de cliente
+    request: Request,
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
     """
-    Realiza la autenticación del usuario y emite los tokens de sesión.
+    Realiza la autenticación del usuario **dentro del cliente especificado** y emite los tokens de sesión.
 
     Args:
-        request: Objeto Request para detectar tipo de cliente
+        request: Objeto Request para detectar tipo de cliente.
         response: Objeto Response de FastAPI para manipular cookies.
-        form_data: Objeto de formulario con `username` y `password` para autenticar.
+        login_data: Datos de login que incluyen credenciales y contexto del cliente.
 
     Returns:
-        Token: Objeto que contiene el Access Token, tipo de token y los datos completos del usuario (`UserDataWithRoles`).
+        Token: Objeto que contiene el Access Token, tipo de token y los datos del usuario.
 
     Raises:
-        HTTPException: Si la autenticación falla (401) o por un error interno (500).
+        HTTPException: Si la autenticación falla o hay error interno.
     """
-    usuario_service = UsuarioService()
-    
     try:
-        # ✅ NUEVO: Detectar tipo de cliente
+        # 1. 🔑 RESOLVER CLIENTE_ID DESDE EL CONTEXTO (MIDDLEWARE)
+        try:
+            # CORRECCIÓN CLAVE: Usamos la función de contexto (Opción 1)
+            cliente_id = get_current_client_id()
+        except RuntimeError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Cliente ID no disponible. El subdominio no pudo ser resuelto por el middleware."
+            )
+        
+        # 2. ✅ VALIDAR CLIENTE ACTIVO
+        cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
+        if not cliente or not cliente.es_activo:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="El cliente asociado al subdominio no está activo."
+            )
+            
+        logger.info(f"Cliente {cliente_id} resuelto y validado para login.")
+
+        # 3. ✅ NUEVO: Detectar tipo de cliente
         client_type = get_client_type(request)
         
-        # 1) Autenticación (maneja 401 si falla)
-        user_base_data = await authenticate_user(form_data.username, form_data.password)
+        # 4. Autenticación (maneja 401 si falla)
+        user_base_data = await authenticate_user(cliente_id, form_data.username, form_data.password)
 
-        # 2) Roles
+        # 5. Roles
         user_id = user_base_data.get('usuario_id')
-        user_role_names = await usuario_service.get_user_role_names(user_id=user_id)
-
+        user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
         user_full_data = {**user_base_data, "roles": user_role_names}
 
-        # 3) Tokens
-        access_token = create_access_token(data={"sub": form_data.username})
-        refresh_token = create_refresh_token(data={"sub": form_data.username})
+        # 6. Tokens
+        access_token = create_access_token(data={"sub": form_data.username, "cliente_id": cliente_id})
+        refresh_token = create_refresh_token(data={"sub": form_data.username, "cliente_id": cliente_id, "type": "refresh"})
 
-        # ✅ NUEVO: Almacenar refresh token en BD
+        # ✅ NUEVO: Almacenar refresh token en BD **con cliente_id**
         try:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
             
             stored = await RefreshTokenService.store_refresh_token(
+                cliente_id=cliente_id,
                 usuario_id=user_id,
                 token=refresh_token,
                 client_type=client_type,
@@ -129,7 +157,6 @@ async def login(
                 user_agent=user_agent
             )
             
-            # ✅ NUEVO: Verificar si se almacenó correctamente
             if stored and stored.get('token_id', -1) > 0:
                 logger.info(f"[LOGIN-{client_type.upper()}] Token almacenado en BD - ID: {stored['token_id']}")
             else:
@@ -137,8 +164,7 @@ async def login(
                 
         except Exception as e:
             logger.error(f"Error almacenando refresh token: {str(e)}")
-            # No fallar el login si falla el almacenamiento
-            # El token JWT seguirá funcionando temporalmente
+            # No fallar el login
 
         # ✅ NUEVO: Lógica diferenciada según tipo de cliente
         response_data = {
@@ -148,31 +174,28 @@ async def login(
         }
         
         if client_type == "web":
-            # 4a) WEB: Refresh en HttpOnly cookie, Access en JSON
             response.set_cookie(
                 key=settings.REFRESH_COOKIE_NAME,
                 value=refresh_token,
-                httponly=True,  # ✅ Protege contra XSS
-                secure=settings.COOKIE_SECURE,  # ✅ True en producción (HTTPS)
-                samesite=settings.COOKIE_SAMESITE,  # ✅ 'strict' en prod, 'lax' en dev
+                httponly=True,
+                secure=settings.COOKIE_SECURE,
+                samesite=settings.COOKIE_SAMESITE,
                 max_age=settings.REFRESH_COOKIE_MAX_AGE,
                 path="/",
-                domain=settings.COOKIE_DOMAIN,  # ✅ Dominio específico en producción
+                domain=settings.COOKIE_DOMAIN,
             )
-            logger.info(f"Usuario {form_data.username} autenticado exitosamente (WEB) - Refresh en cookie")
+            logger.info(f"Usuario {form_data.username} autenticado exitosamente (WEB) para cliente {cliente_id}")
             
         else:  # mobile
-            # 4b) MÓVIL: Ambos tokens en JSON (sin cookie)
             response_data["refresh_token"] = refresh_token
-            logger.info(f"Usuario {form_data.username} autenticado exitosamente (MOBILE) - Ambos tokens en JSON")
+            logger.info(f"Usuario {form_data.username} autenticado exitosamente (MOBILE) para cliente {cliente_id}")
 
         return response_data
 
     except HTTPException:
-        # Re-lanza 401 si proviene de authenticate_user
         raise
     except Exception as e:
-        logger.exception(f"Error inesperado en /login/ para usuario {form_data.username}: {str(e)}")
+        logger.exception(f"Error inesperado en /login/ para usuario {login_data.username}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Ocurrió un error inesperado durante el proceso de login."
@@ -216,8 +239,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     try:
         usuario_service = UsuarioService()
         user_id = current_user.get('usuario_id')
+        cliente_id = current_user.get('cliente_id')
         # Obtener roles, que es la información extra
-        user_role_names = await usuario_service.get_user_role_names(user_id=user_id)
+        user_role_names = await usuario_service.get_user_role_names(cliente_id=cliente_id, user_id=user_id)
         user_full_data = {**current_user, "roles": user_role_names}
         return user_full_data
     except HTTPException:
@@ -304,7 +328,11 @@ async def refresh_access_token(
         # === PASO 2: REVOCAR INMEDIATAMENTE EL TOKEN ANTIGUO ===
         # ✅ CORRECCIÓN CRÍTICA: Revocamos ANTES de generar el nuevo
         try:
-            revoked = await RefreshTokenService.revoke_token(old_refresh_token)
+            revoked = await RefreshTokenService.revoke_token(
+                cliente_id=current_user.get("cliente_id"),
+                usuario_id=current_user.get("usuario_id"),
+                token=old_refresh_token
+            )
             if not revoked:
                 logger.warning(f"[REFRESH] Token antiguo ya estaba revocado o no existía para {username}")
                 # Aún así continuamos, porque podría ser un intento legítimo tras limpieza
@@ -322,6 +350,7 @@ async def refresh_access_token(
             user_agent = request.headers.get("user-agent")
             
             stored = await RefreshTokenService.store_refresh_token(
+                cliente_id=current_user.get("cliente_id"),
                 usuario_id=current_user.get("usuario_id"),
                 token=new_refresh_token,
                 client_type=client_type,
@@ -394,13 +423,18 @@ async def refresh_access_token(
     - 200: Sesión cerrada exitosamente.
     """
 )
-async def logout(request: Request, response: Response):
+async def logout(
+    request: Request,
+    response: Response,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Cierra sesión revocando el refresh token en BD.
 
     Args:
         request: Objeto Request para detectar tipo de cliente
         response: Objeto Response de FastAPI para manipular cookies.
+        current_user: Diccionario con datos del usuario autenticado (proporciona cliente_id y usuario_id)
 
     Returns:
         Dict[str, str]: Mensaje de éxito.
@@ -411,6 +445,18 @@ async def logout(request: Request, response: Response):
     try:
         # ✅ NUEVO: Detectar tipo de cliente
         client_type = get_client_type(request)
+        
+        # ✅ INYECCIÓN: Obtener cliente_id y usuario_id del contexto actual
+        cliente_id = current_user.get("cliente_id")
+        usuario_id = current_user.get("usuario_id")
+        username = current_user.get("nombre_usuario")
+        
+        if not cliente_id or not usuario_id:
+            logger.warning(f"[LOGOUT] Datos de cliente/usuario inválidos para {username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Contexto de usuario inválido"
+            )
         
         # Obtener refresh token
         refresh_token = None
@@ -430,18 +476,33 @@ async def logout(request: Request, response: Response):
             except:
                 pass
         
-        # ✅ NUEVO: Revocar token en BD
+        # ✅ REFACTORIZADO: Revocar token en BD con cliente_id y usuario_id
         if refresh_token:
-            revoked = await RefreshTokenService.revoke_token(refresh_token)
+            revoked = await RefreshTokenService.revoke_token(
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+                token=refresh_token
+            )
             if revoked:
-                logger.info(f"[LOGOUT-{client_type.upper()}] Token revocado exitosamente en BD")
+                logger.info(
+                    f"[LOGOUT-{client_type.upper()}] Token revocado exitosamente - "
+                    f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+                )
             else:
-                logger.warning(f"[LOGOUT-{client_type.upper()}] Token no encontrado en BD")
+                logger.warning(
+                    f"[LOGOUT-{client_type.upper()}] Token no encontrado en BD - "
+                    f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+                )
         else:
-            logger.warning(f"[LOGOUT-{client_type.upper()}] No se proporcionó refresh token")
+            logger.warning(
+                f"[LOGOUT-{client_type.upper()}] No se proporcionó refresh token - "
+                f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+            )
         
         return {"message": f"Sesión cerrada exitosamente ({client_type})"}
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error en logout: {str(e)}")
         raise HTTPException(
@@ -480,10 +541,11 @@ async def get_active_sessions_endpoint(current_user: dict = Depends(get_current_
         List[Dict]: Lista de diccionarios que representan las sesiones.
     """
     user_id = current_user.get('usuario_id')
+    cliente_id = current_user.get('cliente_id')
     username = current_user.get('nombre_usuario')
     logger.info(f"Solicitud /sessions/ recibida para usuario: {username}")
     try:
-        sessions = await RefreshTokenService.get_active_sessions(usuario_id=user_id)
+        sessions = await RefreshTokenService.get_active_sessions(cliente_id=cliente_id, usuario_id=user_id)
         # Asegurarse de que el servicio no devuelva el hash del token por seguridad.
         return sessions
     except HTTPException:
@@ -523,10 +585,11 @@ async def logout_all_sessions(current_user: dict = Depends(get_current_user)):
         Dict[str, str]: Mensaje de éxito con el número de sesiones cerradas.
     """
     user_id = current_user.get('usuario_id')
+    cliente_id = current_user.get('cliente_id')
     username = current_user.get('nombre_usuario')
     logger.info(f"Solicitud /logout_all/ recibida para usuario: {username}")
     try:
-        rows_affected = await RefreshTokenService.revoke_all_user_tokens(usuario_id=user_id)
+        rows_affected = await RefreshTokenService.revoke_all_user_tokens(cliente_id=cliente_id, usuario_id=user_id)
         
         return {"message": f"Se han cerrado {rows_affected} sesiones activas para el usuario {username}."}
     except HTTPException:
@@ -570,10 +633,11 @@ async def admin_list_all_active_sessions(current_user: dict = Depends(get_curren
     Returns:
         List[Dict]: Lista de diccionarios que representan todas las sesiones activas.
     """
+    cliente_id = current_user.get("cliente_id")
     username = current_user.get('nombre_usuario', 'N/A')
     logger.info(f"[ADMIN] Solicitud /sessions/admin/ por usuario: {username}")
     try:
-        sessions = await RefreshTokenService.get_all_active_sessions_for_admin()
+        sessions = await RefreshTokenService.get_all_active_sessions_for_admin(cliente_id=cliente_id)
         
         logger.info(f"[ADMIN] Recuperadas {len(sessions)} sesiones activas totales.")
         return sessions
@@ -649,4 +713,201 @@ async def admin_revoke_session_by_id(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor al revocar la sesión."
+        )
+
+# === ENDPOINTS PARA SSO (NUEVOS) ===
+
+@router.post(
+    "/sso/azure/",
+    response_model=Token,
+    summary="Autenticar usuario mediante Azure AD",
+    description="""
+    Inicia el flujo de autenticación con Azure Active Directory.
+    **En esta primera fase, el endpoint recibe el id_token de Azure y autentica al usuario.**
+    
+    **Flujo:**
+    1. El frontend obtiene el id_token desde Azure AD.
+    2. El frontend envía el id_token a este endpoint junto con el contexto del cliente.
+    3. El backend valida el id_token y autentica al usuario.
+    
+    **Parámetros en el cuerpo:**
+    - `id_token`: El JWT token de Azure AD.
+    - `cliente_id` o `subdominio`: Para identificar el cliente.
+    
+    **Respuestas:**
+    - 200: Autenticación SSO exitosa.
+    - 400: Parámetros inválidos.
+    - 401: Token de Azure inválido o cliente no autorizado.
+    - 500: Error interno.
+    """
+)
+async def sso_azure_login(
+    request: Request,
+    response: Response,
+    id_token: str = Body(..., embed=True),
+    cliente_id: Optional[int] = Body(None),
+    subdominio: Optional[str] = Body(None)
+):
+    """
+    Autentica a un usuario utilizando un token de Azure AD.
+    """
+    try:
+        cliente_id = await resolve_cliente_id(cliente_id, subdominio)
+        client_type = get_client_type(request)
+        
+        # Autenticar con SSO
+        user_base_data = await authenticate_user_sso_azure_ad(cliente_id, id_token)
+        
+        # Continuar con el flujo normal de generación de tokens
+        user_id = user_base_data.get('usuario_id')
+        user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
+        user_full_data = {**user_base_data, "roles": user_role_names}
+
+        access_token = create_access_token(data={"sub": user_full_data['nombre_usuario']})
+        refresh_token = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
+
+        # Almacenar refresh token
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        await RefreshTokenService.store_refresh_token(
+            cliente_id=cliente_id,
+            usuario_id=user_id,
+            token=refresh_token,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        response_data = {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_data": user_full_data
+        }
+        
+        if client_type == "web":
+            response.set_cookie(
+                key=settings.REFRESH_COOKIE_NAME,
+                value=refresh_token,
+                httponly=True,
+                secure=settings.COOKIE_SECURE,
+                samesite=settings.COOKIE_SAMESITE,
+                max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                path="/",
+                domain=settings.COOKIE_DOMAIN,
+            )
+        else:
+            response_data["refresh_token"] = refresh_token
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except NotImplementedError:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Autenticación SSO con Azure AD no implementada aún."
+        )
+    except Exception as e:
+        logger.exception(f"Error en /sso/azure/: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error en la autenticación SSO con Azure AD."
+        )
+
+
+@router.post(
+    "/sso/google/",
+    response_model=Token,
+    summary="Autenticar usuario mediante Google Workspace",
+    description="""
+    Inicia el flujo de autenticación con Google Workspace.
+    **En esta primera fase, el endpoint recibe el id_token de Google y autentica al usuario.**
+    
+    **Flujo:**
+    1. El frontend obtiene el id_token desde Google.
+    2. El frontend envía el id_token a este endpoint junto con el contexto del cliente.
+    3. El backend valida el id_token y autentica al usuario.
+    
+    **Parámetros en el cuerpo:**
+    - `id_token`: El JWT token de Google.
+    - `cliente_id` o `subdominio`: Para identificar el cliente.
+    
+    **Respuestas:**
+    - 200: Autenticación SSO exitosa.
+    - 400: Parámetros inválidos.
+    - 401: Token de Google inválido o cliente no autorizado.
+    - 500: Error interno.
+    """
+)
+async def sso_google_login(
+    request: Request,
+    response: Response,
+    id_token: str = Body(..., embed=True),
+    cliente_id: Optional[int] = Body(None),
+    subdominio: Optional[str] = Body(None)
+):
+    """
+    Autentica a un usuario utilizando un token de Google Workspace.
+    """
+    try:
+        cliente_id = await resolve_cliente_id(cliente_id, subdominio)
+        client_type = get_client_type(request)
+        
+        # Autenticar con SSO
+        user_base_data = await authenticate_user_sso_google(cliente_id, id_token)
+        
+        # Continuar con el flujo normal de generación de tokens
+        user_id = user_base_data.get('usuario_id')
+        user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
+        user_full_data = {**user_base_data, "roles": user_role_names}
+
+        access_token = create_access_token(data={"sub": user_full_data['nombre_usuario']})
+        refresh_token = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
+
+        # Almacenar refresh token
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        await RefreshTokenService.store_refresh_token(
+            cliente_id=cliente_id,
+            usuario_id=user_id,
+            token=refresh_token,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        response_data = {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_data": user_full_data
+        }
+        
+        if client_type == "web":
+            response.set_cookie(
+                key=settings.REFRESH_COOKIE_NAME,
+                value=refresh_token,
+                httponly=True,
+                secure=settings.COOKIE_SECURE,
+                samesite=settings.COOKIE_SAMESITE,
+                max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                path="/",
+                domain=settings.COOKIE_DOMAIN,
+            )
+        else:
+            response_data["refresh_token"] = refresh_token
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except NotImplementedError:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Autenticación SSO con Google no implementada aún."
+        )
+    except Exception as e:
+        logger.exception(f"Error en /sso/google/: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error en la autenticación SSO con Google."
         )

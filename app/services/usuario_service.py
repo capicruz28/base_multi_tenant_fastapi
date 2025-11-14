@@ -32,30 +32,32 @@ logger = logging.getLogger(__name__)
 
 class UsuarioService(BaseService):
     """
-    Servicio para gestión completa de usuarios del sistema.
+    Servicio para gestión completa de usuarios del sistema en arquitectura multi-tenant.
     
     ⚠️ IMPORTANTE: Este servicio maneja operaciones críticas relacionadas con:
-    - Creación, actualización y eliminación de usuarios
+    - Creación, actualización y eliminación de usuarios **por cliente**
     - Gestión de roles y permisos de usuarios
     - Autenticación y gestión de sesiones
     
     CARACTERÍSTICAS PRINCIPALES:
     - Herencia de BaseService para manejo automático de errores
-    - Validaciones robustas de seguridad e integridad de datos
+    - Validaciones robustas de seguridad e integridad de datos **por cliente**
     - Manejo seguro de contraseñas con hash bcrypt
     - Logging detallado para auditoría de seguridad
+    - Aislamiento total de datos por cliente_id
     """
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_user_role_names(user_id: int) -> List[str]:
+    async def get_user_role_names(cliente_id: int, user_id: int) -> List[str]:
         """
-        Obtiene solo los NOMBRES de roles activos para un usuario.
+        Obtiene solo los NOMBRES de roles activos para un usuario dentro de un cliente.
         
         🎯 OPTIMIZACIÓN: Diseñado específicamente para el endpoint de login
         donde solo se necesitan los nombres de roles, no toda la información.
         
         Args:
+            cliente_id: ID del cliente al que pertenece el usuario
             user_id: ID del usuario cuyos roles se quieren obtener
             
         Returns:
@@ -70,16 +72,16 @@ class UsuarioService(BaseService):
             SELECT r.nombre
             FROM dbo.rol r
             INNER JOIN dbo.usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ? AND ur.es_activo = 1 AND r.es_activo = 1;
+            WHERE ur.usuario_id = ? AND ur.cliente_id = ? AND ur.es_activo = 1 AND r.es_activo = 1;
             """
             
-            results = execute_query(query, (user_id,))
+            results = execute_query(query, (user_id, cliente_id))
             
             if results:
                 role_names = [row['nombre'] for row in results if 'nombre' in row]
-                logger.debug(f"Roles obtenidos para usuario ID {user_id}: {role_names}")
+                logger.debug(f"Roles obtenidos para usuario ID {user_id} (cliente {cliente_id}): {role_names}")
             else:
-                logger.debug(f"No se encontraron roles activos para usuario ID {user_id}")
+                logger.debug(f"No se encontraron roles activos para usuario ID {user_id} (cliente {cliente_id})")
 
         except DatabaseError as db_err:
             logger.error(f"Error de BD en get_user_role_names: {db_err.detail}")
@@ -100,16 +102,17 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_usuario_por_id(usuario_id: int) -> Optional[Dict]:
+    async def obtener_usuario_por_id(cliente_id: int, usuario_id: int) -> Optional[Dict]:
         """
-        Obtiene un usuario por su ID (excluyendo usuarios eliminados).
+        Obtiene un usuario por su ID dentro de un cliente (excluyendo eliminados).
         
         🔍 BÚSQUEDA SEGURA:
-        - Solo retorna usuarios no eliminados
+        - Solo retorna usuarios del cliente especificado y no eliminados
         - Incluye todos los datos básicos del usuario
         - Retorna None si no existe
         
         Args:
+            cliente_id: ID del cliente
             usuario_id: ID del usuario a buscar
             
         Returns:
@@ -121,17 +124,17 @@ class UsuarioService(BaseService):
         try:
             query = """
             SELECT
-                usuario_id, nombre_usuario, correo, nombre, apellido,
-                es_activo, correo_confirmado, fecha_creacion, fecha_ultimo_acceso,
-                fecha_actualizacion
+                usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
+                dni, telefono, proveedor_autenticacion, es_activo, correo_confirmado,
+                fecha_creacion, fecha_ultimo_acceso, fecha_actualizacion
             FROM dbo.usuario
-            WHERE usuario_id = ? AND es_eliminado = 0
+            WHERE usuario_id = ? AND cliente_id = ? AND es_eliminado = 0
             """
             
-            resultados = execute_query(query, (usuario_id,))
+            resultados = execute_query(query, (usuario_id, cliente_id))
             
             if not resultados:
-                logger.debug(f"Usuario con ID {usuario_id} no encontrado o está eliminado")
+                logger.debug(f"Usuario con ID {usuario_id} no encontrado en cliente {cliente_id} o está eliminado")
                 return None
 
             return resultados[0]
@@ -153,16 +156,17 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def verificar_usuario_existente(nombre_usuario: str, correo: str) -> bool:
+    async def verificar_usuario_existente(cliente_id: int, nombre_usuario: str, correo: str) -> bool:
         """
-        Verifica si ya existe un usuario con el mismo nombre de usuario o correo.
+        Verifica si ya existe un usuario con el mismo nombre o correo **dentro del cliente**.
         
         🛡️ PREVENCIÓN DE DUPLICADOS:
-        - Busca en toda la tabla (incluyendo inactivos y eliminados)
+        - Busca solo dentro del cliente especificado
         - Comparación insensible a mayúsculas/minúsculas
         - Identifica exactamente qué campo causa conflicto
         
         Args:
+            cliente_id: ID del cliente
             nombre_usuario: Nombre de usuario a verificar
             correo: Correo electrónico a verificar
             
@@ -170,20 +174,19 @@ class UsuarioService(BaseService):
             bool: False si no existe conflicto (éxito)
             
         Raises:
-            ConflictError: Si ya existe un usuario con ese nombre o correo
+            ConflictError: Si ya existe un usuario con ese nombre o correo en el cliente
         """
         try:
             query = """
             SELECT nombre_usuario, correo
             FROM dbo.usuario
-            WHERE (LOWER(nombre_usuario) = LOWER(?) OR LOWER(correo) = LOWER(?))
+            WHERE cliente_id = ? AND (LOWER(nombre_usuario) = LOWER(?) OR LOWER(correo) = LOWER(?))
             """
             
-            params = (nombre_usuario.lower(), correo.lower())
+            params = (cliente_id, nombre_usuario.lower(), correo.lower())
             resultados = execute_query(query, params)
 
             if resultados:
-                # 🎯 IDENTIFICAR CAMPO EN CONFLICTO
                 nombre_usuario_coincide = any(
                     r['nombre_usuario'].lower() == nombre_usuario.lower() 
                     for r in resultados
@@ -195,12 +198,12 @@ class UsuarioService(BaseService):
 
                 if nombre_usuario_coincide:
                     raise ConflictError(
-                        detail="El nombre de usuario ya está en uso.",
+                        detail="El nombre de usuario ya está en uso en este cliente.",
                         internal_code="USERNAME_CONFLICT"
                     )
                 if correo_coincide:
                     raise ConflictError(
-                        detail="El correo electrónico ya está registrado.",
+                        detail="El correo electrónico ya está registrado en este cliente.",
                         internal_code="EMAIL_CONFLICT"
                     )
 
@@ -225,30 +228,32 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_usuario(usuario_data: Dict) -> Dict:
+    async def crear_usuario(cliente_id: int, usuario_data: Dict) -> Dict:
         """
-        Crea un nuevo usuario en el sistema con validaciones completas.
+        Crea un nuevo usuario en el sistema **para un cliente específico**.
         
         🆕 CREACIÓN SEGURA:
-        - Valida duplicados antes de insertar
+        - Valida duplicados dentro del cliente
         - Aplica hash seguro a la contraseña
         - Establece valores por defecto seguros
         
         Args:
+            cliente_id: ID del cliente
             usuario_data: Datos del usuario a crear (incluye contraseña en texto plano)
             
         Returns:
             Dict: Usuario creado (sin contraseña)
             
         Raises:
-            ConflictError: Si el nombre de usuario o correo ya existen
+            ConflictError: Si el nombre de usuario o correo ya existen en el cliente
             ServiceError: Si la creación falla
         """
-        logger.info(f"Intentando crear usuario: {usuario_data.get('nombre_usuario')}")
+        logger.info(f"Intentando crear usuario para cliente {cliente_id}: {usuario_data.get('nombre_usuario')}")
         
         try:
-            # 🚫 VALIDAR DUPLICADOS
+            # 🚫 VALIDAR DUPLICADOS EN EL CLIENTE
             await UsuarioService.verificar_usuario_existente(
+                cliente_id,
                 usuario_data['nombre_usuario'],
                 usuario_data['correo']
             )
@@ -259,22 +264,27 @@ class UsuarioService(BaseService):
             # 💾 EJECUTAR INSERCIÓN
             insert_query = """
             INSERT INTO dbo.usuario (
-                nombre_usuario, correo, contrasena, nombre, apellido,
-                es_activo, correo_confirmado, es_eliminado
+                cliente_id, nombre_usuario, correo, contrasena, nombre, apellido,
+                dni, telefono, proveedor_autenticacion, es_activo, correo_confirmado, es_eliminado
             )
             OUTPUT
-                INSERTED.usuario_id, INSERTED.nombre_usuario, INSERTED.correo,
-                INSERTED.nombre, INSERTED.apellido, INSERTED.es_activo,
-                INSERTED.correo_confirmado, INSERTED.fecha_creacion
-            VALUES (?, ?, ?, ?, ?, 1, 0, 0)
+                INSERTED.usuario_id, INSERTED.cliente_id, INSERTED.nombre_usuario, INSERTED.correo,
+                INSERTED.nombre, INSERTED.apellido, INSERTED.dni, INSERTED.telefono,
+                INSERTED.proveedor_autenticacion, INSERTED.es_activo, INSERTED.correo_confirmado,
+                INSERTED.fecha_creacion
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
             """
             
             params = (
+                cliente_id,
                 usuario_data['nombre_usuario'],
                 usuario_data['correo'],
                 hashed_password,
                 usuario_data.get('nombre'),
-                usuario_data.get('apellido')
+                usuario_data.get('apellido'),
+                usuario_data.get('dni'),
+                usuario_data.get('telefono'),
+                usuario_data.get('proveedor_autenticacion', 'local')
             )
             
             result = execute_insert(insert_query, params)
@@ -286,7 +296,7 @@ class UsuarioService(BaseService):
                     internal_code="USER_CREATION_FAILED"
                 )
 
-            logger.info(f"Usuario creado exitosamente con ID: {result.get('usuario_id')}")
+            logger.info(f"Usuario creado exitosamente con ID: {result.get('usuario_id')} para cliente {cliente_id}")
             return result
 
         except (ValidationError, ConflictError):
@@ -308,16 +318,17 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_usuario(usuario_id: int, usuario_data: Dict) -> Dict:
+    async def actualizar_usuario(cliente_id: int, usuario_id: int, usuario_data: Dict) -> Dict:
         """
-        Actualiza un usuario existente con validaciones de integridad.
+        Actualiza un usuario existente **dentro de un cliente** con validaciones de integridad.
         
         🔄 ACTUALIZACIÓN PARCIAL:
         - Solo actualiza campos proporcionados
-        - Valida duplicados si se cambian campos únicos
+        - Valida duplicados dentro del cliente si se cambian campos únicos
         - Actualiza automáticamente la fecha de modificación
         
         Args:
+            cliente_id: ID del cliente
             usuario_id: ID del usuario a actualizar
             usuario_data: Campos a actualizar (parcial)
             
@@ -325,22 +336,22 @@ class UsuarioService(BaseService):
             Dict: Usuario actualizado
             
         Raises:
-            NotFoundError: Si el usuario no existe
-            ConflictError: Si los nuevos datos causan conflictos
+            NotFoundError: Si el usuario no existe en el cliente
+            ConflictError: Si los nuevos datos causan conflictos dentro del cliente
             ServiceError: Si la actualización falla
         """
-        logger.info(f"Intentando actualizar usuario ID: {usuario_id}")
+        logger.info(f"Intentando actualizar usuario ID: {usuario_id} en cliente {cliente_id}")
 
         try:
-            # 🔍 VERIFICAR EXISTENCIA DEL USUARIO
-            usuario_existente = await UsuarioService.obtener_usuario_por_id(usuario_id)
+            # 🔍 VERIFICAR EXISTENCIA DEL USUARIO EN EL CLIENTE
+            usuario_existente = await UsuarioService.obtener_usuario_por_id(cliente_id, usuario_id)
             if not usuario_existente:
                 raise NotFoundError(
-                    detail="Usuario no encontrado",
+                    detail="Usuario no encontrado en este cliente",
                     internal_code="USER_NOT_FOUND"
                 )
 
-            # 🚫 VALIDAR DUPLICADOS SI SE CAMBIAN CAMPOS ÚNICOS
+            # 🚫 VALIDAR DUPLICADOS EN EL CLIENTE SI SE CAMBIAN CAMPOS ÚNICOS
             check_duplicates = False
             if 'nombre_usuario' in usuario_data and usuario_data['nombre_usuario'] != usuario_existente.get('nombre_usuario'):
                 check_duplicates = True
@@ -351,30 +362,33 @@ class UsuarioService(BaseService):
                 verify_query = """
                 SELECT usuario_id, nombre_usuario, correo
                 FROM dbo.usuario
-                WHERE (nombre_usuario = ? OR correo = ?)
+                WHERE cliente_id = ? AND (nombre_usuario = ? OR correo = ?)
                 AND usuario_id != ? AND es_eliminado = 0
                 """
                 check_nombre_usuario = usuario_data.get('nombre_usuario', usuario_existente.get('nombre_usuario'))
                 check_correo = usuario_data.get('correo', usuario_existente.get('correo'))
-                params_verify = (check_nombre_usuario, check_correo, usuario_id)
+                params_verify = (cliente_id, check_nombre_usuario, check_correo, usuario_id)
                 duplicados = execute_query(verify_query, params_verify)
 
                 if duplicados:
                     if any(d['nombre_usuario'] == check_nombre_usuario for d in duplicados):
                          raise ConflictError(
-                             detail=f"El nombre de usuario '{check_nombre_usuario}' ya está en uso.",
+                             detail=f"El nombre de usuario '{check_nombre_usuario}' ya está en uso en este cliente.",
                              internal_code="USERNAME_CONFLICT"
                          )
                     if any(d['correo'] == check_correo for d in duplicados):
                          raise ConflictError(
-                             detail=f"El correo '{check_correo}' ya está en uso.",
+                             detail=f"El correo '{check_correo}' ya está en uso en este cliente.",
                              internal_code="EMAIL_CONFLICT"
                          )
 
             # 🛠️ CONSTRUIR ACTUALIZACIÓN DINÁMICA
             update_parts = []
             params_update = []
-            campos_permitidos = {'nombre_usuario', 'correo', 'nombre', 'apellido', 'es_activo'}
+            campos_permitidos = {
+                'nombre_usuario', 'correo', 'nombre', 'apellido', 'dni', 'telefono',
+                'proveedor_autenticacion', 'es_activo'
+            }
 
             campos_actualizados = False
             for field in campos_permitidos:
@@ -391,6 +405,7 @@ class UsuarioService(BaseService):
                 )
 
             update_parts.append("fecha_actualizacion = GETDATE()")
+            params_update.append(cliente_id)
             params_update.append(usuario_id)
 
             # 💾 EJECUTAR ACTUALIZACIÓN
@@ -398,11 +413,11 @@ class UsuarioService(BaseService):
             UPDATE dbo.usuario
             SET {', '.join(update_parts)}
             OUTPUT
-                INSERTED.usuario_id, INSERTED.nombre_usuario, INSERTED.correo,
-                INSERTED.nombre, INSERTED.apellido, INSERTED.es_activo,
-                INSERTED.correo_confirmado, INSERTED.fecha_creacion, 
-                INSERTED.fecha_actualizacion
-            WHERE usuario_id = ? AND es_eliminado = 0
+                INSERTED.usuario_id, INSERTED.cliente_id, INSERTED.nombre_usuario, INSERTED.correo,
+                INSERTED.nombre, INSERTED.apellido, INSERTED.dni, INSERTED.telefono,
+                INSERTED.proveedor_autenticacion, INSERTED.es_activo, INSERTED.correo_confirmado,
+                INSERTED.fecha_creacion, INSERTED.fecha_actualizacion
+            WHERE cliente_id = ? AND usuario_id = ? AND es_eliminado = 0
             """
             
             result = execute_update(update_query, tuple(params_update))
@@ -415,7 +430,7 @@ class UsuarioService(BaseService):
                     internal_code="USER_UPDATE_FAILED"
                 )
 
-            logger.info(f"Usuario ID {usuario_id} actualizado exitosamente")
+            logger.info(f"Usuario ID {usuario_id} actualizado exitosamente en cliente {cliente_id}")
             return result
 
         except (ValidationError, NotFoundError, ConflictError):
@@ -437,7 +452,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def eliminar_usuario(usuario_id: int) -> Dict:
+    async def eliminar_usuario(cliente_id: int, usuario_id: int) -> Dict:
         """
         Realiza un borrado lógico del usuario y desactiva sus roles.
         
@@ -447,30 +462,31 @@ class UsuarioService(BaseService):
         - Desactiva todas sus asignaciones de roles
         
         Args:
+            cliente_id: ID del cliente
             usuario_id: ID del usuario a eliminar
             
         Returns:
             Dict: Resultado de la eliminación con metadatos
             
         Raises:
-            NotFoundError: Si el usuario no existe
+            NotFoundError: Si el usuario no existe en el cliente
             ServiceError: Si la eliminación falla
         """
-        logger.info(f"Intentando eliminar usuario ID: {usuario_id}")
+        logger.info(f"Intentando eliminar usuario ID: {usuario_id} en cliente {cliente_id}")
 
         try:
             # 🔍 VERIFICAR EXISTENCIA Y ESTADO
-            check_query = "SELECT es_eliminado FROM dbo.usuario WHERE usuario_id = ?"
-            user_status = execute_query(check_query, (usuario_id,))
+            check_query = "SELECT es_eliminado FROM dbo.usuario WHERE cliente_id = ? AND usuario_id = ?"
+            user_status = execute_query(check_query, (cliente_id, usuario_id))
 
             if not user_status:
                  raise NotFoundError(
-                     detail="Usuario no encontrado",
+                     detail="Usuario no encontrado en este cliente",
                      internal_code="USER_NOT_FOUND"
                  )
                  
             if user_status[0]['es_eliminado']:
-                 logger.info(f"Usuario ID {usuario_id} ya estaba eliminado")
+                 logger.info(f"Usuario ID {usuario_id} ya estaba eliminado en cliente {cliente_id}")
                  return {
                      "message": "Usuario ya estaba eliminado", 
                      "usuario_id": usuario_id
@@ -481,13 +497,13 @@ class UsuarioService(BaseService):
             UPDATE dbo.usuario
             SET es_eliminado = 1, es_activo = 0, fecha_actualizacion = GETDATE()
             OUTPUT INSERTED.usuario_id, INSERTED.nombre_usuario, INSERTED.es_eliminado
-            WHERE usuario_id = ? AND es_eliminado = 0
+            WHERE cliente_id = ? AND usuario_id = ? AND es_eliminado = 0
             """
             
-            result = execute_update(update_query, (usuario_id,))
+            result = execute_update(update_query, (cliente_id, usuario_id))
 
             if not result:
-                logger.warning(f"No se pudo eliminar lógicamente el usuario ID {usuario_id}")
+                logger.warning(f"No se pudo eliminar lógicamente el usuario ID {usuario_id} en cliente {cliente_id}")
                 raise ServiceError(
                     status_code=409,
                     detail="Conflicto al eliminar el usuario, posible concurrencia",
@@ -498,15 +514,15 @@ class UsuarioService(BaseService):
             try:
                 deactivate_roles_query = """
                 UPDATE dbo.usuario_rol SET es_activo = 0
-                WHERE usuario_id = ? AND es_activo = 1
+                WHERE usuario_id = ? AND cliente_id = ?
                 """
-                execute_update(deactivate_roles_query, (usuario_id,))
-                logger.info(f"Roles desactivados para usuario eliminado ID {usuario_id}")
+                execute_update(deactivate_roles_query, (usuario_id, cliente_id))
+                logger.info(f"Roles desactivados para usuario eliminado ID {usuario_id} en cliente {cliente_id}")
             except Exception as role_error:
                  logger.error(f"Error desactivando roles para usuario {usuario_id}: {role_error}")
                  # 🟡 NO FALLAR LA ELIMINACIÓN PRINCIPAL POR ESTO
 
-            logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente")
+            logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente en cliente {cliente_id}")
             return {
                 "message": "Usuario eliminado lógicamente exitosamente",
                 "usuario_id": result['usuario_id'],
@@ -532,7 +548,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def asignar_rol_a_usuario(usuario_id: int, rol_id: int) -> Dict:
+    async def asignar_rol_a_usuario(cliente_id: int, usuario_id: int, rol_id: int) -> Dict:
         """
         Asigna un rol a un usuario con validaciones completas.
         
@@ -542,6 +558,7 @@ class UsuarioService(BaseService):
         - Si no existe: crea una nueva asignación
         
         Args:
+            cliente_id: ID del cliente
             usuario_id: ID del usuario
             rol_id: ID del rol a asignar
             
@@ -549,18 +566,18 @@ class UsuarioService(BaseService):
             Dict: Asignación usuario-rol creada o reactivada
             
         Raises:
-            NotFoundError: Si el usuario o rol no existen
+            NotFoundError: Si el usuario o rol no existen en el cliente
             ValidationError: Si el rol no está activo
             ServiceError: Si la asignación falla
         """
-        logger.info(f"Intentando asignar rol {rol_id} a usuario {usuario_id}")
+        logger.info(f"Intentando asignar rol {rol_id} a usuario {usuario_id} en cliente {cliente_id}")
 
         try:
-            # 👤 VALIDAR QUE EL USUARIO EXISTE
-            usuario = await UsuarioService.obtener_usuario_por_id(usuario_id)
+            # 👤 VALIDAR QUE EL USUARIO EXISTE EN EL CLIENTE
+            usuario = await UsuarioService.obtener_usuario_por_id(cliente_id, usuario_id)
             if not usuario:
                 raise NotFoundError(
-                    detail=f"Usuario con ID {usuario_id} no encontrado.",
+                    detail=f"Usuario con ID {usuario_id} no encontrado en cliente {cliente_id}.",
                     internal_code="USER_NOT_FOUND"
                 )
 
@@ -581,17 +598,17 @@ class UsuarioService(BaseService):
             check_query = """
             SELECT usuario_rol_id, es_activo
             FROM dbo.usuario_rol
-            WHERE usuario_id = ? AND rol_id = ?
+            WHERE usuario_id = ? AND rol_id = ? AND cliente_id = ?
             """
             
-            existing_assignment = execute_query(check_query, (usuario_id, rol_id))
+            existing_assignment = execute_query(check_query, (usuario_id, rol_id, cliente_id))
 
             if existing_assignment:
                 assignment = existing_assignment[0]
                 
                 if assignment['es_activo']:
                     # ✅ ASIGNACIÓN YA ACTIVA - Retornar existente
-                    logger.info(f"Rol ID {rol_id} ya está asignado y activo para usuario ID {usuario_id}")
+                    logger.info(f"Rol ID {rol_id} ya está asignado y activo para usuario ID {usuario_id} en cliente {cliente_id}")
                     get_assignment_query = """
                     SELECT usuario_rol_id, usuario_id, rol_id, fecha_asignacion, es_activo
                     FROM dbo.usuario_rol WHERE usuario_rol_id = ?
@@ -627,12 +644,12 @@ class UsuarioService(BaseService):
                 # 🆕 CREAR NUEVA ASIGNACIÓN
                 logger.info(f"Creando nueva asignación para usuario {usuario_id}, rol {rol_id}")
                 insert_query = """
-                INSERT INTO dbo.usuario_rol (usuario_id, rol_id, es_activo)
+                INSERT INTO dbo.usuario_rol (usuario_id, rol_id, cliente_id, es_activo)
                 OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
                        INSERTED.fecha_asignacion, INSERTED.es_activo
-                VALUES (?, ?, 1)
+                VALUES (?, ?, ?, 1)
                 """
-                result = execute_insert(insert_query, (usuario_id, rol_id))
+                result = execute_insert(insert_query, (usuario_id, rol_id, cliente_id))
                 if not result:
                     raise ServiceError(
                         status_code=500,
@@ -661,7 +678,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def revocar_rol_de_usuario(usuario_id: int, rol_id: int) -> Dict:
+    async def revocar_rol_de_usuario(cliente_id: int, usuario_id: int, rol_id: int) -> Dict:
         """
         Revoca (desactiva) un rol asignado a un usuario.
         
@@ -671,6 +688,7 @@ class UsuarioService(BaseService):
         - Mantiene el registro histórico
         
         Args:
+            cliente_id: ID del cliente
             usuario_id: ID del usuario
             rol_id: ID del rol a revocar
             
@@ -681,21 +699,21 @@ class UsuarioService(BaseService):
             NotFoundError: Si la asignación no existe
             ServiceError: Si la revocación falla
         """
-        logger.info(f"Intentando revocar rol {rol_id} de usuario {usuario_id}")
+        logger.info(f"Intentando revocar rol {rol_id} de usuario {usuario_id} en cliente {cliente_id}")
 
         try:
             # 🔍 VERIFICAR EXISTENCIA DE LA ASIGNACIÓN
             check_query = """
             SELECT usuario_rol_id, es_activo
             FROM dbo.usuario_rol
-            WHERE usuario_id = ? AND rol_id = ?
+            WHERE usuario_id = ? AND rol_id = ? AND cliente_id = ?
             """
             
-            existing_assignment = execute_query(check_query, (usuario_id, rol_id))
+            existing_assignment = execute_query(check_query, (usuario_id, rol_id, cliente_id))
 
             if not existing_assignment:
                  raise NotFoundError(
-                     detail=f"No existe asignación entre usuario ID {usuario_id} y rol ID {rol_id}.",
+                     detail=f"No existe asignación entre usuario ID {usuario_id} y rol ID {rol_id} en cliente {cliente_id}.",
                      internal_code="ASSIGNMENT_NOT_FOUND"
                  )
 
@@ -752,7 +770,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_roles_de_usuario(usuario_id: int) -> List[Dict]:
+    async def obtener_roles_de_usuario(cliente_id: int, usuario_id: int) -> List[Dict]:
         """
         Obtiene la lista completa de roles activos asignados a un usuario.
         
@@ -762,6 +780,7 @@ class UsuarioService(BaseService):
         - Ordenado por nombre del rol
         
         Args:
+            cliente_id: ID del cliente
             usuario_id: ID del usuario cuyos roles se quieren obtener
             
         Returns:
@@ -776,12 +795,12 @@ class UsuarioService(BaseService):
                 r.rol_id, r.nombre, r.descripcion, r.es_activo, r.fecha_creacion
             FROM dbo.rol r
             INNER JOIN dbo.usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ? AND ur.es_activo = 1 AND r.es_activo = 1
+            WHERE ur.usuario_id = ? AND ur.cliente_id = ? AND ur.es_activo = 1 AND r.es_activo = 1
             ORDER BY r.nombre;
             """
             
-            roles = execute_query(query, (usuario_id,))
-            logger.debug(f"Obtenidos {len(roles)} roles activos para usuario ID {usuario_id}")
+            roles = execute_query(query, (usuario_id, cliente_id))
+            logger.debug(f"Obtenidos {len(roles)} roles activos para usuario ID {usuario_id} en cliente {cliente_id}")
             return roles
 
         except DatabaseError as db_err:
@@ -802,6 +821,7 @@ class UsuarioService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def get_usuarios_paginated(
+        cliente_id: int,
         page: int = 1,
         limit: int = 10,
         search: Optional[str] = None
@@ -815,6 +835,7 @@ class UsuarioService(BaseService):
         - Metadatos completos de paginación
         
         Args:
+            cliente_id: ID del cliente
             page: Número de página (comienza en 1)
             limit: Número de usuarios por página
             search: Término de búsqueda opcional
@@ -826,7 +847,7 @@ class UsuarioService(BaseService):
             ValidationError: Si los parámetros son inválidos
             ServiceError: Si hay errores en la consulta
         """
-        logger.info(f"Obteniendo usuarios paginados: page={page}, limit={limit}, search='{search}'")
+        logger.info(f"Obteniendo usuarios paginados para cliente {cliente_id}: page={page}, limit={limit}, search='{search}'")
 
         # 🚫 VALIDAR PARÁMETROS
         if page < 1:
@@ -845,7 +866,7 @@ class UsuarioService(BaseService):
 
         try:
             # 📊 CONTAR TOTAL DE USUARIOS
-            count_params = (search_param, search_param, search_param, search_param, search_param)
+            count_params = (cliente_id, search_param, search_param, search_param, search_param, search_param)
             count_result = execute_query(COUNT_USUARIOS_PAGINATED, count_params)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
@@ -869,10 +890,10 @@ class UsuarioService(BaseService):
                         internal_code="USER_COUNT_PARSING_ERROR"
                     )
 
-            logger.debug(f"Total de usuarios encontrados: {total_usuarios}")
+            logger.debug(f"Total de usuarios encontrados para cliente {cliente_id}: {total_usuarios}")
 
             # 📋 OBTENER DATOS PAGINADOS CON ROLES
-            data_params = (search_param, search_param, search_param, search_param, search_param, offset, limit)
+            data_params = (search_param, search_param, search_param, search_param, search_param, offset, limit, cliente_id)
             raw_results = execute_query(SELECT_USUARIOS_PAGINATED, data_params)
 
             # 🎯 PROCESAR RESULTADOS - AGRUPAR ROLES POR USUARIO

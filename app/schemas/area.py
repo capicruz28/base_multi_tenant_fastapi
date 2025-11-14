@@ -3,15 +3,15 @@
 Esquemas Pydantic para la gestión de áreas de menú en el sistema.
 
 Este módulo define todos los esquemas de validación, creación, actualización 
-y lectura de áreas, que representan las secciones principales del sistema
-a las que pertenecen los diferentes menús.
+y lectura de áreas, que representan las secciones principales del sistema.
 
-Las áreas organizan los menús en grupos lógicos y facilitan la navegación
-y administración del sistema de menús.
+Se implementa el soporte para multi-tenancy añadiendo el campo 'cliente_id'
+para garantizar el aislamiento de datos entre diferentes clientes.
 
 Características principales:
 - Validaciones robustas con mensajes de error en español
 - Gestión completa de áreas y su relación con menús
+- Soporte Multi-Tenant (cliente_id)
 - Validación de nombres únicos y reglas de negocio
 - Documentación clara para desarrolladores
 """
@@ -26,7 +26,7 @@ class AreaBase(BaseModel):
     Schema base para áreas con validaciones fundamentales.
     
     Define la estructura básica de un área y establece las reglas de validación
-    esenciales para mantener la organización del sistema de menús.
+    esenciales, incluyendo el identificador de cliente.
     """
     
     nombre: str = Field(
@@ -57,25 +57,18 @@ class AreaBase(BaseModel):
         description="Indica si el área está activa y disponible para uso"
     )
 
+    cliente_id: int = Field(
+        ...,
+        ge=1,
+        description="ID del cliente al que pertenece el área (soporte Multi-Tenant)",
+        examples=[1, 5, 10]
+    )
+
     @field_validator('nombre')
     @classmethod
     def validar_formato_nombre_area(cls, valor: str) -> str:
         """
         Valida que el nombre del área tenga un formato válido.
-        
-        Reglas:
-        - Solo permite letras, números, espacios y caracteres especiales comunes
-        - No permite caracteres especiales potencialmente peligrosos
-        - Convierte a formato de título para consistencia
-        
-        Args:
-            valor: El nombre del área a validar
-            
-        Returns:
-            str: Nombre del área validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato no es válido
         """
         if not valor:
             raise ValueError('El nombre del área no puede estar vacío')
@@ -94,7 +87,6 @@ class AreaBase(BaseModel):
             raise ValueError('El nombre del área no puede exceder los 100 caracteres')
         
         # Patrón de caracteres permitidos: letras, números, espacios y caracteres especiales comunes
-        # CORREGIDO: Usamos comillas dobles para la cadena y escapamos las comillas simples internas
         patron_permitido = r"^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s\.,\-_()/!?@#$%&*+:=;'\"»«]+$"
         
         if not re.match(patron_permitido, valor):
@@ -116,18 +108,6 @@ class AreaBase(BaseModel):
     def validar_descripcion_area(cls, valor: Optional[str]) -> Optional[str]:
         """
         Valida el formato y contenido de la descripción del área.
-        
-        Permite una amplia gama de caracteres para descripciones detalladas
-        pero previene contenido potencialmente peligroso.
-        
-        Args:
-            valor: La descripción a validar
-            
-        Returns:
-            Optional[str]: Descripción validada y normalizada
-            
-        Raises:
-            ValueError: Cuando la descripción contiene caracteres no permitidos
         """
         if valor is None:
             return None
@@ -157,18 +137,6 @@ class AreaBase(BaseModel):
     def validar_formato_icono(cls, valor: Optional[str]) -> Optional[str]:
         """
         Valida el formato del nombre del icono.
-        
-        Los iconos típicamente son nombres de clases CSS o identificadores
-        de sistemas de iconos como FontAwesome, Material Icons, etc.
-        
-        Args:
-            valor: El nombre del icono a validar
-            
-        Returns:
-            Optional[str]: Nombre del icono validado y normalizado
-            
-        Raises:
-            ValueError: Cuando el formato del icono no es válido
         """
         if valor is None:
             return None
@@ -195,9 +163,6 @@ class AreaBase(BaseModel):
     def validar_consistencia_nombre_area(self) -> 'AreaBase':
         """
         Valida consistencias adicionales después de procesar todos los campos.
-        
-        Realiza validaciones que requieren múltiples campos o que dependen
-        de transformaciones realizadas en validadores individuales.
         """
         # Validar que el nombre no sea demasiado genérico
         nombres_genericos = ['área', 'area', 'nueva área', 'nuevo área', 'test', 'prueba']
@@ -211,8 +176,8 @@ class AreaCreate(AreaBase):
     """
     Schema para la creación de nuevas áreas.
     
-    Extiende AreaBase sin agregar campos adicionales, pero se utiliza
-    para documentar específicamente la operación de creación.
+    Requiere que todos los campos obligatorios de AreaBase estén presentes,
+    incluyendo cliente_id.
     """
     pass
 
@@ -221,8 +186,7 @@ class AreaUpdate(BaseModel):
     Schema para actualización parcial de áreas.
     
     Todos los campos son opcionales y solo se validan los que se proporcionen.
-    Diseñado específicamente para operaciones PATCH que actualizan solo
-    algunos campos del área.
+    El cliente_id no es actualizable.
     """
     
     nombre: Optional[str] = Field(
@@ -297,6 +261,11 @@ class AreaSimpleList(BaseModel):
         description="Nombre del área para mostrar en interfaces"
     )
 
+    cliente_id: int = Field(
+        ...,
+        description="ID del cliente al que pertenece el área"
+    )
+
     class Config:
         """Configuración para el schema simplificado."""
         from_attributes = True
@@ -304,9 +273,6 @@ class AreaSimpleList(BaseModel):
 class PaginatedAreaResponse(BaseModel):
     """
     Schema para respuestas paginadas de listas de áreas.
-    
-    Utilizado en endpoints que devuelven listas paginadas de áreas
-    con metadatos de paginación para la navegación en interfaces.
     """
     
     areas: List[AreaRead] = Field(

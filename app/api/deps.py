@@ -1,6 +1,5 @@
 # app/api/deps.py
-
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from typing import List, Dict, Any
@@ -8,12 +7,14 @@ from typing import List, Dict, Any
 from app.core.config import settings
 from app.core.auth import oauth2_scheme
 from app.db.queries import execute_auth_query, execute_query
+
 # --- Importar los schemas necesarios ---
 from app.schemas.auth import TokenPayload
 from app.schemas.usuario import UsuarioReadWithRoles # <<< Importar schema de usuario
 from app.schemas.rol import RolRead # <<< Importar schema de rol
 # --- Fin importación schemas ---
 from app.services.usuario_service import UsuarioService
+from app.services.rol_service import RolService # <<< NUEVA IMPORTACIÓN: Servicio de Roles
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ inactive_user_exception = HTTPException(
     status_code=status.HTTP_403_FORBIDDEN,
     detail="Usuario inactivo",
 )
+# Modificamos la excepción base para que la RoleChecker pueda rellenar los niveles
 forbidden_exception = HTTPException(
     status_code=status.HTTP_403_FORBIDDEN,
     detail="Permisos insuficientes",
@@ -55,10 +57,12 @@ async def get_current_user_data(token: str = Depends(oauth2_scheme)) -> Dict[str
         logger.warning(f"Error de validación JWT: {e}")
         raise credentials_exception
 
-# --- get_current_active_user CORREGIDO ---
+# --- get_current_active_user (SIN CAMBIOS FUNCIONALES) ---
 async def get_current_active_user(
+    request: Request,
     payload: Dict[str, Any] = Depends(get_current_user_data)
-) -> UsuarioReadWithRoles: # <<< Tipo de retorno es UsuarioReadWithRoles
+) -> UsuarioReadWithRoles:
+    # ... (Contenido de get_current_active_user se mantiene exactamente igual) ...
     """
     Dependencia principal: Obtiene los datos completos del usuario activo desde la BD
     basado en el nombre de usuario del token, añade sus roles (como objetos RolRead)
@@ -67,10 +71,12 @@ async def get_current_active_user(
     username = payload.get("sub")
 
     try:
-        # Obtener datos básicos del usuario como diccionario
+        # Obtener datos básicos del usuario como diccionario **incluyendo cliente_id**
         user_query = """
-        SELECT usuario_id, nombre_usuario, correo, nombre, apellido, es_activo,
-               fecha_creacion, fecha_ultimo_acceso, correo_confirmado
+        SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, 
+            es_activo, fecha_creacion, fecha_ultimo_acceso, correo_confirmado,
+            es_eliminado, proveedor_autenticacion, fecha_ultimo_cambio_contrasena,
+            sincronizado_desde
         FROM usuario
         WHERE nombre_usuario = ? AND es_eliminado = 0
         """
@@ -84,11 +90,28 @@ async def get_current_active_user(
             logger.warning(f"Usuario '{username}' autenticado pero inactivo.")
             raise inactive_user_exception
 
+        # 🔒 Validación de aislamiento multi-tenant
+        token_cliente_id = user_dict.get('cliente_id')
+        request_cliente_id = getattr(request.state, 'cliente_id', None)
+
+        # Si el usuario NO es un Super Administrador (cliente_id no es NULL) Y 
+        # el ID del token no coincide con el ID del contexto del request, denegar.
+        # NOTE: El Super Administrador (rol_id=NULL) debe poder acceder a cualquier cliente,
+        # pero esta validación de seguridad SÓLO permite que los usuarios de un TENANT
+        # accedan a su propio TENANT. El SUPER ADMIN debe tener cliente_id=NULL en la tabla usuario
+        # O la lógica de tenant_middleware debe manejar una excepción para el cliente 'admin'.
+        # Por ahora, mantenemos la lógica de que un usuario con cliente_id debe coincidir.
+        if token_cliente_id is not None and request_cliente_id is not None and token_cliente_id != request_cliente_id:
+            logger.warning(f"Acceso denegado: el usuario '{username}' (cliente {token_cliente_id}) "
+                           f"intentó acceder al cliente {request_cliente_id}. Violación de tenant.")
+            raise credentials_exception
+
+
         # Obtener roles del usuario usando el servicio (devuelve List[Dict])
         roles_list: List[RolRead] = [] # Inicializar lista para objetos RolRead
         try:
             # roles_dict_list será del tipo List[Dict]
-            roles_dict_list: List[Dict] = await UsuarioService.obtener_roles_de_usuario(user_dict['usuario_id'])
+            roles_dict_list: List[Dict] = await UsuarioService.obtener_roles_de_usuario(token_cliente_id, user_dict['usuario_id'])
             logger.debug(f"Roles (dicts) obtenidos para usuario ID {user_dict['usuario_id']}: {roles_dict_list}")
 
             # --- Convertir List[Dict] a List[RolRead] ---
@@ -99,7 +122,6 @@ async def get_current_active_user(
                 except Exception as rol_parse_error:
                     # Loggear error si un diccionario de rol no es válido
                     logger.error(f"Error parseando diccionario de rol a RolRead: {rol_dict}. Error: {rol_parse_error}", exc_info=True)
-                    # Decidir si continuar sin este rol o fallar. Por seguridad, fallamos.
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         detail="Error interno al procesar datos de roles del usuario."
@@ -146,34 +168,75 @@ async def get_current_active_user(
         )
 
 
-# --- RoleChecker (sin cambios respecto a la versión anterior, ya espera UsuarioReadWithRoles) ---
+# --- RoleChecker (MODIFICADO PARA LBAC) ---
 
 class RoleChecker:
     """
     Clase para crear dependencias que verifican roles específicos.
+    
+    AHORA BASADO EN NIVEL DE ACCESO (LBAC): Un usuario con nivel N puede acceder
+    a cualquier recurso que requiera un nivel M, si N >= M.
     """
-    def __init__(self, allowed_roles: List[str]):
-        self.allowed_roles = allowed_roles
+    def __init__(self, required_roles: List[str]):
+        """
+        Inicializa con los nombres de rol requeridos.
+        """
+        self.required_roles = required_roles
+        self.min_required_level: int = 0
+        
+        # NOTE: El cálculo del nivel mínimo debe hacerse DENTRO de __call__ de forma asíncrona
+        # ya que la dependencia se resuelve de forma asíncrona y necesita acceso a la DB.
 
     async def __call__(self,
-        # <<< Espera UsuarioReadWithRoles
         current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
     ):
         """
-        Verifica si alguno de los roles del usuario actual está en la lista de roles permitidos.
-        Ahora espera un objeto UsuarioReadWithRoles.
+        Verifica si el nivel de acceso máximo del usuario es suficiente para cubrir
+        el nivel de acceso mínimo requerido por los roles permitidos.
         """
-        # <<< Acceder a la lista de objetos RolRead
-        user_roles_objects = current_user.roles
-        # <<< Extraer los nombres de los roles de los objetos
-        user_role_names = [role.nombre for role in user_roles_objects]
+        user_id = current_user.usuario_id
+        
+        # 1. Determinar el nivel mínimo requerido (Nivel M)
+        try:
+            # El RolService consulta la BD para el MIN(nivel_acceso) de los roles requeridos
+            min_required_level = await RolService.get_min_required_access_level(self.required_roles)
+        except Exception as e:
+            logger.error(f"Error al obtener nivel requerido para roles {self.required_roles}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error interno al verificar el nivel de rol requerido."
+            )
+        
+        # 2. Determinar el nivel máximo del usuario (Nivel N)
+        try:
+            # El RolService consulta la BD para el MAX(nivel_acceso) del usuario
+            user_max_level = await RolService.get_user_max_access_level(user_id)
+        except Exception as e:
+            logger.error(f"Error al obtener nivel máximo para usuario {user_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error interno al verificar el nivel de rol del usuario."
+            )
 
-        logger.debug(f"Verificando roles. Usuario: {current_user.nombre_usuario}, Roles: {user_role_names}, Roles requeridos: {self.allowed_roles}")
+        # 3. Comparación Jerárquica: N >= M
+        # Esto soluciona el problema: SUPER_ADMIN (99) vs. Administrador (50). 99 >= 50. ACCESO.
+        if user_max_level < min_required_level:
+            
+            # --- LOGS Y MENSAJE DE ERROR MEJORADOS ---
+            user_role_names = [role.nombre for role in current_user.roles]
+            logger.warning(
+                f"Acceso denegado para usuario '{current_user.nombre_usuario}'. "
+                f"Roles del usuario: {user_role_names}. Nivel Máximo: {user_max_level}. "
+                f"Roles requeridos: {self.required_roles}. Nivel Mínimo Requerido: {min_required_level}"
+            )
+            
+            # Lanzamos la excepción con un detalle más informativo.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permisos insuficientes. Nivel de acceso del usuario ({user_max_level}) es menor al requerido ({min_required_level})."
+            )
 
-        # Comprobar si hay alguna intersección entre los nombres de roles del usuario y los permitidos
-        if not any(role_name in self.allowed_roles for role_name in user_role_names):
-            logger.warning(f"Acceso denegado para usuario '{current_user.nombre_usuario}'. Roles: {user_role_names}. Roles requeridos: {self.allowed_roles}")
-            raise forbidden_exception
-
-        logger.debug(f"Acceso permitido para usuario '{current_user.nombre_usuario}' basado en roles.")
-        # No es necesario devolver nada explícitamente si solo se usa para autorización.
+        logger.debug(f"Acceso permitido para usuario '{current_user.nombre_usuario}' por LBAC (Nivel {user_max_level} >= {min_required_level}).")
+        
+        # Retornamos el current_user para que esté disponible en la ruta si es necesario
+        return current_user

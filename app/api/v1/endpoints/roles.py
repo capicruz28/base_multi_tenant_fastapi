@@ -13,6 +13,7 @@ Características principales:
 - Implementación de paginación y búsqueda para el listado de roles.
 - Borrado lógico (`es_activo = False`) como mecanismo de desactivación, con opción de reactivación.
 - Endpoints específicos para la gestión integral de permisos asociados a cada rol.
+- **✅ MULTI-TENANT: Aislamiento de roles por cliente_id y gestión de roles del sistema.**
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Path
@@ -41,6 +42,18 @@ router = APIRouter()
 require_admin = RoleChecker(["Administrador"])
 
 
+# --- FUNCIÓN DE AYUDA PARA ROLES DEL SISTEMA ---
+def _is_system_role(role_data: Dict) -> bool:
+    """Determina si un rol es un rol del sistema."""
+    return role_data.get('cliente_id') is None
+
+
+def _can_manage_system_role(current_user: Any) -> bool:
+    """Verifica si el usuario actual puede gestionar roles del sistema."""
+    user_role_names = [role.nombre for role in current_user.roles]
+    return "SUPER_ADMIN" in user_role_names
+
+
 # ----------------------------------------------------------------------
 # --- Endpoint para Crear Roles ---
 # ----------------------------------------------------------------------
@@ -50,45 +63,63 @@ require_admin = RoleChecker(["Administrador"])
     status_code=status.HTTP_201_CREATED,
     summary="Crear un nuevo rol",
     description="""
-    Crea un nuevo rol en el sistema con un nombre único y su descripción.
+    Crea un nuevo rol en el sistema **dentro del cliente del administrador**.
 
     **Permisos requeridos:**
     - Rol 'Administrador'
 
     **Validaciones:**
-    - Nombre único (no duplicado).
+    - Nombre único **dentro del cliente**.
     - Campos obligatorios: nombre.
 
     **Respuestas:**
     - 201: Rol creado exitosamente
-    - 409: Conflicto - El nombre del rol ya existe
+    - 403: Intento de crear un rol del sistema sin ser SUPER_ADMIN
+    - 409: Conflicto - El nombre del rol ya existe **en el cliente**
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def create_rol(rol_in: RolCreate = Body(...)):
+async def create_rol(
+    rol_in: RolCreate = Body(...),
+    current_user: Any = Depends(get_current_active_user)
+):
     """
-    Endpoint para crear un nuevo rol.
+    Endpoint para crear un nuevo rol **asociado al cliente del administrador**.
 
     Args:
         rol_in: Datos validados del rol a crear (RolCreate).
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         RolRead: Rol creado con todos sus datos, incluyendo el ID generado.
 
     Raises:
-        HTTPException: En caso de conflicto de nombre (409), error de validación (422)
-                       o error interno del servidor (500).
+        HTTPException: En caso de conflicto, error de validación o error interno.
     """
-    logger.info(f"Solicitud POST /roles/ recibida para crear rol: '{rol_in.nombre}'")
+    logger.info(f"Solicitud POST /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear rol: '{rol_in.nombre}'")
+    
+    rol_dict = rol_in.model_dump()
+    
+    # ✅ VALIDAR: Solo SUPER_ADMIN puede crear roles del sistema
+    if _is_system_role(rol_dict) and not _can_manage_system_role(current_user):
+        logger.warning(f"Usuario {current_user.usuario_id} intentó crear un rol del sistema sin permisos.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los SUPER_ADMIN pueden crear roles del sistema."
+        )
+    
+    # ✅ MULTI-TENANT: Asignar cliente_id si no se especificó (para roles de cliente)
+    if rol_dict.get('cliente_id') is None:
+        rol_dict['cliente_id'] = current_user.cliente_id
+
     try:
-        rol_dict = rol_in.model_dump()
         created_rol = await RolService.crear_rol(rol_data=rol_dict)
-        logger.info(f"Rol '{created_rol['nombre']}' creado exitosamente.")
+        logger.info(f"Rol '{created_rol['nombre']}' creado exitosamente en cliente {current_user.cliente_id}.")
         return created_rol
     except CustomException as ce:
-        logger.warning(f"Error de negocio al crear rol '{rol_in.nombre}': {ce.detail}")
+        logger.warning(f"Error de negocio al crear rol '{rol_in.nombre}' en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception("Error inesperado en endpoint POST /roles/")
@@ -103,7 +134,7 @@ async def create_rol(rol_in: RolCreate = Body(...)):
     response_model=PaginatedRolResponse,
     summary="Obtener lista paginada de roles",
     description="""
-    Recupera una lista paginada de roles (activos e inactivos), permitiendo búsqueda por nombre o descripción.
+    Recupera una lista paginada de roles **del cliente actual y roles del sistema**.
 
     **Permisos requeridos:**
     - Rol 'Administrador'
@@ -121,14 +152,16 @@ async def create_rol(rol_in: RolCreate = Body(...)):
     dependencies=[Depends(require_admin)]
 )
 async def read_roles_paginated(
+    current_user: Any = Depends(get_current_active_user),
     page: int = Query(1, ge=1, description="Número de página a recuperar"),
     limit: int = Query(10, ge=1, le=100, description="Número de roles por página"),
     search: Optional[str] = Query(None, description="Término de búsqueda para filtrar por nombre o descripción")
 ):
     """
-    Endpoint para obtener una lista paginada y filtrada de roles.
+    Endpoint para obtener una lista paginada y filtrada de roles **del cliente del usuario y roles del sistema**.
 
     Args:
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
         page: Número de página solicitada.
         limit: Límite de resultados por página.
         search: Término opcional para búsqueda textual.
@@ -137,18 +170,19 @@ async def read_roles_paginated(
         PaginatedRolResponse: Respuesta paginada con roles y metadatos.
 
     Raises:
-        HTTPException: En caso de error en los parámetros (422) o error interno (500).
+        HTTPException: En caso de error en los parámetros o error interno.
     """
-    logger.info(f"Solicitud GET /roles/ recibida - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'")
+    logger.info(f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'")
     try:
         paginated_response = await RolService.obtener_roles_paginados(
+            cliente_id=current_user.cliente_id,
             page=page,
             limit=limit,
             search=search
         )
         return paginated_response
     except CustomException as ce:
-        logger.warning(f"Error de negocio al listar roles: {ce.detail}")
+        logger.warning(f"Error de negocio al listar roles para cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception("Error inesperado en endpoint GET /roles/ (paginado)")
@@ -163,7 +197,7 @@ async def read_roles_paginated(
     response_model=List[RolRead],
     summary="Obtener todos los roles activos",
     description="""
-    Devuelve una lista de todos los roles que están actualmente activos, sin paginación.
+    Devuelve una lista de todos los roles activos **del cliente actual y roles del sistema**.
     Ideal para selectores y listas desplegables en interfaces de usuario.
 
     **Permisos requeridos:**
@@ -175,26 +209,28 @@ async def read_roles_paginated(
     """,
     dependencies=[Depends(require_admin)]
 )
-async def read_all_active_roles():
+async def read_all_active_roles(
+    current_user: Any = Depends(get_current_active_user)
+):
     """
-    Endpoint para obtener una lista simplificada de roles activos.
+    Endpoint para obtener una lista simplificada de roles activos **del cliente y del sistema**.
 
     Args:
-        None
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         List[RolRead]: Lista de todos los roles activos.
 
     Raises:
-        HTTPException: En caso de error interno del servidor (500).
+        HTTPException: En caso de error interno del servidor.
     """
-    logger.info("Solicitud GET /roles/all-active/ recibida para lista simple")
+    logger.info(f"Solicitud GET /roles/all-active/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para lista simple")
     try:
-        active_roles = await RolService.get_all_active_roles()
-        logger.info(f"Lista simple de roles activos recuperada - Total: {len(active_roles)}")
+        active_roles = await RolService.get_all_active_roles(cliente_id=current_user.cliente_id)
+        logger.info(f"Lista simple de roles activos recuperada para cliente {current_user.cliente_id} - Total: {len(active_roles)}")
         return active_roles
     except CustomException as ce:
-        logger.error(f"Error de servicio en endpoint /roles/all-active/: {ce.detail}")
+        logger.error(f"Error de servicio en endpoint /roles/all-active/ para cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception("Error inesperado en endpoint GET /roles/all-active/")
@@ -213,37 +249,53 @@ async def read_all_active_roles():
     summary="Obtener un rol por ID",
     description="""
     Recupera los detalles completos de un rol específico por su ID.
-    Permite obtener roles activos e inactivos (para revisión administrativa).
+    Permite obtener roles del cliente, roles del sistema y roles inactivos.
 
     **Permisos requeridos:**
     - Rol 'Administrador'
 
     **Respuestas:**
     - 200: Rol encontrado y devuelto
+    - 403: Acceso denegado (rol del sistema sin ser SUPER_ADMIN)
     - 404: Rol no encontrado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def read_rol(rol_id: int):
+async def read_rol(
+    rol_id: int,
+    current_user: Any = Depends(get_current_active_user)
+):
     """
     Endpoint para obtener los detalles completos de un rol específico.
 
     Args:
         rol_id: Identificador único del rol a consultar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         RolRead: Detalles completos del rol solicitado.
 
     Raises:
-        HTTPException: Si el rol no existe (404) o hay error interno (500).
+        HTTPException: Si el rol no existe, es de otro cliente, o hay error interno.
     """
-    logger.debug(f"Solicitud GET /roles/{rol_id}/ recibida")
+    logger.debug(f"Solicitud GET /roles/{rol_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
         if rol is None:
             logger.warning(f"Rol con ID {rol_id} no encontrado")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        
+        # ✅ VALIDAR: El rol debe pertenecer al cliente o ser del sistema (y tener permiso)
+        rol_cliente_id = rol.get('cliente_id')
+        if rol_cliente_id is not None and rol_cliente_id != current_user.cliente_id:
+            logger.warning(f"Acceso denegado: El rol {rol_id} no pertenece al cliente {current_user.cliente_id}")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        
+        if rol_cliente_id is None and not _can_manage_system_role(current_user):
+            logger.warning(f"Acceso denegado: El rol {rol_id} es del sistema y el usuario no es SUPER_ADMIN")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para acceder a roles del sistema.")
+        
         logger.debug(f"Rol ID {rol_id} encontrado: '{rol['nombre']}'")
         return rol
     except CustomException as ce:
@@ -268,49 +320,67 @@ async def read_rol(rol_id: int):
     - Rol 'Administrador'
 
     **Validaciones:**
-    - Si se actualiza el nombre, debe mantenerse único.
+    - Si se actualiza el nombre, debe mantenerse único **dentro del cliente**.
     - Al menos un campo debe ser proporcionado.
 
     **Respuestas:**
     - 200: Rol actualizado exitosamente
     - 400: Cuerpo de solicitud vacío
+    - 403: Acceso denegado (rol del sistema sin ser SUPER_ADMIN)
     - 404: Rol no encontrado
-    - 409: Conflicto - Nuevo nombre ya existe
+    - 409: Conflicto - Nuevo nombre ya existe **en el cliente**
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def update_rol(rol_id: int, rol_in: RolUpdate = Body(...)):
+async def update_rol(
+    rol_id: int,
+    rol_in: RolUpdate = Body(...),
+    current_user: Any = Depends(get_current_active_user)
+):
     """
-    Endpoint para actualizar parcialmente un rol existente.
+    Endpoint para actualizar parcialmente un rol existente **del cliente del usuario**.
 
     Args:
         rol_id: Identificador único del rol a actualizar.
         rol_in: Campos a actualizar (actualización parcial).
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         RolRead: Rol actualizado con los nuevos datos.
 
     Raises:
-        HTTPException: En caso de cuerpo vacío (400), rol no encontrado (404),
-                       conflicto de nombre (409), o error interno (500).
+        HTTPException: En caso de cuerpo vacío, rol no encontrado, conflicto o error interno.
     """
-    logger.info(f"Solicitud PUT /roles/{rol_id}/ recibida para actualizar")
+    logger.info(f"Solicitud PUT /roles/{rol_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para actualizar")
+    
+    update_data = rol_in.model_dump(exclude_unset=True)
+    if not update_data:
+         logger.warning(f"Intento de actualizar rol {rol_id} sin datos")
+         raise HTTPException(
+             status_code=status.HTTP_400_BAD_REQUEST,
+             detail="Se debe proporcionar al menos un campo para actualizar el rol."
+         )
+
     try:
-        update_data = rol_in.model_dump(exclude_unset=True)
-        if not update_data:
-             logger.warning(f"Intento de actualizar rol {rol_id} sin datos")
-             raise HTTPException(
-                 status_code=status.HTTP_400_BAD_REQUEST,
-                 detail="Se debe proporcionar al menos un campo para actualizar el rol."
-             )
+        # ✅ VALIDAR: El rol debe pertenecer al cliente o ser del sistema (y tener permiso)
+        rol_existente = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol_existente is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        
+        rol_cliente_id = rol_existente.get('cliente_id')
+        if rol_cliente_id is not None and rol_cliente_id != current_user.cliente_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        
+        if rol_cliente_id is None and not _can_manage_system_role(current_user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para editar roles del sistema.")
 
         updated_rol = await RolService.actualizar_rol(rol_id=rol_id, rol_data=update_data)
         logger.info(f"Rol ID {rol_id} actualizado exitosamente: '{updated_rol['nombre']}'")
         return updated_rol
     except CustomException as ce:
-        logger.warning(f"Error de negocio al actualizar rol {rol_id}: {ce.detail}")
+        logger.warning(f"Error de negocio al actualizar rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint PUT /roles/{rol_id}/")
@@ -333,35 +403,53 @@ async def update_rol(rol_id: int, rol_in: RolUpdate = Body(...)):
     **Notas:**
     - Operación reversible mediante el endpoint de reactivación.
     - No elimina físicamente el registro.
+    - **No se puede desactivar un rol del sistema.**
 
     **Respuestas:**
     - 200: Rol desactivado exitosamente
+    - 403: Acceso denegado (rol del sistema o fuera de cliente)
     - 404: Rol no encontrado
     - 400: Rol ya está desactivado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def deactivate_rol(rol_id: int):
+async def deactivate_rol(
+    rol_id: int,
+    current_user: Any = Depends(get_current_active_user)
+):
     """
-    Endpoint para desactivar un rol (borrado lógico).
+    Endpoint para desactivar un rol (borrado lógico) **del cliente del usuario**.
 
     Args:
         rol_id: Identificador único del rol a desactivar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         RolRead: El rol con el estado `es_activo=False`.
 
     Raises:
-        HTTPException: Si el rol no existe (404), ya está inactivo (400), o hay error interno (500).
+        HTTPException: Si el rol no existe, es de otro cliente o es del sistema.
     """
-    logger.info(f"Solicitud DELETE /roles/{rol_id}/ recibida (desactivar)")
+    logger.info(f"Solicitud DELETE /roles/{rol_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
+        # ✅ VALIDAR antes de desactivar
+        rol_existente = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol_existente is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        
+        rol_cliente_id = rol_existente.get('cliente_id')
+        if rol_cliente_id is not None and rol_cliente_id != current_user.cliente_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        
+        if rol_cliente_id is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden desactivar los roles del sistema.")
+
         deactivated_rol = await RolService.desactivar_rol(rol_id=rol_id)
-        logger.info(f"Rol ID {rol_id} desactivado exitosamente")
+        logger.info(f"Rol ID {rol_id} desactivado exitosamente en cliente {current_user.cliente_id}")
         return deactivated_rol
     except CustomException as ce:
-        logger.warning(f"No se pudo desactivar rol {rol_id}: {ce.detail}")
+        logger.warning(f"No se pudo desactivar rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint DELETE /roles/{rol_id}/")
@@ -384,32 +472,49 @@ async def deactivate_rol(rol_id: int):
 
     **Respuestas:**
     - 200: Rol reactivado exitosamente
+    - 403: Acceso denegado (rol del sistema o fuera de cliente)
     - 404: Rol no encontrado
     - 400: Rol ya está activo
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
-async def reactivate_rol(rol_id: int):
+async def reactivate_rol(
+    rol_id: int,
+    current_user: Any = Depends(get_current_active_user)
+):
     """
-    Endpoint para reactivar un rol inactivo.
+    Endpoint para reactivar un rol inactivo **del cliente del usuario**.
 
     Args:
         rol_id: Identificador único del rol a reactivar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         RolRead: El rol con el estado `es_activo=True`.
 
     Raises:
-        HTTPException: Si el rol no existe (404), ya está activo (400), o hay error interno (500).
+        HTTPException: Si el rol no existe o es de otro cliente.
     """
-    logger.info(f"Solicitud POST /roles/{rol_id}/reactivate/ recibida")
+    logger.info(f"Solicitud POST /roles/{rol_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
+        # ✅ VALIDAR antes de reactivar
+        rol_existente = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol_existente is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        
+        rol_cliente_id = rol_existente.get('cliente_id')
+        if rol_cliente_id is not None and rol_cliente_id != current_user.cliente_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        
+        if rol_cliente_id is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden reactivar los roles del sistema.")
+
         reactivated_rol = await RolService.reactivar_rol(rol_id=rol_id)
-        logger.info(f"Rol ID {rol_id} reactivado exitosamente")
+        logger.info(f"Rol ID {rol_id} reactivado exitosamente en cliente {current_user.cliente_id}")
         return reactivated_rol
     except CustomException as ce:
-        logger.warning(f"No se pudo reactivar rol {rol_id}: {ce.detail}")
+        logger.warning(f"No se pudo reactivar rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint POST /roles/{rol_id}/reactivate/")
@@ -431,28 +536,43 @@ async def reactivate_rol(rol_id: int):
 
     **Respuestas:**
     - 200: Lista de permisos recuperada
+    - 403: Acceso denegado (rol del sistema sin ser SUPER_ADMIN)
     - 404: Rol no encontrado
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_admin)]
 )
 async def get_permisos_por_rol(
-    rol_id: int = Path(..., title="ID del Rol", description="El ID del rol para consultar sus permisos")
+    rol_id: int = Path(..., title="ID del Rol", description="El ID del rol para consultar sus permisos"),
+    current_user: Any = Depends(get_current_active_user)
 ):
     """
     Endpoint para obtener los permisos activos asignados a un rol.
 
     Args:
         rol_id: Identificador único del rol a consultar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         List[PermisoRead]: Lista de roles activos asignados al usuario.
 
     Raises:
-        HTTPException: Si el rol no existe (404) o hay error interno (500).
+        HTTPException: Si el rol no existe o hay error interno.
     """
-    logger.info(f"Solicitud recibida en GET /roles/{rol_id}/permisos/")
+    logger.info(f"Solicitud recibida en GET /roles/{rol_id}/permisos/ por usuario {current_user.usuario_id}")
     try:
+        # ✅ VALIDAR acceso al rol antes de obtener permisos
+        rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        
+        rol_cliente_id = rol.get('cliente_id')
+        if rol_cliente_id is not None and rol_cliente_id != current_user.cliente_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        
+        if rol_cliente_id is None and not _can_manage_system_role(current_user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para acceder a roles del sistema.")
+
         permisos = await RolService.obtener_permisos_por_rol(rol_id=rol_id)
         logger.debug(f"Permisos para rol {rol_id} recuperados - Total: {len(permisos)}")
         return permisos
@@ -483,6 +603,7 @@ async def get_permisos_por_rol(
 
     **Respuestas:**
     - 204: Permisos actualizados exitosamente (No Content)
+    - 403: Acceso denegado (rol del sistema sin ser SUPER_ADMIN)
     - 404: Rol no encontrado
     - 422: Error de validación en la lista de permisos
     - 500: Error interno del servidor
@@ -491,7 +612,8 @@ async def get_permisos_por_rol(
 )
 async def update_permisos_rol(
     rol_id: int = Path(..., title="ID del Rol", description="El ID del rol cuyos permisos se actualizarán"),
-    payload: PermisoUpdatePayload = Body(..., description="Objeto que contiene la lista completa de los nuevos permisos para el rol")
+    payload: PermisoUpdatePayload = Body(..., description="Objeto que contiene la lista completa de los nuevos permisos para el rol"),
+    current_user: Any = Depends(get_current_active_user)
 ):
     """
     Endpoint para sobrescribir la lista de permisos de un rol.
@@ -499,16 +621,28 @@ async def update_permisos_rol(
     Args:
         rol_id: Identificador único del rol a actualizar.
         payload: Objeto que contiene la lista completa de IDs de permisos a asignar.
+        current_user: Usuario autenticado y activo (inyectado por dependencia).
 
     Returns:
         None: Respuesta sin contenido (204).
 
     Raises:
-        HTTPException: Si el rol no existe (404), hay error de validación (422),
-                       o error interno (500).
+        HTTPException: Si el rol no existe, hay error de validación o error interno.
     """
-    logger.info(f"Solicitud recibida en PUT /roles/{rol_id}/permisos/")
+    logger.info(f"Solicitud recibida en PUT /roles/{rol_id}/permisos/ por usuario {current_user.usuario_id}")
     try:
+        # ✅ VALIDAR acceso al rol
+        rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        
+        rol_cliente_id = rol.get('cliente_id')
+        if rol_cliente_id is not None and rol_cliente_id != current_user.cliente_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        
+        if rol_cliente_id is None and not _can_manage_system_role(current_user):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para editar roles del sistema.")
+
         await RolService.actualizar_permisos_rol(rol_id=rol_id, permisos_payload=payload)
         logger.info(f"Permisos para rol {rol_id} actualizados exitosamente")
         return None

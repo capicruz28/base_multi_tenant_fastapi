@@ -36,7 +36,7 @@ class UserDataBase(BaseModel):
         examples=["juan_perez", "maria.garcia"]
     )
     
-    correo: EmailStr = Field(
+    correo: str = Field(
         ...,
         description="Dirección de correo electrónico válida del usuario",
         examples=["usuario@empresa.com", "nombre.apellido@dominio.org"]
