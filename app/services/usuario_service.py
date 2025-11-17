@@ -49,6 +49,152 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
+    async def obtener_usuario_completo_por_id(cliente_id: int, usuario_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene un usuario completo por su ID incluyendo todos sus datos y roles activos.
+        
+        🔍 BÚSQUEDA COMPLETA:
+        - Obtiene todos los datos básicos del usuario
+        - Incluye información de roles asignados y activos
+        - Retorna estructura unificada para el endpoint /me extendido
+        
+        Args:
+            cliente_id: ID del cliente al que pertenece el usuario
+            usuario_id: ID del usuario a buscar
+            
+        Returns:
+            Optional[Dict[str, Any]]: Diccionario con datos completos del usuario y sus roles,
+                                    o None si no existe
+                                    
+        Raises:
+            ServiceError: Si hay errores en la consulta de base de datos
+        """
+        logger.info(f"Obteniendo usuario completo ID {usuario_id} para cliente {cliente_id}")
+        
+        try:
+            # 🔍 CONSULTA UNIFICADA PARA USUARIO Y SUS ROLES
+            query = """
+            SELECT 
+                -- 📋 DATOS BÁSICOS DEL USUARIO
+                u.usuario_id,
+                u.cliente_id,
+                u.nombre_usuario,
+                u.correo,
+                u.nombre,
+                u.apellido,
+                u.dni,
+                u.telefono,
+                u.proveedor_autenticacion,
+                u.es_activo,
+                u.correo_confirmado,
+                u.fecha_creacion,
+                u.fecha_ultimo_acceso,
+                u.fecha_actualizacion,
+                
+                -- 🎭 DATOS DE ROLES ASIGNADOS (si existen)
+                r.rol_id,
+                r.nombre as nombre_rol,
+                r.descripcion as descripcion_rol,
+                r.es_activo as rol_activo,
+                ur.fecha_asignacion,
+                ur.es_activo as asignacion_activa
+                
+            FROM dbo.usuario u
+            -- 🔄 LEFT JOIN para incluir usuarios sin roles asignados
+            LEFT JOIN dbo.usuario_rol ur ON u.usuario_id = ur.usuario_id 
+                AND u.cliente_id = ur.cliente_id 
+                AND ur.es_activo = 1
+            LEFT JOIN dbo.rol r ON ur.rol_id = r.rol_id 
+                AND r.es_activo = 1
+            WHERE 
+                u.usuario_id = ? 
+                AND u.cliente_id = ? 
+                AND u.es_eliminado = 0
+            ORDER BY 
+                u.usuario_id, 
+                r.nombre
+            """
+            
+            params = (usuario_id, cliente_id)
+            resultados = execute_query(query, params)
+            
+            if not resultados:
+                logger.warning(f"Usuario ID {usuario_id} no encontrado en cliente {cliente_id} o está eliminado")
+                return None
+            
+            logger.debug(f"Encontradas {len(resultados)} filas para usuario ID {usuario_id}")
+            
+            # 🎯 ESTRUCTURA BASE DEL USUARIO (primera fila contiene datos del usuario)
+            usuario_base = resultados[0]
+            usuario_completo = {
+                # 📋 DATOS PRINCIPALES
+                "usuario_id": usuario_base['usuario_id'],
+                "cliente_id": usuario_base['cliente_id'],
+                "nombre_usuario": usuario_base['nombre_usuario'],
+                "correo": usuario_base['correo'],
+                "nombre": usuario_base.get('nombre'),
+                "apellido": usuario_base.get('apellido'),
+                "dni": usuario_base.get('dni'),
+                "telefono": usuario_base.get('telefono'),
+                "proveedor_autenticacion": usuario_base.get('proveedor_autenticacion', 'local'),
+                
+                # 🔐 ESTADOS Y FLAGS
+                "es_activo": bool(usuario_base['es_activo']),
+                "correo_confirmado": bool(usuario_base['correo_confirmado']),
+                
+                # 📅 DATOS TEMPORALES
+                "fecha_creacion": usuario_base['fecha_creacion'],
+                "fecha_ultimo_acceso": usuario_base.get('fecha_ultimo_acceso'),
+                "fecha_actualizacion": usuario_base.get('fecha_actualizacion'),
+                
+                # 🎭 ROLES ASIGNADOS (se procesarán a continuación)
+                "roles": []
+            }
+            
+            # 🔄 PROCESAR ROLES ASIGNADOS
+            roles_procesados = set()  # Para evitar duplicados
+            
+            for fila in resultados:
+                rol_id = fila.get('rol_id')
+                
+                # ✅ SOLO AGREGAR ROLES VÁLIDOS Y ACTIVOS
+                if (rol_id is not None and 
+                    fila.get('asignacion_activa') and 
+                    fila.get('rol_activo') and
+                    rol_id not in roles_procesados):
+                    
+                    rol_info = {
+                        "rol_id": rol_id,
+                        "nombre": fila['nombre_rol'],
+                        "descripcion": fila.get('descripcion_rol'),
+                        "es_activo": True,
+                        "fecha_asignacion": fila.get('fecha_asignacion'),
+                        "fecha_creacion": None  # No disponible en esta consulta
+                    }
+                    
+                    usuario_completo["roles"].append(rol_info)
+                    roles_procesados.add(rol_id)
+            
+            logger.info(f"Usuario completo obtenido exitosamente: ID {usuario_id} con {len(usuario_completo['roles'])} roles activos")
+            return usuario_completo
+            
+        except DatabaseError as db_err:
+            logger.error(f"Error de BD en obtener_usuario_completo_por_id: {db_err.detail}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error de base de datos al obtener información completa del usuario",
+                internal_code="USER_COMPLETE_RETRIEVAL_DB_ERROR"
+            )
+        except Exception as e:
+            logger.exception(f"Error inesperado en obtener_usuario_completo_por_id: {str(e)}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error interno al obtener información completa del usuario",
+                internal_code="USER_COMPLETE_RETRIEVAL_UNEXPECTED_ERROR"
+            )
+
+    @staticmethod
+    @BaseService.handle_service_errors
     async def get_user_role_names(cliente_id: int, user_id: int) -> List[str]:
         """
         Obtiene solo los NOMBRES de roles activos para un usuario dentro de un cliente.

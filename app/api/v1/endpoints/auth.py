@@ -212,7 +212,7 @@ async def login(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error inesperado en /login/ para usuario {login_data.username}: {str(e)}")
+        logger.exception(f"Error inesperado en /login/ para usuario {form_data.username}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Ocurrió un error inesperado durante el proceso de login."
@@ -257,10 +257,51 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         usuario_service = UsuarioService()
         user_id = current_user.get('usuario_id')
         cliente_id = current_user.get('cliente_id')
-        # Obtener roles, que es la información extra
-        user_role_names = await usuario_service.get_user_role_names(cliente_id=cliente_id, user_id=user_id)
-        user_full_data = {**current_user, "roles": user_role_names}
+        
+        # ✅ NUEVO: Obtener información extendida del usuario para diferenciación Super Admin vs Tenant Admin
+        usuario_completo = await usuario_service.obtener_usuario_completo_por_id(user_id, cliente_id)
+        
+        if not usuario_completo:
+            logger.error(f"Usuario {user_id} no encontrado en cliente {cliente_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuario no encontrado"
+            )
+        
+        # ✅ NUEVO: Determinar tipo de usuario (Super Admin vs Tenant Admin vs Usuario normal)
+        tipo_usuario = "user"
+        es_super_admin = False
+        es_tenant_admin = False
+        
+        # Verificar si es Super Admin (rol SUPER_ADMIN global o del cliente SYSTEM)
+        for rol in usuario_completo.get("roles", []):
+            if rol.get("codigo_rol") == "SUPER_ADMIN" and rol.get("cliente_id") is None:
+                es_super_admin = True
+                tipo_usuario = "super_admin"
+                break
+            elif rol.get("codigo_rol") == "ADMIN" and rol.get("cliente_id") == cliente_id and cliente_id != 1:
+                es_tenant_admin = True
+                tipo_usuario = "tenant_admin"
+        
+        # Caso especial: Super Admin del cliente SYSTEM (cliente_id = 1)
+        if cliente_id == 1 and any(rol.get("codigo_rol") == "SUPER_ADMIN" for rol in usuario_completo.get("roles", [])):
+            es_super_admin = True
+            tipo_usuario = "super_admin"
+        
+        # ✅ NUEVO: Construir respuesta extendida
+        user_full_data = {
+            **current_user,
+            "roles": usuario_completo.get("roles", []),
+            "tipo_usuario": tipo_usuario,
+            "es_super_admin": es_super_admin,
+            "es_tenant_admin": es_tenant_admin,
+            "cliente_info": usuario_completo.get("cliente_info"),
+            "modulos_activos": usuario_completo.get("modulos_activos", [])
+        }
+        
+        logger.info(f"Datos completos del usuario {current_user.get('nombre_usuario')} recuperados (tipo: {tipo_usuario})")
         return user_full_data
+        
     except HTTPException:
         raise
     except Exception as e:
