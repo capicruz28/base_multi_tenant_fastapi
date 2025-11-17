@@ -39,7 +39,7 @@ router = APIRouter()
 
 # --- CONFIGURACIÓN DE DEPENDENCIAS ---
 # Requiere rol de administrador para todas las operaciones de gestión
-require_admin = RoleChecker(["Administrador"])
+require_admin = RoleChecker(["Super Administrador"])
 
 
 # --- FUNCIÓN DE AYUDA PARA ROLES DEL SISTEMA ---

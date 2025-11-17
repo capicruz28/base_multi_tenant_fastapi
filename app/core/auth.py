@@ -87,27 +87,36 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
     """
     Autentica un usuario **dentro de un cliente específico**.
     
-    ✅ CORRECCIÓN MULTI-TENANT: 
-    - Si es el Super Admin, se usa el ID del Cliente SYSTEM (ID 1).
-    - Si es un usuario regular, se usa el cliente_id resuelto por el middleware.
+    ✅ CORRECCIÓN MULTI-TENANT HÍBRIDO: 
+    - Si es el Super Admin: Busca en BD ADMIN (donde está el cliente SYSTEM)
+    - Si es un usuario regular: Busca en la BD del cliente (compartida o separada)
     """
     
     # ✅ LOGGING CRÍTICO: Verificar qué cliente_id llegó
-    logger.info(f"[AUTH] Intento de login: username='{username}', cliente_id_recibido={cliente_id}")
+    logger.info(f"[AUTH] Intento de login: username='{username}', cliente_id_destino={cliente_id}")
     
-    # 1. Ajustar el cliente_id para el Super Admin
-    if username == settings.SUPERADMIN_USERNAME:
+    # 1. Detectar si es superadmin
+    is_superadmin = (username == settings.SUPERADMIN_USERNAME)
+    
+    # 2. Determinar dónde buscar y en qué BD
+    if is_superadmin:
+        # SUPERADMIN: Buscar en cliente SYSTEM, usando BD ADMIN
         search_cliente_id = settings.SUPERADMIN_CLIENTE_ID
+        target_cliente_id = cliente_id  # Cliente al que quiere acceder
+        
         logger.info(
             f"[AUTH] SUPERADMIN detectado. "
-            f"Forzando búsqueda en cliente_id={search_cliente_id} (SYSTEM)"
+            f"Buscando en BD ADMIN (cliente_id={search_cliente_id}), "
+            f"accediendo a cliente_id={target_cliente_id}"
         )
     else:
-        # ✅ CORRECCIÓN: Para usuarios regulares, SIEMPRE usar el cliente_id del middleware
+        # USUARIO REGULAR: Buscar en su cliente, usando BD del contexto
         search_cliente_id = cliente_id
+        target_cliente_id = cliente_id
+        
         logger.info(
             f"[AUTH] Usuario regular. "
-            f"Buscando en cliente_id={search_cliente_id} (del middleware)"
+            f"Buscando en BD del cliente_id={search_cliente_id}"
         )
 
     try:
@@ -118,10 +127,24 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
         WHERE cliente_id = ? AND nombre_usuario = ? AND es_eliminado = 0
         """
         
-        # ✅ LOGGING: Antes de ejecutar query
-        logger.debug(f"[AUTH] Ejecutando query con: cliente_id={search_cliente_id}, username='{username}'")
-        
-        user = execute_auth_query(query, (search_cliente_id, username))
+        # ✅ CORRECCIÓN CRÍTICA: Usar BD apropiada según tipo de usuario
+        if is_superadmin:
+            # Superadmin: SIEMPRE usar BD ADMIN
+            from app.db.connection import DatabaseConnection
+            from app.db.queries import execute_query
+            
+            logger.debug(f"[AUTH] Ejecutando en BD ADMIN: cliente_id={search_cliente_id}, username='{username}'")
+            
+            result = execute_query(
+                query, 
+                (search_cliente_id, username),
+                connection_type=DatabaseConnection.ADMIN
+            )
+            user = result[0] if result else None
+        else:
+            # Usuario regular: Usar BD del contexto (tenant-aware)
+            logger.debug(f"[AUTH] Ejecutando en BD tenant: cliente_id={search_cliente_id}, username='{username}'")
+            user = execute_auth_query(query, (search_cliente_id, username))
 
         if not user:
             logger.warning(
@@ -166,11 +189,17 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
         # Eliminar la contraseña del resultado
         user.pop('contrasena', None)
         
+        # ✅ AGREGAR contexto multi-tenant al resultado
+        if is_superadmin:
+            user['target_cliente_id'] = target_cliente_id
+            user['es_superadmin'] = True
+        
         logger.info(
             f"[AUTH] Login exitoso: "
             f"username='{username}', "
             f"usuario_id={user['usuario_id']}, "
-            f"cliente_id={user['cliente_id']}"
+            f"cliente_origen={user['cliente_id']}, "
+            f"cliente_destino={target_cliente_id if is_superadmin else 'N/A'}"
         )
         
         return user
@@ -220,9 +249,10 @@ async def authenticate_user_sso_google(cliente_id: int, token: str) -> Dict:
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
     """
     Obtiene el usuario actual basado en el access token (Bearer).
-    - Valida algoritmo, firma y expiración
-    - Requiere type='access'
-    - Usa claim estándar 'sub' como nombre de usuario
+    
+    ✅ CORRECCIÓN MULTI-TENANT HÍBRIDO:
+    - Superadmin: Busca en BD ADMIN
+    - Usuario regular: Busca en BD del contexto
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -239,6 +269,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
             raise credentials_exception
 
         username = token_data.sub
+        es_superadmin = payload.get("es_superadmin", False)
+        target_cliente_id = payload.get("cliente_id")  # Cliente al que accede
 
     except JWTError as e:
         logger.error(f"Error decodificando token: {str(e)}")
@@ -247,17 +279,28 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
         logger.error(f"Error procesando payload del token: {str(e)}")
         raise credentials_exception
 
-    # ✅ NOTA: Esta consulta NO necesita el cliente_id porque el nombre_usuario (sub) 
-    # es único globalmente (o se asume que lo es) y el JWT ya está validado.
-    # Sin embargo, si tu DB requiere unicidad por (cliente_id, nombre_usuario), 
-    # necesitarías obtener el cliente_id del token o de otra dependencia.
-    # Asumimos que la combinación username/correo es única globalmente para la validación del token.
+    # ✅ CORRECCIÓN: Buscar usuario en BD apropiada
     query = """
     SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
     FROM usuario
     WHERE nombre_usuario = ? AND es_eliminado = 0
     """
-    user = execute_auth_query(query, (username,))
+    
+    if es_superadmin:
+        # Superadmin: Buscar en BD ADMIN
+        from app.db.connection import DatabaseConnection
+        from app.db.queries import execute_query
+        
+        result = execute_query(query, (username,), connection_type=DatabaseConnection.ADMIN)
+        user = result[0] if result else None
+        
+        # Agregar contexto multi-tenant
+        if user:
+            user['target_cliente_id'] = target_cliente_id
+            user['es_superadmin'] = True
+    else:
+        # Usuario regular: Buscar en BD del contexto
+        user = execute_auth_query(query, (username,))
 
     if not user:
         raise credentials_exception

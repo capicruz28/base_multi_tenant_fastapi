@@ -64,7 +64,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 # Dependencia específica para requerir rol 'admin'
-require_admin = RoleChecker(["Administrador"])
+require_admin = RoleChecker(["Super Administrador"])
 
 # ----------------------------------------------------------------------
 # --- Endpoint para Asignar/Actualizar Permisos (PUT) ---

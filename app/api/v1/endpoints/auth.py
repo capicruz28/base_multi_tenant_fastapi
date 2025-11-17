@@ -134,22 +134,39 @@ async def login(
         # 4. Autenticación (maneja 401 si falla)
         user_base_data = await authenticate_user(cliente_id, form_data.username, form_data.password)
 
-        # 5. Roles
+        # 5. ✅ CORRECCIÓN: Manejar contexto multi-tenant para superadmin
         user_id = user_base_data.get('usuario_id')
-        user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
+        es_superadmin = user_base_data.get('es_superadmin', False)
+        target_cliente_id = user_base_data.get('target_cliente_id', cliente_id)
+        
+        # Para superadmin, podría no tener roles en el cliente destino
+        if es_superadmin:
+            user_role_names = ["Super Administrador"]  # Rol implícito
+            logger.info(f"[LOGIN] Superadmin accediendo a cliente_id={target_cliente_id}")
+        else:
+            user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
+        
         user_full_data = {**user_base_data, "roles": user_role_names}
 
-        # 6. Tokens
-        access_token = create_access_token(data={"sub": form_data.username, "cliente_id": cliente_id})
-        refresh_token = create_refresh_token(data={"sub": form_data.username, "cliente_id": cliente_id, "type": "refresh"})
+        # 6. ✅ Tokens con contexto correcto
+        token_data = {
+            "sub": form_data.username,
+            "cliente_id": target_cliente_id  # Cliente al que accede
+        }
+        
+        if es_superadmin:
+            token_data["es_superadmin"] = True
+        
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
 
-        # ✅ NUEVO: Almacenar refresh token en BD **con cliente_id**
+        # ✅ CORRECCIÓN: Almacenar en el cliente destino
         try:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
             
             stored = await RefreshTokenService.store_refresh_token(
-                cliente_id=cliente_id,
+                cliente_id=target_cliente_id,  # ✅ Cliente al que accede
                 usuario_id=user_id,
                 token=refresh_token,
                 client_type=client_type,

@@ -847,3 +847,39 @@ DELETE FROM federacion_identidad
 OUTPUT DELETED.*
 WHERE federacion_id = ? AND cliente_id = ?;
 """
+
+# ============================================
+# QUERIES PARA METADATA DE CONEXIÓN (HÍBRIDO)
+# ============================================
+
+SELECT_CLIENT_CONNECTION_METADATA = """
+SELECT 
+    cmc.conexion_id,
+    cmc.servidor,
+    cmc.puerto,
+    cmc.nombre_bd,
+    cmc.usuario_encriptado,
+    cmc.password_encriptado,
+    cmc.tipo_bd,
+    cmc.usa_ssl,
+    c.tipo_instalacion,
+    c.metadata_json
+FROM cliente_modulo_conexion cmc
+JOIN cliente c ON cmc.cliente_id = c.cliente_id
+WHERE 
+    cmc.cliente_id = ? 
+    AND cmc.es_activo = 1 
+    AND cmc.es_conexion_principal = 1
+ORDER BY cmc.conexion_id DESC;
+"""
+
+CHECK_CLIENT_DATABASE_TYPE = """
+SELECT 
+    CASE 
+        WHEN JSON_VALUE(metadata_json, '$.database_isolation') = 'true' THEN 'multi'
+        ELSE 'single'
+    END as database_type,
+    metadata_json
+FROM cliente
+WHERE cliente_id = ?;
+"""

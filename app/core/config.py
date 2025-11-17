@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
 
+    # ============================================
+    # ENCRYPTION CONFIGURATION (NUEVO)
+    # ============================================
+    ENCRYPTION_KEY: str = ""  # Se carga desde .env
+
     # Environment
     ENVIRONMENT: Literal["development", "production"] = os.getenv("ENVIRONMENT", "development")
 
@@ -56,6 +61,10 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:8000",
         "http://localhost:5173",
+        "http://acme.midominio.com:5173",
+        "http://innova.midominio.com:5173",
+        "http://techcorp.midominio.com:5173",
+        "http://global.midominio.com:5173",
         "https://api-service-cunb.onrender.com",
     ]
 
@@ -156,5 +165,5 @@ try:
     settings.validate_security_settings()
 except ValueError as e:
     import logging
-    logging.error(f"❌ Error de configuración: {e}")
+    logging.error(f"Error de configuración: {e}")
     raise

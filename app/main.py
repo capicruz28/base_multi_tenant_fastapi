@@ -189,6 +189,61 @@ async def debug_env():
         "secret_key_set": bool(settings.SECRET_KEY),
     }
 
+@app.get("/debug-headers")
+async def debug_headers(request: Request):
+    """
+    Endpoint temporal para debug de headers
+    """
+    headers = dict(request.headers)
+    
+    # Extraer host de diferentes formas
+    host_forwarded = request.headers.get("x-forwarded-host")
+    host_direct = request.headers.get("host")
+    
+    return {
+        "headers_received": headers,
+        "x_forwarded_host": host_forwarded,
+        "host_header": host_direct,
+        "url_host": str(request.url.hostname),
+        "base_domain": settings.BASE_DOMAIN,
+        "message": "Revisa si X-Forwarded-Host llega correctamente"
+    }
+
+@app.get("/debug-detailed")
+async def debug_detailed(request: Request):
+    """
+    Debug detallado de headers y detección de tenant
+    """
+    # Todos los headers
+    headers = dict(request.headers)
+    
+    # Extraer host de diferentes métodos
+    host_forwarded = request.headers.get("x-forwarded-host")
+    host_direct = request.headers.get("host")
+    url_host = str(request.url.hostname)
+    
+    # Simular la extracción de subdominio
+    base_domain = settings.BASE_DOMAIN
+    subdomain = None
+    
+    if host_direct and host_direct.endswith(f".{base_domain}"):
+        subdomain = host_direct.replace(f".{base_domain}", "").split(":")[0]
+    
+    return {
+        "headers_received": headers,
+        "host_extraction": {
+            "x_forwarded_host": host_forwarded,
+            "host_header": host_direct, 
+            "url_host": url_host,
+            "base_domain": base_domain,
+            "subdomain_detected": subdomain
+        },
+        "settings": {
+            "BASE_DOMAIN": settings.BASE_DOMAIN,
+            "ALLOWED_ORIGINS": settings.ALLOWED_ORIGINS
+        }
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

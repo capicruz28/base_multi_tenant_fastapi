@@ -1,7 +1,24 @@
 # app/middleware/tenant_middleware.py
 """
-Middleware para la identificación y contextualización del cliente (tenant)
-basado en el subdominio de la solicitud (Host header).
+Middleware para identificación y contextualización del cliente (tenant)
+con soporte para arquitectura HÍBRIDA (Single-DB + Multi-DB).
+
+MEJORAS EN ESTA VERSIÓN:
+- Carga metadata de conexión desde cliente_modulo_conexion
+- Determina database_type (single/multi) automáticamente
+- Establece contexto enriquecido con información de BD
+- Mantiene compatibilidad con código existente
+- 🔧 FIX: Soporte para proxies de desarrollo (extrae host de origin/referer)
+
+FLUJO:
+1. Extraer host real (con fallback a origin/referer para proxies)
+2. Extraer subdominio del Host header
+3. Resolver cliente_id desde BD (bd_sistema)
+4. Cargar metadata de conexión para el cliente
+5. Determinar database_type (single/multi)
+6. Establecer TenantContext enriquecido
+7. Procesar request
+8. Limpiar contexto
 """
 
 import logging
@@ -10,27 +27,96 @@ from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 from starlette.types import ASGIApp
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse
 
-from app.core.tenant_context import current_client_id, current_tenant_context, TenantContext
+from app.core.tenant_context import TenantContext, set_tenant_context, reset_tenant_context
 from app.core.config import settings
-from app.db.connection import get_db_connection
+from app.db.connection import get_db_connection, DatabaseConnection
 from app.core.exceptions import ClientNotFoundException
+
+# NUEVO: Importar función para obtener metadata
+from app.core.multi_db import get_connection_metadata
 
 logger = logging.getLogger(__name__)
 
+
 class TenantMiddleware(BaseHTTPMiddleware):
     """
-    Middleware que resuelve el ID del cliente (tenant) a partir del subdominio.
+    Middleware que resuelve el ID del cliente y establece contexto híbrido.
     """
+    
     def __init__(self, app: ASGIApp):
         super().__init__(app)
         self.default_client_id = settings.SUPERADMIN_CLIENTE_ID
         self.base_domain = settings.BASE_DOMAIN
+        logger.info(
+            f"[TENANT_MW] Inicializado - "
+            f"BASE_DOMAIN={self.base_domain}, "
+            f"SYSTEM_ID={self.default_client_id}"
+        )
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+    def _get_host_from_request(self, request: Request) -> str:
+        """
+        Extrae el host de la petición con fallback a origin/referer.
+        Esto es necesario para proxies de desarrollo (Vite, etc.) que 
+        reescriben el header Host pero preservan origin/referer.
         
-        # 1. Inicialización segura de variables
-        host = request.headers.get("Host", "")
+        Returns:
+            str: Host completo (puede incluir puerto)
+        """
+        host = request.headers.get("host", "")
+        
+        # 🔍 DEBUG: Mostrar headers relevantes
+        logger.debug(f"[HOST_DETECTION] Headers recibidos:")
+        logger.debug(f"  - host: {host}")
+        logger.debug(f"  - origin: {request.headers.get('origin', 'N/A')}")
+        logger.debug(f"  - referer: {request.headers.get('referer', 'N/A')}")
+        
+        # Si el host es localhost o 127.0.0.1, intentar extraer del origin o referer
+        if host.startswith(("localhost", "127.0.0.1")):
+            logger.info(f"[HOST_DETECTION] Host es localhost, buscando host real en origin/referer")
+            
+            # Intentar primero con origin
+            origin = request.headers.get("origin", "")
+            if origin:
+                parsed = urlparse(origin)
+                if parsed.netloc and not parsed.netloc.startswith(("localhost", "127.0.0.1")):
+                    host = parsed.netloc
+                    logger.info(f"[HOST_DETECTION] Host extraído de 'origin': {host}")
+                    return host
+            
+            # Si no, intentar con referer
+            referer = request.headers.get("referer", "")
+            if referer:
+                parsed = urlparse(referer)
+                if parsed.netloc and not parsed.netloc.startswith(("localhost", "127.0.0.1")):
+                    host = parsed.netloc
+                    logger.info(f"[HOST_DETECTION] Host extraído de 'referer': {host}")
+                    return host
+            
+            logger.warning(
+                f"[HOST_DETECTION] No se pudo extraer host real de origin/referer, "
+                f"usando: {host}"
+            )
+        
+        logger.debug(f"[HOST_DETECTION] Host final: {host}")
+        return host
+
+    async def dispatch(
+        self, 
+        request: Request, 
+        call_next: RequestResponseEndpoint
+    ) -> Response:
+        """
+        Procesa cada request para establecer el contexto del tenant.
+        """
+        
+        # ============================================
+        # FASE 1: RESOLUCIÓN DE CLIENTE
+        # ============================================
+        
+        # 🔧 NUEVO: Obtener host con fallback a origin/referer
+        host = self._get_host_from_request(request)
         subdomain = self._extract_subdomain(host)
         
         client_id: Optional[int] = self.default_client_id
@@ -39,85 +125,148 @@ class TenantMiddleware(BaseHTTPMiddleware):
             "codigo_cliente": settings.SUPERADMIN_CLIENTE_CODIGO
         }
         
-        # ✅ CORRECCIÓN CRÍTICA: Logging para debugging
-        logger.debug(f"[TENANT] Host recibido: {host}")
-        logger.debug(f"[TENANT] Subdominio extraído: {subdomain}")
+        logger.debug(f"[TENANT] Host: {host}, Subdominio: {subdomain}")
         
+        # Resolver cliente por subdominio
         if subdomain:
             if subdomain.lower() == settings.SUPERADMIN_SUBDOMINIO.lower():
-                # Caso 1: Acceso al subdominio del super admin (Ej: platform.localhost)
+                # Caso 1: Subdominio SUPERADMIN
                 client_id = settings.SUPERADMIN_CLIENTE_ID
-                logger.info(f"[TENANT] Subdominio SUPERADMIN detectado: {subdomain} → Cliente ID: {client_id}")
+                logger.info(
+                    f"[TENANT] Subdominio SUPERADMIN: {subdomain} → "
+                    f"Cliente ID: {client_id}"
+                )
             else:
-                # Caso 2: Buscar cliente por subdominio en la DB
+                # Caso 2: Buscar cliente en BD
                 try:
-                    # ✅ CORRECCIÓN: Añadir logging antes de la búsqueda
-                    logger.debug(f"[TENANT] Buscando cliente con subdominio: '{subdomain}'")
+                    logger.debug(f"[TENANT] Buscando cliente: '{subdomain}'")
                     
                     client_data_db = self._get_client_data_by_subdomain(subdomain)
                     
                     if client_data_db:
                         client_data = client_data_db
                         client_id = client_data["cliente_id"]
-                        # ✅ CORRECCIÓN: Logging más detallado
                         logger.info(
-                            f"[TENANT] Cliente resuelto exitosamente: "
+                            f"[TENANT] Cliente resuelto: "
                             f"Subdominio='{subdomain}', "
                             f"Código='{client_data['codigo_cliente']}', "
                             f"ID={client_id}"
                         )
                     else:
-                        # ✅ CORRECCIÓN: Logging antes de lanzar excepción
-                        logger.error(f"[TENANT] Subdominio '{subdomain}' no encontrado en BD")
+                        logger.error(
+                            f"[TENANT] Subdominio '{subdomain}' no encontrado"
+                        )
                         raise ClientNotFoundException(
                             f"Subdominio '{subdomain}' no está asociado a ningún cliente activo."
                         )
                         
                 except ClientNotFoundException as e:
-                    logger.warning(f"[TENANT] Error de Tenant: {e}")
+                    logger.warning(f"[TENANT] Error: {e}")
                     return JSONResponse(
                         status_code=404,
                         content={"detail": str(e)}
                     )
                 except Exception as e:
-                    logger.error(f"[TENANT] Error al resolver el tenant: {e}", exc_info=True)
+                    logger.error(
+                        f"[TENANT] Error al resolver tenant: {e}", 
+                        exc_info=True
+                    )
                     return JSONResponse(
                         status_code=500,
-                        content={"detail": "Error interno al resolver el contexto de la organización."}
+                        content={
+                            "detail": "Error interno al resolver el contexto de la organización."
+                        }
                     )
         else:
-            # Caso 3: Sin subdominio (Ej: localhost:8000)
+            # Caso 3: Sin subdominio
             logger.warning(
-                f"[TENANT] Sin subdominio detectado en Host: {host}. "
+                f"[TENANT] Sin subdominio en Host: {host}. "
                 f"Usando Cliente ID por defecto: {client_id} (SYSTEM)"
             )
-
-        # 2. ✅ CORRECCIÓN CRÍTICA: Establecer el Contexto ANTES de logging
-        token = current_client_id.set(client_id)
+        
+        # ============================================
+        # FASE 2: CARGA DE METADATA DE CONEXIÓN (NUEVO)
+        # ============================================
+        
+        connection_metadata: Dict[str, Any] = {}
+        database_type: str = "single"
+        nombre_bd: Optional[str] = settings.DB_DATABASE
+        servidor: Optional[str] = None
+        puerto: Optional[int] = None
+        tipo_instalacion: str = "cloud"
+        
+        try:
+            # CRÍTICO: Cargar metadata de conexión
+            logger.debug(f"[TENANT] Cargando metadata de conexión para cliente {client_id}")
+            
+            conn_metadata = get_connection_metadata(client_id)
+            
+            if conn_metadata:
+                connection_metadata = conn_metadata
+                database_type = conn_metadata.get("database_type", "single")
+                nombre_bd = conn_metadata.get("nombre_bd", settings.DB_DATABASE)
+                servidor = conn_metadata.get("servidor")
+                puerto = conn_metadata.get("puerto")
+                tipo_instalacion = conn_metadata.get("tipo_instalacion", "cloud")
+                
+                logger.info(
+                    f"[TENANT] Metadata cargada: "
+                    f"db_type={database_type}, "
+                    f"bd={nombre_bd}, "
+                    f"servidor={servidor or 'N/A'}"
+                )
+            else:
+                logger.warning(
+                    f"[TENANT] No se pudo cargar metadata para cliente {client_id}. "
+                    f"Usando Single-DB por defecto."
+                )
+                
+        except Exception as metadata_err:
+            logger.error(
+                f"[TENANT] Error al cargar metadata para cliente {client_id}: {metadata_err}. "
+                f"Usando Single-DB como fallback.",
+                exc_info=True
+            )
+            # Valores por defecto ya están establecidos arriba
+        
+        # ============================================
+        # FASE 3: ESTABLECER CONTEXTO ENRIQUECIDO
+        # ============================================
         
         tenant_ctx = TenantContext(
-            client_id=client_id, 
-            subdominio=subdomain, 
-            codigo_cliente=client_data.get('codigo_cliente')
+            client_id=client_id,
+            subdominio=subdomain,
+            codigo_cliente=client_data.get('codigo_cliente'),
+            # NUEVOS CAMPOS HÍBRIDOS:
+            database_type=database_type,
+            nombre_bd=nombre_bd,
+            connection_metadata=connection_metadata,
+            servidor=servidor,
+            puerto=puerto,
+            tipo_instalacion=tipo_instalacion
         )
-        ctx_token = current_tenant_context.set(tenant_ctx)
         
-        # ✅ VERIFICACIÓN INMEDIATA (para debugging)
-        verificacion = current_client_id.get()
+        # Establecer contexto
+        tokens = set_tenant_context(tenant_ctx)
+        
+        # Logging de verificación
         logger.info(
             f"[TENANT] CONTEXTO ESTABLECIDO: "
             f"cliente_id={client_id}, "
-            f"verificación_contexto={verificacion}, "
+            f"db_type={database_type}, "
+            f"bd={nombre_bd}, "
             f"path={request.url.path}"
         )
-
+        
+        # ============================================
+        # FASE 4: PROCESAR REQUEST
+        # ============================================
+        
         try:
-            # 3. Llamar al siguiente middleware/endpoint
             response = await call_next(request)
         finally:
-            # 4. Limpiar el contexto
-            current_client_id.reset(token)
-            current_tenant_context.reset(ctx_token)
+            # FASE 5: LIMPIAR CONTEXTO
+            reset_tenant_context(tokens)
             logger.debug(f"[TENANT] Contexto limpiado para cliente_id={client_id}")
         
         return response
@@ -126,17 +275,18 @@ class TenantMiddleware(BaseHTTPMiddleware):
         """
         Extrae el subdominio del header Host.
         
-        ✅ MEJORADO: Manejo más robusto de dominios personalizados
+        Soporta:
+        - localhost con subdominio: cliente1.localhost
+        - Dominios personalizados: cliente1.midominio.com
         """
         # Limpieza de puerto
         if ":" in host:
             host = host.split(":")[0]
         
-        # ✅ LOGGING CRÍTICO (INFO level para que siempre se vea)
-        logger.info(f"[SUBDOMAIN] Procesando host limpio: '{host}'")
-        logger.info(f"[SUBDOMAIN] BASE_DOMAIN configurado: '{self.base_domain}'")
+        logger.info(f"[SUBDOMAIN] Procesando host: '{host}'")
+        logger.info(f"[SUBDOMAIN] BASE_DOMAIN: '{self.base_domain}'")
         
-        # Caso especial: localhost con subdominio (cliente1.localhost)
+        # Caso especial: localhost con subdominio
         if host.endswith('.localhost'):
             parts = host.split('.')
             if len(parts) >= 2:
@@ -144,50 +294,61 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 logger.info(f"[SUBDOMAIN] Detectado en localhost: '{subdomain}'")
                 return subdomain
         
-        # Caso: dominios personalizados (cliente1.midominio.com)
-        # ✅ CORRECCIÓN CRÍTICA: Verificar con endswith para asegurar match exacto
+        # Caso: dominios personalizados
         if host.endswith(f".{self.base_domain}") or host == self.base_domain:
             # Si es exactamente el base_domain (sin subdominio)
             if host == self.base_domain:
-                logger.info(f"[SUBDOMAIN] Host es el dominio base sin subdominio")
+                logger.info("[SUBDOMAIN] Host es el dominio base (sin subdominio)")
                 return None
             
-            # Extraer el subdominio (todo lo que está antes del .base_domain)
+            # Extraer subdominio
             subdomain = host.replace(f".{self.base_domain}", "")
             
             if subdomain:
-                logger.info(f"[SUBDOMAIN] Detectado en dominio personalizado: '{subdomain}'")
+                logger.info(f"[SUBDOMAIN] Detectado: '{subdomain}'")
                 return subdomain
         
-        logger.warning(f"[SUBDOMAIN] No se detectó subdominio válido en: '{host}'")
-        logger.warning(f"[SUBDOMAIN] Verifica que BASE_DOMAIN='{self.base_domain}' sea correcto")
+        logger.warning(
+            f"[SUBDOMAIN] No se detectó subdominio válido en: '{host}'. "
+            f"Verifica BASE_DOMAIN='{self.base_domain}'"
+        )
         return None
 
-    def _get_client_data_by_subdomain(self, subdomain: str) -> Optional[Dict[str, Any]]:
+    def _get_client_data_by_subdomain(
+        self, 
+        subdomain: str
+    ) -> Optional[Dict[str, Any]]:
         """
-        Consulta la BD para obtener el cliente_id y código basado en el subdominio.
+        Consulta la BD para obtener cliente_id y código por subdominio.
         
-        ✅ MEJORADO: Logging detallado para debugging
+        IMPORTANTE: Usa conexión ADMIN porque aún no tenemos contexto establecido.
         """
         query = """
             SELECT cliente_id, codigo_cliente 
             FROM cliente 
             WHERE subdominio = ? AND es_activo = 1
         """
+        
         try:
-            logger.debug(f"[DB] Ejecutando query para subdominio: '{subdomain}'")
+            logger.debug(f"[DB] Consultando subdominio: '{subdomain}'")
             
-            with get_db_connection() as conn:
+            # CRÍTICO: Usar conexión ADMIN para evitar recursión
+            with get_db_connection(DatabaseConnection.ADMIN) as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, (subdomain,))
                 row = cursor.fetchone()
                 
                 if row:
-                    result = {"cliente_id": row[0], "codigo_cliente": row[1]}
+                    result = {
+                        "cliente_id": row[0], 
+                        "codigo_cliente": row[1]
+                    }
                     logger.debug(f"[DB] Cliente encontrado: {result}")
                     return result
                 else:
-                    logger.debug(f"[DB] No se encontró cliente para subdominio: '{subdomain}'")
+                    logger.debug(
+                        f"[DB] No se encontró cliente para subdominio: '{subdomain}'"
+                    )
                     return None
                     
         except Exception as e:
@@ -196,3 +357,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 exc_info=True
             )
             raise
+
+
+# ============================================
+# LOGGING DE MÓDULO
+# ============================================
+
+logger.info("Módulo tenant_middleware cargado (versión híbrida con soporte para proxies)")

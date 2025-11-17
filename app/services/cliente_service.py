@@ -24,6 +24,7 @@ from app.core.exceptions import (
 )
 from app.services.base_service import BaseService
 from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteRead
+from app.db.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,7 @@ class ClienteService(BaseService):
         FROM cliente
         WHERE cliente_id = ?
         """
-        resultado = execute_query(query, (cliente_id,))
+        resultado = execute_query(query, (cliente_id,),connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             return None
         return ClienteRead(**resultado[0])
