@@ -88,7 +88,7 @@ class Settings(BaseSettings):
         ✅ MEJORA: SameSite dinámico según entorno
         """
         if self.ENVIRONMENT == "production":
-            return "strict"
+            return "none"
         return "lax"
 
     @property
@@ -96,8 +96,18 @@ class Settings(BaseSettings):
         """
         ✅ NUEVO: Dominio de la cookie (None en desarrollo, dominio específico en producción)
         """
-        if self.ENVIRONMENT == "production":
-            return os.getenv("COOKIE_DOMAIN", None)  # Ej: ".tudominio.com"
+        # Leer desde variable de entorno (añadida en .env)
+        cookie_domain = os.getenv("COOKIE_DOMAIN", None)
+
+        if cookie_domain:
+            return cookie_domain  # Ej: ".app.local" o ".tudominio.com"
+        
+        # Fallback: Si no está configurado, usar BASE_DOMAIN con punto
+        if self.BASE_DOMAIN and self.BASE_DOMAIN != "localhost":
+            return f".{self.BASE_DOMAIN}"
+        #if self.ENVIRONMENT == "production":
+        #    return os.getenv("COOKIE_DOMAIN", None)  # Ej: ".tudominio.com"
+
         return None
 
     def get_database_url(self, is_admin: bool = False) -> str:

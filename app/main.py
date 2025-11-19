@@ -61,15 +61,109 @@ def create_application() -> FastAPI:
     app.add_middleware(
         TenantMiddleware
     )
+
+    # ✅ CORRECCIÓN: Construir origins dinámicamente para subdominios
+    allowed_origins = [
+        # Desarrollo local
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+        "http://backend.app.local:8000",
+        
+        # ✅ NUEVO: Dominios con app.local (desarrollo)
+        "http://app.local:5173",
+        "http://platform.app.local:5173",
+        "http://acme.app.local:5173",
+        "http://innova.app.local:5173",
+        "http://techcorp.app.local:5173",
+        "http://global.app.local:5173",
+        
+        # Producción (mantén tus existentes)
+        "http://acme.midominio.com:5173",
+        "http://innova.midominio.com:5173",
+        "http://techcorp.midominio.com:5173",
+        "http://global.midominio.com:5173",
+        "https://api-service-cunb.onrender.com",
+    ]
     
     # 2. CORS Middleware: Después del tenant, usa las settings de Allowed_Origins
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    
+     # ✅ SOLUCIÓN DINÁMICA: Función que valida origins con patrón
+    def validate_origin(origin: str) -> bool:
+        """
+        Valida si un origin está permitido usando patrones.
+        Soporta subdominios de app.local y midominio.com
+        """
+        import re
+        
+        # Lista de origins permitidos (exactos)
+        exact_origins = [
+            "http://localhost:5173",
+            "http://localhost:8000",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:8000",
+            "https://api-service-cunb.onrender.com",
+        ]
+        
+        # Verificar origins exactos
+        if origin in exact_origins:
+            return True
+        
+        # ✅ PATRONES PARA SUBDOMINIOS
+        patterns = [
+            r'^http://[\w-]+\.app\.local:5173$',      # Cualquier subdominio de app.local
+            r'^http://[\w-]+\.midominio\.com:5173$',  # Cualquier subdominio de midominio.com
+            r'^https://[\w-]+\.midominio\.com$',      # HTTPS en producción
+        ]
+        
+        # Verificar patrones
+        for pattern in patterns:
+            if re.match(pattern, origin):
+                return True
+        
+        return False
+    
+    # ✅ MIDDLEWARE CORS CON VALIDACIÓN DINÁMICA
+    from starlette.responses import Response as StarletResponse
+    
+    @app.middleware("http")
+    async def cors_middleware(request: Request, call_next):
+        """
+        Middleware CORS personalizado que valida origins dinámicamente
+        """
+        origin = request.headers.get("origin")
+        
+        # Si es una petición OPTIONS (preflight)
+        if request.method == "OPTIONS":
+            if origin and validate_origin(origin):
+                return StarletResponse(
+                    content="",
+                    status_code=200,
+                    headers={
+                        "Access-Control-Allow-Origin": origin,
+                        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                        # ✅ CORRECCIÓN CRÍTICA: Agregar X-Client-Type explícitamente
+                        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Type, Accept, Origin",
+                        "Access-Control-Allow-Credentials": "true",
+                        "Access-Control-Max-Age": "600",
+                    }
+                )
+            else:
+                logger.warning(f"[CORS] Origin no permitido en preflight: {origin}")
+                return StarletResponse(content="Origin not allowed", status_code=403)
+        
+        # Procesar la petición
+        response = await call_next(request)
+        
+        # Agregar headers CORS a la respuesta
+        if origin and validate_origin(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Expose-Headers"] = "*"
+        
+        return response
 
     # 3. Middleware de logging con timing
     @app.middleware("http")

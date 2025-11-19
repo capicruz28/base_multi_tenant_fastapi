@@ -1,3 +1,4 @@
+# app/api/v1/endpoints/modulos.py
 """
 Módulo de endpoints para la gestión del catálogo de módulos en arquitectura multi-tenant.
 
@@ -5,7 +6,7 @@ Este módulo proporciona una API REST completa para operaciones sobre el catálo
 incluyendo consulta del catálogo global y gestión de activación por cliente.
 
 Características principales:
-- Autenticación JWT con requerimiento de rol 'SUPER_ADMIN' para operaciones de gestión.
+- Autenticación JWT con requerimiento de nivel de acceso para operaciones de gestión.
 - Consulta pública del catálogo de módulos (para usuarios autenticados).
 - Activación y configuración de módulos específicos por cliente.
 - Validaciones de límites y configuraciones.
@@ -19,14 +20,12 @@ from app.schemas.modulo import ModuloRead, ModuloConInfoActivacion
 from app.schemas.modulo_activo import ModuloActivoRead, ModuloActivoCreate, ModuloActivoUpdate
 from app.services.modulo_service import ModuloService
 from app.services.modulo_activo_service import ModuloActivoService
-from app.api.deps import RoleChecker, get_current_active_user
+from app.api.deps import get_current_active_user
+from app.core.level_authorization import require_super_admin
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Dependencia para requerir rol SUPER_ADMIN
-require_super_admin = RoleChecker(["SUPER_ADMIN"])
 
 
 @router.get(
@@ -128,19 +127,23 @@ async def obtener_modulo(
     Obtiene la lista de módulos con información de activación para un cliente específico.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
     
     **Respuestas:**
     - 200: Lista de módulos con estado de activación
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente no encontrado
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
-async def listar_modulos_cliente(cliente_id: int):
+@require_super_admin()
+async def listar_modulos_cliente(
+    cliente_id: int,
+    current_user=Depends(get_current_active_user)
+):
     """
     Lista todos los módulos con información de activación para un cliente.
     """
@@ -191,7 +194,7 @@ async def listar_modulos_cliente(cliente_id: int):
     Activa un módulo específico para un cliente.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
@@ -205,20 +208,22 @@ async def listar_modulos_cliente(cliente_id: int):
     
     **Respuestas:**
     - 201: Módulo activado exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente o módulo no encontrado
     - 409: Módulo ya está activado para este cliente
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
+@require_super_admin()
 async def activar_modulo_cliente(
     cliente_id: int,
     modulo_id: int,
     configuracion: Optional[Dict[str, Any]] = Body(None),
     limite_usuarios: Optional[int] = Body(None),
     limite_registros: Optional[int] = Body(None),
-    fecha_vencimiento: Optional[str] = Body(None)
+    fecha_vencimiento: Optional[str] = Body(None),
+    current_user=Depends(get_current_active_user)
 ):
     """
     Activa un módulo para un cliente específico.
@@ -255,7 +260,7 @@ async def activar_modulo_cliente(
     Desactiva un módulo específico para un cliente.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
@@ -263,12 +268,17 @@ async def activar_modulo_cliente(
     
     **Respuestas:**
     - 204: Módulo desactivado exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Módulo no encontrado o no activo para este cliente
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
-async def desactivar_modulo_cliente(cliente_id: int, modulo_id: int):
+@require_super_admin()
+async def desactivar_modulo_cliente(
+    cliente_id: int, 
+    modulo_id: int,
+    current_user=Depends(get_current_active_user)
+):
     """
     Desactiva un módulo para un cliente específico.
     """
@@ -302,7 +312,7 @@ async def desactivar_modulo_cliente(cliente_id: int, modulo_id: int):
     Actualiza la configuración de un módulo activo para un cliente.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
@@ -316,19 +326,21 @@ async def desactivar_modulo_cliente(cliente_id: int, modulo_id: int):
     
     **Respuestas:**
     - 200: Configuración actualizada exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Módulo activo no encontrado
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
+@require_super_admin()
 async def actualizar_config_modulo_cliente(
     cliente_id: int,
     modulo_id: int,
     configuracion: Optional[Dict[str, Any]] = Body(None),
     limite_usuarios: Optional[int] = Body(None),
     limite_registros: Optional[int] = Body(None),
-    fecha_vencimiento: Optional[str] = Body(None)
+    fecha_vencimiento: Optional[str] = Body(None),
+    current_user=Depends(get_current_active_user)
 ):
     """
     Actualiza la configuración de un módulo activo para un cliente.
@@ -362,3 +374,12 @@ async def actualizar_config_modulo_cliente(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor al actualizar la configuración del módulo."
         )
+
+@router.get("/test")
+async def test_modulos_endpoint():
+    """Endpoint temporal para verificar que el router funciona"""
+    return {
+        "message": "✅ Endpoint de módulos funcionando",
+        "status": "active", 
+        "timestamp": "2024-01-01T00:00:00Z"
+    }

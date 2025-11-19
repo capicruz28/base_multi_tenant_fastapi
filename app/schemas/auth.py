@@ -439,12 +439,41 @@ class UserDataWithRoles(UserDataBase):
     
     Utilizado en respuestas de login y perfil de usuario donde
     se necesita información completa de roles y permisos.
+    
+    AHORA INCLUYE: Campos de nivel de acceso para el sistema LBAC
     """
     
     roles: List[str] = Field(
         default_factory=list,
         description="Lista de nombres de roles asignados al usuario",
         examples=[["Administrador", "Usuario"], ["Reportes"]]
+    )
+    
+    # ✅ NUEVOS CAMPOS PARA SISTEMA DE NIVELES
+    access_level: int = Field(
+        1,
+        ge=1,
+        le=5,
+        description="Nivel de acceso máximo del usuario basado en sus roles (1-5)",
+        examples=[1, 3, 5]
+    )
+    
+    is_super_admin: bool = Field(
+        False,
+        description="Indica si el usuario tiene rol de Super Administrador",
+        examples=[True, False]
+    )
+    
+    user_type: str = Field(
+        "user",
+        description="Tipo de usuario: 'super_admin', 'tenant_admin', 'user'",
+        examples=["super_admin", "tenant_admin", "user"]
+    )
+    
+    cliente_id: Optional[int] = Field(
+        None,
+        description="ID del cliente al que pertenece el usuario",
+        examples=[1, 2, 3]
     )
 
     @field_validator('roles')
@@ -477,6 +506,48 @@ class UserDataWithRoles(UserDataBase):
             roles_validos.append(rol_limpio)
         
         return roles_validos
+
+    @field_validator('access_level')
+    @classmethod
+    def validar_access_level(cls, valor: int) -> int:
+        """
+        Valida que el nivel de acceso esté en el rango permitido.
+        
+        Args:
+            valor: Nivel de acceso a validar
+            
+        Returns:
+            int: Nivel de acceso validado
+            
+        Raises:
+            ValueError: Cuando el nivel no está en el rango 1-5
+        """
+        if valor < 1 or valor > 5:
+            raise ValueError('El nivel de acceso debe estar entre 1 y 5')
+        
+        return valor
+
+    @field_validator('user_type')
+    @classmethod
+    def validar_user_type(cls, valor: str) -> str:
+        """
+        Valida que el tipo de usuario sea uno de los permitidos.
+        
+        Args:
+            valor: Tipo de usuario a validar
+            
+        Returns:
+            str: Tipo de usuario validado
+            
+        Raises:
+            ValueError: Cuando el tipo no es válido
+        """
+        tipos_permitidos = ['super_admin', 'tenant_admin', 'user']
+        
+        if valor not in tipos_permitidos:
+            raise ValueError(f'Tipo de usuario no válido. Permitidos: {", ".join(tipos_permitidos)}')
+        
+        return valor
 
 class LoginData(BaseModel):
     """
@@ -554,6 +625,8 @@ class Token(BaseModel):
     
     Incluye el token de acceso y opcionalmente los datos del usuario
     para evitar llamadas adicionales al backend después del login.
+    
+    AHORA INCLUYE: Campos de nivel de acceso en user_data
     """
     
     access_token: str = Field(
@@ -599,6 +672,8 @@ class TokenPayload(BaseModel):
     
     Representa la estructura de datos codificada dentro de los tokens JWT
     generados por el sistema.
+    
+    AHORA INCLUYE: Campos de nivel de acceso para autorización LBAC
     """
     
     sub: Optional[str] = Field(
@@ -624,6 +699,33 @@ class TokenPayload(BaseModel):
         description="Tipo de token: 'access' o 'refresh'",
         examples=["access", "refresh"]
     )
+    
+    # ✅ NUEVOS CAMPOS PARA SISTEMA DE NIVELES
+    access_level: Optional[int] = Field(
+        None,
+        ge=1,
+        le=5,
+        description="Nivel de acceso máximo del usuario (1-5)",
+        examples=[1, 3, 5]
+    )
+    
+    is_super_admin: Optional[bool] = Field(
+        None,
+        description="Indica si el usuario tiene rol de Super Administrador",
+        examples=[True, False]
+    )
+    
+    user_type: Optional[str] = Field(
+        None,
+        description="Tipo de usuario: 'super_admin', 'tenant_admin', 'user'",
+        examples=["super_admin", "tenant_admin", "user"]
+    )
+    
+    cliente_id: Optional[int] = Field(
+        None,
+        description="ID del cliente al que pertenece el usuario",
+        examples=[1, 2, 3]
+    )
 
     @field_validator('type')
     @classmethod
@@ -642,6 +744,46 @@ class TokenPayload(BaseModel):
         """
         if valor is not None and valor not in ['access', 'refresh']:
             raise ValueError('El tipo de token debe ser "access" o "refresh"')
+        
+        return valor
+
+    @field_validator('access_level')
+    @classmethod
+    def validar_access_level_token(cls, valor: Optional[int]) -> Optional[int]:
+        """
+        Valida que el nivel de acceso esté en el rango permitido.
+        
+        Args:
+            valor: Nivel de acceso a validar
+            
+        Returns:
+            Optional[int]: Nivel de acceso validado
+            
+        Raises:
+            ValueError: Cuando el nivel no está en el rango 1-5
+        """
+        if valor is not None and (valor < 1 or valor > 5):
+            raise ValueError('El nivel de acceso debe estar entre 1 y 5')
+        
+        return valor
+
+    @field_validator('user_type')
+    @classmethod
+    def validar_user_type_token(cls, valor: Optional[str]) -> Optional[str]:
+        """
+        Valida que el tipo de usuario sea uno de los permitidos.
+        
+        Args:
+            valor: Tipo de usuario a validar
+            
+        Returns:
+            Optional[str]: Tipo de usuario validado
+            
+        Raises:
+            ValueError: Cuando el tipo no es válido
+        """
+        if valor is not None and valor not in ['super_admin', 'tenant_admin', 'user']:
+            raise ValueError(f'Tipo de usuario no válido. Permitidos: super_admin, tenant_admin, user')
         
         return valor
 

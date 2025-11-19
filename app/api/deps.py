@@ -57,16 +57,105 @@ async def get_current_user_data(token: str = Depends(oauth2_scheme)) -> Dict[str
         logger.warning(f"Error de validación JWT: {e}")
         raise credentials_exception
 
-# --- get_current_active_user (SIN CAMBIOS FUNCIONALES) ---
+
+# --- NUEVAS FUNCIONES PARA NIVELES DE ACCESO ---
+
+async def get_user_access_level(usuario_id: int, cliente_id: int) -> int:
+    """
+    Obtiene el nivel de acceso máximo del usuario basado en sus roles activos
+    """
+    try:
+        from app.db.queries import execute_query, GET_USER_MAX_ACCESS_LEVEL
+        
+        # Usar execute_query en lugar de execute_auth_query para mayor control
+        result = execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
+        
+        if result and len(result) > 0:
+            max_level = result[0].get('max_level', 1)
+            logger.debug(f"Nivel máximo calculado para usuario {usuario_id}: {max_level}")
+            return max_level
+        else:
+            logger.warning(f"No se encontraron roles activos para usuario {usuario_id}, usando nivel 1")
+            return 1
+            
+    except Exception as e:
+        logger.error(f"Error al obtener nivel de acceso para usuario {usuario_id}: {e}")
+        return 1  # Nivel mínimo por seguridad
+
+# AGREGAR ESTA NUEVA FUNCIÓN PARA DIAGNÓSTICO
+async def debug_user_access_levels(usuario_id: int, cliente_id: int) -> Dict[str, Any]:
+    """
+    Función de diagnóstico para verificar niveles de acceso
+    """
+    try:
+        from app.db.queries import execute_query, GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+        
+        result = execute_query(GET_USER_ACCESS_LEVEL_INFO_COMPLETE, (usuario_id, cliente_id))
+        
+        if result and len(result) > 0:
+            level_info = result[0]
+            logger.info(f"DIAGNÓSTICO NIVELES - Usuario {usuario_id}: {level_info}")
+            return level_info
+        else:
+            logger.warning(f"DIAGNÓSTICO NIVELES - Sin resultados para usuario {usuario_id}")
+            return {"max_level": 1, "super_admin_count": 0, "total_roles": 0}
+            
+    except Exception as e:
+        logger.error(f"Error en diagnóstico de niveles para usuario {usuario_id}: {e}")
+        return {"error": str(e)}
+
+async def check_is_super_admin(usuario_id: int) -> bool:
+    """
+    Verifica si el usuario tiene rol de SUPER_ADMIN (nivel 5)
+    """
+    try:
+        from app.db.queries import execute_query, IS_USER_SUPER_ADMIN
+        
+        result = execute_query(IS_USER_SUPER_ADMIN, (usuario_id,))
+        
+        if result and len(result) > 0:
+            is_super_admin = result[0].get('is_super_admin', 0) > 0
+            logger.debug(f"Usuario {usuario_id} es super admin: {is_super_admin}")
+            return is_super_admin
+        else:
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error al verificar super admin para usuario {usuario_id}: {e}")
+        return False
+
+
+def determine_user_type(access_level: int, is_super_admin: bool) -> str:
+    """
+    Determina el tipo de usuario basado en nivel de acceso
+    
+    Args:
+        access_level (int): Nivel de acceso del usuario
+        is_super_admin (bool): Si es super admin
+    
+    Returns:
+        str: Tipo de usuario: 'super_admin', 'tenant_admin', 'user'
+    """
+    if is_super_admin:
+        return 'super_admin'
+    elif access_level >= 4:
+        return 'tenant_admin'
+    else:
+        return 'user'
+
+
+# --- get_current_active_user (MODIFICADO PARA INCLUIR NIVELES) ---
+
 async def get_current_active_user(
     request: Request,
     payload: Dict[str, Any] = Depends(get_current_user_data)
 ) -> UsuarioReadWithRoles:
-    # ... (Contenido de get_current_active_user se mantiene exactamente igual) ...
     """
     Dependencia principal: Obtiene los datos completos del usuario activo desde la BD
     basado en el nombre de usuario del token, añade sus roles (como objetos RolRead)
     y devuelve una instancia del schema UsuarioReadWithRoles.
+    
+    AHORA INCLUYE: access_level, is_super_admin, user_type
     """
     username = payload.get("sub")
 
@@ -106,7 +195,6 @@ async def get_current_active_user(
                            f"intentó acceder al cliente {request_cliente_id}. Violación de tenant.")
             raise credentials_exception
 
-
         # Obtener roles del usuario usando el servicio (devuelve List[Dict])
         roles_list: List[RolRead] = [] # Inicializar lista para objetos RolRead
         try:
@@ -130,7 +218,6 @@ async def get_current_active_user(
 
             logger.debug(f"Roles convertidos a List[RolRead] para usuario ID {user_dict['usuario_id']}: {[r.nombre for r in roles_list]}")
 
-
         except Exception as role_error:
             # Captura errores de UsuarioService.obtener_roles_de_usuario o de la conversión
             logger.error(f"Error obteniendo/procesando roles para usuario ID {user_dict['usuario_id']}: {role_error}", exc_info=True)
@@ -138,6 +225,32 @@ async def get_current_active_user(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error interno al obtener o procesar roles del usuario."
             )
+
+        # --- CALCULAR NIVELES DE ACCESO (NUEVO) ---
+        try:
+            # Obtener nivel máximo de acceso del usuario
+            access_level = await get_user_access_level(user_dict['usuario_id'], token_cliente_id)
+            
+            # Verificar si es super admin
+            is_super_admin = await check_is_super_admin(user_dict['usuario_id'])
+            
+            # Determinar tipo de usuario
+            user_type = determine_user_type(access_level, is_super_admin)
+            
+            # Agregar campos al diccionario del usuario
+            user_dict['access_level'] = access_level
+            user_dict['is_super_admin'] = is_super_admin
+            user_dict['user_type'] = user_type
+            
+            logger.debug(f"Niveles calculados para usuario '{username}': "
+                        f"access_level={access_level}, is_super_admin={is_super_admin}, user_type={user_type}")
+                        
+        except Exception as level_error:
+            logger.error(f"Error calculando niveles de acceso para usuario {user_dict['usuario_id']}: {level_error}")
+            # Asignar valores por defecto en caso de error
+            user_dict['access_level'] = 1
+            user_dict['is_super_admin'] = False
+            user_dict['user_type'] = 'user'
 
         # --- Construir y devolver la instancia Pydantic ---
         try:

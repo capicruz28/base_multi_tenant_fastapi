@@ -26,20 +26,82 @@ class RefreshTokenBody(BaseModel):
     refresh_token: Optional[str] = None
 
 
+# --- NUEVA FUNCIÓN PARA OBTENER NIVELES DE USUARIO ---
+
+def get_user_access_level_info(usuario_id: int, cliente_id: int) -> Dict[str, Any]:
+    """
+    Obtiene información de niveles de acceso del usuario (CORREGIDA)
+    """
+    try:
+        from app.db.queries import execute_query, GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+        
+        # Usar execute_query para mayor control
+        result = execute_query(GET_USER_ACCESS_LEVEL_INFO_COMPLETE, (usuario_id, cliente_id))
+        
+        if result and len(result) > 0:
+            level_data = result[0]
+            access_level = level_data.get('max_level', 1)
+            is_super_admin = level_data.get('super_admin_count', 0) > 0
+            
+            # Determinar tipo de usuario
+            if is_super_admin:
+                user_type = 'super_admin'
+            elif access_level >= 4:
+                user_type = 'tenant_admin'
+            else:
+                user_type = 'user'
+                
+            logger.info(f"Niveles calculados - Usuario {usuario_id}: level={access_level}, super_admin={is_super_admin}, type={user_type}")
+            
+            return {
+                'access_level': access_level,
+                'is_super_admin': is_super_admin,
+                'user_type': user_type
+            }
+        else:
+            logger.warning(f"No se pudieron calcular niveles para usuario {usuario_id}, usando valores por defecto")
+            return {
+                'access_level': 1,
+                'is_super_admin': False,
+                'user_type': 'user'
+            }
+            
+    except Exception as e:
+        logger.error(f"Error al obtener niveles de acceso para usuario {usuario_id}: {e}")
+        # Valores por defecto en caso de error
+        return {
+            'access_level': 1,
+            'is_super_admin': False,
+            'user_type': 'user'
+        }
+
+
 def create_access_token(data: dict) -> str:
     """
     Crea un token JWT de acceso con iat, exp y type='access'
     - Usa SECRET_KEY específica
     - Tiempo de expiración reducido (15 min por defecto)
+    - AHORA INCLUYE: access_level, is_super_admin, user_type
     """
     to_encode = data.copy()
     now = datetime.utcnow()
     expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    # ✅ AGREGAR CAMPOS DE NIVEL AL PAYLOAD
+    level_info = to_encode.get('level_info', {})
+    
     to_encode.update({
         "exp": expire,
         "iat": now,
         "type": "access",
+        "access_level": level_info.get('access_level', 1),
+        "is_super_admin": level_info.get('is_super_admin', False),
+        "user_type": level_info.get('user_type', 'user')
     })
+    
+    # Remover level_info temporal del payload
+    to_encode.pop('level_info', None)
+    
     # Usa SECRET_KEY para access tokens
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
@@ -49,15 +111,27 @@ def create_refresh_token(data: dict) -> str:
     Crea un token JWT de refresh con iat, exp y type='refresh'
     - Usa REFRESH_SECRET_KEY separada (mayor seguridad)
     - Tiempo de expiración largo (7 días por defecto)
+    - AHORA INCLUYE: access_level, is_super_admin, user_type
     """
     to_encode = data.copy()
     now = datetime.utcnow()
     expire = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    # ✅ AGREGAR CAMPOS DE NIVEL AL PAYLOAD
+    level_info = to_encode.get('level_info', {})
+    
     to_encode.update({
         "exp": expire,
         "iat": now,
         "type": "refresh",
+        "access_level": level_info.get('access_level', 1),
+        "is_super_admin": level_info.get('is_super_admin', False),
+        "user_type": level_info.get('user_type', 'user')
     })
+    
+    # Remover level_info temporal del payload
+    to_encode.pop('level_info', None)
+    
     # Usa REFRESH_SECRET_KEY separada
     return jwt.encode(to_encode, settings.REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
 
@@ -67,12 +141,19 @@ def decode_refresh_token(token: str) -> dict:
     Decodifica y valida un refresh token (type='refresh')
     - Usa REFRESH_SECRET_KEY para validación
     - Verifica que el tipo sea 'refresh'
+    - AHORA VALIDA: access_level, is_super_admin, user_type
     """
     try:
         # Usa REFRESH_SECRET_KEY para decodificar
         payload = jwt.decode(token, settings.REFRESH_SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "refresh":
             raise JWTError("Token type is not refresh")
+        
+        # ✅ VALIDAR QUE TENGA CAMPOS DE NIVEL
+        if 'access_level' not in payload or 'user_type' not in payload:
+            logger.warning("Refresh token no contiene campos de nivel de acceso")
+            raise JWTError("Token missing access level fields")
+            
         return payload
     except JWTError as e:
         logger.error(f"Error decodificando refresh token: {str(e)}")
@@ -90,6 +171,8 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
     ✅ CORRECCIÓN MULTI-TENANT HÍBRIDO: 
     - Si es el Super Admin: Busca en BD ADMIN (donde está el cliente SYSTEM)
     - Si es un usuario regular: Busca en la BD del cliente (compartida o separada)
+    
+    AHORA INCLUYE: access_level, is_super_admin, user_type en la respuesta
     """
     
     # ✅ LOGGING CRÍTICO: Verificar qué cliente_id llegó
@@ -186,6 +269,14 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
         """
         execute_auth_query(update_query, (user['usuario_id'],))
 
+        # ✅ CALCULAR NIVELES DE ACCESO (NUEVO)
+        level_info = get_user_access_level_info(user['usuario_id'], user['cliente_id'])
+        
+        # Agregar niveles al usuario
+        user['access_level'] = level_info['access_level']
+        user['is_super_admin'] = level_info['is_super_admin']
+        user['user_type'] = level_info['user_type']
+        
         # Eliminar la contraseña del resultado
         user.pop('contrasena', None)
         
@@ -199,7 +290,9 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
             f"username='{username}', "
             f"usuario_id={user['usuario_id']}, "
             f"cliente_origen={user['cliente_id']}, "
-            f"cliente_destino={target_cliente_id if is_superadmin else 'N/A'}"
+            f"cliente_destino={target_cliente_id if is_superadmin else 'N/A'}, "
+            f"access_level={user['access_level']}, "
+            f"user_type={user['user_type']}"
         )
         
         return user
@@ -253,6 +346,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
     ✅ CORRECCIÓN MULTI-TENANT HÍBRIDO:
     - Superadmin: Busca en BD ADMIN
     - Usuario regular: Busca en BD del contexto
+    
+    AHORA INCLUYE: access_level, is_super_admin, user_type del token
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -271,6 +366,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
         username = token_data.sub
         es_superadmin = payload.get("es_superadmin", False)
         target_cliente_id = payload.get("cliente_id")  # Cliente al que accede
+        
+        # ✅ EXTRAER CAMPOS DE NIVEL DEL TOKEN
+        access_level = payload.get("access_level", 1)
+        is_super_admin = payload.get("is_super_admin", False)
+        user_type = payload.get("user_type", "user")
 
     except JWTError as e:
         logger.error(f"Error decodificando token: {str(e)}")
@@ -310,6 +410,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario inactivo"
         )
+    
+    # ✅ AGREGAR CAMPOS DE NIVEL AL USUARIO
+    user['access_level'] = access_level
+    user['is_super_admin'] = is_super_admin
+    user['user_type'] = user_type
 
     return user
 
@@ -327,6 +432,7 @@ async def get_current_user_from_refresh(
     - WEB: Lee desde cookie HttpOnly
     - MÓVIL: Lee desde body JSON (con el header X-Client-Type: mobile)
     - Usa REFRESH_SECRET_KEY para validación JWT
+    - AHORA INCLUYE: access_level, is_super_admin, user_type del token
     """
     # Detectar tipo de cliente
     client_type = request.headers.get("X-Client-Type", "web").lower()
@@ -392,8 +498,14 @@ async def get_current_user_from_refresh(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Usuario inactivo"
             )
+            
+        # ✅ AGREGAR CAMPOS DE NIVEL AL USUARIO DESDE EL TOKEN
+        user['access_level'] = payload.get('access_level', 1)
+        user['is_super_admin'] = payload.get('is_super_admin', False)
+        user['user_type'] = payload.get('user_type', 'user')
 
-        logger.info(f"[REFRESH] Token validado exitosamente (BD OK) para usuario: {username} (Cliente: {user['cliente_id']})")
+        logger.info(f"[REFRESH] Token validado exitosamente (BD OK) para usuario: {username} "
+                   f"(Cliente: {user['cliente_id']}, Level: {user['access_level']}, Type: {user['user_type']})")
         return user
 
     except HTTPException:

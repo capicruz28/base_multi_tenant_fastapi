@@ -47,6 +47,165 @@ class UsuarioService(BaseService):
     - Aislamiento total de datos por cliente_id
     """
 
+    # --- NUEVOS MÉTODOS PARA SISTEMA DE NIVELES ---
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def get_user_access_level(usuario_id: int, cliente_id: int) -> int:
+        """
+        Obtiene el nivel de acceso máximo del usuario basado en sus roles activos
+        
+        Args:
+            usuario_id (int): ID del usuario
+            cliente_id (int): ID del cliente (tenant)
+            
+        Returns:
+            int: Nivel de acceso máximo (1-5), 1 si no tiene roles
+            
+        Raises:
+            ServiceError: Si hay errores en la consulta
+        """
+        try:
+            query = """
+            SELECT MAX(r.nivel_acceso) as max_level
+            FROM usuario_rol ur
+            INNER JOIN rol r ON ur.rol_id = r.rol_id
+            WHERE ur.usuario_id = ? 
+              AND ur.es_activo = 1
+              AND r.es_activo = 1
+              AND (r.cliente_id = ? OR r.cliente_id IS NULL)
+            """
+            result = execute_auth_query(query, (usuario_id, cliente_id))
+            
+            if result and result.get('max_level') is not None:
+                return result['max_level']
+            else:
+                # Si no tiene roles activos, nivel mínimo
+                return 1
+                
+        except DatabaseError as db_err:
+            logger.error(f"Error de BD en get_user_access_level: {db_err.detail}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error de base de datos al obtener nivel de acceso",
+                internal_code="ACCESS_LEVEL_RETRIEVAL_DB_ERROR"
+            )
+        except Exception as e:
+            logger.exception(f"Error inesperado en get_user_access_level: {str(e)}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error interno al obtener nivel de acceso",
+                internal_code="ACCESS_LEVEL_RETRIEVAL_UNEXPECTED_ERROR"
+            )
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def is_super_admin(usuario_id: int) -> bool:
+        """
+        Verifica si el usuario tiene rol de SUPER_ADMIN (nivel 5)
+        
+        Args:
+            usuario_id (int): ID del usuario
+            
+        Returns:
+            bool: True si es super admin, False si no
+            
+        Raises:
+            ServiceError: Si hay errores en la consulta
+        """
+        try:
+            query = """
+            SELECT COUNT(*) as is_super_admin
+            FROM usuario_rol ur
+            INNER JOIN rol r ON ur.rol_id = r.rol_id
+            WHERE ur.usuario_id = ? 
+              AND ur.es_activo = 1
+              AND r.es_activo = 1
+              AND r.codigo_rol = 'SUPER_ADMIN'
+              AND r.nivel_acceso = 5
+            """
+            result = execute_auth_query(query, (usuario_id,))
+            
+            return result and result.get('is_super_admin', 0) > 0
+            
+        except DatabaseError as db_err:
+            logger.error(f"Error de BD en is_super_admin: {db_err.detail}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error de base de datos al verificar super admin",
+                internal_code="SUPER_ADMIN_CHECK_DB_ERROR"
+            )
+        except Exception as e:
+            logger.exception(f"Error inesperado en is_super_admin: {str(e)}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error interno al verificar super admin",
+                internal_code="SUPER_ADMIN_CHECK_UNEXPECTED_ERROR"
+            )
+
+    @staticmethod
+    def determine_user_type(access_level: int, is_super_admin: bool) -> str:
+        """
+        Determina el tipo de usuario basado en nivel de acceso
+        
+        Args:
+            access_level (int): Nivel de acceso del usuario
+            is_super_admin (bool): Si es super admin
+            
+        Returns:
+            str: Tipo de usuario: 'super_admin', 'tenant_admin', 'user'
+        """
+        if is_super_admin:
+            return 'super_admin'
+        elif access_level >= 4:
+            return 'tenant_admin'
+        else:
+            return 'user'
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def get_user_level_info(usuario_id: int, cliente_id: int) -> Dict[str, Any]:
+        """
+        Obtiene información completa de niveles de acceso del usuario
+        
+        Args:
+            usuario_id (int): ID del usuario
+            cliente_id (int): ID del cliente
+            
+        Returns:
+            Dict: Información de niveles {access_level, is_super_admin, user_type}
+            
+        Raises:
+            ServiceError: Si hay errores en la consulta
+        """
+        try:
+            # Obtener nivel de acceso
+            access_level = await UsuarioService.get_user_access_level(usuario_id, cliente_id)
+            
+            # Verificar si es super admin
+            is_super_admin = await UsuarioService.is_super_admin(usuario_id)
+            
+            # Determinar tipo de usuario
+            user_type = UsuarioService.determine_user_type(access_level, is_super_admin)
+            
+            return {
+                'access_level': access_level,
+                'is_super_admin': is_super_admin,
+                'user_type': user_type
+            }
+            
+        except ServiceError:
+            raise
+        except Exception as e:
+            logger.exception(f"Error inesperado en get_user_level_info: {str(e)}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error interno al obtener información de niveles",
+                internal_code="USER_LEVEL_INFO_RETRIEVAL_UNEXPECTED_ERROR"
+            )
+
+    # --- FIN NUEVOS MÉTODOS PARA SISTEMA DE NIVELES ---
+
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_usuario_completo_por_id(cliente_id: int, usuario_id: int) -> Optional[Dict[str, Any]]:
@@ -57,6 +216,7 @@ class UsuarioService(BaseService):
         - Obtiene todos los datos básicos del usuario
         - Incluye información de roles asignados y activos
         - Retorna estructura unificada para el endpoint /me extendido
+        - AHORA INCLUYE: access_level, is_super_admin, user_type
         
         Args:
             cliente_id: ID del cliente al que pertenece el usuario
@@ -174,6 +334,20 @@ class UsuarioService(BaseService):
                     
                     usuario_completo["roles"].append(rol_info)
                     roles_procesados.add(rol_id)
+            
+            # ✅ CALCULAR NIVELES DE ACCESO (NUEVO)
+            try:
+                level_info = await UsuarioService.get_user_level_info(usuario_id, cliente_id)
+                usuario_completo.update(level_info)
+                logger.debug(f"Niveles calculados para usuario {usuario_id}: {level_info}")
+            except Exception as level_error:
+                logger.error(f"Error calculando niveles para usuario {usuario_id}: {level_error}")
+                # Valores por defecto en caso de error
+                usuario_completo.update({
+                    'access_level': 1,
+                    'is_super_admin': False,
+                    'user_type': 'user'
+                })
             
             logger.info(f"Usuario completo obtenido exitosamente: ID {usuario_id} con {len(usuario_completo['roles'])} roles activos")
             return usuario_completo

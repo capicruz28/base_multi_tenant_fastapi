@@ -413,11 +413,31 @@ class UsuarioReadWithRoles(UsuarioRead):
     
     Utilizado en endpoints que requieren información completa del usuario
     incluyendo los permisos y roles asignados.
+    
+    ✅ AHORA INCLUYE: Campos de niveles de acceso para el sistema LBAC
     """
     
     roles: List[RolRead] = Field(
         default_factory=list,
         description="Lista de roles activos asignados al usuario"
+    )
+    
+    # ✅ AGREGAR CAMPOS DE NIVELES DE ACCESO (NUEVO)
+    access_level: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description="Nivel de acceso máximo del usuario basado en sus roles (1-5)"
+    )
+    
+    is_super_admin: bool = Field(
+        default=False,
+        description="Indica si el usuario tiene rol de Super Administrador (nivel 5)"
+    )
+    
+    user_type: str = Field(
+        default="user",
+        description="Tipo de usuario: 'super_admin', 'tenant_admin', 'user'"
     )
 
     class Config:

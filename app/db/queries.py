@@ -231,6 +231,86 @@ def execute_transaction(
             cursor.close()
             
 # ============================================
+# NUEVAS QUERIES PARA SISTEMA DE NIVELES LBAC
+# ============================================
+
+# Query para obtener el nivel de acceso máximo del usuario (CORREGIDA)
+GET_USER_MAX_ACCESS_LEVEL = """
+SELECT ISNULL(MAX(r.nivel_acceso), 1) as max_level
+FROM usuario_rol ur
+INNER JOIN rol r ON ur.rol_id = r.rol_id
+WHERE ur.usuario_id = ? 
+  AND ur.es_activo = 1
+  AND r.es_activo = 1
+  AND (r.cliente_id = ? OR r.cliente_id IS NULL)
+"""
+
+# Query para verificar si el usuario es SUPER_ADMIN (CORREGIDA)
+IS_USER_SUPER_ADMIN = """
+SELECT COUNT(*) as is_super_admin
+FROM usuario_rol ur
+INNER JOIN rol r ON ur.rol_id = r.rol_id
+WHERE ur.usuario_id = ? 
+  AND ur.es_activo = 1
+  AND r.es_activo = 1
+  AND r.codigo_rol = 'SUPER_ADMIN'
+  AND r.nivel_acceso = 5
+"""
+
+# Query para obtener el nivel mínimo requerido por una lista de roles
+GET_MIN_REQUIRED_ACCESS_LEVEL = """
+SELECT MIN(nivel_acceso) as min_required_level
+FROM rol 
+WHERE nombre IN ({}) 
+  AND es_activo = 1
+"""
+
+# NUEVA QUERY: Obtener información completa de niveles (MÁS ROBUSTA)
+GET_USER_ACCESS_LEVEL_INFO_COMPLETE = """
+SELECT 
+    ISNULL(MAX(r.nivel_acceso), 1) as max_level,
+    COUNT(CASE WHEN r.codigo_rol = 'SUPER_ADMIN' AND r.nivel_acceso = 5 THEN 1 END) as super_admin_count,
+    COUNT(*) as total_roles
+FROM usuario_rol ur
+INNER JOIN rol r ON ur.rol_id = r.rol_id
+WHERE ur.usuario_id = ? 
+  AND ur.es_activo = 1
+  AND r.es_activo = 1
+  AND (r.cliente_id = ? OR r.cliente_id IS NULL)
+"""
+
+# Query para obtener roles del usuario con información de niveles
+GET_USER_ROLES_WITH_LEVELS = """
+SELECT 
+    r.rol_id,
+    r.nombre,
+    r.descripcion,
+    r.nivel_acceso,
+    r.codigo_rol,
+    r.es_activo
+FROM usuario_rol ur
+INNER JOIN rol r ON ur.rol_id = r.rol_id
+WHERE ur.usuario_id = ? 
+  AND ur.es_activo = 1
+  AND r.es_activo = 1
+  AND (r.cliente_id = ? OR r.cliente_id IS NULL)
+ORDER BY r.nivel_acceso DESC
+"""
+
+# Query para obtener información completa de niveles del usuario
+GET_USER_ACCESS_LEVEL_INFO = """
+SELECT 
+    MAX(r.nivel_acceso) as max_level,
+    COUNT(CASE WHEN r.codigo_rol = 'SUPER_ADMIN' AND r.nivel_acceso = 5 THEN 1 END) as super_admin_count
+FROM usuario_rol ur
+INNER JOIN rol r ON ur.rol_id = r.rol_id
+WHERE ur.usuario_id = ? 
+  AND ur.es_activo = 1
+  AND r.es_activo = 1
+  AND (r.cliente_id = ? OR r.cliente_id IS NULL)
+"""
+
+# ============================================
 # QUERIES PARA AUTENTICACIÓN Y USUARIOS (MULTI-TENANT)
 # ============================================
 

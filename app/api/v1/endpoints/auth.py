@@ -16,6 +16,7 @@ from typing import List, Dict, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
+from app.core.auth import get_user_access_level_info
 
 # Importar la función que lee el ContextVar del cliente (¡Asume que está definida!)
 from app.core.tenant_context import get_current_client_id 
@@ -149,9 +150,11 @@ async def login(
         user_full_data = {**user_base_data, "roles": user_role_names}
 
         # 6. ✅ Tokens con contexto correcto
+        level_info = get_user_access_level_info(user_id, target_cliente_id)
         token_data = {
             "sub": form_data.username,
-            "cliente_id": target_cliente_id  # Cliente al que accede
+            "cliente_id": target_cliente_id,  # Cliente al que accede
+            "level_info": level_info 
         }
         
         if es_superadmin:
@@ -166,21 +169,22 @@ async def login(
             user_agent = request.headers.get("user-agent")
             
             stored = await RefreshTokenService.store_refresh_token(
-                cliente_id=target_cliente_id,  # ✅ Cliente al que accede
+                cliente_id=target_cliente_id,
                 usuario_id=user_id,
                 token=refresh_token,
                 client_type=client_type,
                 ip_address=ip_address,
-                user_agent=user_agent
+                user_agent=user_agent,
+                is_rotation=False  # ✅ CRÍTICO: False porque es un login nuevo
             )
             
             if stored and stored.get('token_id', -1) > 0:
-                logger.info(f"[LOGIN-{client_type.upper()}] Token almacenado en BD - ID: {stored['token_id']}")
+                logger.info(f"[LOGIN-{client_type.upper()}] Token almacenado - ID: {stored['token_id']}")
             else:
-                logger.warning(f"[LOGIN-{client_type.upper()}] Token duplicado ignorado (no afecta funcionalidad)")
+                logger.warning(f"[LOGIN-{client_type.upper()}] Token duplicado en login (revisar)")
                 
         except Exception as e:
-            logger.error(f"Error almacenando refresh token: {str(e)}")
+            logger.error(f"[LOGIN] Error almacenando refresh token: {str(e)}")
             # No fallar el login
 
         # ✅ NUEVO: Lógica diferenciada según tipo de cliente
@@ -222,35 +226,17 @@ async def login(
 # ----
 # --- Endpoint para Obtener Usuario Actual (Me) ---
 # ----
+# app/api/v1/endpoints/auth.py (línea ~200)
+
 @router.get(
     "/me/",
     response_model=UserDataWithRoles,
-    summary="Obtener usuario actual",
-    description="""
-    Retorna los datos completos del usuario autenticado, incluyendo roles y metadatos. 
-    Requiere un **Access Token válido** en el header `Authorization: Bearer <token>`.
-
-    **Permisos requeridos:**
-    - Autenticación (Access Token válido).
-
-    **Respuestas:**
-    - 200: Datos del usuario actual recuperados.
-    - 401: Token inválido o expirado.
-    - 500: Error interno del servidor.
-    """
+    summary="Obtener usuario actual"
 )
 async def get_me(current_user: dict = Depends(get_current_user)):
     """
     Recupera los datos del usuario identificado por el Access Token.
-
-    Args:
-        current_user: Diccionario con los datos del usuario extraídos del Access Token (proporcionado por `get_current_user`).
-
-    Returns:
-        UserDataWithRoles: Objeto con todos los datos del usuario, incluyendo roles.
-
-    Raises:
-        HTTPException: Si el token es inválido o expirado (401), o error interno (500).
+    ✅ CORRECCIÓN CRÍTICA: Usar niveles del TOKEN, no recalcularlos
     """
     logger.info(f"Solicitud /me/ recibida para usuario: {current_user.get('nombre_usuario')}")
     try:
@@ -258,8 +244,17 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         user_id = current_user.get('usuario_id')
         cliente_id = current_user.get('cliente_id')
         
-        # ✅ NUEVO: Obtener información extendida del usuario para diferenciación Super Admin vs Tenant Admin
-        usuario_completo = await usuario_service.obtener_usuario_completo_por_id(user_id, cliente_id)
+        # ✅ CRÍTICO: Leer niveles DESDE EL TOKEN (ya vienen correctos)
+        access_level_from_token = current_user.get('access_level', 1)
+        is_super_admin_from_token = current_user.get('is_super_admin', False)
+        user_type_from_token = current_user.get('user_type', 'user')
+        
+        logger.info(
+            f"[ME] Niveles desde token - Level: {access_level_from_token}, "
+            f"Super Admin: {is_super_admin_from_token}, Type: {user_type_from_token}"
+        )
+        
+        usuario_completo = await usuario_service.obtener_usuario_completo_por_id(cliente_id, user_id)
         
         if not usuario_completo:
             logger.error(f"Usuario {user_id} no encontrado en cliente {cliente_id}")
@@ -268,38 +263,32 @@ async def get_me(current_user: dict = Depends(get_current_user)):
                 detail="Usuario no encontrado"
             )
         
-        # ✅ NUEVO: Determinar tipo de usuario (Super Admin vs Tenant Admin vs Usuario normal)
-        tipo_usuario = "user"
-        es_super_admin = False
-        es_tenant_admin = False
-        
-        # Verificar si es Super Admin (rol SUPER_ADMIN global o del cliente SYSTEM)
+        # Extraer nombres de roles
+        role_names = []
         for rol in usuario_completo.get("roles", []):
-            if rol.get("codigo_rol") == "SUPER_ADMIN" and rol.get("cliente_id") is None:
-                es_super_admin = True
-                tipo_usuario = "super_admin"
-                break
-            elif rol.get("codigo_rol") == "ADMIN" and rol.get("cliente_id") == cliente_id and cliente_id != 1:
-                es_tenant_admin = True
-                tipo_usuario = "tenant_admin"
+            if rol.get("nombre"):
+                role_names.append(rol["nombre"])
         
-        # Caso especial: Super Admin del cliente SYSTEM (cliente_id = 1)
-        if cliente_id == 1 and any(rol.get("codigo_rol") == "SUPER_ADMIN" for rol in usuario_completo.get("roles", [])):
-            es_super_admin = True
-            tipo_usuario = "super_admin"
-        
-        # ✅ NUEVO: Construir respuesta extendida
+        # ✅ CORRECCIÓN CRÍTICA: Usar valores del TOKEN, NO recalcular
         user_full_data = {
-            **current_user,
-            "roles": usuario_completo.get("roles", []),
-            "tipo_usuario": tipo_usuario,
-            "es_super_admin": es_super_admin,
-            "es_tenant_admin": es_tenant_admin,
-            "cliente_info": usuario_completo.get("cliente_info"),
-            "modulos_activos": usuario_completo.get("modulos_activos", [])
+            **current_user,  # Incluye los datos básicos del token
+            "roles": role_names,
+            "tipo_usuario": user_type_from_token,  # ✅ DEL TOKEN
+            "es_super_admin": is_super_admin_from_token,  # ✅ DEL TOKEN
+            "es_tenant_admin": access_level_from_token >= 4 and not is_super_admin_from_token,
+            "cliente": usuario_completo.get("cliente_info"),
+            "modulos_activos": usuario_completo.get("modulos_activos", []),
+            # ✅ CRÍTICO: Estos campos deben venir del TOKEN
+            "access_level": access_level_from_token,  # ✅ DEL TOKEN
+            "is_super_admin": is_super_admin_from_token,  # ✅ DEL TOKEN
+            "user_type": user_type_from_token  # ✅ DEL TOKEN
         }
         
-        logger.info(f"Datos completos del usuario {current_user.get('nombre_usuario')} recuperados (tipo: {tipo_usuario})")
+        logger.info(
+            f"[ME] Datos completos enviados - Usuario: {current_user.get('nombre_usuario')}, "
+            f"Type: {user_type_from_token}, Level: {access_level_from_token}, "
+            f"Super Admin: {is_super_admin_from_token}, Roles: {len(role_names)}"
+        )
         return user_full_data
         
     except HTTPException:
@@ -315,55 +304,21 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 # ----
 # --- Endpoint para Refrescar Access Token ---
 # ----
-@router.post(
-    "/refresh/",
-    response_model=Token,
-    summary="Refrescar Access Token",
-    description="""
-    Genera un nuevo Access Token usando el **Refresh Token**.
-    
-    **✅ NUEVO - Estrategia según cliente:**
-    - **Web (X-Client-Type: web):** Lee Refresh Token de cookie HttpOnly, devuelve nuevo Access en JSON y rota Refresh en cookie
-    - **Móvil (X-Client-Type: mobile):** Lee Refresh Token del body, devuelve ambos tokens en JSON
-    
-    Además, **rota el Refresh Token** (emite uno nuevo y lo reemplaza) para mayor seguridad.
-
-    **✅ CORREGIDO: Rotación segura**
-    - El refresh token ANTIGUO se revoca **ANTES** de emitir el nuevo
-    - Garantiza que solo un refresh token esté activo por sesión
-
-    **Respuestas:**
-    - 200: Tokens refrescados exitosamente.
-    - 401: Refresh Token ausente, inválido o expirado.
-    - 500: Error interno del servidor.
-    """
-)
+@router.post("/refresh/", response_model=Token)
 async def refresh_access_token(
     request: Request,
     response: Response,
     current_user: dict = Depends(get_current_user_from_refresh)
 ):
-    """
-    Genera un nuevo Access Token y rota el Refresh Token de forma segura.
-
-    Args:
-        request: Objeto Request para inspeccionar cookies y headers
-        response: Objeto Response para establecer la nueva cookie HttpOnly.
-        current_user: Payload del Refresh Token validado (proporcionado por `get_current_user_from_refresh`).
-
-    Returns:
-        Token: Objeto que contiene el nuevo Access Token y tipo de token.
-
-    Raises:
-        HTTPException: Si el token es inválido (401) o error interno (500).
-    """
     try:
-        # ✅ NUEVO: Detectar tipo de cliente
         client_type = get_client_type(request)
-        
         username = current_user.get("nombre_usuario")
+        
         if not username:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no válido en el refresh token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario no válido en el refresh token"
+            )
 
         # === PASO 1: OBTENER EL REFRESH TOKEN ANTIGUO ===
         old_refresh_token = None
@@ -377,32 +332,31 @@ async def refresh_access_token(
                 pass
 
         if not old_refresh_token:
-            logger.warning(f"[REFRESH] No se pudo obtener el refresh token antiguo para {username} ({client_type})")
+            logger.warning(f"[REFRESH] No se proporcionó refresh token - Usuario: {username} ({client_type})")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token no proporcionado"
             )
 
-        # === PASO 2: REVOCAR INMEDIATAMENTE EL TOKEN ANTIGUO ===
-        # ✅ CORRECCIÓN CRÍTICA: Revocamos ANTES de generar el nuevo
-        try:
-            revoked = await RefreshTokenService.revoke_token(
-                cliente_id=current_user.get("cliente_id"),
-                usuario_id=current_user.get("usuario_id"),
-                token=old_refresh_token
-            )
-            if not revoked:
-                logger.warning(f"[REFRESH] Token antiguo ya estaba revocado o no existía para {username}")
-                # Aún así continuamos, porque podría ser un intento legítimo tras limpieza
-        except Exception as e:
-            logger.error(f"[REFRESH] Error al revocar token antiguo: {str(e)}")
-            # No fallamos el refresh por error de revocación, pero registramos
+        level_info = get_user_access_level_info(
+            current_user.get("usuario_id"),
+            current_user.get("cliente_id")
+        )
 
-        # === PASO 3: GENERAR NUEVOS TOKENS ===
-        new_access_token = create_access_token(data={"sub": username})
-        new_refresh_token = create_refresh_token(data={"sub": username})
+        token_data = {
+            "sub": username,
+            "cliente_id": current_user.get("cliente_id"),
+            "level_info": level_info  # ✅ AGREGAR ESTO
+        }
 
-        # === PASO 4: ALMACENAR EL NUEVO REFRESH TOKEN ===
+        new_access_token = create_access_token(data=token_data)
+        new_refresh_token = create_refresh_token(data=token_data)    
+
+        # === PASO 2: GENERAR NUEVOS TOKENS ===
+        #new_access_token = create_access_token(data={"sub": username})
+        #new_refresh_token = create_refresh_token(data={"sub": username})
+
+        # === PASO 3: ALMACENAR EL NUEVO TOKEN CON is_rotation=True ===
         try:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
@@ -413,18 +367,44 @@ async def refresh_access_token(
                 token=new_refresh_token,
                 client_type=client_type,
                 ip_address=ip_address,
-                user_agent=user_agent
+                user_agent=user_agent,
+                is_rotation=True  # ✅ CRÍTICO: True porque es una rotación
             )
             
-            # ✅ NUEVO: Verificar almacenamiento
+            # === PASO 4: REVOCAR TOKEN ANTIGUO SOLO SI EL NUEVO SE GUARDÓ ===
+            if stored and not stored.get('duplicate_ignored'):
+                # Nuevo token guardado exitosamente, revocar el antiguo
+                try:
+                    revoked = await RefreshTokenService.revoke_token(
+                        cliente_id=current_user.get("cliente_id"),
+                        usuario_id=current_user.get("usuario_id"),
+                        token=old_refresh_token
+                    )
+                    if revoked:
+                        logger.info(f"[REFRESH] Token antiguo revocado después de rotación exitosa")
+                    else:
+                        logger.warning(f"[REFRESH] Token antiguo no encontrado para revocar (no crítico)")
+                except Exception as revoke_err:
+                    logger.warning(f"[REFRESH] Error revocando token antiguo (no crítico): {str(revoke_err)}")
+            
+            # Logging según resultado
             if stored and stored.get('token_id', -1) > 0:
-                logger.info(f"[REFRESH] Nuevo token almacenado - ID: {stored['token_id']}")
+                logger.info(f"[REFRESH-{client_type.upper()}] Token rotado exitosamente - ID: {stored['token_id']}")
+            elif stored and stored.get('duplicate_ignored'):
+                logger.info(f"[REFRESH-{client_type.upper()}] Duplicado ignorado (doble refresh simultáneo)")
             else:
-                logger.warning(f"[REFRESH] Token duplicado ignorado (doble llamada detectada)")
+                logger.warning(f"[REFRESH-{client_type.upper()}] Almacenamiento devolvió resultado inesperado")
                 
+        except AuthenticationError:
+            # Si hay error de seguridad (reuso real), propagar
+            raise
         except Exception as e:
-            logger.error(f"[REFRESH] Error almacenando nuevo refresh token: {str(e)}")
-            # No fallamos el refresh, pero registramos el error
+            logger.error(f"[REFRESH] Error en rotación de token: {str(e)}")
+            # Si falla el almacenamiento, NO continuar con el refresh
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al rotar el refresh token"
+            )
 
         # === PASO 5: PREPARAR RESPUESTA ===
         response_data = {
@@ -433,36 +413,40 @@ async def refresh_access_token(
             "user_data": None
         }
         
-        # ✅ NUEVO: Lógica diferenciada según tipo de cliente
         if client_type == "web":
             # WEB: Nuevo refresh en cookie
             response.set_cookie(
                 key=settings.REFRESH_COOKIE_NAME,
                 value=new_refresh_token,
-                httponly=True,  # ✅ Protege contra XSS
-                secure=settings.COOKIE_SECURE,  # ✅ True en producción
-                samesite=settings.COOKIE_SAMESITE,  # ✅ 'strict' en prod, 'lax' en dev
+                httponly=True,
+                secure=settings.COOKIE_SECURE,
+                samesite=settings.COOKIE_SAMESITE,
                 max_age=settings.REFRESH_COOKIE_MAX_AGE,
                 path="/",
-                domain=settings.COOKIE_DOMAIN,  # ✅ Dominio específico
+                domain=settings.COOKIE_DOMAIN,
             )
-            logger.info(f"[REFRESH-WEB] Token refrescado exitosamente para usuario: {username}")
+            logger.info(f"[REFRESH-WEB] Token refrescado exitosamente - Usuario: {username}")
         else:  # mobile
             # MÓVIL: Nuevo refresh en JSON
             response_data["refresh_token"] = new_refresh_token
-            logger.info(f"[REFRESH-MOBILE] Token refrescado exitosamente para usuario: {username}")
+            logger.info(f"[REFRESH-MOBILE] Token refrescado exitosamente - Usuario: {username}")
         
         return response_data
         
     except HTTPException:
         raise
+    except AuthenticationError:
+        # Convertir AuthenticationError a HTTPException
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Error de autenticación durante el refresh"
+        )
     except Exception as e:
-        logger.exception(f"Error en /refresh/: {str(e)}")
+        logger.exception(f"[REFRESH] Error inesperado: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al refrescar el token"
         )
-
 
 # ----
 # --- Endpoint para Cerrar Sesión (Logout) ---

@@ -45,14 +45,19 @@ class TenantMiddleware(BaseHTTPMiddleware):
     Middleware que resuelve el ID del cliente y establece contexto híbrido.
     """
     
+    # ✅ NUEVO: Subdominios excluidos (infraestructura, no son tenants)
+    EXCLUDED_SUBDOMAINS = {"api", "www", "admin", "static", "cdn", "assets", "backend"}
+    
     def __init__(self, app: ASGIApp):
         super().__init__(app)
         self.default_client_id = settings.SUPERADMIN_CLIENTE_ID
         self.base_domain = settings.BASE_DOMAIN
+        self.superadmin_subdominio = settings.SUPERADMIN_SUBDOMINIO
         logger.info(
             f"[TENANT_MW] Inicializado - "
             f"BASE_DOMAIN={self.base_domain}, "
-            f"SYSTEM_ID={self.default_client_id}"
+            f"SYSTEM_ID={self.default_client_id}, "
+            f"EXCLUDED_SUBDOMAINS={self.EXCLUDED_SUBDOMAINS}"
         )
 
     def _get_host_from_request(self, request: Request) -> str:
@@ -60,6 +65,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
         Extrae el host de la petición con fallback a origin/referer.
         Esto es necesario para proxies de desarrollo (Vite, etc.) que 
         reescriben el header Host pero preservan origin/referer.
+        
+        ✅ CORRECCIÓN: También detecta subdominios de infraestructura (backend, api)
+        y usa origin/referer para obtener el tenant real.
         
         Returns:
             str: Host completo (puede incluir puerto)
@@ -72,31 +80,50 @@ class TenantMiddleware(BaseHTTPMiddleware):
         logger.debug(f"  - origin: {request.headers.get('origin', 'N/A')}")
         logger.debug(f"  - referer: {request.headers.get('referer', 'N/A')}")
         
-        # Si el host es localhost o 127.0.0.1, intentar extraer del origin o referer
-        if host.startswith(("localhost", "127.0.0.1")):
-            logger.info(f"[HOST_DETECTION] Host es localhost, buscando host real en origin/referer")
+        # ✅ CORRECCIÓN: Extraer subdominio del host para verificar si es excluido
+        host_without_port = host.split(':')[0] if ':' in host else host
+        host_subdomain = host_without_port.split('.')[0]
+        
+        # Si el host es localhost, 127.0.0.1, o un subdominio excluido, 
+        # intentar extraer del origin o referer
+        should_extract_from_origin = (
+            host.startswith(("localhost", "127.0.0.1")) or
+            host_subdomain in self.EXCLUDED_SUBDOMAINS
+        )
+        
+        if should_extract_from_origin:
+            logger.info(
+                f"[HOST_DETECTION] Host '{host}' es localhost/infraestructura, "
+                f"buscando tenant real en origin/referer"
+            )
             
             # Intentar primero con origin
             origin = request.headers.get("origin", "")
             if origin:
                 parsed = urlparse(origin)
                 if parsed.netloc and not parsed.netloc.startswith(("localhost", "127.0.0.1")):
-                    host = parsed.netloc
-                    logger.info(f"[HOST_DETECTION] Host extraído de 'origin': {host}")
-                    return host
+                    # Verificar que el origin no sea también un subdominio excluido
+                    origin_subdomain = parsed.netloc.split(':')[0].split('.')[0]
+                    if origin_subdomain not in self.EXCLUDED_SUBDOMAINS:
+                        host = parsed.netloc
+                        logger.info(f"[HOST_DETECTION] Tenant extraído de 'origin': {host}")
+                        return host
             
             # Si no, intentar con referer
             referer = request.headers.get("referer", "")
             if referer:
                 parsed = urlparse(referer)
                 if parsed.netloc and not parsed.netloc.startswith(("localhost", "127.0.0.1")):
-                    host = parsed.netloc
-                    logger.info(f"[HOST_DETECTION] Host extraído de 'referer': {host}")
-                    return host
+                    # Verificar que el referer no sea también un subdominio excluido
+                    referer_subdomain = parsed.netloc.split(':')[0].split('.')[0]
+                    if referer_subdomain not in self.EXCLUDED_SUBDOMAINS:
+                        host = parsed.netloc
+                        logger.info(f"[HOST_DETECTION] Tenant extraído de 'referer': {host}")
+                        return host
             
             logger.warning(
-                f"[HOST_DETECTION] No se pudo extraer host real de origin/referer, "
-                f"usando: {host}"
+                f"[HOST_DETECTION] No se pudo extraer tenant real de origin/referer, "
+                f"usando cliente por defecto (SYSTEM)"
             )
         
         logger.debug(f"[HOST_DETECTION] Host final: {host}")
@@ -278,6 +305,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         Soporta:
         - localhost con subdominio: cliente1.localhost
         - Dominios personalizados: cliente1.midominio.com
+        - Excluye subdominios de infraestructura (api, www, etc.)
         """
         # Limpieza de puerto
         if ":" in host:
@@ -291,6 +319,14 @@ class TenantMiddleware(BaseHTTPMiddleware):
             parts = host.split('.')
             if len(parts) >= 2:
                 subdomain = parts[0]
+                
+                # ✅ NUEVO: Verificar si es subdominio excluido
+                if subdomain in self.EXCLUDED_SUBDOMAINS:
+                    logger.info(
+                        f"[SUBDOMAIN] '{subdomain}' es infraestructura, ignorando (usando SYSTEM)"
+                    )
+                    return None  # Retornar None para usar cliente por defecto
+                
                 logger.info(f"[SUBDOMAIN] Detectado en localhost: '{subdomain}'")
                 return subdomain
         
@@ -305,6 +341,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
             subdomain = host.replace(f".{self.base_domain}", "")
             
             if subdomain:
+                # ✅ NUEVO: Verificar si es subdominio excluido
+                if subdomain in self.EXCLUDED_SUBDOMAINS:
+                    logger.info(
+                        f"[SUBDOMAIN] '{subdomain}' es infraestructura, ignorando (usando SYSTEM)"
+                    )
+                    return None  # Retornar None para usar cliente por defecto
+                
                 logger.info(f"[SUBDOMAIN] Detectado: '{subdomain}'")
                 return subdomain
         

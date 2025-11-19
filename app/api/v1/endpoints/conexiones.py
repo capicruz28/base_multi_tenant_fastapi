@@ -5,7 +5,7 @@ Este módulo proporciona una API REST completa para operaciones sobre conexiones
 por cliente y módulo, incluyendo creación, configuración, testing y gestión del ciclo de vida.
 
 Características principales:
-- Autenticación JWT con requerimiento de rol 'SUPER_ADMIN' para todas las operaciones.
+- Autenticación JWT con requerimiento de nivel de super administrador para todas las operaciones.
 - Encriptación segura de credenciales de base de datos.
 - Testing de conectividad en tiempo real.
 - Soporte para múltiples motores de base de datos.
@@ -17,14 +17,12 @@ import logging
 
 from app.schemas.conexion import ConexionRead, ConexionCreate, ConexionUpdate, ConexionTest
 from app.services.conexion_service import ConexionService
-from app.api.deps import RoleChecker, get_current_active_user
+from app.api.deps import get_current_active_user
+from app.core.level_authorization import require_super_admin
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Dependencia para requerir rol SUPER_ADMIN
-require_super_admin = RoleChecker(["SUPER_ADMIN"])
 
 
 @router.get(
@@ -35,19 +33,23 @@ require_super_admin = RoleChecker(["SUPER_ADMIN"])
     Obtiene la lista de todas las conexiones de base de datos configuradas para un cliente.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
     
     **Respuestas:**
     - 200: Lista de conexiones recuperada exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente no encontrado
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
-async def listar_conexiones_cliente(cliente_id: int):
+@require_super_admin()
+async def listar_conexiones_cliente(
+    cliente_id: int,
+    current_user=Depends(get_current_active_user)
+):
     """
     Lista todas las conexiones de BD para un cliente específico.
     """
@@ -72,7 +74,7 @@ async def listar_conexiones_cliente(cliente_id: int):
     Obtiene la conexión principal configurada para un módulo específico de un cliente.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
@@ -80,13 +82,15 @@ async def listar_conexiones_cliente(cliente_id: int):
     
     **Respuestas:**
     - 200: Conexión principal encontrada (puede ser null si no existe)
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
+@require_super_admin()
 async def obtener_conexion_principal(
     cliente_id: int,
-    modulo_id: int
+    modulo_id: int,
+    current_user=Depends(get_current_active_user)
 ):
     """
     Obtiene la conexión principal para un cliente y módulo específicos.
@@ -116,19 +120,20 @@ async def obtener_conexion_principal(
     Crea una nueva conexión de base de datos para un cliente y módulo.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
     
     **Respuestas:**
     - 201: Conexión creada exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 409: Conflicto - ya existe conexión principal para este cliente-módulo
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
+@require_super_admin()
 async def crear_conexion(
     cliente_id: int,
     conexion_data: ConexionCreate = Body(...),
@@ -163,23 +168,25 @@ async def crear_conexion(
     Actualiza una conexión de base de datos existente.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - conexion_id: ID de la conexión a actualizar
     
     **Respuestas:**
     - 200: Conexión actualizada exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Conexión no encontrada
     - 409: Conflicto - ya existe conexión principal para este cliente-módulo
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
+@require_super_admin()
 async def actualizar_conexion(
     conexion_id: int,
-    conexion_data: ConexionUpdate = Body(...)
+    conexion_data: ConexionUpdate = Body(...),
+    current_user=Depends(get_current_active_user)
 ):
     """
     Actualiza una conexión existente.
@@ -207,19 +214,23 @@ async def actualizar_conexion(
     Desactiva una conexión de base de datos (eliminación lógica).
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - conexion_id: ID de la conexión a desactivar
     
     **Respuestas:**
     - 204: Conexión desactivada exitosamente
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Conexión no encontrada
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
-async def desactivar_conexion(conexion_id: int):
+@require_super_admin()
+async def desactivar_conexion(
+    conexion_id: int,
+    current_user=Depends(get_current_active_user)
+):
     """
     Desactiva una conexión (eliminación lógica).
     """
@@ -245,16 +256,20 @@ async def desactivar_conexion(conexion_id: int):
     Testea la conectividad de una configuración de conexión sin guardarla.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Nivel de acceso 5 (Super Administrador)
     
     **Respuestas:**
     - 200: Resultado del test de conexión
+    - 403: Acceso denegado - se requiere nivel de super administrador
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
-    """,
-    dependencies=[Depends(require_super_admin)]
+    """
 )
-async def test_conexion(conexion_test: ConexionTest = Body(...)):
+@require_super_admin()
+async def test_conexion(
+    conexion_test: ConexionTest = Body(...),
+    current_user=Depends(get_current_active_user)
+):
     """
     Testea la conectividad de una configuración de conexión.
     """
