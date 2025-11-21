@@ -1,3 +1,4 @@
+# app/services/conexion_service.py
 """
 Servicio para la gestión de conexiones de base de datos por cliente y módulo en arquitectura multi-tenant.
 Este servicio implementa la lógica de negocio para operaciones sobre la entidad `cliente_modulo_conexion`,

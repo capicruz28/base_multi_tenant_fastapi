@@ -1,3 +1,4 @@
+# app/schemas/conexion.py
 """
 Esquemas Pydantic para la entidad Conexion en arquitectura multi-tenant.
 Estos esquemas definen la estructura de datos para la gestión de conexiones de base de datos

@@ -1,3 +1,4 @@
+# app/schemas/modulo_activo.py
 """
 Esquemas Pydantic para la entidad ModuloActivo en arquitectura multi-tenant.
 Estos esquemas definen la estructura de datos para la activación y configuración

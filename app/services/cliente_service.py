@@ -11,9 +11,10 @@ Características clave:
 - Integración con políticas de autenticación por defecto
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import re
 import logging
+from datetime import datetime
 from app.db.queries import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
     ValidationError,
@@ -23,7 +24,7 @@ from app.core.exceptions import (
     DatabaseError
 )
 from app.services.base_service import BaseService
-from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteRead
+from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse
 from app.db.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -295,3 +296,304 @@ class ClienteService(BaseService):
             )
         logger.info(f"Cliente ID {cliente_id} activado exitosamente.")
         return ClienteRead(**resultado)
+    
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def actualizar_cliente(cliente_id: int, cliente_data: ClienteUpdate) -> ClienteRead:
+        """
+        Actualiza un cliente existente con validaciones.
+        """
+        logger.info(f"Actualizando cliente ID: {cliente_id}")
+        
+        # Verificar que el cliente existe
+        cliente_existente = await ClienteService.obtener_cliente_por_id(cliente_id)
+        if not cliente_existente:
+            raise NotFoundError(
+                detail=f"Cliente con ID {cliente_id} no encontrado.",
+                internal_code="CLIENT_NOT_FOUND"
+            )
+        
+        # Validar unicidad si se actualiza subdominio o código
+        update_dict = cliente_data.dict(exclude_unset=True)
+        
+        if 'subdominio' in update_dict:
+            # Validar que el nuevo subdominio no esté en uso por otro cliente
+            query = """
+            SELECT cliente_id FROM cliente 
+            WHERE LOWER(subdominio) = LOWER(?) 
+            AND cliente_id != ? 
+            AND es_activo = 1
+            """
+            resultado = execute_query(query, (update_dict['subdominio'], cliente_id), connection_type=DatabaseConnection.ADMIN)
+            if resultado:
+                raise ConflictError(
+                    detail=f"El subdominio '{update_dict['subdominio']}' ya está en uso por otro cliente.",
+                    internal_code="SUBDOMAIN_CONFLICT"
+                )
+        
+        if 'codigo_cliente' in update_dict:
+            # Validar que el nuevo código no esté en uso por otro cliente
+            query = """
+            SELECT cliente_id FROM cliente 
+            WHERE LOWER(codigo_cliente) = LOWER(?) 
+            AND cliente_id != ? 
+            AND es_activo = 1
+            """
+            resultado = execute_query(query, (update_dict['codigo_cliente'], cliente_id), connection_type=DatabaseConnection.ADMIN)
+            if resultado:
+                raise ConflictError(
+                    detail=f"El código de cliente '{update_dict['codigo_cliente']}' ya está en uso.",
+                    internal_code="CLIENT_CODE_CONFLICT"
+                )
+        
+        # Construir query de actualización dinámica
+        campos_actualizables = [
+            'codigo_cliente', 'subdominio', 'razon_social', 'nombre_comercial', 'ruc',
+            'tipo_instalacion', 'servidor_api_local', 'modo_autenticacion', 'logo_url',
+            'favicon_url', 'color_primario', 'color_secundario', 'tema_personalizado',
+            'plan_suscripcion', 'estado_suscripcion', 'fecha_inicio_suscripcion',
+            'fecha_fin_trial', 'contacto_nombre', 'contacto_email', 'contacto_telefono',
+            'es_activo', 'es_demo', 'metadata_json'
+        ]
+        
+        set_clauses = []
+        params = []
+        
+        for campo in campos_actualizables:
+            if campo in update_dict:
+                set_clauses.append(f"{campo} = ?")
+                params.append(update_dict[campo])
+        
+        if not set_clauses:
+            # No hay campos para actualizar
+            logger.warning(f"No hay campos para actualizar en cliente {cliente_id}")
+            return cliente_existente
+        
+        # Agregar fecha_actualizacion
+        set_clauses.append("fecha_actualizacion = GETDATE()")
+        
+        # Agregar cliente_id al final para el WHERE
+        params.append(cliente_id)
+        
+        query = f"""
+        UPDATE cliente
+        SET {', '.join(set_clauses)}
+        OUTPUT 
+            INSERTED.cliente_id,
+            INSERTED.codigo_cliente,
+            INSERTED.subdominio,
+            INSERTED.razon_social,
+            INSERTED.nombre_comercial,
+            INSERTED.ruc,
+            INSERTED.tipo_instalacion,
+            INSERTED.servidor_api_local,
+            INSERTED.modo_autenticacion,
+            INSERTED.logo_url,
+            INSERTED.favicon_url,
+            INSERTED.color_primario,
+            INSERTED.color_secundario,
+            INSERTED.tema_personalizado,
+            INSERTED.plan_suscripcion,
+            INSERTED.estado_suscripcion,
+            INSERTED.fecha_inicio_suscripcion,
+            INSERTED.fecha_fin_trial,
+            INSERTED.contacto_nombre,
+            INSERTED.contacto_email,
+            INSERTED.contacto_telefono,
+            INSERTED.es_activo,
+            INSERTED.es_demo,
+            INSERTED.fecha_creacion,
+            INSERTED.fecha_actualizacion,
+            INSERTED.fecha_ultimo_acceso
+        WHERE cliente_id = ?
+        """
+        
+        resultado = execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        if not resultado or resultado.get('rows_affected', 0) == 0:
+            raise ServiceError(
+                status_code=500,
+                detail="No se pudo actualizar el cliente.",
+                internal_code="CLIENT_UPDATE_FAILED"
+            )
+        
+        logger.info(f"Cliente ID {cliente_id} actualizado exitosamente.")
+        return ClienteRead(**resultado)
+    
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def eliminar_cliente(cliente_id: int) -> bool:
+        """
+        Elimina un cliente (eliminación lógica - marca como inactivo).
+        """
+        logger.info(f"Eliminando cliente ID: {cliente_id}")
+        
+        # Verificar que el cliente existe
+        cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
+        if not cliente:
+            raise NotFoundError(
+                detail=f"Cliente con ID {cliente_id} no encontrado.",
+                internal_code="CLIENT_NOT_FOUND"
+            )
+        
+        # No permitir eliminar el cliente SYSTEM
+        from app.core.config import settings
+        if cliente_id == settings.SUPERADMIN_CLIENTE_ID:
+            raise ValidationError(
+                detail="No se puede eliminar el cliente SYSTEM.",
+                internal_code="CANNOT_DELETE_SYSTEM_CLIENT"
+            )
+        
+        # Eliminación lógica: marcar como inactivo
+        query = """
+        UPDATE cliente
+        SET es_activo = 0,
+            estado_suscripcion = 'cancelado',
+            fecha_actualizacion = GETDATE()
+        WHERE cliente_id = ?
+        """
+        
+        resultado = execute_update(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        if not resultado or resultado.get('rows_affected', 0) == 0:
+            raise ServiceError(
+                status_code=500,
+                detail="No se pudo eliminar el cliente.",
+                internal_code="CLIENT_DELETE_FAILED"
+            )
+        
+        logger.info(f"Cliente ID {cliente_id} eliminado exitosamente (marcado como inactivo).")
+        return True
+    
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def listar_clientes(
+        skip: int = 0,
+        limit: int = 100,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None
+    ) -> tuple[List[ClienteRead], int]:
+        """
+        Lista clientes con paginación y búsqueda.
+        
+        Returns:
+            Tuple[List[ClienteRead], int]: (lista de clientes, total de registros)
+        """
+        logger.info(f"Listando clientes - skip: {skip}, limit: {limit}, solo_activos: {solo_activos}, buscar: {buscar}")
+        
+        # Construir WHERE clause
+        where_conditions = []
+        params = []
+        
+        if solo_activos:
+            where_conditions.append("es_activo = 1")
+        
+        if buscar:
+            where_conditions.append("""
+                (LOWER(razon_social) LIKE LOWER(?) OR 
+                 LOWER(nombre_comercial) LIKE LOWER(?) OR 
+                 LOWER(codigo_cliente) LIKE LOWER(?) OR 
+                 LOWER(subdominio) LIKE LOWER(?))
+            """)
+            search_pattern = f"%{buscar}%"
+            params.extend([search_pattern] * 4)
+        
+        where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        
+        # Query para contar total
+        count_query = f"SELECT COUNT(*) as total FROM cliente {where_clause}"
+        count_result = execute_query(count_query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        total = count_result[0]['total'] if count_result else 0
+        
+        # Query para obtener datos
+        query = f"""
+        SELECT 
+            cliente_id, codigo_cliente, subdominio, razon_social, nombre_comercial, ruc,
+            tipo_instalacion, servidor_api_local, modo_autenticacion, logo_url,
+            favicon_url, color_primario, color_secundario, tema_personalizado,
+            plan_suscripcion, estado_suscripcion, fecha_inicio_suscripcion,
+            fecha_fin_trial, contacto_nombre, contacto_email, contacto_telefono,
+            es_activo, es_demo, fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
+        FROM cliente
+        {where_clause}
+        ORDER BY razon_social
+        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+        """
+        
+        params.extend([skip, limit])
+        resultados = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        
+        clientes = [ClienteRead(**row) for row in resultados]
+        logger.info(f"Listados {len(clientes)} clientes de {total} totales")
+        
+        return clientes, total
+    
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def obtener_estadisticas(cliente_id: int) -> ClienteStatsResponse:
+        """
+        Obtiene estadísticas completas de un cliente.
+        """
+        logger.info(f"Obteniendo estadísticas para cliente ID: {cliente_id}")
+        
+        # Verificar que el cliente existe
+        cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
+        if not cliente:
+            raise NotFoundError(
+                detail=f"Cliente con ID {cliente_id} no encontrado.",
+                internal_code="CLIENT_NOT_FOUND"
+            )
+        
+        # Estadísticas de usuarios
+        usuarios_query = """
+        SELECT 
+            COUNT(CASE WHEN es_activo = 1 THEN 1 END) as total_activos,
+            COUNT(CASE WHEN es_activo = 0 THEN 1 END) as total_inactivos
+        FROM usuario
+        WHERE cliente_id = ? AND es_eliminado = 0
+        """
+        usuarios_result = execute_query(usuarios_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        usuarios_stats = usuarios_result[0] if usuarios_result else {'total_activos': 0, 'total_inactivos': 0}
+        
+        # Estadísticas de módulos
+        modulos_query = """
+        SELECT 
+            COUNT(CASE WHEN esta_activo = 1 THEN 1 END) as modulos_activos,
+            COUNT(*) as modulos_contratados
+        FROM cliente_modulo_activo
+        WHERE cliente_id = ?
+        """
+        modulos_result = execute_query(modulos_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        modulos_stats = modulos_result[0] if modulos_result else {'modulos_activos': 0, 'modulos_contratados': 0}
+        
+        # Estadísticas de conexiones BD
+        conexiones_query = """
+        SELECT COUNT(*) as total_conexiones
+        FROM cliente_modulo_conexion
+        WHERE cliente_id = ? AND es_activo = 1
+        """
+        conexiones_result = execute_query(conexiones_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        conexiones_count = conexiones_result[0]['total_conexiones'] if conexiones_result else 0
+        
+        # Calcular días activo
+        dias_activo = 0
+        if cliente.fecha_creacion:
+            delta = datetime.now() - cliente.fecha_creacion
+            dias_activo = delta.days
+        
+        stats = ClienteStatsResponse(
+            cliente_id=cliente.cliente_id,
+            razon_social=cliente.razon_social,
+            total_usuarios=usuarios_stats.get('total_activos', 0),
+            total_usuarios_inactivos=usuarios_stats.get('total_inactivos', 0),
+            modulos_activos=modulos_stats.get('modulos_activos', 0),
+            modulos_contratados=modulos_stats.get('modulos_contratados', 0),
+            ultimo_acceso=cliente.fecha_ultimo_acceso,
+            estado_suscripcion=cliente.estado_suscripcion,
+            plan_actual=cliente.plan_suscripcion,
+            fecha_creacion=cliente.fecha_creacion,
+            dias_activo=dias_activo,
+            conexiones_bd=conexiones_count,
+            tipo_instalacion=cliente.tipo_instalacion
+        )
+        
+        logger.info(f"Estadísticas obtenidas para cliente {cliente_id}")
+        return stats

@@ -160,7 +160,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 # Caso 1: Subdominio SUPERADMIN
                 client_id = settings.SUPERADMIN_CLIENTE_ID
                 logger.info(
-                    f"[TENANT] Subdominio SUPERADMIN: {subdomain} → "
+                    f"[TENANT] Subdominio SUPERADMIN: {subdomain} -> "
                     f"Cliente ID: {client_id}"
                 )
             else:

@@ -1,7 +1,8 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field, EmailStr, validator, field_validator
 import re
+import json
 
 class ClienteBase(BaseModel):
     """
@@ -164,6 +165,61 @@ class ClienteBase(BaseModel):
         if "@" not in v:
             raise ValueError("El email debe contener un @")
         return v
+    
+    @validator('tipo_instalacion')
+    def validar_tipo_instalacion(cls, v):
+        tipos_validos = ['cloud', 'onpremise', 'hybrid']
+        if v not in tipos_validos:
+            raise ValueError(f"tipo_instalacion debe ser uno de: {', '.join(tipos_validos)}")
+        return v
+    
+    @validator('modo_autenticacion')
+    def validar_modo_autenticacion(cls, v):
+        modos_validos = ['local', 'sso', 'hybrid']
+        if v not in modos_validos:
+            raise ValueError(f"modo_autenticacion debe ser uno de: {', '.join(modos_validos)}")
+        return v
+    
+    @validator('plan_suscripcion')
+    def validar_plan_suscripcion(cls, v):
+        planes_validos = ['trial', 'basico', 'profesional', 'enterprise']
+        if v not in planes_validos:
+            raise ValueError(f"plan_suscripcion debe ser uno de: {', '.join(planes_validos)}")
+        return v
+    
+    @validator('estado_suscripcion')
+    def validar_estado_suscripcion(cls, v):
+        estados_validos = ['trial', 'activo', 'suspendido', 'cancelado', 'moroso']
+        if v not in estados_validos:
+            raise ValueError(f"estado_suscripcion debe ser uno de: {', '.join(estados_validos)}")
+        return v
+    
+    @validator('ruc')
+    def validar_ruc(cls, v):
+        if v is not None and v.strip():
+            # Validar que RUC sea numérico (ajustar según país)
+            if not v.isdigit():
+                raise ValueError("El RUC debe contener solo números")
+            if len(v) < 8 or len(v) > 15:
+                raise ValueError("El RUC debe tener entre 8 y 15 dígitos")
+        return v
+    
+    @validator('tema_personalizado')
+    def validar_tema_json(cls, v):
+        if v is not None and v.strip():
+            try:
+                json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError("tema_personalizado debe ser un JSON válido")
+        return v
+    
+    @validator('servidor_api_local')
+    def validar_url_servidor(cls, v):
+        if v is not None and v.strip():
+            # Validación básica de URL
+            if not (v.startswith('http://') or v.startswith('https://')):
+                raise ValueError("servidor_api_local debe ser una URL válida (http:// o https://)")
+        return v
 
     class Config:
         from_attributes = True
@@ -203,6 +259,88 @@ class ClienteUpdate(BaseModel):
     es_activo: Optional[bool] = None
     es_demo: Optional[bool] = None
     metadata_json: Optional[str] = None
+    
+    # Validadores para campos opcionales
+    @validator('subdominio')
+    def validar_subdominio_update(cls, v):
+        if v is not None:
+            if not re.match(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", v):
+                raise ValueError(
+                    "El subdominio debe contener solo letras minúsculas, números y guiones, "
+                    "y no puede comenzar o terminar con guión."
+                )
+        return v
+    
+    @validator('color_primario', 'color_secundario')
+    def validar_color_hex_update(cls, v):
+        if v is not None:
+            if not re.match(r"^#[0-9A-Fa-f]{6}$", v):
+                raise ValueError("El color debe estar en formato HEX válido (#RRGGBB).")
+        return v
+    
+    @validator('tipo_instalacion')
+    def validar_tipo_instalacion_update(cls, v):
+        if v is not None:
+            tipos_validos = ['cloud', 'onpremise', 'hybrid']
+            if v not in tipos_validos:
+                raise ValueError(f"tipo_instalacion debe ser uno de: {', '.join(tipos_validos)}")
+        return v
+    
+    @validator('modo_autenticacion')
+    def validar_modo_autenticacion_update(cls, v):
+        if v is not None:
+            modos_validos = ['local', 'sso', 'hybrid']
+            if v not in modos_validos:
+                raise ValueError(f"modo_autenticacion debe ser uno de: {', '.join(modos_validos)}")
+        return v
+    
+    @validator('plan_suscripcion')
+    def validar_plan_suscripcion_update(cls, v):
+        if v is not None:
+            planes_validos = ['trial', 'basico', 'profesional', 'enterprise']
+            if v not in planes_validos:
+                raise ValueError(f"plan_suscripcion debe ser uno de: {', '.join(planes_validos)}")
+        return v
+    
+    @validator('estado_suscripcion')
+    def validar_estado_suscripcion_update(cls, v):
+        if v is not None:
+            estados_validos = ['trial', 'activo', 'suspendido', 'cancelado', 'moroso']
+            if v not in estados_validos:
+                raise ValueError(f"estado_suscripcion debe ser uno de: {', '.join(estados_validos)}")
+        return v
+    
+    @validator('ruc')
+    def validar_ruc_update(cls, v):
+        if v is not None and v.strip():
+            if not v.isdigit():
+                raise ValueError("El RUC debe contener solo números")
+            if len(v) < 8 or len(v) > 15:
+                raise ValueError("El RUC debe tener entre 8 y 15 dígitos")
+        return v
+    
+    @validator('tema_personalizado', 'metadata_json')
+    def validar_json_update(cls, v):
+        if v is not None and v.strip():
+            try:
+                json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError("Debe ser un JSON válido")
+        return v
+    
+    @validator('servidor_api_local')
+    def validar_url_servidor_update(cls, v):
+        if v is not None and v.strip():
+            if not (v.startswith('http://') or v.startswith('https://')):
+                raise ValueError("servidor_api_local debe ser una URL válida (http:// o https://)")
+        return v
+    
+    @validator('fecha_fin_trial')
+    def validar_fecha_fin_trial(cls, v, values):
+        if v is not None and 'fecha_inicio_suscripcion' in values and values['fecha_inicio_suscripcion'] is not None:
+            if v < values['fecha_inicio_suscripcion']:
+                raise ValueError("fecha_fin_trial no puede ser anterior a fecha_inicio_suscripcion")
+        return v
 
     class Config:
         from_attributes = True
@@ -233,3 +371,94 @@ class ClienteWithConfig(ClienteRead):
     # auth_config: Optional[AuthConfigRead] = Field(None, description="Configuración de autenticación del cliente.")
     # sso_providers: List[SSOProviderRead] = Field(default_factory=list, description="Lista de proveedores SSO activos.")
     pass
+
+
+class PaginatedClienteResponse(BaseModel):
+    """
+    Schema para respuestas paginadas de listas de clientes.
+    
+    Utilizado en endpoints que devuelven listas paginadas de clientes
+    con metadatos de paginación.
+    """
+    clientes: List[ClienteRead] = Field(
+        ...,
+        description="Lista de clientes para la página actual"
+    )
+    total_clientes: int = Field(
+        ...,
+        ge=0,
+        description="Número total de clientes que coinciden con los filtros"
+    )
+    pagina_actual: int = Field(
+        ...,
+        ge=1,
+        description="Número de la página actual siendo visualizada"
+    )
+    total_paginas: int = Field(
+        ...,
+        ge=0,
+        description="Número total de páginas disponibles"
+    )
+    items_por_pagina: int = Field(
+        ...,
+        ge=1,
+        description="Número de items por página"
+    )
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
+class ClienteStatsResponse(BaseModel):
+    """
+    Schema para estadísticas de un cliente.
+    """
+    cliente_id: int = Field(..., description="ID del cliente")
+    razon_social: str = Field(..., description="Razón social del cliente")
+    total_usuarios: int = Field(..., ge=0, description="Total de usuarios activos")
+    total_usuarios_inactivos: int = Field(..., ge=0, description="Total de usuarios inactivos")
+    modulos_activos: int = Field(..., ge=0, description="Número de módulos activos")
+    modulos_contratados: int = Field(..., ge=0, description="Número de módulos contratados")
+    ultimo_acceso: Optional[datetime] = Field(None, description="Última vez que un usuario accedió")
+    estado_suscripcion: str = Field(..., description="Estado actual de la suscripción")
+    plan_actual: str = Field(..., description="Plan de suscripción actual")
+    fecha_creacion: datetime = Field(..., description="Fecha de creación del cliente")
+    dias_activo: int = Field(..., ge=0, description="Días desde la creación")
+    conexiones_bd: int = Field(..., ge=0, description="Número de conexiones de BD configuradas")
+    tipo_instalacion: str = Field(..., description="Tipo de instalación (cloud/onpremise/hybrid)")
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
+class ClienteResponse(BaseModel):
+    """
+    Schema estándar para respuestas de operaciones exitosas sobre clientes.
+    """
+    success: bool = Field(True, description="Indica si la operación fue exitosa")
+    message: str = Field(..., description="Mensaje descriptivo de la operación")
+    data: Optional[ClienteRead] = Field(None, description="Datos del cliente (si aplica)")
+    
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
+class ClienteDeleteResponse(BaseModel):
+    """
+    Schema para respuesta de eliminación de cliente.
+    """
+    success: bool = Field(True, description="Indica si la eliminación fue exitosa")
+    message: str = Field(..., description="Mensaje descriptivo")
+    cliente_id: int = Field(..., description="ID del cliente eliminado")
+    
+    class Config:
+        from_attributes = True

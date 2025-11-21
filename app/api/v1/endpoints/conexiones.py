@@ -1,3 +1,4 @@
+# app/api/v1/endpoints/conexiones.py
 """
 Módulo de endpoints para la gestión de conexiones de base de datos en arquitectura multi-tenant.
 
@@ -26,7 +27,7 @@ router = APIRouter()
 
 
 @router.get(
-    "/clientes/{cliente_id}",
+    "/clientes/{cliente_id}/",
     response_model=List[ConexionRead],
     summary="Listar conexiones de un cliente",
     description="""
@@ -67,7 +68,7 @@ async def listar_conexiones_cliente(
 
 
 @router.get(
-    "/clientes/{cliente_id}/modulos/{modulo_id}/principal",
+    "/clientes/{cliente_id}/modulos/{modulo_id}/principal/",
     response_model=Optional[ConexionRead],
     summary="Obtener conexión principal de módulo",
     description="""
@@ -112,7 +113,7 @@ async def obtener_conexion_principal(
 
 
 @router.post(
-    "/clientes/{cliente_id}",
+    "/clientes/{cliente_id}/",
     response_model=ConexionRead,
     status_code=status.HTTP_201_CREATED,
     summary="Crear nueva conexión",
@@ -161,7 +162,7 @@ async def crear_conexion(
 
 
 @router.put(
-    "/{conexion_id}",
+    "/{conexion_id}/",
     response_model=ConexionRead,
     summary="Actualizar conexión",
     description="""
@@ -207,7 +208,7 @@ async def actualizar_conexion(
 
 
 @router.delete(
-    "/{conexion_id}",
+    "/{conexion_id}/",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Desactivar conexión",
     description="""

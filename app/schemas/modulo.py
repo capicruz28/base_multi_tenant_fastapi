@@ -1,3 +1,4 @@
+# app/schemas/modulo.py
 """
 Esquemas Pydantic para la entidad Modulo en arquitectura multi-tenant.
 Estos esquemas definen la estructura de datos para el catálogo de módulos del sistema,
@@ -10,7 +11,7 @@ Características clave:
 - Configuración de ordenamiento y visibilidad
 - Total coherencia con la estructura de la tabla cliente_modulo
 """
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field, validator, field_validator
 import re
@@ -135,7 +136,7 @@ class ModuloRead(ModuloBase):
     Incluye los campos de identificación y auditoría generados por el sistema.
     """
     modulo_id: int = Field(..., description="Identificador único del módulo.")
-    fecha_creacion: datetime = Field(..., description="Fecha de creación del registro.")
+    fecha_creacion: Optional[datetime] = Field(None, description="Fecha de creación del registro.")
 
     class Config:
         from_attributes = True
@@ -152,3 +153,79 @@ class ModuloConInfoActivacion(ModuloRead):
     configuracion_json: Optional[str] = Field(None, description="Configuración específica para el cliente.")
     limite_usuarios: Optional[int] = Field(None, description="Límite de usuarios para este módulo.")
     limite_registros: Optional[int] = Field(None, description="Límite de registros para este módulo.")
+
+
+# ============================================================================
+# SCHEMAS DE RESPUESTA ESTÁNDAR
+# Estos schemas estandarizan el formato de respuesta de todos los endpoints
+# para facilitar el consumo desde el frontend
+# ============================================================================
+
+class PaginationMetadata(BaseModel):
+    """
+    Metadata de paginación para respuestas paginadas.
+    Proporciona toda la información necesaria para implementar paginación en el frontend.
+    """
+    total: int = Field(..., description="Total de registros disponibles.")
+    skip: int = Field(..., description="Número de registros saltados.")
+    limit: int = Field(..., description="Límite de registros por página.")
+    total_pages: int = Field(..., description="Total de páginas disponibles.")
+    current_page: int = Field(..., description="Página actual (1-indexed).")
+    has_next: bool = Field(..., description="Indica si existe una página siguiente.")
+    has_prev: bool = Field(..., description="Indica si existe una página anterior.")
+
+    class Config:
+        from_attributes = True
+
+
+class ModuloResponse(BaseModel):
+    """
+    Respuesta estándar para operaciones sobre un módulo individual.
+    Usado en endpoints de creación, actualización y consulta de un solo módulo.
+    """
+    success: bool = Field(True, description="Indica si la operación fue exitosa.")
+    message: str = Field(..., description="Mensaje descriptivo de la operación.")
+    data: Optional[ModuloRead] = Field(None, description="Datos del módulo.")
+
+    class Config:
+        from_attributes = True
+
+
+class ModuloListResponse(BaseModel):
+    """
+    Respuesta estándar para listas de módulos sin paginación.
+    Usado cuando se retorna una lista completa de módulos.
+    """
+    success: bool = Field(True, description="Indica si la operación fue exitosa.")
+    message: str = Field(..., description="Mensaje descriptivo de la operación.")
+    data: List[ModuloRead] = Field(default_factory=list, description="Lista de módulos.")
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedModuloResponse(BaseModel):
+    """
+    Respuesta estándar para listas paginadas de módulos.
+    Incluye metadata de paginación para facilitar la navegación en el frontend.
+    """
+    success: bool = Field(True, description="Indica si la operación fue exitosa.")
+    message: str = Field(..., description="Mensaje descriptivo de la operación.")
+    data: List[ModuloRead] = Field(default_factory=list, description="Lista de módulos de la página actual.")
+    pagination: PaginationMetadata = Field(..., description="Metadata de paginación.")
+
+    class Config:
+        from_attributes = True
+
+
+class ModuloDeleteResponse(BaseModel):
+    """
+    Respuesta estándar para operaciones de eliminación de módulos.
+    Confirma la eliminación exitosa del módulo.
+    """
+    success: bool = Field(True, description="Indica si la operación fue exitosa.")
+    message: str = Field(..., description="Mensaje descriptivo de la operación.")
+    modulo_id: int = Field(..., description="ID del módulo eliminado.")
+
+    class Config:
+        from_attributes = True

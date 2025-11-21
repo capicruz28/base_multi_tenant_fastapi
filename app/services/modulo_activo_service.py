@@ -9,9 +9,11 @@ Características clave:
 - Validación de límites y configuraciones específicas
 - Soporte para módulos con licencia y límites de uso
 - Configuración personalizada por módulo y cliente
+- Estadísticas de uso de módulos
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
 """
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 import json
 import logging
 from app.db.queries import execute_query, execute_insert, execute_update
@@ -23,7 +25,10 @@ from app.core.exceptions import (
     DatabaseError
 )
 from app.services.base_service import BaseService
-from app.schemas.modulo_activo import ModuloActivoCreate, ModuloActivoUpdate, ModuloActivoRead
+from app.schemas.modulo_activo import (
+    ModuloActivoCreate, ModuloActivoUpdate, ModuloActivoRead,
+    ModuloActivoConEstadisticas
+)
 from app.db.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -97,7 +102,44 @@ class ModuloActivoService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def _validar_modulo_activo_unico(cliente_id: int, modulo_id: int, modulo_activo_id: Optional[int] = None) -> None:
+    async def obtener_modulo_activo_por_cliente_y_modulo(
+        cliente_id: int, 
+        modulo_id: int
+    ) -> Optional[ModuloActivoRead]:
+        """
+        Obtiene un módulo activo específico por cliente y módulo.
+        """
+        query = """
+        SELECT 
+            cma.cliente_modulo_activo_id,
+            cma.cliente_id,
+            cma.modulo_id,
+            cma.esta_activo,
+            cma.fecha_activacion,
+            cma.fecha_vencimiento,
+            cma.configuracion_json,
+            cma.limite_usuarios,
+            cma.limite_registros,
+            cm.nombre as modulo_nombre,
+            cm.codigo_modulo,
+            cm.descripcion as modulo_descripcion
+        FROM cliente_modulo_activo cma
+        INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
+        WHERE cma.cliente_id = ? AND cma.modulo_id = ? AND cma.esta_activo = 1
+        """
+        
+        resultado = execute_query(query, (cliente_id, modulo_id), connection_type=DatabaseConnection.ADMIN)
+        if not resultado:
+            return None
+        return ModuloActivoRead(**resultado[0])
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def _validar_modulo_activo_unico(
+        cliente_id: int, 
+        modulo_id: int, 
+        modulo_activo_id: Optional[int] = None
+    ) -> None:
         """
         Valida que un módulo no esté ya activado para el cliente.
         """
@@ -120,57 +162,60 @@ class ModuloActivoService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def activar_modulo_cliente(
-        cliente_id: int, 
-        modulo_id: int, 
-        configuracion: Optional[Dict[str, Any]] = None,
-        limite_usuarios: Optional[int] = None,
-        limite_registros: Optional[int] = None,
-        fecha_vencimiento: Optional[str] = None
-    ) -> ModuloActivoRead:
+    async def activar_modulo(modulo_data: ModuloActivoCreate) -> ModuloActivoRead:
         """
         Activa un módulo para un cliente específico.
         """
-        logger.info(f"Activando módulo {modulo_id} para cliente {cliente_id}")
+        logger.info(f"Activando módulo {modulo_data.modulo_id} para cliente {modulo_data.cliente_id}")
 
         # Validar que el módulo no esté ya activado
-        await ModuloActivoService._validar_modulo_activo_unico(cliente_id, modulo_id)
+        await ModuloActivoService._validar_modulo_activo_unico(
+            modulo_data.cliente_id, 
+            modulo_data.modulo_id
+        )
 
         # Validar que el módulo existe
         from app.services.modulo_service import ModuloService
-        modulo = await ModuloService.obtener_modulo_por_id(modulo_id)
+        modulo = await ModuloService.obtener_modulo_por_id(modulo_data.modulo_id)
         if not modulo:
             raise NotFoundError(
-                detail=f"Módulo con ID {modulo_id} no encontrado.",
+                detail=f"Módulo con ID {modulo_data.modulo_id} no encontrado.",
                 internal_code="MODULE_NOT_FOUND"
             )
 
         # Validar que el cliente existe
         from app.services.cliente_service import ClienteService
-        cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
+        cliente = await ClienteService.obtener_cliente_por_id(modulo_data.cliente_id)
         if not cliente:
             raise NotFoundError(
-                detail=f"Cliente con ID {cliente_id} no encontrado.",
+                detail=f"Cliente con ID {modulo_data.cliente_id} no encontrado.",
                 internal_code="CLIENT_NOT_FOUND"
             )
 
+        # Validar fecha de vencimiento si se proporciona
+        if modulo_data.fecha_vencimiento:
+            if modulo_data.fecha_vencimiento <= datetime.now():
+                raise ValidationError(
+                    detail="La fecha de vencimiento debe ser futura.",
+                    internal_code="INVALID_EXPIRATION_DATE"
+                )
+
         # Preparar datos para inserción
-        configuracion_json = json.dumps(configuracion) if configuracion else None
+        configuracion_json = json.dumps(modulo_data.configuracion) if modulo_data.configuracion else None
 
         fields = [
-            'cliente_id', 'modulo_id', 'esta_activo', 'fecha_activacion',
+            'cliente_id', 'modulo_id', 'esta_activo',
             'fecha_vencimiento', 'configuracion_json', 'limite_usuarios', 'limite_registros'
         ]
         
         params = [
-            cliente_id,
-            modulo_id,
+            modulo_data.cliente_id,
+            modulo_data.modulo_id,
             1,  # esta_activo
-            'GETDATE()',  # fecha_activacion
-            fecha_vencimiento,
+            modulo_data.fecha_vencimiento,
             configuracion_json,
-            limite_usuarios,
-            limite_registros
+            modulo_data.limite_usuarios,
+            modulo_data.limite_registros
         ]
 
         query = f"""
@@ -188,9 +233,6 @@ class ModuloActivoService(BaseService):
         VALUES ({', '.join(['?'] * len(fields))})
         """
 
-        # Reemplazar GETDATE() para SQL Server
-        query = query.replace("'GETDATE()'", "GETDATE()")
-
         resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             raise ServiceError(
@@ -199,86 +241,50 @@ class ModuloActivoService(BaseService):
                 internal_code="MODULE_ACTIVATION_FAILED"
             )
 
-        logger.info(f"Módulo {modulo_id} activado exitosamente para cliente {cliente_id}")
+        logger.info(f"Módulo activado exitosamente con ID: {resultado['cliente_modulo_activo_id']}")
         
-        # Obtener el registro completo con información del módulo
+        # Obtener el módulo activo completo con información del módulo
         return await ModuloActivoService.obtener_modulo_activo_por_id(resultado['cliente_modulo_activo_id'])
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def desactivar_modulo_cliente(cliente_id: int, modulo_id: int) -> bool:
-        """
-        Desactiva un módulo para un cliente específico.
-        """
-        logger.info(f"Desactivando módulo {modulo_id} para cliente {cliente_id}")
-
-        # Verificar que el módulo está activo para el cliente
-        modulo_activo = await ModuloActivoService.obtener_modulo_activo_cliente(cliente_id, modulo_id)
-        if not modulo_activo:
-            raise NotFoundError(
-                detail=f"El módulo {modulo_id} no está activo para el cliente {cliente_id}.",
-                internal_code="MODULE_NOT_ACTIVE"
-            )
-
-        query = """
-        UPDATE cliente_modulo_activo
-        SET esta_activo = 0
-        WHERE cliente_id = ? AND modulo_id = ? AND esta_activo = 1
-        """
-
-        filas_afectadas = execute_update(query, (cliente_id, modulo_id), connection_type=DatabaseConnection.ADMIN)
-        
-        if filas_afectadas > 0:
-            logger.info(f"Módulo {modulo_id} desactivado exitosamente para cliente {cliente_id}")
-            return True
-        else:
-            raise ServiceError(
-                status_code=500,
-                detail="No se pudo desactivar el módulo.",
-                internal_code="MODULE_DEACTIVATION_FAILED"
-            )
-
-    @staticmethod
-    @BaseService.handle_service_errors
-    async def actualizar_config_modulo(
+    async def actualizar_modulo_activo(
         modulo_activo_id: int, 
-        configuracion: Optional[Dict[str, Any]] = None,
-        limite_usuarios: Optional[int] = None,
-        limite_registros: Optional[int] = None,
-        fecha_vencimiento: Optional[str] = None
+        modulo_data: ModuloActivoUpdate
     ) -> ModuloActivoRead:
         """
-        Actualiza la configuración de un módulo activo para un cliente.
+        Actualiza la configuración de un módulo activo.
         """
-        logger.info(f"Actualizando configuración del módulo activo ID: {modulo_activo_id}")
+        logger.info(f"Actualizando módulo activo ID: {modulo_activo_id}")
 
         # Verificar que el módulo activo existe
-        modulo_activo_existente = await ModuloActivoService.obtener_modulo_activo_por_id(modulo_activo_id)
-        if not modulo_activo_existente:
+        modulo_existente = await ModuloActivoService.obtener_modulo_activo_por_id(modulo_activo_id)
+        if not modulo_existente:
             raise NotFoundError(
                 detail=f"Módulo activo con ID {modulo_activo_id} no encontrado.",
                 internal_code="ACTIVE_MODULE_NOT_FOUND"
             )
 
-        # Construir query dinámica
+        # Validar fecha de vencimiento si se proporciona
+        if modulo_data.fecha_vencimiento:
+            if modulo_data.fecha_vencimiento <= datetime.now():
+                raise ValidationError(
+                    detail="La fecha de vencimiento debe ser futura.",
+                    internal_code="INVALID_EXPIRATION_DATE"
+                )
+
+        # Construir query dinámica basada en los campos proporcionados
         update_fields = []
         params = []
         
-        if configuracion is not None:
-            update_fields.append("configuracion_json = ?")
-            params.append(json.dumps(configuracion))
-            
-        if limite_usuarios is not None:
-            update_fields.append("limite_usuarios = ?")
-            params.append(limite_usuarios)
-            
-        if limite_registros is not None:
-            update_fields.append("limite_registros = ?")
-            params.append(limite_registros)
-            
-        if fecha_vencimiento is not None:
-            update_fields.append("fecha_vencimiento = ?")
-            params.append(fecha_vencimiento)
+        for field, value in modulo_data.dict(exclude_unset=True).items():
+            if value is not None:
+                if field == "configuracion":
+                    update_fields.append("configuracion_json = ?")
+                    params.append(json.dumps(value))
+                else:
+                    update_fields.append(f"{field} = ?")
+                    params.append(value)
                 
         if not update_fields:
             raise ValidationError(
@@ -308,64 +314,130 @@ class ModuloActivoService(BaseService):
         if not resultado:
             raise ServiceError(
                 status_code=500,
-                detail="No se pudo actualizar la configuración del módulo.",
-                internal_code="MODULE_CONFIG_UPDATE_FAILED"
+                detail="No se pudo actualizar el módulo activo.",
+                internal_code="ACTIVE_MODULE_UPDATE_FAILED"
             )
 
-        logger.info(f"Configuración del módulo activo ID {modulo_activo_id} actualizada exitosamente.")
+        logger.info(f"Módulo activo ID {modulo_activo_id} actualizado exitosamente.")
         
-        # Obtener el registro completo actualizado
+        # Obtener el módulo activo completo con información del módulo
         return await ModuloActivoService.obtener_modulo_activo_por_id(modulo_activo_id)
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_modulo_activo_cliente(cliente_id: int, modulo_id: int) -> Optional[ModuloActivoRead]:
+    async def desactivar_modulo(modulo_activo_id: int) -> bool:
         """
-        Obtiene un módulo activo específico para un cliente y módulo.
+        Desactiva un módulo para un cliente.
+        Implementa desactivación lógica (soft delete).
         """
+        logger.info(f"Desactivando módulo activo ID: {modulo_activo_id}")
+
+        # Verificar que el módulo activo existe
+        modulo_activo = await ModuloActivoService.obtener_modulo_activo_por_id(modulo_activo_id)
+        if not modulo_activo:
+            raise NotFoundError(
+                detail=f"Módulo activo con ID {modulo_activo_id} no encontrado.",
+                internal_code="ACTIVE_MODULE_NOT_FOUND"
+            )
+
+        # Validar que no sea un módulo core (opcional, depende de reglas de negocio)
+        from app.services.modulo_service import ModuloService
+        modulo = await ModuloService.obtener_modulo_por_id(modulo_activo.modulo_id)
+        if modulo and modulo.es_modulo_core:
+            raise ValidationError(
+                detail="No se puede desactivar un módulo core.",
+                internal_code="CANNOT_DEACTIVATE_CORE_MODULE"
+            )
+
+        # Realizar desactivación lógica
         query = """
-        SELECT 
-            cma.cliente_modulo_activo_id,
-            cma.cliente_id,
-            cma.modulo_id,
-            cma.esta_activo,
-            cma.fecha_activacion,
-            cma.fecha_vencimiento,
-            cma.configuracion_json,
-            cma.limite_usuarios,
-            cma.limite_registros,
-            cm.nombre as modulo_nombre,
-            cm.codigo_modulo,
-            cm.descripcion as modulo_descripcion
-        FROM cliente_modulo_activo cma
-        INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
-        WHERE cma.cliente_id = ? AND cma.modulo_id = ? AND cma.esta_activo = 1
+        UPDATE cliente_modulo_activo
+        SET esta_activo = 0
+        WHERE cliente_modulo_activo_id = ?
         """
         
-        resultado = execute_query(query, (cliente_id, modulo_id), connection_type=DatabaseConnection.ADMIN)
-        if not resultado:
-            return None
-        return ModuloActivoRead(**resultado[0])
+        execute_update(query, (modulo_activo_id,), connection_type=DatabaseConnection.ADMIN)
+        logger.info(f"Módulo activo ID {modulo_activo_id} desactivado exitosamente.")
+        return True
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def verificar_limites_modulo(cliente_id: int, modulo_id: int) -> Dict[str, Any]:
+    async def verificar_limites_modulo(
+        cliente_id: int, 
+        modulo_id: int
+    ) -> Dict[str, Any]:
         """
-        Verifica los límites de uso de un módulo activo para un cliente.
+        Verifica los límites de uso de un módulo para un cliente.
+        Retorna información sobre el uso actual vs límites configurados.
+        
+        NOTA: Esta es una implementación base. En producción, se debería
+        integrar con sistemas de telemetría reales para obtener datos precisos.
         """
-        modulo_activo = await ModuloActivoService.obtener_modulo_activo_cliente(cliente_id, modulo_id)
-        if not modulo_activo:
-            return {
-                "activo": False,
-                "mensaje": "Módulo no activo para este cliente"
-            }
+        logger.info(f"Verificando límites para módulo {modulo_id} del cliente {cliente_id}")
 
-        # Aquí iría la lógica para verificar límites reales contra uso actual
-        # Por ahora retornamos estado básico
+        # Obtener configuración del módulo activo
+        modulo_activo = await ModuloActivoService.obtener_modulo_activo_por_cliente_y_modulo(
+            cliente_id, modulo_id
+        )
+        
+        if not modulo_activo:
+            raise NotFoundError(
+                detail=f"Módulo {modulo_id} no está activado para el cliente {cliente_id}.",
+                internal_code="MODULE_NOT_ACTIVE"
+            )
+
+        # TODO: Integrar con sistema de telemetría real
+        # Por ahora, retornamos datos simulados
         return {
-            "activo": True,
+            "modulo_id": modulo_id,
+            "cliente_id": cliente_id,
             "limite_usuarios": modulo_activo.limite_usuarios,
+            "usuarios_actuales": 0,  # TODO: Obtener de telemetría
             "limite_registros": modulo_activo.limite_registros,
+            "registros_actuales": 0,  # TODO: Obtener de telemetría
+            "dentro_limites": True,
             "fecha_vencimiento": modulo_activo.fecha_vencimiento,
-            "dentro_limites": True  # Simulación
+            "esta_vencido": modulo_activo.fecha_vencimiento < datetime.now() if modulo_activo.fecha_vencimiento else False
         }
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def obtener_estadisticas_modulo_activo(
+        cliente_id: int, 
+        modulo_id: int
+    ) -> ModuloActivoConEstadisticas:
+        """
+        Obtiene estadísticas completas de uso de un módulo para un cliente.
+        Incluye información de activación, límites y uso actual.
+        
+        NOTA: Esta es una implementación base. En producción, se debería
+        integrar con sistemas de telemetría reales para obtener datos precisos.
+        """
+        logger.info(f"Obteniendo estadísticas para módulo {modulo_id} del cliente {cliente_id}")
+
+        # Obtener módulo activo
+        modulo_activo = await ModuloActivoService.obtener_modulo_activo_por_cliente_y_modulo(
+            cliente_id, modulo_id
+        )
+        
+        if not modulo_activo:
+            raise NotFoundError(
+                detail=f"Módulo {modulo_id} no está activado para el cliente {cliente_id}.",
+                internal_code="MODULE_NOT_ACTIVE"
+            )
+
+        # Verificar límites
+        limites = await ModuloActivoService.verificar_limites_modulo(cliente_id, modulo_id)
+
+        # Construir respuesta con estadísticas
+        # TODO: Integrar con sistema de telemetría real
+        estadisticas = {
+            **modulo_activo.dict(),
+            "usuarios_actuales": limites["usuarios_actuales"],
+            "registros_actuales": limites["registros_actuales"],
+            "dentro_limites": limites["dentro_limites"],
+            "esta_vencido": limites["esta_vencido"],
+            "dias_restantes": (modulo_activo.fecha_vencimiento - datetime.now()).days if modulo_activo.fecha_vencimiento else None
+        }
+
+        return ModuloActivoConEstadisticas(**estadisticas)

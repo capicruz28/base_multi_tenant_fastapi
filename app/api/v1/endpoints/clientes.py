@@ -15,10 +15,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Requ
 from typing import List, Dict, Any, Optional
 import logging
 
-from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteRead
+from app.schemas.cliente import (
+    ClienteCreate, ClienteUpdate, ClienteRead, 
+    PaginatedClienteResponse, ClienteStatsResponse, ClienteResponse, ClienteDeleteResponse
+)
 from app.services.cliente_service import ClienteService
 from app.core.level_authorization import require_super_admin
 from app.api.deps import get_current_active_user
+from math import ceil
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +31,10 @@ router = APIRouter()
 
 @router.post(
     "/",
-    response_model=ClienteRead,
+    response_model=ClienteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un nuevo cliente",
-    description="""
+    description=""" 
     Crea un nuevo cliente en el sistema. **Solo accesible por SUPER_ADMIN**.
     
     **Permisos requeridos:**
@@ -61,7 +65,11 @@ async def crear_cliente(
     try:
         created_cliente = await ClienteService.crear_cliente(cliente_data)
         logger.info(f"Cliente '{created_cliente.razon_social}' creado con ID: {created_cliente.cliente_id}")
-        return created_cliente
+        return ClienteResponse(
+            success=True,
+            message=f"Cliente '{created_cliente.razon_social}' creado exitosamente",
+            data=created_cliente
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -74,10 +82,10 @@ async def crear_cliente(
 
 @router.get(
     "/",
-    response_model=List[ClienteRead],
+    response_model=PaginatedClienteResponse,
     summary="Listar todos los clientes",
     description="""
-    Obtiene una lista de todos los clientes. **Solo accesible por SUPER_ADMIN**.
+    Obtiene una lista paginada de todos los clientes. **Solo accesible por SUPER_ADMIN**.
     
     **Permisos requeridos:**
     - Nivel de acceso 5 (Super Administrador)
@@ -86,9 +94,10 @@ async def crear_cliente(
     - skip: Número de registros a saltar (paginación)
     - limit: Límite de registros a retornar (paginación)
     - solo_activos: Filtrar solo clientes activos
+    - buscar: Texto para buscar en razón social, nombre comercial, código o subdominio
     
     **Respuestas:**
-    - 200: Lista de clientes recuperada exitosamente
+    - 200: Lista de clientes recuperada exitosamente con metadatos de paginación
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 500: Error interno del servidor
     """
@@ -98,39 +107,31 @@ async def listar_clientes(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True, description="Filtrar solo clientes activos"),
-    current_user = Depends(get_current_active_user),
-    request: Request = None  
+    buscar: Optional[str] = Query(None, description="Texto para buscar en razón social, nombre comercial, código o subdominio"),
+    current_user = Depends(get_current_active_user)
 ):
     """
-    Lista todos los clientes del sistema con paginación.
+    Lista todos los clientes del sistema con paginación y búsqueda.
     """
-    logger.info(f"SOLICITUD RECIBIDA en /clientes/")
-    logger.info(f"Headers recibidos: {dict(request.headers)}")
-    logger.info(f"Query params: skip={skip}, limit={limit}, solo_activos={solo_activos}")
-    logger.info(f"URL completa: {request.url}")
-    logger.info(f"Usuario: {current_user.nombre_usuario}")
-    logger.info(f"Solicitud GET /clientes/ recibida - skip: {skip}, limit: {limit}, solo_activos: {solo_activos} por usuario: {current_user.nombre_usuario}")
+    logger.info(f"Solicitud GET /clientes/ recibida - skip: {skip}, limit: {limit}, solo_activos: {solo_activos}, buscar: {buscar} por usuario: {current_user.nombre_usuario}")
     try:
-        # Query con paginación y filtro
-        where_clause = "WHERE es_activo = 1" if solo_activos else ""
-        query = f"""
-        SELECT 
-            cliente_id, codigo_cliente, subdominio, razon_social, nombre_comercial, ruc,
-            tipo_instalacion, servidor_api_local, modo_autenticacion, logo_url,
-            favicon_url, color_primario, color_secundario, tema_personalizado,
-            plan_suscripcion, estado_suscripcion, fecha_inicio_suscripcion,
-            fecha_fin_trial, contacto_nombre, contacto_email, contacto_telefono,
-            es_activo, es_demo, fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
-        FROM cliente
-        {where_clause}
-        ORDER BY razon_social
-        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
-        """
-        from app.db.queries import execute_query
-        resultados = execute_query(query, (skip, limit))
-        clientes = [ClienteRead(**row) for row in resultados]
-        logger.info(f"Lista de clientes recuperada: {len(clientes)} clientes")
-        return clientes
+        clientes, total = await ClienteService.listar_clientes(
+            skip=skip,
+            limit=limit,
+            solo_activos=solo_activos,
+            buscar=buscar
+        )
+        
+        total_paginas = ceil(total / limit) if limit > 0 else 0
+        pagina_actual = (skip // limit) + 1 if limit > 0 else 1
+        
+        return PaginatedClienteResponse(
+            clientes=clientes,
+            total_clientes=total,
+            pagina_actual=pagina_actual,
+            total_paginas=total_paginas,
+            items_por_pagina=limit
+        )
     except Exception as e:
         logger.exception(f"Error inesperado en listar_clientes: {str(e)}")
         raise HTTPException(
@@ -140,7 +141,7 @@ async def listar_clientes(
 
 
 @router.get(
-    "/{cliente_id}",
+    "/{cliente_id}/",
     response_model=ClienteRead,
     summary="Obtener detalle de un cliente",
     description="""
@@ -187,8 +188,8 @@ async def obtener_cliente(
 
 
 @router.put(
-    "/{cliente_id}",
-    response_model=ClienteRead,
+    "/{cliente_id}/",
+    response_model=ClienteResponse,
     summary="Actualizar un cliente",
     description="""
     Actualiza la información de un cliente existente.
@@ -219,19 +220,13 @@ async def actualizar_cliente(
     """
     logger.info(f"Solicitud PUT /clientes/{cliente_id} recibida para actualizar por usuario: {current_user.nombre_usuario}")
     try:
-        # Placeholder - necesitamos implementar actualizar_cliente en el servicio
-        # Por ahora retornamos el cliente existente
-        cliente_existente = await ClienteService.obtener_cliente_por_id(cliente_id)
-        if not cliente_existente:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Cliente con ID {cliente_id} no encontrado."
-            )
-        
-        # Simular actualización - en producción esto vendría del servicio
-        logger.info(f"Cliente {cliente_id} sería actualizado con: {cliente_data.dict(exclude_unset=True)}")
-        return cliente_existente
-        
+        cliente_actualizado = await ClienteService.actualizar_cliente(cliente_id, cliente_data)
+        logger.info(f"Cliente {cliente_id} actualizado exitosamente")
+        return ClienteResponse(
+            success=True,
+            message=f"Cliente '{cliente_actualizado.razon_social}' actualizado exitosamente",
+            data=cliente_actualizado
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -243,11 +238,12 @@ async def actualizar_cliente(
 
 
 @router.delete(
-    "/{cliente_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    "/{cliente_id}/",
+    response_model=ClienteDeleteResponse,
+    status_code=status.HTTP_200_OK,
     summary="Eliminar un cliente",
     description="""
-    Elimina un cliente del sistema (eliminación lógica).
+    Elimina un cliente del sistema (eliminación lógica - marca como inactivo).
     
     **Permisos requeridos:**
     - Nivel de acceso 5 (Super Administrador)
@@ -255,10 +251,13 @@ async def actualizar_cliente(
     **Parámetros de ruta:**
     - cliente_id: ID del cliente a eliminar
     
+    **Nota:** No se puede eliminar el cliente SYSTEM.
+    
     **Respuestas:**
-    - 204: Cliente eliminado exitosamente
+    - 200: Cliente eliminado exitosamente
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente no encontrado
+    - 400: No se puede eliminar el cliente SYSTEM
     - 500: Error interno del servidor
     """
 )
@@ -272,18 +271,13 @@ async def eliminar_cliente(
     """
     logger.info(f"Solicitud DELETE /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
     try:
-        # Placeholder - necesitamos implementar eliminar_cliente en el servicio
-        cliente_existente = await ClienteService.obtener_cliente_por_id(cliente_id)
-        if not cliente_existente:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Cliente con ID {cliente_id} no encontrado."
-            )
-        
-        # Simular eliminación lógica
-        logger.info(f"Cliente {cliente_id} sería marcado como inactivo")
-        return None
-        
+        await ClienteService.eliminar_cliente(cliente_id)
+        logger.info(f"Cliente {cliente_id} eliminado exitosamente")
+        return ClienteDeleteResponse(
+            success=True,
+            message=f"Cliente con ID {cliente_id} eliminado exitosamente (marcado como inactivo)",
+            cliente_id=cliente_id
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -295,8 +289,8 @@ async def eliminar_cliente(
 
 
 @router.put(
-    "/{cliente_id}/suspender",
-    response_model=ClienteRead,
+    "/{cliente_id}/suspender/",
+    response_model=ClienteResponse,
     summary="Suspender un cliente",
     description="""
     Suspende un cliente cambiando su estado de suscripción a 'suspendido'.
@@ -326,7 +320,11 @@ async def suspender_cliente(
     logger.info(f"Solicitud PUT /clientes/{cliente_id}/suspender recibida por usuario: {current_user.nombre_usuario}")
     try:
         cliente_suspendido = await ClienteService.suspender_cliente(cliente_id)
-        return cliente_suspendido
+        return ClienteResponse(
+            success=True,
+            message=f"Cliente '{cliente_suspendido.razon_social}' suspendido exitosamente",
+            data=cliente_suspendido
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -338,8 +336,8 @@ async def suspender_cliente(
 
 
 @router.put(
-    "/{cliente_id}/activar",
-    response_model=ClienteRead,
+    "/{cliente_id}/activar/",
+    response_model=ClienteResponse,
     summary="Activar un cliente",
     description="""
     Reactiva un cliente cambiando su estado de suscripción a 'activo'.
@@ -369,7 +367,11 @@ async def activar_cliente(
     logger.info(f"Solicitud PUT /clientes/{cliente_id}/activar recibida por usuario: {current_user.nombre_usuario}")
     try:
         cliente_activado = await ClienteService.activar_cliente(cliente_id)
-        return cliente_activado
+        return ClienteResponse(
+            success=True,
+            message=f"Cliente '{cliente_activado.razon_social}' activado exitosamente",
+            data=cliente_activado
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -381,7 +383,8 @@ async def activar_cliente(
 
 
 @router.get(
-    "/{cliente_id}/estadisticas",
+    "/{cliente_id}/estadisticas/",
+    response_model=ClienteStatsResponse,
     summary="Obtener estadísticas de un cliente",
     description="""
     Obtiene estadísticas y métricas de uso de un cliente específico.
@@ -409,26 +412,8 @@ async def obtener_estadisticas_cliente(
     """
     logger.info(f"Solicitud GET /clientes/{cliente_id}/estadisticas recibida por usuario: {current_user.nombre_usuario}")
     try:
-        # Verificar que el cliente existe
-        cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
-        if not cliente:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Cliente con ID {cliente_id} no encontrado."
-            )
-        
-        # Placeholder - estadísticas básicas
-        estadisticas = {
-            "cliente_id": cliente_id,
-            "total_usuarios": 0,
-            "modulos_activos": 0,
-            "ultimo_acceso": cliente.fecha_ultimo_acceso,
-            "estado_suscripcion": cliente.estado_suscripcion,
-            "plan_actual": cliente.plan_suscripcion
-        }
-        
+        estadisticas = await ClienteService.obtener_estadisticas(cliente_id)
         return estadisticas
-        
     except HTTPException:
         raise
     except Exception as e:

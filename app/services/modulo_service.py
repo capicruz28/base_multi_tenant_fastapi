@@ -253,6 +253,7 @@ class ModuloService(BaseService):
             m.requiere_licencia,
             m.orden,
             m.es_activo as modulo_activo,
+            m.fecha_creacion,
             ISNULL(cma.esta_activo, 0) as activo_en_cliente,
             cma.cliente_modulo_activo_id,
             cma.fecha_activacion,
@@ -288,3 +289,173 @@ class ModuloService(BaseService):
         
         resultados = execute_query(query, connection_type=DatabaseConnection.ADMIN)
         return [ModuloRead(**modulo) for modulo in resultados]
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_modulos(solo_activos: bool = True) -> int:
+        """
+        Cuenta el total de módulos en el sistema.
+        Útil para implementar paginación completa en el frontend.
+        """
+        logger.info("Contando total de módulos en el sistema")
+
+        where_clause = "WHERE es_activo = 1" if solo_activos else ""
+        query = f"""
+        SELECT COUNT(*) as total
+        FROM cliente_modulo
+        {where_clause}
+        """
+        
+        resultado = execute_query(query, connection_type=DatabaseConnection.ADMIN)
+        return resultado[0]['total'] if resultado else 0
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def buscar_modulos(
+        buscar: Optional[str] = None,
+        es_modulo_core: Optional[bool] = None,
+        requiere_licencia: Optional[bool] = None,
+        solo_activos: bool = True,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[ModuloRead]:
+        """
+        Busca módulos con filtros opcionales.
+        Permite buscar por nombre, código o descripción, y filtrar por características.
+        """
+        logger.info(f"Buscando módulos con filtros - buscar: {buscar}, core: {es_modulo_core}, licencia: {requiere_licencia}")
+
+        # Construir cláusulas WHERE dinámicamente
+        where_clauses = []
+        params = []
+
+        if solo_activos:
+            where_clauses.append("es_activo = 1")
+
+        if buscar:
+            where_clauses.append("(nombre LIKE ? OR codigo_modulo LIKE ? OR descripcion LIKE ?)")
+            search_pattern = f"%{buscar}%"
+            params.extend([search_pattern, search_pattern, search_pattern])
+
+        if es_modulo_core is not None:
+            where_clauses.append("es_modulo_core = ?")
+            params.append(1 if es_modulo_core else 0)
+
+        if requiere_licencia is not None:
+            where_clauses.append("requiere_licencia = ?")
+            params.append(1 if requiere_licencia else 0)
+
+        where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+        query = f"""
+        SELECT 
+            modulo_id, codigo_modulo, nombre, descripcion, icono,
+            es_modulo_core, requiere_licencia, orden, es_activo, fecha_creacion
+        FROM cliente_modulo
+        {where_clause}
+        ORDER BY orden, nombre
+        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+        """
+        
+        params.extend([skip, limit])
+        resultados = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        return [ModuloRead(**modulo) for modulo in resultados]
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_modulos_busqueda(
+        buscar: Optional[str] = None,
+        es_modulo_core: Optional[bool] = None,
+        requiere_licencia: Optional[bool] = None,
+        solo_activos: bool = True
+    ) -> int:
+        """
+        Cuenta el total de módulos que coinciden con los criterios de búsqueda.
+        Útil para paginación en búsquedas filtradas.
+        """
+        logger.info("Contando módulos con filtros de búsqueda")
+
+        # Construir cláusulas WHERE dinámicamente (igual que en buscar_modulos)
+        where_clauses = []
+        params = []
+
+        if solo_activos:
+            where_clauses.append("es_activo = 1")
+
+        if buscar:
+            where_clauses.append("(nombre LIKE ? OR codigo_modulo LIKE ? OR descripcion LIKE ?)")
+            search_pattern = f"%{buscar}%"
+            params.extend([search_pattern, search_pattern, search_pattern])
+
+        if es_modulo_core is not None:
+            where_clauses.append("es_modulo_core = ?")
+            params.append(1 if es_modulo_core else 0)
+
+        if requiere_licencia is not None:
+            where_clauses.append("requiere_licencia = ?")
+            params.append(1 if requiere_licencia else 0)
+
+        where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+        query = f"""
+        SELECT COUNT(*) as total
+        FROM cliente_modulo
+        {where_clause}
+        """
+        
+        resultado = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        return resultado[0]['total'] if resultado else 0
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def eliminar_modulo(modulo_id: int) -> bool:
+        """
+        Elimina (desactiva) un módulo del catálogo del sistema.
+        Implementa eliminación lógica (soft delete) para mantener integridad referencial.
+        
+        Validaciones:
+        - No se puede eliminar un módulo core
+        - No se puede eliminar un módulo que esté activo para algún cliente
+        """
+        logger.info(f"Intentando eliminar módulo ID: {modulo_id}")
+
+        # Verificar que el módulo existe
+        modulo = await ModuloService.obtener_modulo_por_id(modulo_id)
+        if not modulo:
+            raise NotFoundError(
+                detail=f"Módulo con ID {modulo_id} no encontrado.",
+                internal_code="MODULE_NOT_FOUND"
+            )
+
+        # Validar que no sea un módulo core
+        if modulo.es_modulo_core:
+            raise ValidationError(
+                detail="No se puede eliminar un módulo core del sistema.",
+                internal_code="CANNOT_DELETE_CORE_MODULE"
+            )
+
+        # Verificar que no esté activo para ningún cliente
+        query_check = """
+        SELECT COUNT(*) as total
+        FROM cliente_modulo_activo
+        WHERE modulo_id = ? AND esta_activo = 1
+        """
+        resultado_check = execute_query(query_check, (modulo_id,), connection_type=DatabaseConnection.ADMIN)
+        clientes_activos = resultado_check[0]['total'] if resultado_check else 0
+
+        if clientes_activos > 0:
+            raise ValidationError(
+                detail=f"No se puede eliminar el módulo. Está activo para {clientes_activos} cliente(s).",
+                internal_code="MODULE_IN_USE"
+            )
+
+        # Realizar eliminación lógica (desactivar)
+        query = """
+        UPDATE cliente_modulo
+        SET es_activo = 0
+        WHERE modulo_id = ?
+        """
+        
+        execute_update(query, (modulo_id,), connection_type=DatabaseConnection.ADMIN)
+        logger.info(f"Módulo ID {modulo_id} desactivado exitosamente.")
+        return True
