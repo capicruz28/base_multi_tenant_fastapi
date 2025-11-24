@@ -1,5 +1,6 @@
-from typing import Optional, List
-from datetime import datetime
+# app/schemas/cliente.py
+from typing import Optional, List, Dict, Any
+from datetime import datetime, date
 from pydantic import BaseModel, Field, EmailStr, validator, field_validator
 import re
 import json
@@ -34,8 +35,8 @@ class ClienteBase(BaseModel):
     )
     ruc: Optional[str] = Field(
         None, 
-        max_length=15, 
-        description="RUC u otro ID fiscal del cliente."
+        max_length=11, 
+        description="RUC del cliente (11 dígitos)."
     )
 
     # ========================================
@@ -96,11 +97,11 @@ class ClienteBase(BaseModel):
         "activo", 
         description="Estado actual: 'trial', 'activo', 'suspendido', 'cancelado', 'moroso'."
     )
-    fecha_inicio_suscripcion: Optional[datetime] = Field(
+    fecha_inicio_suscripcion: Optional[date] = Field(
         None, 
         description="Fecha de inicio de la suscripción pagada."
     )
-    fecha_fin_trial: Optional[datetime] = Field(
+    fecha_fin_trial: Optional[date] = Field(
         None, 
         description="Fecha de fin del periodo de prueba."
     )
@@ -141,6 +142,23 @@ class ClienteBase(BaseModel):
     metadata_json: Optional[str] = Field(
         None, 
         description="JSON para configuraciones custom sin alterar schema."
+    )
+
+    # ========================================
+    # SINCRONIZACIÓN MULTI-INSTALACIÓN
+    # ========================================
+    api_key_sincronizacion: Optional[str] = Field(
+        None,
+        max_length=255,
+        description="API Key para sincronización con servidor central (multi-instalación)."
+    )
+    sincronizacion_habilitada: bool = Field(
+        False,
+        description="Habilita sincronización bidireccional con servidor central."
+    )
+    ultima_sincronizacion: Optional[datetime] = Field(
+        None,
+        description="Última fecha y hora de sincronización con servidor central."
     )
 
     # === VALIDADORES ===
@@ -251,14 +269,17 @@ class ClienteUpdate(BaseModel):
     tema_personalizado: Optional[str] = None
     plan_suscripcion: Optional[str] = None
     estado_suscripcion: Optional[str] = None
-    fecha_inicio_suscripcion: Optional[datetime] = None
-    fecha_fin_trial: Optional[datetime] = None
+    fecha_inicio_suscripcion: Optional[date] = None
+    fecha_fin_trial: Optional[date] = None
     contacto_nombre: Optional[str] = Field(None, max_length=100)
     contacto_email: Optional[EmailStr] = None
     contacto_telefono: Optional[str] = Field(None, max_length=20)
     es_activo: Optional[bool] = None
     es_demo: Optional[bool] = None
     metadata_json: Optional[str] = None
+    api_key_sincronizacion: Optional[str] = Field(None, max_length=255)
+    sincronizacion_habilitada: Optional[bool] = None
+    ultima_sincronizacion: Optional[datetime] = None
     
     # Validadores para campos opcionales
     @validator('subdominio')
@@ -462,3 +483,41 @@ class ClienteDeleteResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class BrandingRead(BaseModel):
+    """
+    Schema de respuesta para configuración de branding del tenant.
+    Contiene solo los campos visuales necesarios para el frontend.
+    
+    Este schema se utiliza en el endpoint GET /api/v1/clientes/tenant/branding
+    para exponer la configuración de personalización visual del cliente actual.
+    """
+    logo_url: Optional[str] = Field(
+        None, 
+        max_length=500, 
+        description="URL pública del logo del cliente"
+    )
+    favicon_url: Optional[str] = Field(
+        None, 
+        max_length=500, 
+        description="URL del favicon personalizado"
+    )
+    color_primario: str = Field(
+        "#1976D2", 
+        description="Color principal en formato HEX (#RRGGBB)"
+    )
+    color_secundario: str = Field(
+        "#424242", 
+        description="Color secundario en formato HEX"
+    )
+    tema_personalizado: Optional[Dict[str, Any]] = Field(
+        None, 
+        description="Configuración avanzada de tema (JSON parseado como objeto)"
+    )
+    
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }

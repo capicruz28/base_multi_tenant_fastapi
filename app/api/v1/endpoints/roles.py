@@ -39,7 +39,7 @@ router = APIRouter()
 
 # --- CONFIGURACIÓN DE DEPENDENCIAS ---
 # Requiere rol de administrador para todas las operaciones de gestión
-require_admin = RoleChecker(["Super Administrador"])
+require_admin = RoleChecker(["Administrador"])
 
 
 # --- FUNCIÓN DE AYUDA PARA ROLES DEL SISTEMA ---
@@ -173,6 +173,15 @@ async def read_roles_paginated(
         HTTPException: En caso de error en los parámetros o error interno.
     """
     logger.info(f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'")
+    
+    # ✅ VALIDACIÓN: Verificar que cliente_id es válido
+    if not current_user.cliente_id or current_user.cliente_id <= 0:
+        logger.error(f"Cliente ID inválido en endpoint /roles/: {current_user.cliente_id} para usuario {current_user.usuario_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cliente ID no disponible en el contexto del usuario. No se puede obtener la lista de roles."
+        )
+    
     try:
         paginated_response = await RolService.obtener_roles_paginados(
             cliente_id=current_user.cliente_id,
@@ -180,6 +189,7 @@ async def read_roles_paginated(
             limit=limit,
             search=search
         )
+        logger.info(f"Respuesta exitosa para GET /roles/ - Cliente: {current_user.cliente_id}, Total roles: {paginated_response.get('total_roles', 0)}")
         return paginated_response
     except CustomException as ce:
         logger.warning(f"Error de negocio al listar roles para cliente {current_user.cliente_id}: {ce.detail}")

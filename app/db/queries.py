@@ -330,10 +330,31 @@ WITH UserRoles AS (
         u.fecha_creacion,
         u.fecha_ultimo_acceso,
         u.fecha_actualizacion,
-        u.cliente_id, -- Añadir cliente_id
+        u.cliente_id,
+        -- ✅ CAMPOS DE SEGURIDAD (según schema SQL)
+        u.proveedor_autenticacion,
+        u.fecha_ultimo_cambio_contrasena,
+        u.requiere_cambio_contrasena,
+        u.intentos_fallidos,
+        u.fecha_bloqueo,
+        -- ✅ CAMPOS DE SINCRONIZACIÓN (según schema SQL)
+        u.sincronizado_desde,
+        u.fecha_ultima_sincronizacion,
+        -- ✅ CAMPOS ADICIONALES (según schema SQL)
+        u.dni,
+        u.telefono,
+        u.referencia_externa_id,
+        u.referencia_externa_email,
+        -- ✅ CAMPO DE ELIMINACIÓN LÓGICA
+        u.es_eliminado,
+        -- ✅ CAMPOS DE ROLES
         r.rol_id,
-        r.nombre AS nombre_rol
-        -- Añade aquí otros campos de 'usuario' o 'rol' que necesites
+        r.nombre AS nombre_rol,
+        r.descripcion AS descripcion_rol,
+        r.es_activo AS rol_es_activo,
+        r.fecha_creacion AS rol_fecha_creacion,
+        r.cliente_id AS rol_cliente_id,
+        r.codigo_rol AS rol_codigo_rol
     FROM usuario u
     LEFT JOIN usuario_rol ur ON u.usuario_id = ur.usuario_id AND ur.es_activo = 1
     LEFT JOIN rol r ON ur.rol_id = r.rol_id AND (r.es_activo = 1 OR r.cliente_id IS NULL) -- Incluir roles del sistema

@@ -152,32 +152,48 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_menu_por_id(menu_id: int) -> Optional[MenuReadSingle]:
+    async def obtener_menu_por_id(menu_id: int, cliente_id: Optional[int] = None) -> Optional[MenuReadSingle]:
         """
-        Obtiene los detalles de un menú específico por su ID **(cliente_id se obtiene del menú)**.
+        Obtiene los detalles de un menú específico por su ID con validación multi-tenant.
         
         🔍 DETALLES COMPLETOS:
         - Incluye información del área asociada
-        - Valida que el menú exista
+        - Valida que el menú exista y pertenezca al cliente (o sea del sistema)
         - Útil para operaciones de edición
+        
+        🔐 SEGURIDAD MULTI-TENANT:
+        - Si se proporciona cliente_id, solo retorna menús del cliente o del sistema
+        - Si no se proporciona cliente_id, retorna cualquier menú (uso interno)
         
         Args:
             menu_id: ID del menú a buscar
+            cliente_id: ID del cliente para validación multi-tenant (opcional)
             
         Returns:
-            Optional[MenuReadSingle]: Detalles del menú o None si no existe
+            Optional[MenuReadSingle]: Detalles del menú o None si no existe o no pertenece al cliente
             
         Raises:
             ServiceError: Si hay errores en la consulta
         """
-        logger.debug(f"🔍 Buscando menú con ID: {menu_id}")
+        logger.debug(f"🔍 Buscando menú con ID: {menu_id}, cliente_id: {cliente_id}")
         
         try:
-            # ✅ NUEVO: SELECT_MENU_BY_ID debe incluir cliente_id en su query
-            resultado = execute_query(SELECT_MENU_BY_ID, (menu_id,))
+            # ✅ FILTRAR POR cliente_id SI SE PROPORCIONA
+            if cliente_id is not None:
+                resultado = execute_query(SELECT_MENU_BY_ID, (menu_id, cliente_id))
+            else:
+                # Uso interno: obtener cualquier menú sin filtro de cliente
+                query_interno = """
+                SELECT m.menu_id, m.nombre, m.icono, m.ruta, m.padre_menu_id, m.orden,
+                       m.es_activo, m.fecha_creacion, m.area_id, m.cliente_id, a.nombre as area_nombre
+                FROM menu m
+                LEFT JOIN area_menu a ON m.area_id = a.area_id
+                WHERE m.menu_id = ?
+                """
+                resultado = execute_query(query_interno, (menu_id,))
             
             if not resultado:
-                logger.debug(f"Menú con ID {menu_id} no encontrado.")
+                logger.debug(f"Menú con ID {menu_id} no encontrado para cliente {cliente_id}.")
                 return None
 
             menu_data = resultado[0]
@@ -336,7 +352,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_menu(menu_id: int, menu_data: MenuUpdate) -> MenuReadSingle:
+    async def actualizar_menu(menu_id: int, menu_data: MenuUpdate, cliente_id: Optional[int] = None) -> MenuReadSingle:
         """
         Actualiza un menú existente con validaciones de integridad **por cliente**.
         
@@ -345,19 +361,24 @@ class MenuService(BaseService):
         - Valida relaciones (padre, área) **del mismo cliente**
         - Mantiene la integridad jerárquica
         
+        🔐 SEGURIDAD MULTI-TENANT:
+        - Si se proporciona cliente_id, valida que el menú pertenezca al cliente
+        - Permite actualizar menús del sistema (cliente_id IS NULL) solo si no se proporciona cliente_id
+        
         Args:
             menu_id: ID del menú a actualizar
             menu_data: Campos a actualizar (parcial)
+            cliente_id: ID del cliente para validación multi-tenant (opcional)
             
         Returns:
             MenuReadSingle: Menú actualizado
             
         Raises:
             NotFoundError: Si el menú no existe
-            ValidationError: Si los datos son inválidos
+            ValidationError: Si los datos son inválidos o el menú no pertenece al cliente
             ServiceError: Si la actualización falla
         """
-        logger.info(f"Intentando actualizar menú ID: {menu_id}")
+        logger.info(f"Intentando actualizar menú ID: {menu_id}, cliente_id: {cliente_id}")
 
         update_payload = menu_data.model_dump(exclude_unset=True)
         
@@ -367,14 +388,29 @@ class MenuService(BaseService):
                 internal_code="MENU_UPDATE_NO_DATA"
             )
 
-        # 🔍 VERIFICAR EXISTENCIA DEL MENÚ Y OBTENER SU CLIENTE_ID
-        menu_existente = await MenuService.obtener_menu_por_id(menu_id)
+        # 🔍 VERIFICAR EXISTENCIA DEL MENÚ Y VALIDAR CLIENTE_ID
+        menu_existente = await MenuService.obtener_menu_por_id(menu_id, cliente_id=cliente_id)
         if not menu_existente:
             raise NotFoundError(
                 detail=f"Menú con ID {menu_id} no encontrado para actualizar.",
                 internal_code="MENU_NOT_FOUND"
             )
-        cliente_id = menu_existente.cliente_id
+        
+        # ✅ OBTENER cliente_id DEL MENÚ (para validaciones posteriores)
+        menu_cliente_id = menu_existente.cliente_id
+        
+        # ✅ VALIDAR QUE EL MENÚ PERTENEZCA AL CLIENTE (si se proporcionó cliente_id)
+        if cliente_id is not None:
+            if menu_cliente_id is not None and menu_cliente_id != cliente_id:
+                raise ValidationError(
+                    detail=f"El menú con ID {menu_id} no pertenece al cliente {cliente_id}.",
+                    internal_code="MENU_WRONG_CLIENT"
+                )
+            # Usar el cliente_id proporcionado para las validaciones
+            cliente_id_validacion = cliente_id
+        else:
+            # Si no se proporcionó cliente_id, usar el del menú (para compatibilidad)
+            cliente_id_validacion = menu_cliente_id
 
         try:
             # 🚫 VALIDACIONES DE INTEGRIDAD
@@ -393,9 +429,9 @@ class MenuService(BaseService):
                         internal_code="MENU_PARENT_NOT_FOUND"
                     )
                 padre_cliente_id = padre_result[0]['cliente_id']
-                if padre_cliente_id != cliente_id:
+                if padre_cliente_id != cliente_id_validacion and padre_cliente_id is not None:
                     raise ValidationError(
-                        detail=f"El menú padre con ID {update_payload['padre_menu_id']} no pertenece al cliente {cliente_id}.",
+                        detail=f"El menú padre con ID {update_payload['padre_menu_id']} no pertenece al cliente {cliente_id_validacion}.",
                         internal_code="MENU_PARENT_WRONG_CLIENT"
                     )
                     
@@ -408,9 +444,9 @@ class MenuService(BaseService):
                         internal_code="MENU_AREA_NOT_FOUND"
                     )
                 area_cliente_id = area_result[0]['cliente_id']
-                if area_cliente_id != cliente_id:
+                if area_cliente_id != cliente_id_validacion and area_cliente_id is not None:
                     raise ValidationError(
-                        detail=f"El área con ID {update_payload['area_id']} no pertenece al cliente {cliente_id}.",
+                        detail=f"El área con ID {update_payload['area_id']} no pertenece al cliente {cliente_id_validacion}.",
                         internal_code="MENU_AREA_WRONG_CLIENT"
                     )
 
@@ -423,7 +459,7 @@ class MenuService(BaseService):
                 update_payload.get('orden'),
                 update_payload.get('area_id'),
                 update_payload.get('es_activo'),
-                cliente_id,
+                cliente_id_validacion,
                 menu_id
             )
             
@@ -447,7 +483,7 @@ class MenuService(BaseService):
                     area_nombre = area_info[0]['nombre']
 
             updated_menu = MenuReadSingle(**resultado, area_nombre=area_nombre)
-            logger.info(f"Menú ID: {menu_id} del cliente {cliente_id} actualizado exitosamente.")
+            logger.info(f"Menú ID: {menu_id} del cliente {cliente_id_validacion} actualizado exitosamente.")
             
             return updated_menu
 
@@ -588,7 +624,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_arbol_menu_por_area(cliente_id: int, area_id: int) -> MenuResponse:
+    async def obtener_arbol_menu_por_area(area_id: int, cliente_id: int) -> MenuResponse:
         """
         Obtiene la estructura jerárquica de menús para un área específica **de un cliente**.
         
@@ -610,7 +646,7 @@ class MenuService(BaseService):
         logger.info(f"Obteniendo árbol de menú para cliente {cliente_id}, area_id: {area_id}")
         
         try:
-            params = (cliente_id, area_id)
+            params = (area_id, cliente_id)
             menu_items_raw_list = execute_query(GET_MENUS_BY_AREA_FOR_TREE_QUERY, params)
 
             if not menu_items_raw_list:

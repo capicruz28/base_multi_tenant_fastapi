@@ -51,7 +51,7 @@ class ConexionService(BaseService):
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
         FROM cliente_modulo_conexion
-        WHERE cliente_id = ? AND es_activo = 1
+        WHERE cliente_id = ? --AND es_activo = 1
         ORDER BY modulo_id, es_conexion_principal DESC
         """
         

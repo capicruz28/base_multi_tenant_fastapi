@@ -43,7 +43,7 @@ router = APIRouter()
 # --- CONFIGURACIÓN DE DEPENDENCIAS ---
 # Requiere rol de administrador para todas las operaciones de gestión
 # Asumiendo que 'Administrador' es el rol usado en la BD
-require_admin = RoleChecker(["Super Administrador"])
+require_admin = RoleChecker(["Administrador"])
 
 
 # --- FUNCIÓN DE AYUDA PARA ROLES DEL SISTEMA ---

@@ -38,6 +38,22 @@ class ModuloActivoService(BaseService):
     """
     Servicio central para la administración de activación de módulos por cliente.
     """
+    
+    @staticmethod
+    def _deserializar_configuracion_json(row: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Helper para deserializar configuracion_json de string a Dict.
+        La BD almacena JSON como string, pero el schema espera Dict[str, Any].
+        """
+        if 'configuracion_json' in row and row['configuracion_json']:
+            try:
+                if isinstance(row['configuracion_json'], str):
+                    row['configuracion_json'] = json.loads(row['configuracion_json'])
+                # Si ya es dict, no hacer nada
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Error deserializando configuracion_json: {e}. Usando None.")
+                row['configuracion_json'] = None
+        return row
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -68,7 +84,9 @@ class ModuloActivoService(BaseService):
         """
         
         resultados = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
-        return [ModuloActivoRead(**modulo) for modulo in resultados]
+        # Deserializar configuracion_json de string a Dict antes de crear objetos
+        modulos_deserializados = [ModuloActivoService._deserializar_configuracion_json(dict(modulo)) for modulo in resultados]
+        return [ModuloActivoRead(**modulo) for modulo in modulos_deserializados]
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -98,7 +116,9 @@ class ModuloActivoService(BaseService):
         resultado = execute_query(query, (modulo_activo_id,), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             return None
-        return ModuloActivoRead(**resultado[0])
+        # Deserializar configuracion_json de string a Dict antes de crear objeto
+        modulo_deserializado = ModuloActivoService._deserializar_configuracion_json(dict(resultado[0]))
+        return ModuloActivoRead(**modulo_deserializado)
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -131,7 +151,9 @@ class ModuloActivoService(BaseService):
         resultado = execute_query(query, (cliente_id, modulo_id), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             return None
-        return ModuloActivoRead(**resultado[0])
+        # Deserializar configuracion_json de string a Dict antes de crear objeto
+        modulo_deserializado = ModuloActivoService._deserializar_configuracion_json(dict(resultado[0]))
+        return ModuloActivoRead(**modulo_deserializado)
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -201,7 +223,7 @@ class ModuloActivoService(BaseService):
                 )
 
         # Preparar datos para inserción
-        configuracion_json = json.dumps(modulo_data.configuracion) if modulo_data.configuracion else None
+        configuracion_json = json.dumps(modulo_data.configuracion_json) if modulo_data.configuracion_json else None
 
         fields = [
             'cliente_id', 'modulo_id', 'esta_activo',
@@ -279,7 +301,7 @@ class ModuloActivoService(BaseService):
         
         for field, value in modulo_data.dict(exclude_unset=True).items():
             if value is not None:
-                if field == "configuracion":
+                if field == "configuracion_json":
                     update_fields.append("configuracion_json = ?")
                     params.append(json.dumps(value))
                 else:

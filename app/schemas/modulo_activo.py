@@ -44,6 +44,10 @@ class ModuloActivoBase(BaseModel):
         None, 
         description="Límite de registros para este módulo (NULL = ilimitado)."
     )
+    fecha_vencimiento: Optional[datetime] = Field(
+        None,
+        description="Fecha de vencimiento de la licencia (NULL = ilimitado/permanente)."
+    )
 
     # === VALIDADORES ===
     @validator('limite_usuarios')
@@ -85,6 +89,15 @@ class ModuloActivoBase(BaseModel):
         """
         if v <= 0:
             raise ValueError("Los IDs deben ser números positivos.")
+        return v
+
+    @validator('fecha_vencimiento')
+    def validar_fecha_vencimiento(cls, v):
+        """
+        Valida que la fecha de vencimiento sea futura si se proporciona.
+        """
+        if v is not None and v <= datetime.now():
+            raise ValueError("La fecha de vencimiento debe ser futura.")
         return v
 
     class Config:

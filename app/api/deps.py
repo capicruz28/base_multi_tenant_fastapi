@@ -312,7 +312,11 @@ class RoleChecker:
         # 1. Determinar el nivel mínimo requerido (Nivel M)
         try:
             # El RolService consulta la BD para el MIN(nivel_acceso) de los roles requeridos
-            min_required_level = await RolService.get_min_required_access_level(self.required_roles)
+            # ✅ CRÍTICO: Pasar cliente_id para filtrar roles del tenant correcto
+            min_required_level = await RolService.get_min_required_access_level(
+                role_names=self.required_roles,
+                cliente_id=current_user.cliente_id
+            )
         except Exception as e:
             logger.error(f"Error al obtener nivel requerido para roles {self.required_roles}: {e}")
             raise HTTPException(
@@ -323,7 +327,11 @@ class RoleChecker:
         # 2. Determinar el nivel máximo del usuario (Nivel N)
         try:
             # El RolService consulta la BD para el MAX(nivel_acceso) del usuario
-            user_max_level = await RolService.get_user_max_access_level(user_id)
+            # ✅ CRÍTICO: Pasar cliente_id para filtrar roles del tenant correcto
+            user_max_level = await RolService.get_user_max_access_level(
+                usuario_id=user_id,
+                cliente_id=current_user.cliente_id
+            )
         except Exception as e:
             logger.error(f"Error al obtener nivel máximo para usuario {user_id}: {e}")
             raise HTTPException(

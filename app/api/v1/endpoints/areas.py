@@ -35,7 +35,7 @@ router = APIRouter()
 
 # --- CONFIGURACIÓN DE DEPENDENCIAS ---
 # Requiere rol de administrador para todas las operaciones
-require_admin = RoleChecker(["Super Administrador"])
+require_admin = RoleChecker(["Administrador"])
 
 
 # --- ENDPOINTS DE GESTIÓN DE ÁREAS ---

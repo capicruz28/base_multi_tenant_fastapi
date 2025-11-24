@@ -37,12 +37,14 @@ from app.services.usuario_service import UsuarioService
 from app.services.refresh_token_service import RefreshTokenService
 from app.services.cliente_service import ClienteService
 from app.api.deps import RoleChecker
+from app.core.exceptions import AuthenticationError
+from app.db.connection import DatabaseConnection, get_db_connection
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 # Dependencia específica para requerir rol 'admin'
-require_admin = RoleChecker(["Super Administrador"])
+require_admin = RoleChecker(["Administrador"])
 
 # ✅ NUEVO: Función para detectar tipo de cliente
 def get_client_type(request: Request) -> str:
@@ -794,7 +796,31 @@ async def sso_azure_login(
     Autentica a un usuario utilizando un token de Azure AD.
     """
     try:
-        cliente_id = await resolve_cliente_id(cliente_id, subdominio)
+        # Resolver cliente_id desde contexto o parámetros
+        try:
+            # Intentar obtener desde el contexto del middleware
+            cliente_id = get_current_client_id()
+        except RuntimeError:
+            # Si no está en el contexto, resolver desde subdominio o usar el proporcionado
+            if not cliente_id and subdominio:
+                query = "SELECT cliente_id FROM cliente WHERE subdominio = ? AND es_activo = 1"
+                with get_db_connection(DatabaseConnection.ADMIN) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (subdominio,))
+                    row = cursor.fetchone()
+                    if row:
+                        cliente_id = row[0]
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Cliente con subdominio '{subdominio}' no encontrado."
+                        )
+            elif not cliente_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Se requiere cliente_id o subdominio, o acceso desde subdominio válido."
+                )
+        
         client_type = get_client_type(request)
         
         # Autenticar con SSO
@@ -892,7 +918,31 @@ async def sso_google_login(
     Autentica a un usuario utilizando un token de Google Workspace.
     """
     try:
-        cliente_id = await resolve_cliente_id(cliente_id, subdominio)
+        # Resolver cliente_id desde contexto o parámetros
+        try:
+            # Intentar obtener desde el contexto del middleware
+            cliente_id = get_current_client_id()
+        except RuntimeError:
+            # Si no está en el contexto, resolver desde subdominio o usar el proporcionado
+            if not cliente_id and subdominio:
+                query = "SELECT cliente_id FROM cliente WHERE subdominio = ? AND es_activo = 1"
+                with get_db_connection(DatabaseConnection.ADMIN) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(query, (subdominio,))
+                    row = cursor.fetchone()
+                    if row:
+                        cliente_id = row[0]
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Cliente con subdominio '{subdominio}' no encontrado."
+                        )
+            elif not cliente_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Se requiere cliente_id o subdominio, o acceso desde subdominio válido."
+                )
+        
         client_type = get_client_type(request)
         
         # Autenticar con SSO

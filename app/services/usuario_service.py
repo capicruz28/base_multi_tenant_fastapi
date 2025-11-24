@@ -1213,50 +1213,95 @@ class UsuarioService(BaseService):
             logger.debug(f"Total de usuarios encontrados para cliente {cliente_id}: {total_usuarios}")
 
             # 📋 OBTENER DATOS PAGINADOS CON ROLES
-            data_params = (search_param, search_param, search_param, search_param, search_param, offset, limit, cliente_id)
+            # ✅ ORDEN CORRECTO DE PARÁMETROS según SELECT_USUARIOS_PAGINATED:
+            # 1. cliente_id (WHERE u.cliente_id = ?)
+            # 2. search_param (AND (? IS NULL OR ...))
+            # 3-6. search_param (4 veces para los LIKE)
+            # 7. offset (OFFSET ? ROWS)
+            # 8. limit (FETCH NEXT ? ROWS ONLY)
+            data_params = (cliente_id, search_param, search_param, search_param, search_param, search_param, offset, limit)
             raw_results = execute_query(SELECT_USUARIOS_PAGINATED, data_params)
+            
+            logger.debug(f"[USUARIOS-PAGINADOS] Query ejecutada con {len(data_params)} parámetros: cliente_id={cliente_id}, search='{search}', offset={offset}, limit={limit}")
+            logger.debug(f"[USUARIOS-PAGINADOS] Resultados crudos obtenidos: {len(raw_results) if raw_results else 0} filas")
 
             # 🎯 PROCESAR RESULTADOS - AGRUPAR ROLES POR USUARIO
             usuarios_dict: Dict[int, UsuarioReadWithRoles] = {}
             
             if raw_results:
-                logger.debug(f"Procesando {len(raw_results)} filas crudas")
+                logger.debug(f"[USUARIOS-PAGINADOS] Procesando {len(raw_results)} filas crudas")
                 
                 for row in raw_results:
-                    usuario_id = row['usuario_id']
-                    
-                    if usuario_id not in usuarios_dict:
-                        # 🆕 CREAR ENTRADA DE USUARIO
-                        usuarios_dict[usuario_id] = UsuarioReadWithRoles(
-                            usuario_id=row['usuario_id'],
-                            nombre_usuario=row['nombre_usuario'],
-                            correo=row['correo'],
-                            nombre=row.get('nombre'),
-                            apellido=row.get('apellido'),
-                            es_activo=row['es_activo'],
-                            correo_confirmado=row['correo_confirmado'],
-                            fecha_creacion=row['fecha_creacion'],
-                            fecha_ultimo_acceso=row.get('fecha_ultimo_acceso'),
-                            fecha_actualizacion=row.get('fecha_actualizacion'),
-                            roles=[]
-                        )
-
-                    # ➕ AGREGAR ROL SI EXISTE
-                    if row.get('rol_id') is not None:
-                        rol_obj = RolRead(
-                            rol_id=row['rol_id'],
-                            nombre=row['nombre_rol'],
-                            descripcion=None,
-                            es_activo=True,
-                            fecha_creacion=datetime.now()
-                        )
+                    try:
+                        usuario_id = row['usuario_id']
                         
-                        # 🚫 EVITAR DUPLICADOS
-                        if rol_obj not in usuarios_dict[usuario_id].roles:
-                            usuarios_dict[usuario_id].roles.append(rol_obj)
+                        if usuario_id not in usuarios_dict:
+                            # 🆕 CREAR ENTRADA DE USUARIO CON TODOS LOS CAMPOS REQUERIDOS
+                            usuarios_dict[usuario_id] = UsuarioReadWithRoles(
+                                usuario_id=row['usuario_id'],
+                                nombre_usuario=row['nombre_usuario'],
+                                correo=row.get('correo'),
+                                nombre=row.get('nombre'),
+                                apellido=row.get('apellido'),
+                                es_activo=bool(row.get('es_activo', True)),
+                                correo_confirmado=bool(row.get('correo_confirmado', False)),
+                                fecha_creacion=row['fecha_creacion'],
+                                fecha_ultimo_acceso=row.get('fecha_ultimo_acceso'),
+                                fecha_actualizacion=row.get('fecha_actualizacion'),
+                                cliente_id=row['cliente_id'],
+                                # ✅ CAMPOS DE SEGURIDAD
+                                proveedor_autenticacion=row.get('proveedor_autenticacion', 'local'),
+                                fecha_ultimo_cambio_contrasena=row.get('fecha_ultimo_cambio_contrasena'),
+                                requiere_cambio_contrasena=bool(row.get('requiere_cambio_contrasena', False)),
+                                intentos_fallidos=row.get('intentos_fallidos', 0),
+                                fecha_bloqueo=row.get('fecha_bloqueo'),
+                                # ✅ CAMPOS DE SINCRONIZACIÓN
+                                sincronizado_desde=row.get('sincronizado_desde'),
+                                fecha_ultima_sincronizacion=row.get('fecha_ultima_sincronizacion'),
+                                # ✅ CAMPOS ADICIONALES
+                                dni=row.get('dni'),
+                                telefono=row.get('telefono'),
+                                referencia_externa_id=row.get('referencia_externa_id'),
+                                referencia_externa_email=row.get('referencia_externa_email'),
+                                # ✅ CAMPO DE ELIMINACIÓN LÓGICA
+                                es_eliminado=bool(row.get('es_eliminado', False)),
+                                # ✅ CAMPOS DE ROLES Y NIVELES (inicializados)
+                                roles=[],
+                                access_level=1,  # Se calculará después si es necesario
+                                is_super_admin=False,  # Se calculará después si es necesario
+                                user_type="user"  # Se calculará después si es necesario
+                            )
+
+                        # ➕ AGREGAR ROL SI EXISTE
+                        if row.get('rol_id') is not None:
+                            # ✅ CREAR DICCIONARIO CON TODOS LOS CAMPOS DEL ROL
+                            rol_dict = {
+                                'rol_id': row['rol_id'],
+                                'nombre': row['nombre_rol'],
+                                'descripcion': row.get('descripcion_rol'),
+                                'es_activo': bool(row.get('rol_es_activo', True)),
+                                'fecha_creacion': row.get('rol_fecha_creacion', datetime.now()),
+                                'cliente_id': row.get('rol_cliente_id'),
+                                'codigo_rol': row.get('rol_codigo_rol')
+                            }
+                            
+                            # ✅ NORMALIZAR ROL (similar a rol_service.py)
+                            from app.services.rol_service import RolService
+                            rol_normalizado = RolService._normalizar_rol_dict(rol_dict)
+                            
+                            # ✅ CREAR RolRead CON DATOS NORMALIZADOS
+                            rol_obj = RolRead(**rol_normalizado)
+                            
+                            # 🚫 EVITAR DUPLICADOS
+                            if rol_obj not in usuarios_dict[usuario_id].roles:
+                                usuarios_dict[usuario_id].roles.append(rol_obj)
+                    except Exception as e:
+                        logger.error(f"[USUARIOS-PAGINADOS] Error procesando fila para usuario_id={row.get('usuario_id', 'DESCONOCIDO')}: {str(e)}", exc_info=True)
+                        # Continuar con el siguiente registro en lugar de fallar completamente
+                        continue
 
             lista_usuarios_procesados = list(usuarios_dict.values())
-            logger.debug(f"Procesados {len(lista_usuarios_procesados)} usuarios únicos")
+            logger.info(f"[USUARIOS-PAGINADOS] Procesados {len(lista_usuarios_procesados)} usuarios únicos de {len(raw_results) if raw_results else 0} filas crudas")
 
             # 🧮 CALCULAR METADATOS DE PAGINACIÓN
             total_paginas = math.ceil(total_usuarios / limit) if limit > 0 else 0

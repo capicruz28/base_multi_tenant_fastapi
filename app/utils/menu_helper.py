@@ -38,10 +38,11 @@ def build_menu_tree(menu_items_from_db: List[Dict]) -> List[MenuItem]:
                 ruta=item_data.get('ruta'),
                 orden=item_data.get('orden'),
                 level=item_data.get('Level', 0), # Usar 'Level' como lo devuelve el SP
-                es_activo=item_data.get('es_activo', False), # Obtener es_activo
+                es_activo=bool(item_data.get('es_activo', False)), # Obtener es_activo y convertir a bool
                 # --- CORRECCIÓN AQUÍ ---
                 area_id=item_data.get('area_id'), # <<< Añadir area_id
                 area_nombre=item_data.get('area_nombre'), # <<< Añadir area_nombre
+                cliente_id=item_data.get('cliente_id'), # ✅ CRÍTICO: Agregar cliente_id (puede ser NULL para menús del sistema)
                 # --- FIN CORRECCIÓN ---
                 children=[]
             )

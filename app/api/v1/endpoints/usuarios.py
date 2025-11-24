@@ -327,7 +327,7 @@ async def actualizar_usuario(
 
     # Validar que hay datos para actualizar
     update_data = usuario_in.model_dump(exclude_unset=True)
-    if not update_:
+    if not update_data:
         logger.warning(f"Intento de actualizar usuario {usuario_id} sin datos")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

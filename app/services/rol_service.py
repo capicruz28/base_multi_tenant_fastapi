@@ -45,14 +45,51 @@ class RolService(BaseService):
     """
 
     @staticmethod
-    async def get_min_required_access_level(role_names: List[str]) -> int:
+    def _normalizar_rol_dict(rol_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normaliza un diccionario de rol para cumplir con las reglas de validación del schema.
+        
+        ✅ REGLAS DE NORMALIZACIÓN:
+        - Convierte es_activo de int a bool
+        - Si un rol tiene codigo_rol pero cliente_id != 1, establece codigo_rol = None
+          (roles con codigo_rol solo pueden pertenecer al cliente SUPER ADMIN)
+        
+        Args:
+            rol_dict: Diccionario con datos del rol desde la BD
+            
+        Returns:
+            Dict[str, Any]: Diccionario normalizado
+        """
+        # Convertir es_activo de int a bool
+        if 'es_activo' in rol_dict and isinstance(rol_dict['es_activo'], int):
+            rol_dict['es_activo'] = bool(rol_dict['es_activo'])
+        
+        # ✅ CRÍTICO: Normalizar codigo_rol según regla de negocio
+        # Si un rol tiene codigo_rol pero cliente_id != 1, es un rol de cliente mal configurado
+        # Para evitar errores de validación, establecer codigo_rol = None
+        if rol_dict.get('codigo_rol') is not None and rol_dict.get('cliente_id') is not None:
+            if rol_dict.get('cliente_id') != 1:  # No es SUPER ADMIN
+                logger.warning(
+                    f"[NORMALIZAR-ROL] Rol {rol_dict.get('rol_id')} tiene codigo_rol='{rol_dict.get('codigo_rol')}' "
+                    f"pero cliente_id={rol_dict.get('cliente_id')}. Normalizando codigo_rol a None."
+                )
+                rol_dict['codigo_rol'] = None
+        
+        return rol_dict
+
+    @staticmethod
+    async def get_min_required_access_level(role_names: List[str], cliente_id: Optional[int] = None) -> int:
         """
         Consulta el nivel de acceso más bajo (MIN) necesario para la lista de nombres de rol dados.
         Ej: Si se requiere ['Administrador', 'Editor'], y los niveles son [50, 30],
         el nivel mínimo requerido es 30.
         
+        ✅ CORRECCIÓN: Ahora filtra por cliente_id para respetar el contexto multi-tenant.
+        Busca roles del cliente específico Y roles del sistema (cliente_id IS NULL).
+        
         Args:
             role_names: Lista de nombres de rol requeridos (ej: ['Administrador']).
+            cliente_id: ID del cliente para filtrar roles. Si es None, busca solo roles del sistema.
 
         Returns:
             El nivel de acceso más bajo requerido (int), o 0 si no se encuentra ninguno.
@@ -63,23 +100,40 @@ class RolService(BaseService):
         # ⚠️ Construcción dinámica de la cláusula IN: Evita inyección SQL
         placeholders = ', '.join(['?' for _ in role_names])
         
-        # BUSCAR EL NIVEL DE ACCESO MÁS BAJO entre los roles permitidos
-        QUERY = f"""
-        SELECT MIN(nivel_acceso) AS min_level
-        FROM rol
-        WHERE nombre IN ({placeholders}) AND es_activo = 1;
-        """
+        # ✅ CORRECCIÓN: Filtrar por cliente_id o roles del sistema
+        if cliente_id is not None:
+            # Buscar roles del cliente específico Y roles del sistema
+            QUERY = f"""
+            SELECT MIN(nivel_acceso) AS min_level
+            FROM rol
+            WHERE nombre IN ({placeholders}) 
+              AND es_activo = 1
+              AND (cliente_id = ? OR cliente_id IS NULL);
+            """
+            params = tuple(list(role_names) + [cliente_id])
+        else:
+            # Solo buscar roles del sistema
+            QUERY = f"""
+            SELECT MIN(nivel_acceso) AS min_level
+            FROM rol
+            WHERE nombre IN ({placeholders}) 
+              AND es_activo = 1
+              AND cliente_id IS NULL;
+            """
+            params = tuple(role_names)
         
         try:
             # execute_query devuelve List[Dict]
-            result = execute_query(QUERY, tuple(role_names))
+            result = execute_query(QUERY, params)
             
             if result and result[0]['min_level'] is not None:
                 # El valor de min_level no es NULL
-                return int(result[0]['min_level'])
+                min_level = int(result[0]['min_level'])
+                logger.debug(f"Nivel mínimo requerido para roles {role_names} (cliente_id={cliente_id}): {min_level}")
+                return min_level
             
             # Si la lista de nombres no coincide con ningún rol activo
-            logger.warning(f"No se encontraron niveles de acceso para los roles: {role_names}")
+            logger.warning(f"No se encontraron niveles de acceso para los roles: {role_names} (cliente_id={cliente_id})")
             # Devolvemos un nivel muy alto si no se encuentra (para forzar la denegación)
             return 999 
             
@@ -92,34 +146,30 @@ class RolService(BaseService):
             )
 
     @staticmethod
-    async def get_user_max_access_level(usuario_id: int) -> int:
+    async def get_user_max_access_level(usuario_id: int, cliente_id: int) -> int:
         """
         Consulta el nivel de acceso más alto (MAX) entre todos los roles asignados al usuario.
-
+        
         Args:
             usuario_id: ID del usuario.
+            cliente_id: ID del cliente (tenant) para filtrar roles.
 
         Returns:
-            El nivel de acceso más alto que posee el usuario (int), o 0 si no tiene roles activos.
+            El nivel de acceso más alto que posee el usuario (int), o 1 si no tiene roles activos.
         """
-        # BUSCAR EL NIVEL DE ACCESO MÁS ALTO del usuario
-        QUERY = """
-        SELECT MAX(r.nivel_acceso) AS max_level
-        FROM usuario_rol ur
-        JOIN rol r ON ur.rol_id = r.rol_id
-        WHERE ur.usuario_id = ? AND r.es_activo = 1;
-        """
+        # Usar la query correcta que filtra por cliente_id
+        from app.db.queries import execute_query, GET_USER_MAX_ACCESS_LEVEL
         
         try:
             # execute_query devuelve List[Dict]
-            result = execute_query(QUERY, (usuario_id,))
+            result = execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
             
             if result and result[0]['max_level'] is not None:
                 # El valor de max_level no es NULL
                 return int(result[0]['max_level'])
             
-            # Si no tiene roles o son inactivos
-            return 0 
+            # Si no tiene roles activos, nivel mínimo
+            return 1 
             
         except DatabaseError as db_err:
             logger.error(f"Error de BD en get_user_max_access_level: {db_err.detail}", exc_info=True)
@@ -297,12 +347,10 @@ class RolService(BaseService):
                 logger.debug(f"Rol con ID {rol_id} no encontrado")
                 return None
 
-            # 🔄 CONVERTIR TIPOS DE DATOS
+            # 🔄 NORMALIZAR DATOS
             rol = resultados[0]
-            if 'es_activo' in rol and isinstance(rol['es_activo'], int):
-                rol['es_activo'] = bool(rol['es_activo'])
-                
-            return rol
+            rol_normalizado = RolService._normalizar_rol_dict(rol)
+            return rol_normalizado
 
         except DatabaseError as db_err:
             logger.error(f"Error de BD al obtener rol {rol_id}: {db_err.detail}")
@@ -365,17 +413,26 @@ class RolService(BaseService):
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
         
+        # ✅ VALIDACIÓN: Verificar que cliente_id es válido
+        if cliente_id is None or cliente_id <= 0:
+            logger.error(f"Cliente ID inválido recibido en obtener_roles_paginados: {cliente_id}")
+            raise ValidationError(
+                detail="Cliente ID no válido. No se puede obtener la lista de roles.",
+                internal_code="INVALID_CLIENT_ID"
+            )
+        
         # Para roles de cliente, la búsqueda es solo dentro del cliente
         count_params = (cliente_id, search_param, search_param, search_param)
         select_params = (cliente_id, search_param, search_param, search_param, offset, limit)
 
         try:
             # 📊 CONTAR TOTAL DE ROLES
-            logger.debug(f"Contando roles para cliente {cliente_id} con parámetros: {count_params}")
+            logger.info(f"[ROLES-PAGINADOS] Iniciando consulta para cliente_id={cliente_id}, page={page}, limit={limit}, search='{search}'")
+            logger.debug(f"[ROLES-PAGINADOS] Parámetros de conteo: {count_params}")
             count_result = execute_query(COUNT_ROLES_PAGINATED, count_params)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
-                logger.error(f"Error al contar roles para cliente {cliente_id}: resultado inesperado: {count_result}")
+                logger.error(f"[ROLES-PAGINADOS] Error al contar roles para cliente {cliente_id}: resultado inesperado: {count_result}")
                 raise ServiceError(
                     status_code=500,
                     detail="Error al obtener el total de roles",
@@ -383,21 +440,23 @@ class RolService(BaseService):
                 )
 
             total_roles = count_result[0]['total']
-            logger.debug(f"Total de roles encontrados para cliente {cliente_id}: {total_roles}")
+            logger.info(f"[ROLES-PAGINADOS] Total de roles encontrados para cliente {cliente_id}: {total_roles}")
 
             # 📋 OBTENER ROLES PAGINADOS
             lista_roles = []
             if total_roles > 0 and limit > 0:
-                logger.debug(f"Obteniendo roles para cliente {cliente_id} con parámetros: {select_params}")
+                logger.debug(f"[ROLES-PAGINADOS] Obteniendo roles con parámetros: {select_params}")
                 lista_roles = execute_query(SELECT_ROLES_PAGINATED, select_params)
-                logger.debug(f"Obtenidos {len(lista_roles)} roles para la página {page}")
+                logger.info(f"[ROLES-PAGINADOS] Obtenidos {len(lista_roles)} roles para la página {page} de {total_roles} totales")
+            else:
+                logger.info(f"[ROLES-PAGINADOS] No hay roles para mostrar (total={total_roles}, limit={limit})")
 
             # 🔄 PROCESAR Y CONVERTIR DATOS
             roles_procesados = []
             for rol_dict in lista_roles:
-                if 'es_activo' in rol_dict and isinstance(rol_dict['es_activo'], int):
-                    rol_dict['es_activo'] = bool(rol_dict['es_activo'])
-                roles_procesados.append(rol_dict)
+                # ✅ Usar función helper para normalizar
+                rol_normalizado = RolService._normalizar_rol_dict(rol_dict)
+                roles_procesados.append(rol_normalizado)
 
             # 🧮 CALCULAR METADATOS
             total_paginas = math.ceil(total_roles / limit) if limit > 0 else 0
@@ -409,17 +468,24 @@ class RolService(BaseService):
                 "total_paginas": total_paginas
             }
 
-            logger.info(f"Obtención paginada de roles para cliente {cliente_id} completada exitosamente")
+            logger.info(f"[ROLES-PAGINADOS] Consulta completada exitosamente - Cliente: {cliente_id}, Total: {total_roles}, Página: {page}/{total_paginas}, Resultados: {len(roles_procesados)}")
             return response_data
 
         except (ValidationError, ServiceError):
             raise
         except DatabaseError as db_err:
-            logger.error(f"Error de BD en obtener_roles_paginados para cliente {cliente_id}: {db_err.detail}")
+            logger.error(f"[ROLES-PAGINADOS] Error de BD para cliente {cliente_id}: {db_err.detail}", exc_info=True)
             raise ServiceError(
                 status_code=500,
                 detail="Error de base de datos al obtener roles paginados",
                 internal_code="ROLE_PAGINATION_DB_ERROR"
+            )
+        except Exception as e:
+            logger.exception(f"[ROLES-PAGINADOS] Error inesperado para cliente {cliente_id}: {str(e)}")
+            raise ServiceError(
+                status_code=500,
+                detail="Error inesperado al obtener roles paginados",
+                internal_code="ROLE_PAGINATION_UNEXPECTED_ERROR"
             )
         except Exception as e:
             logger.exception(f"Error inesperado en obtener_roles_paginados: {str(e)}")
@@ -590,12 +656,11 @@ class RolService(BaseService):
                     internal_code="ROLE_DEACTIVATION_FAILED"
                 )
 
-            # 🔄 CONVERTIR TIPOS DE DATOS
-            if 'es_activo' in result and isinstance(result['es_activo'], int):
-                result['es_activo'] = bool(result['es_activo'])
+            # 🔄 NORMALIZAR DATOS
+            result_normalizado = RolService._normalizar_rol_dict(result)
                 
             logger.info(f"Rol ID {rol_id} desactivado exitosamente")
-            return result
+            return result_normalizado
 
         except (ValidationError, NotFoundError):
             raise
@@ -667,12 +732,11 @@ class RolService(BaseService):
                     internal_code="ROLE_REACTIVATION_FAILED"
                 )
 
-            # 🔄 CONVERTIR TIPOS DE DATOS
-            if 'es_activo' in result and isinstance(result['es_activo'], int):
-                result['es_activo'] = bool(result['es_activo'])
+            # 🔄 NORMALIZAR DATOS
+            result_normalizado = RolService._normalizar_rol_dict(result)
                 
             logger.info(f"Rol ID {rol_id} reactivado exitosamente")
-            return result
+            return result_normalizado
 
         except (ValidationError, NotFoundError):
             raise
@@ -722,9 +786,9 @@ class RolService(BaseService):
             
             roles_procesados = []
             for rol_dict in resultados:
-                if 'es_activo' in rol_dict and isinstance(rol_dict['es_activo'], int):
-                    rol_dict['es_activo'] = bool(rol_dict['es_activo'])
-                roles_procesados.append(rol_dict)
+                # ✅ Usar función helper para normalizar
+                rol_normalizado = RolService._normalizar_rol_dict(rol_dict)
+                roles_procesados.append(rol_normalizado)
 
             logger.info(f"Se encontraron {len(roles_procesados)} roles activos para cliente {cliente_id}")
             return roles_procesados

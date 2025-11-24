@@ -338,10 +338,10 @@ class MenuItem(BaseModel):
         description="Lista de menús hijos (estructura jerárquica)"
     )
 
-    cliente_id: int = Field(
-        ...,
-        description="ID del cliente al que pertenece el menú",
-        examples=[1, 5, 10]
+    cliente_id: Optional[int] = Field(
+        None,
+        description="ID del cliente al que pertenece el menú (NULL para menús del sistema)",
+        examples=[1, 5, 10, None]
     )
 
     class Config:

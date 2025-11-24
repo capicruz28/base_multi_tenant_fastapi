@@ -24,7 +24,7 @@ from app.core.exceptions import (
     DatabaseError
 )
 from app.services.base_service import BaseService
-from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse
+from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse, BrandingRead
 from app.db.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,8 @@ class ClienteService(BaseService):
             'favicon_url', 'color_primario', 'color_secundario', 'tema_personalizado',
             'plan_suscripcion', 'estado_suscripcion', 'fecha_inicio_suscripcion',
             'fecha_fin_trial', 'contacto_nombre', 'contacto_email', 'contacto_telefono',
-            'es_activo', 'es_demo'
+            'es_activo', 'es_demo', 'metadata_json',
+            'api_key_sincronizacion', 'sincronizacion_habilitada', 'ultima_sincronizacion'
         ]
         params = [getattr(cliente_data, field) for field in fields]
 
@@ -136,6 +137,10 @@ class ClienteService(BaseService):
             INSERTED.contacto_telefono,
             INSERTED.es_activo,
             INSERTED.es_demo,
+            INSERTED.metadata_json,
+            INSERTED.api_key_sincronizacion,
+            INSERTED.sincronizacion_habilitada,
+            INSERTED.ultima_sincronizacion,
             INSERTED.fecha_creacion,
             INSERTED.fecha_actualizacion,
             INSERTED.fecha_ultimo_acceso
@@ -166,7 +171,9 @@ class ClienteService(BaseService):
             favicon_url, color_primario, color_secundario, tema_personalizado,
             plan_suscripcion, estado_suscripcion, fecha_inicio_suscripcion,
             fecha_fin_trial, contacto_nombre, contacto_email, contacto_telefono,
-            es_activo, es_demo, fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
+            es_activo, es_demo, metadata_json,
+            api_key_sincronizacion, sincronizacion_habilitada, ultima_sincronizacion,
+            fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
         FROM cliente
         WHERE cliente_id = ?
         """
@@ -221,6 +228,10 @@ class ClienteService(BaseService):
             INSERTED.contacto_telefono,
             INSERTED.es_activo,
             INSERTED.es_demo,
+            INSERTED.metadata_json,
+            INSERTED.api_key_sincronizacion,
+            INSERTED.sincronizacion_habilitada,
+            INSERTED.ultima_sincronizacion,
             INSERTED.fecha_creacion,
             INSERTED.fecha_actualizacion,
             INSERTED.fecha_ultimo_acceso
@@ -282,6 +293,10 @@ class ClienteService(BaseService):
             INSERTED.contacto_telefono,
             INSERTED.es_activo,
             INSERTED.es_demo,
+            INSERTED.metadata_json,
+            INSERTED.api_key_sincronizacion,
+            INSERTED.sincronizacion_habilitada,
+            INSERTED.ultima_sincronizacion,
             INSERTED.fecha_creacion,
             INSERTED.fecha_actualizacion,
             INSERTED.fecha_ultimo_acceso
@@ -353,7 +368,8 @@ class ClienteService(BaseService):
             'favicon_url', 'color_primario', 'color_secundario', 'tema_personalizado',
             'plan_suscripcion', 'estado_suscripcion', 'fecha_inicio_suscripcion',
             'fecha_fin_trial', 'contacto_nombre', 'contacto_email', 'contacto_telefono',
-            'es_activo', 'es_demo', 'metadata_json'
+            'es_activo', 'es_demo', 'metadata_json',
+            'api_key_sincronizacion', 'sincronizacion_habilitada', 'ultima_sincronizacion'
         ]
         
         set_clauses = []
@@ -402,6 +418,10 @@ class ClienteService(BaseService):
             INSERTED.contacto_telefono,
             INSERTED.es_activo,
             INSERTED.es_demo,
+            INSERTED.metadata_json,
+            INSERTED.api_key_sincronizacion,
+            INSERTED.sincronizacion_habilitada,
+            INSERTED.ultima_sincronizacion,
             INSERTED.fecha_creacion,
             INSERTED.fecha_actualizacion,
             INSERTED.fecha_ultimo_acceso
@@ -511,7 +531,9 @@ class ClienteService(BaseService):
             favicon_url, color_primario, color_secundario, tema_personalizado,
             plan_suscripcion, estado_suscripcion, fecha_inicio_suscripcion,
             fecha_fin_trial, contacto_nombre, contacto_email, contacto_telefono,
-            es_activo, es_demo, fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
+            es_activo, es_demo, metadata_json,
+            api_key_sincronizacion, sincronizacion_habilitada, ultima_sincronizacion,
+            fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
         FROM cliente
         {where_clause}
         ORDER BY razon_social
@@ -597,3 +619,77 @@ class ClienteService(BaseService):
         
         logger.info(f"Estadísticas obtenidas para cliente {cliente_id}")
         return stats
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def get_branding_by_cliente(cliente_id: int) -> BrandingRead:
+        """
+        Obtiene la configuración de branding de un cliente.
+        
+        Optimizado para solo leer los campos de branding sin cargar
+        relaciones innecesarias. Este método es utilizado por el endpoint
+        de branding del tenant actual.
+        
+        Args:
+            cliente_id: ID del cliente (del tenant context)
+            
+        Returns:
+            BrandingRead con la configuración de branding
+            
+        Raises:
+            NotFoundError: Si el cliente no existe o está inactivo
+            ServiceError: Si hay error en la consulta
+        """
+        logger.info(f"Solicitando branding para cliente_id={cliente_id}")
+        
+        # Query optimizada: solo campos de branding
+        query = """
+        SELECT 
+            logo_url,
+            favicon_url,
+            color_primario,
+            color_secundario,
+            tema_personalizado,
+            es_activo
+        FROM cliente
+        WHERE cliente_id = ?
+        """
+        
+        resultado = execute_query(query, (cliente_id,))
+        
+        if not resultado or len(resultado) == 0:
+            raise NotFoundError(
+                detail=f"Cliente con ID {cliente_id} no encontrado.",
+                internal_code="CLIENT_NOT_FOUND"
+            )
+        
+        row = resultado[0]
+        
+        # Validar que el cliente esté activo
+        if not row.get('es_activo', False):
+            raise NotFoundError(
+                detail=f"Cliente con ID {cliente_id} está inactivo.",
+                internal_code="CLIENT_INACTIVE"
+            )
+        
+        # Parsear tema_personalizado de JSON string a dict
+        tema_personalizado = None
+        if row.get('tema_personalizado'):
+            try:
+                import json
+                tema_personalizado = json.loads(row['tema_personalizado'])
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Error parseando tema_personalizado para cliente {cliente_id}: {e}")
+                tema_personalizado = None
+        
+        # Construir respuesta
+        branding = BrandingRead(
+            logo_url=row.get('logo_url'),
+            favicon_url=row.get('favicon_url'),
+            color_primario=row.get('color_primario', '#1976D2'),
+            color_secundario=row.get('color_secundario', '#424242'),
+            tema_personalizado=tema_personalizado
+        )
+        
+        logger.info(f"Branding obtenido exitosamente para cliente_id={cliente_id}")
+        return branding

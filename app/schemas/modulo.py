@@ -136,7 +136,7 @@ class ModuloRead(ModuloBase):
     Incluye los campos de identificación y auditoría generados por el sistema.
     """
     modulo_id: int = Field(..., description="Identificador único del módulo.")
-    fecha_creacion: Optional[datetime] = Field(None, description="Fecha de creación del registro.")
+    fecha_creacion: datetime = Field(..., description="Fecha de creación del registro.")
 
     class Config:
         from_attributes = True
@@ -150,7 +150,8 @@ class ModuloConInfoActivacion(ModuloRead):
     activo_en_cliente: bool = Field(..., description="Indica si el módulo está activo para el cliente.")
     cliente_modulo_activo_id: Optional[int] = Field(None, description="ID del registro de activación.")
     fecha_activacion: Optional[datetime] = Field(None, description="Fecha de activación para el cliente.")
-    configuracion_json: Optional[str] = Field(None, description="Configuración específica para el cliente.")
+    fecha_vencimiento: Optional[datetime] = Field(None, description="Fecha de vencimiento de la licencia (NULL = ilimitado).")
+    configuracion_json: Optional[str] = Field(None, description="Configuración específica para el cliente (JSON string).")
     limite_usuarios: Optional[int] = Field(None, description="Límite de usuarios para este módulo.")
     limite_registros: Optional[int] = Field(None, description="Límite de registros para este módulo.")
 
@@ -199,6 +200,19 @@ class ModuloListResponse(BaseModel):
     success: bool = Field(True, description="Indica si la operación fue exitosa.")
     message: str = Field(..., description="Mensaje descriptivo de la operación.")
     data: List[ModuloRead] = Field(default_factory=list, description="Lista de módulos.")
+
+    class Config:
+        from_attributes = True
+
+
+class ModuloConInfoActivacionListResponse(BaseModel):
+    """
+    Respuesta estándar para listas de módulos con información de activación.
+    Usado en endpoints que muestran módulos con su estado de activación por cliente.
+    """
+    success: bool = Field(True, description="Indica si la operación fue exitosa.")
+    message: str = Field(..., description="Mensaje descriptivo de la operación.")
+    data: List[ModuloConInfoActivacion] = Field(default_factory=list, description="Lista de módulos con información de activación.")
 
     class Config:
         from_attributes = True

@@ -12,7 +12,7 @@ Características clave:
 - Soporte para módulos core y módulos opcionales con licencia
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 import logging
 from app.db.queries import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
@@ -25,6 +25,9 @@ from app.core.exceptions import (
 from app.services.base_service import BaseService
 from app.schemas.modulo import ModuloCreate, ModuloUpdate, ModuloRead
 from app.db.connection import DatabaseConnection
+
+if TYPE_CHECKING:
+    from app.schemas.modulo import ModuloConInfoActivacion
 
 logger = logging.getLogger(__name__)
 
@@ -236,10 +239,13 @@ class ModuloService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_modulos_por_cliente(cliente_id: int) -> List[Dict[str, Any]]:
+    async def obtener_modulos_por_cliente(cliente_id: int) -> List['ModuloConInfoActivacion']:
         """
         Obtiene todos los módulos con información de activación para un cliente específico.
+        Retorna objetos ModuloConInfoActivacion con toda la información de activación.
         """
+        from app.schemas.modulo import ModuloConInfoActivacion  # Import local para evitar circular
+        
         logger.info(f"Obteniendo módulos para cliente ID: {cliente_id}")
 
         query = """
@@ -268,7 +274,21 @@ class ModuloService(BaseService):
         """
         
         resultados = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
-        return resultados
+        
+        # Mapear resultados a ModuloConInfoActivacion
+        modulos = []
+        for row in resultados:
+            # Mapear modulo_activo a es_activo
+            modulo_data = dict(row)
+            modulo_data['es_activo'] = modulo_data.pop('modulo_activo', True)
+            
+            # Convertir activo_en_cliente de int (0/1) a bool
+            if 'activo_en_cliente' in modulo_data:
+                modulo_data['activo_en_cliente'] = bool(modulo_data['activo_en_cliente'])
+            
+            modulos.append(ModuloConInfoActivacion(**modulo_data))
+        
+        return modulos
 
     @staticmethod
     @BaseService.handle_service_errors

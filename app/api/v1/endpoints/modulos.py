@@ -21,7 +21,8 @@ import math
 
 from app.schemas.modulo import (
     ModuloRead, ModuloCreate, ModuloUpdate, ModuloConInfoActivacion,
-    ModuloResponse, ModuloListResponse, PaginatedModuloResponse, ModuloDeleteResponse
+    ModuloResponse, ModuloListResponse, ModuloConInfoActivacionListResponse,
+    PaginatedModuloResponse, ModuloDeleteResponse
 )
 from app.schemas.modulo_activo import ModuloActivoRead, ModuloActivoCreate, ModuloActivoUpdate
 from app.schemas.conexion import ConexionCreate, ConexionRead
@@ -357,10 +358,12 @@ async def eliminar_modulo(
 
 @router.get(
     "/clientes/{cliente_id}/modulos/",
-    response_model=ModuloListResponse,
+    response_model=ModuloConInfoActivacionListResponse,
     summary="Listar módulos de un cliente",
     description="""
     Obtiene todos los módulos con información de activación para un cliente específico.
+    Incluye información completa de activación: fecha_activacion, fecha_vencimiento,
+    configuracion_json, limite_usuarios, limite_registros, etc.
     
     **Permisos requeridos:**
     - Cualquier usuario autenticado
@@ -369,7 +372,7 @@ async def eliminar_modulo(
     - cliente_id: ID del cliente
     
     **Respuestas:**
-    - 200: Lista de módulos con información de activación
+    - 200: Lista de módulos con información de activación completa
     - 500: Error interno del servidor
     """
 )

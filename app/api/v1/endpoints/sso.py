@@ -13,6 +13,8 @@ Características principales:
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from typing import List, Dict, Any
+from datetime import datetime
+from pydantic import BaseModel
 import logging
 
 # Schemas para SSO (asumimos que existen o se crearán)

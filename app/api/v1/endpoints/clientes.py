@@ -17,7 +17,8 @@ import logging
 
 from app.schemas.cliente import (
     ClienteCreate, ClienteUpdate, ClienteRead, 
-    PaginatedClienteResponse, ClienteStatsResponse, ClienteResponse, ClienteDeleteResponse
+    PaginatedClienteResponse, ClienteStatsResponse, ClienteResponse, ClienteDeleteResponse,
+    BrandingRead
 )
 from app.services.cliente_service import ClienteService
 from app.core.level_authorization import require_super_admin
@@ -469,3 +470,60 @@ async def debug_access_levels(current_user = Depends(get_current_active_user)):
         # CORREGIDO: Usar solo campos que existen en RolRead
         "roles_asignados": [{"nombre": r.nombre, "rol_id": r.rol_id} for r in current_user.roles]
     }
+
+
+@router.get(
+    "/tenant/branding",
+    response_model=BrandingRead,
+    summary="Obtener configuración de branding del tenant actual",
+    description="""
+    Obtiene la configuración de branding del cliente (tenant) actual.
+    
+    **Características:**
+    - Usa el cliente_id del contexto de tenant (middleware)
+    - No requiere autenticación de super admin
+    - Solo retorna campos de branding (ligero y optimizado)
+    - Parsea tema_personalizado de JSON a objeto
+    
+    **Permisos requeridos:**
+    - Usuario autenticado (cualquier nivel)
+    
+    **Respuestas:**
+    - 200: Branding obtenido exitosamente
+    - 400: No se pudo determinar el tenant actual
+    - 404: Cliente no encontrado o inactivo
+    - 500: Error interno del servidor
+    """
+)
+async def obtener_branding_tenant(
+    current_user = Depends(get_current_active_user)
+):
+    """
+    Obtiene la configuración de branding del tenant actual.
+    """
+    try:
+        from app.core.tenant_context import get_current_client_id
+        
+        # Obtener cliente_id del contexto de tenant (middleware)
+        cliente_id = get_current_client_id()
+        
+        logger.info(f"Solicitud GET /tenant/branding recibida para cliente_id={cliente_id} por usuario: {current_user.nombre_usuario}")
+        
+        branding = await ClienteService.get_branding_by_cliente(cliente_id)
+        
+        return branding
+        
+    except RuntimeError as e:
+        logger.error(f"Error obteniendo contexto de tenant: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pudo determinar el tenant actual. Verifique que el request incluya el subdominio correcto."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error inesperado en obtener_branding_tenant: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor al obtener el branding."
+        )
