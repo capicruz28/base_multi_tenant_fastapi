@@ -655,7 +655,9 @@ class ClienteService(BaseService):
         WHERE cliente_id = ?
         """
         
-        resultado = execute_query(query, (cliente_id,))
+        # ✅ IMPORTANTE: La tabla 'cliente' está en la BD del sistema (ADMIN), no en la BD del tenant
+        # Por eso usamos DatabaseConnection.ADMIN para acceder a ella
+        resultado = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
         
         if not resultado or len(resultado) == 0:
             raise NotFoundError(
