@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.exceptions import DatabaseError, AuthenticationError, CustomException 
 from app.services.base_service import BaseService
 from app.core.tenant_context import get_current_client_id
+from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +144,29 @@ class RefreshTokenService(BaseService):
                         f"[SECURITY ALERT - TOKEN REUSE] Colisión de Refresh Token durante LOGIN para "
                         f"cliente {cliente_id}, usuario {usuario_id}. Revocando todas las sesiones."
                     )
-                    
+
+                    # Registrar posible reuso malicioso de token en auditoría
+                    try:
+                        await AuditService.registrar_auth_event(
+                            cliente_id=cliente_id,
+                            usuario_id=usuario_id,
+                            evento="token_reuse_detected",
+                            nombre_usuario_intento=None,
+                            descripcion="Posible reuso malicioso de refresh token detectado durante login",
+                            exito=False,
+                            codigo_error="REFRESH_TOKEN_REUSE_DETECTED",
+                            ip_address=None,
+                            user_agent=None,
+                            metadata={"context": "login"},
+                        )
+                    except Exception:
+                        logger.exception(
+                            "[AUDIT] Error registrando evento token_reuse_detected (no crítico)"
+                        )
+
                     # Revocar todas las sesiones como medida de seguridad
                     await RefreshTokenService.revoke_all_user_tokens(cliente_id, usuario_id)
-                    
+
                     raise AuthenticationError(
                         detail="Error de seguridad: Posible reuso de token detectado. Todas las sesiones han sido cerradas.",
                         internal_code="REFRESH_TOKEN_REUSE_DETECTED"

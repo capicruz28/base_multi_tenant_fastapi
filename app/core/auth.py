@@ -14,6 +14,7 @@ from app.db.queries import execute_auth_query
 from app.schemas.auth import TokenPayload
 # ✅ IMPORTACIÓN NECESARIA: Para acceder a la lógica de revocación de BD
 from app.services.refresh_token_service import RefreshTokenService
+from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
@@ -460,10 +461,32 @@ async def get_current_user_from_refresh(
         # 2. ✅ CRÍTICO: VALIDACIÓN DE ESTADO EN BASE DE DATOS
         # Verifica si el token existe, no está revocado y no ha expirado
         db_token_data = await RefreshTokenService.validate_refresh_token(refresh_token)
-        
+
         if not db_token_data:
             # Si el servicio retorna None, significa que está revocado, expirado, o no existe
-            logger.warning(f"[REFRESH] Token JWT válido, pero inactivo/revocado en BD. Usuario: {payload.get('sub')}")
+            username = payload.get("sub")
+            logger.warning(
+                f"[REFRESH] Token JWT válido, pero inactivo/revocado en BD. Usuario: {username}"
+            )
+            # Registrar evento de token inválido/expirado en auditoría
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=payload.get("cliente_id"),
+                    usuario_id=None,
+                    evento="token_invalid_or_revoked",
+                    nombre_usuario_intento=username,
+                    descripcion="Refresh token inválido, expirado o revocado en base de datos",
+                    exito=False,
+                    codigo_error="REFRESH_TOKEN_INVALID_DB",
+                    ip_address=request.client.host if request.client else None,
+                    user_agent=request.headers.get("user-agent"),
+                    metadata={"client_type": client_type},
+                )
+            except Exception:
+                logger.exception(
+                    "[AUDIT] Error registrando evento token_invalid_or_revoked (no crítico)"
+                )
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Sesión expirada o cerrada remotamente. Por favor, vuelva a iniciar sesión."

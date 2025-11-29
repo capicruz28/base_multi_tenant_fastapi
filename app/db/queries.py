@@ -1,7 +1,8 @@
 # app/db/queries.py
-from typing import List, Dict, Any, Callable
+from typing import List, Dict, Any, Callable, Optional
 from app.db.connection import get_db_connection, DatabaseConnection
 from app.core.exceptions import DatabaseError
+from app.core.multi_db import get_db_connection_for_client
 import pyodbc
 import logging
 
@@ -11,15 +12,33 @@ logger = logging.getLogger(__name__)
 # FUNCIONES DE EJECUCIÓN (CORE)
 # ============================================
 
-def execute_query(query: str, params: tuple = (), connection_type: DatabaseConnection = DatabaseConnection.DEFAULT) -> List[Dict[str, Any]]:
-    with get_db_connection(connection_type) as conn:
+def execute_query(query: str, params: tuple = (), connection_type: DatabaseConnection = DatabaseConnection.DEFAULT, client_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    Ejecuta una consulta SQL.
+    
+    Args:
+        query: Consulta SQL a ejecutar
+        params: Parámetros de la consulta
+        connection_type: Tipo de conexión (DEFAULT o ADMIN)
+        client_id: ID del cliente específico (opcional). Si se proporciona, usa la conexión de ese cliente
+                   en lugar del contexto actual. Útil para Superadmin consultando diferentes clientes.
+    
+    Returns:
+        Lista de diccionarios con los resultados
+    """
+    # Si se proporciona client_id, usar conexión específica de ese cliente
+    if client_id is not None:
+        conn = None
+        cursor = None
         try:
+            conn = get_db_connection_for_client(client_id)
             cursor = conn.cursor()
             cursor.execute(query, params)
             columns = [column[0] for column in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return results
         except Exception as e:
-            logger.error(f"Error en execute_query: {str(e)}")
+            logger.error(f"Error en execute_query para cliente {client_id}: {str(e)}")
             raise DatabaseError(
                 detail=f"Error en la consulta: {str(e)}",
                 internal_code="DB_QUERY_ERROR"
@@ -27,6 +46,25 @@ def execute_query(query: str, params: tuple = (), connection_type: DatabaseConne
         finally:
             if cursor:
                 cursor.close()
+            if conn:
+                conn.close()
+    else:
+        # Comportamiento normal: usar conexión del contexto actual
+        with get_db_connection(connection_type) as conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                columns = [column[0] for column in cursor.description]
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            except Exception as e:
+                logger.error(f"Error en execute_query: {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la consulta: {str(e)}",
+                    internal_code="DB_QUERY_ERROR"
+                )
+            finally:
+                if cursor:
+                    cursor.close()
 
 def execute_auth_query(query: str, params: tuple = ()) -> Dict[str, Any]:
     """
@@ -59,7 +97,11 @@ def execute_auth_query(query: str, params: tuple = ()) -> Dict[str, Any]:
             if cursor:
                 cursor.close()
 
-def execute_insert(query: str, params: tuple = (), connection_type: DatabaseConnection = DatabaseConnection.DEFAULT) -> Dict[str, Any]:
+def execute_insert(
+    query: str,
+    params: tuple = (),
+    connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
+) -> Dict[str, Any]:
     """
     Ejecuta una sentencia INSERT y retorna:
       - Los datos retornados por OUTPUT si existen
@@ -821,6 +863,50 @@ UPDATE refresh_tokens
 SET is_revoked = 1, revoked_at = GETDATE()
 OUTPUT INSERTED.token_id, INSERTED.is_revoked, INSERTED.usuario_id, INSERTED.cliente_id
 WHERE token_id = ? AND cliente_id = ? AND is_revoked = 0;
+"""
+
+# ============================================
+# QUERIES PARA AUDITORÍA (auth_audit_log, log_sincronizacion_usuario)
+# ============================================
+
+INSERT_AUTH_AUDIT_LOG = """
+INSERT INTO auth_audit_log (
+    cliente_id,
+    usuario_id,
+    evento,
+    nombre_usuario_intento,
+    descripcion,
+    exito,
+    codigo_error,
+    ip_address,
+    user_agent,
+    device_info,
+    geolocation,
+    metadata_json
+)
+OUTPUT INSERTED.log_id, INSERTED.fecha_evento
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+"""
+
+INSERT_LOG_SINCRONIZACION_USUARIO = """
+INSERT INTO log_sincronizacion_usuario (
+    cliente_origen_id,
+    cliente_destino_id,
+    usuario_id,
+    tipo_sincronizacion,
+    direccion,
+    operacion,
+    estado,
+    mensaje_error,
+    campos_sincronizados,
+    cambios_detectados,
+    hash_antes,
+    hash_despues,
+    usuario_ejecutor_id,
+    duracion_ms
+)
+OUTPUT INSERTED.log_id, INSERTED.fecha_sincronizacion
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 # ============================================

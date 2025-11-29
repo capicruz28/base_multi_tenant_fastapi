@@ -14,7 +14,8 @@ Características principales:
 from fastapi import APIRouter
 from app.api.v1.endpoints import (
     usuarios, auth, menus, roles, permisos, areas, autorizacion,
-    clientes, modulos, conexiones, auth_config
+    clientes, modulos, conexiones, auth_config,
+    superadmin_usuarios, superadmin_auditoria
 )
 
 api_router = APIRouter()
@@ -98,4 +99,19 @@ api_router.include_router(
     autorizacion.router,
     prefix="/autorizacion",
     tags=["Autorización de Procesos"]
+)
+
+# ========================================
+# ENDPOINTS DE SUPERADMIN (GESTIÓN GLOBAL)
+# ========================================
+api_router.include_router(
+    superadmin_usuarios.router,
+    prefix="/superadmin/usuarios",
+    tags=["Usuarios (Super Admin)"]
+)
+
+api_router.include_router(
+    superadmin_auditoria.router,
+    prefix="/superadmin/auditoria",
+    tags=["Auditoría (Super Admin)"]
 )

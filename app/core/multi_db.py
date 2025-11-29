@@ -397,6 +397,60 @@ def get_client_db_connection_string(client_id: int) -> str:
         return _build_single_db_connection_string()
 
 
+def get_db_connection_for_client(client_id: int) -> pyodbc.Connection:
+    """
+    Obtiene la conexión pyodbc para un cliente específico (sin usar contexto).
+    
+    IMPORTANTE: Esta función NO usa el contexto del tenant actual.
+    Útil para Superadmin que necesita consultar datos de diferentes clientes.
+    
+    Args:
+        client_id: ID del cliente para el cual obtener la conexión
+    
+    Returns:
+        pyodbc.Connection configurada para el cliente especificado
+    
+    Raises:
+        DatabaseError: Si falla la conexión a la BD
+    
+    Ejemplo:
+        >>> conn = get_db_connection_for_client(2)  # Cliente específico
+        >>> cursor = conn.cursor()
+        >>> cursor.execute("SELECT * FROM usuario WHERE cliente_id = ?", (2,))
+    """
+    # Obtener connection string apropiado para el cliente especificado
+    conn_str = get_client_db_connection_string(client_id)
+    
+    try:
+        # Conectar
+        conn = pyodbc.connect(conn_str, timeout=30)
+        
+        logger.debug(f"[TENANT_CONN] Conexión establecida para cliente {client_id} (sin contexto)")
+        
+        return conn
+        
+    except pyodbc.Error as db_err:
+        logger.critical(
+            f"[TENANT_CONN] Error CRÍTICO de conexión para cliente {client_id}: {db_err}",
+            exc_info=True
+        )
+        raise DatabaseError(
+            status_code=500,
+            detail=f"Error al conectar a la base de datos del cliente {client_id}",
+            internal_code="DB_CONNECTION_ERROR"
+        )
+    except Exception as e:
+        logger.critical(
+            f"[TENANT_CONN] Error inesperado al conectar para cliente {client_id}: {e}",
+            exc_info=True
+        )
+        raise DatabaseError(
+            status_code=500,
+            detail="Error inesperado al conectar a la base de datos",
+            internal_code="DB_CONNECTION_UNEXPECTED_ERROR"
+        )
+
+
 def get_db_connection_for_current_tenant() -> pyodbc.Connection:
     """
     Obtiene la conexión pyodbc para el cliente actual en el contexto.
@@ -427,37 +481,8 @@ def get_db_connection_for_current_tenant() -> pyodbc.Connection:
         )
         client_id = SYSTEM_CLIENT_ID
     
-    # Obtener connection string apropiado
-    conn_str = get_client_db_connection_string(client_id)
-    
-    try:
-        # Conectar
-        conn = pyodbc.connect(conn_str, timeout=30)
-        
-        logger.debug(f"[TENANT_CONN] Conexión establecida para cliente {client_id}")
-        
-        return conn
-        
-    except pyodbc.Error as db_err:
-        logger.critical(
-            f"[TENANT_CONN] Error CRÍTICO de conexión para cliente {client_id}: {db_err}",
-            exc_info=True
-        )
-        raise DatabaseError(
-            status_code=500,
-            detail=f"Error al conectar a la base de datos del cliente {client_id}",
-            internal_code="DB_CONNECTION_ERROR"
-        )
-    except Exception as e:
-        logger.critical(
-            f"[TENANT_CONN] Error inesperado al conectar para cliente {client_id}: {e}",
-            exc_info=True
-        )
-        raise DatabaseError(
-            status_code=500,
-            detail="Error inesperado al conectar a la base de datos",
-            internal_code="DB_CONNECTION_UNEXPECTED_ERROR"
-        )
+    # Usar la función genérica con el client_id del contexto
+    return get_db_connection_for_client(client_id)
 
 
 # ============================================

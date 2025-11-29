@@ -36,6 +36,7 @@ from app.core.logging_config import get_logger
 from app.services.usuario_service import UsuarioService
 from app.services.refresh_token_service import RefreshTokenService
 from app.services.cliente_service import ClienteService
+from app.services.audit_service import AuditService
 from app.api.deps import RoleChecker
 from app.core.exceptions import AuthenticationError
 from app.db.connection import DatabaseConnection, get_db_connection
@@ -133,9 +134,40 @@ async def login(
 
         # 3. ✅ NUEVO: Detectar tipo de cliente
         client_type = get_client_type(request)
-        
+
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+
         # 4. Autenticación (maneja 401 si falla)
-        user_base_data = await authenticate_user(cliente_id, form_data.username, form_data.password)
+        try:
+            user_base_data = await authenticate_user(
+                cliente_id, form_data.username, form_data.password
+            )
+        except HTTPException as auth_exc:
+            # Registrar intento fallido de login en auditoría (no debe romper el flujo)
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=cliente_id,
+                    usuario_id=None,
+                    evento="login_failed",
+                    nombre_usuario_intento=form_data.username,
+                    descripcion="Intento de login fallido",
+                    exito=False,
+                    codigo_error=str(auth_exc.detail),
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "client_type": client_type,
+                        "auth_method": "password",
+                        "status_code": auth_exc.status_code,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "[AUDIT] Error registrando evento login_failed (no crítico)"
+                )
+            # Propagar el error original
+            raise auth_exc
 
         # 5. ✅ CORRECCIÓN: Manejar contexto multi-tenant para superadmin
         user_id = user_base_data.get('usuario_id')
@@ -167,9 +199,6 @@ async def login(
 
         # ✅ CORRECCIÓN: Almacenar en el cliente destino
         try:
-            ip_address = request.client.host if request.client else None
-            user_agent = request.headers.get("user-agent")
-            
             stored = await RefreshTokenService.store_refresh_token(
                 cliente_id=target_cliente_id,
                 usuario_id=user_id,
@@ -212,6 +241,29 @@ async def login(
         else:  # mobile
             response_data["refresh_token"] = refresh_token
             logger.info(f"Usuario {form_data.username} autenticado exitosamente (MOBILE) para cliente {cliente_id}")
+
+        # Registrar login exitoso en auditoría (no bloquear login si falla)
+        try:
+            await AuditService.registrar_auth_event(
+                cliente_id=target_cliente_id,
+                usuario_id=user_id,
+                evento="login_success",
+                nombre_usuario_intento=form_data.username,
+                descripcion="Login exitoso",
+                exito=True,
+                codigo_error=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata={
+                    "client_type": client_type,
+                    "es_superadmin": es_superadmin,
+                    "auth_method": "password",
+                },
+            )
+        except Exception:
+            logger.exception(
+                "[AUDIT] Error registrando evento login_success (no crítico)"
+            )
 
         return response_data
 
@@ -362,7 +414,7 @@ async def refresh_access_token(
         try:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
-            
+
             stored = await RefreshTokenService.store_refresh_token(
                 cliente_id=current_user.get("cliente_id"),
                 usuario_id=current_user.get("usuario_id"),
@@ -433,6 +485,27 @@ async def refresh_access_token(
             response_data["refresh_token"] = new_refresh_token
             logger.info(f"[REFRESH-MOBILE] Token refrescado exitosamente - Usuario: {username}")
         
+        # Registrar refresh exitoso en auditoría (no bloquear flujo si falla)
+        try:
+            await AuditService.registrar_auth_event(
+                cliente_id=current_user.get("cliente_id"),
+                usuario_id=current_user.get("usuario_id"),
+                evento="token_refresh",
+                nombre_usuario_intento=username,
+                descripcion="Refresh de token exitoso",
+                exito=True,
+                codigo_error=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata={
+                    "client_type": client_type,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "[AUDIT] Error registrando evento token_refresh (no crítico)"
+            )
+
         return response_data
         
     except HTTPException:
@@ -521,27 +594,105 @@ async def logout(
                 pass
         
         # ✅ REFACTORIZADO: Revocar token en BD con cliente_id y usuario_id
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        
         if refresh_token:
-            revoked = await RefreshTokenService.revoke_token(
-                cliente_id=cliente_id,
-                usuario_id=usuario_id,
-                token=refresh_token
-            )
-            if revoked:
-                logger.info(
-                    f"[LOGOUT-{client_type.upper()}] Token revocado exitosamente - "
-                    f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+            try:
+                revoked = await RefreshTokenService.revoke_token(
+                    cliente_id=cliente_id,
+                    usuario_id=usuario_id,
+                    token=refresh_token
                 )
-            else:
-                logger.warning(
-                    f"[LOGOUT-{client_type.upper()}] Token no encontrado en BD - "
-                    f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+                if revoked:
+                    logger.info(
+                        f"[LOGOUT-{client_type.upper()}] Token revocado exitosamente - "
+                        f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+                    )
+                else:
+                    # Token no encontrado (ya expirado/revocado) - NO es error, sesión ya cerrada
+                    logger.info(
+                        f"[LOGOUT-{client_type.upper()}] Token no encontrado en BD (ya expirado/revocado) - "
+                        f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
+                    )
+                
+                # Registrar logout como EXITO siempre (token encontrado o no, la sesión está cerrada)
+                # Solo será error si hay una excepción real al revocar (capturada abajo)
+                try:
+                    await AuditService.registrar_auth_event(
+                        cliente_id=cliente_id,
+                        usuario_id=usuario_id,
+                        evento="logout",
+                        nombre_usuario_intento=username,
+                        descripcion="Logout de sesión",
+                        exito=True,  # ✅ SIEMPRE éxito: token revocado o ya no existe
+                        codigo_error=None,  # ✅ NUNCA error para token no encontrado
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        metadata={
+                            "client_type": client_type,
+                            "token_revoked": revoked,  # Info adicional: si se revocó o ya no existía
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "[AUDIT] Error registrando evento logout (no crítico)"
+                    )
+            except Exception as revoke_error:
+                # ✅ SOLO AQUÍ es un error real: excepción al intentar revocar
+                logger.error(
+                    f"[LOGOUT-{client_type.upper()}] Error al revocar token - "
+                    f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username}): {str(revoke_error)}"
                 )
+                # Registrar como error solo si hay excepción real
+                try:
+                    await AuditService.registrar_auth_event(
+                        cliente_id=cliente_id,
+                        usuario_id=usuario_id,
+                        evento="logout",
+                        nombre_usuario_intento=username,
+                        descripcion="Error al revocar token durante logout",
+                        exito=False,
+                        codigo_error=f"REVOKE_ERROR: {str(revoke_error)[:100]}",  # Limitar longitud
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        metadata={
+                            "client_type": client_type,
+                            "error_type": type(revoke_error).__name__,
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "[AUDIT] Error registrando evento logout con error (no crítico)"
+                    )
+                # No propagar el error, el logout sigue siendo exitoso desde el punto de vista del usuario
         else:
-            logger.warning(
-                f"[LOGOUT-{client_type.upper()}] No se proporcionó refresh token - "
+            # No se proporcionó refresh token (None) - NO es error, logout válido
+            logger.info(
+                f"[LOGOUT-{client_type.upper()}] Logout sin refresh token proporcionado - "
                 f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
             )
+            # Registrar logout exitoso sin token
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=cliente_id,
+                    usuario_id=usuario_id,
+                    evento="logout",
+                    nombre_usuario_intento=username,
+                    descripcion="Logout de sesión (sin refresh token)",
+                    exito=True,  # ✅ Éxito: logout válido sin token
+                    codigo_error=None,  # ✅ NO es error
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "client_type": client_type,
+                        "no_token_provided": True,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "[AUDIT] Error registrando evento logout sin token (no crítico)"
+                )
         
         return {"message": f"Sesión cerrada exitosamente ({client_type})"}
     
@@ -633,9 +784,32 @@ async def logout_all_sessions(current_user: dict = Depends(get_current_user)):
     username = current_user.get('nombre_usuario')
     logger.info(f"Solicitud /logout_all/ recibida para usuario: {username}")
     try:
-        rows_affected = await RefreshTokenService.revoke_all_user_tokens(cliente_id=cliente_id, usuario_id=user_id)
-        
-        return {"message": f"Se han cerrado {rows_affected} sesiones activas para el usuario {username}."}
+        rows_affected = await RefreshTokenService.revoke_all_user_tokens(
+            cliente_id=cliente_id, usuario_id=user_id
+        )
+
+        # Registrar logout global en auditoría
+        try:
+            await AuditService.registrar_auth_event(
+                cliente_id=cliente_id,
+                usuario_id=user_id,
+                evento="logout_forced",
+                nombre_usuario_intento=username,
+                descripcion="Logout global de todas las sesiones del usuario",
+                exito=True,
+                codigo_error=None,
+                ip_address=None,
+                user_agent=None,
+                metadata={"revoked_sessions": rows_affected},
+            )
+        except Exception:
+            logger.exception(
+                "[AUDIT] Error registrando evento logout_forced (no crítico)"
+            )
+
+        return {
+            "message": f"Se han cerrado {rows_affected} sesiones activas para el usuario {username}."
+        }
     except HTTPException:
         raise
     except Exception as e:

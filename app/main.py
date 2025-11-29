@@ -70,6 +70,11 @@ def create_application() -> FastAPI:
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
         "http://backend.app.local:8000",
+        "http://acme.app.local:8000",
+        "http://innova.app.local:8000",
+        "http://techcorp.app.local:8000",
+        "http://global.app.local:8000",
+        "http://platform.app.local:8000",
         
         # ✅ NUEVO: Dominios con app.local (desarrollo)
         "http://app.local:5173",

@@ -582,7 +582,7 @@ CREATE INDEX IDX_permiso_cliente ON rol_menu_permiso(cliente_id);
 -- Seguridad: Tokens hasheados (SHA-256), nunca en texto plano
 -- Permite: Revocación de tokens, tracking de sesiones
 -- ============================================================================
-CREATE TABLE refresh_token (
+CREATE TABLE refresh_tokens (
 token_id INT IDENTITY(1,1) PRIMARY KEY,
 cliente_id INT NOT NULL,
 usuario_id INT NOT NULL,
