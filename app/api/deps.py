@@ -6,15 +6,15 @@ from typing import List, Dict, Any
 
 from app.core.config import settings
 from app.core.auth import oauth2_scheme
-from app.db.queries import execute_auth_query, execute_query
+from app.infrastructure.database.queries import execute_auth_query, execute_query
 
 # --- Importar los schemas necesarios ---
-from app.schemas.auth import TokenPayload
-from app.schemas.usuario import UsuarioReadWithRoles # <<< Importar schema de usuario
-from app.schemas.rol import RolRead # <<< Importar schema de rol
+from app.modules.auth.presentation.schemas import TokenPayload
+from app.modules.users.presentation.schemas import UsuarioReadWithRoles # <<< Importar schema de usuario
+from app.modules.rbac.presentation.schemas import RolRead # <<< Importar schema de rol
 # --- Fin importación schemas ---
-from app.services.usuario_service import UsuarioService
-from app.services.rol_service import RolService # <<< NUEVA IMPORTACIÓN: Servicio de Roles
+from app.modules.users.application.services.user_service import UsuarioService
+from app.modules.rbac.application.services.rol_service import RolService # <<< NUEVA IMPORTACIÓN: Servicio de Roles
 
 import logging
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ async def get_user_access_level(usuario_id: int, cliente_id: int) -> int:
     Obtiene el nivel de acceso máximo del usuario basado en sus roles activos
     """
     try:
-        from app.db.queries import execute_query, GET_USER_MAX_ACCESS_LEVEL
+        from app.infrastructure.database.queries import execute_query, GET_USER_MAX_ACCESS_LEVEL
         
         # Usar execute_query en lugar de execute_auth_query para mayor control
         result = execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
@@ -88,7 +88,7 @@ async def debug_user_access_levels(usuario_id: int, cliente_id: int) -> Dict[str
     Función de diagnóstico para verificar niveles de acceso
     """
     try:
-        from app.db.queries import execute_query, GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+        from app.infrastructure.database.queries import execute_query, GET_USER_ACCESS_LEVEL_INFO_COMPLETE
         
         result = execute_query(GET_USER_ACCESS_LEVEL_INFO_COMPLETE, (usuario_id, cliente_id))
         
@@ -109,7 +109,7 @@ async def check_is_super_admin(usuario_id: int) -> bool:
     Verifica si el usuario tiene rol de SUPER_ADMIN (nivel 5)
     """
     try:
-        from app.db.queries import execute_query, IS_USER_SUPER_ADMIN
+        from app.infrastructure.database.queries import execute_query, IS_USER_SUPER_ADMIN
         
         result = execute_query(IS_USER_SUPER_ADMIN, (usuario_id,))
         

@@ -3,6 +3,11 @@ from typing import Any
 import logging
 import time
 
+# ✅ CRÍTICO: Configurar logging ANTES de cualquier import que pueda hacer logging
+# Esto asegura que los emojis y caracteres Unicode funcionen correctamente en Windows
+from app.core.logging_config import setup_logging
+setup_logging()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,18 +15,18 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.exceptions import configure_exception_handlers, CustomException 
 from app.api.v1.api import api_router
-from app.db.connection import get_db_connection
-from app.core.logging_config import setup_logging
+from app.infrastructure.database.connection import get_db_connection
 
 # CRÍTICO: Importar el nuevo middleware y el contexto
-from app.middleware.tenant_middleware import TenantMiddleware
-from app.core.tenant_context import get_current_client_id
+from app.core.tenant.middleware import TenantMiddleware
+from app.core.tenant.context import get_current_client_id
 
 # IMPORTA ESTO SI NO LO TIENES:
 from fastapi.security import HTTPBearer, OAuth2PasswordBearer
 
-# Configurar logging
-setup_logging()
+# ✅ FASE 1: Rate Limiting (condicional)
+from app.core.security.rate_limiting import get_limiter
+
 logger = logging.getLogger(__name__)
 
 def create_application() -> FastAPI:
@@ -54,6 +59,29 @@ def create_application() -> FastAPI:
 
     # Manejadores de excepciones custom
     configure_exception_handlers(app)
+    
+    # ✅ FASE 1: Configurar Rate Limiting (solo si está habilitado)
+    limiter = get_limiter()
+    if limiter:
+        app.state.limiter = limiter
+        # Registrar handler de excepciones de rate limit
+        try:
+            from slowapi.errors import RateLimitExceeded
+            from slowapi import _rate_limit_exceeded_handler
+            
+            @app.exception_handler(RateLimitExceeded)
+            async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+                return _rate_limit_exceeded_handler(request, exc)
+            
+            logger.info("✅ Rate limiting configurado y activo")
+        except ImportError:
+            logger.warning(
+                "[RATE_LIMITING] slowapi no instalado. "
+                "Instalar con: pip install slowapi. "
+                "Rate limiting desactivado automáticamente."
+            )
+    else:
+        logger.info("ℹ️ Rate limiting desactivado (configurado manualmente o slowapi no instalado)")
 
     # --- MIDDLEWARES (CRÍTICO: ORDEN IMPORTA) ---
 
@@ -265,8 +293,8 @@ async def test_db():
 @app.get("/drivers")
 async def check_drivers():
     """Endpoint para verificar drivers ODBC disponibles"""
-    # Asume que test_drivers está disponible en app.db.connection
-    from app.db.connection import test_drivers
+    # Asume que test_drivers está disponible en app.infrastructure.database.connection
+    from app.infrastructure.database.connection import test_drivers
     drivers = test_drivers()
     return {
         "drivers_available": list(drivers),
@@ -342,6 +370,36 @@ async def debug_detailed(request: Request):
             "ALLOWED_ORIGINS": settings.ALLOWED_ORIGINS
         }
     }
+
+# ✅ FASE 2: Shutdown handler para cerrar pools
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Cierra pools de conexión al apagar la aplicación.
+    
+    ✅ CORRECCIÓN: Manejo robusto de errores durante shutdown.
+    Suprime errores de compatibilidad SQLAlchemy + Python 3.13.
+    """
+    try:
+        from app.infrastructure.database.connection_pool import close_all_pools
+        close_all_pools()
+        logger.info("✅ Pools de conexión cerrados correctamente")
+    except (AssertionError, AttributeError, ImportError) as e:
+        # ✅ CORRECCIÓN: Error conocido de compatibilidad SQLAlchemy 2.0.44 + Python 3.13
+        error_str = str(e)
+        if "TypingOnly" in error_str or "SQLCoreOperations" in error_str:
+            # Este error ocurre durante la limpieza de módulos de Python
+            # No es crítico, solo aparece en logs durante shutdown
+            logger.debug(
+                "⚠️ Error de compatibilidad SQLAlchemy + Python 3.13 durante shutdown "
+                "(puede ignorarse, no afecta funcionalidad). "
+                "Para resolver: usar Python 3.12 o esperar actualización de SQLAlchemy."
+            )
+        else:
+            logger.warning(f"Error cerrando pools: {e}")
+    except Exception as e:
+        logger.warning(f"Error cerrando pools: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn

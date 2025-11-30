@@ -12,11 +12,16 @@ Características principales:
 - Inclusión de todos los módulos de endpoints
 """
 from fastapi import APIRouter
-from app.api.v1.endpoints import (
-    usuarios, auth, menus, roles, permisos, areas, autorizacion,
-    clientes, modulos, conexiones, auth_config,
-    superadmin_usuarios, superadmin_auditoria
-)
+from app.modules.auth.presentation import endpoints as auth_endpoints
+from app.modules.auth.presentation import endpoints_auth_config, endpoints_sso
+from app.modules.users.presentation import endpoints as users_endpoints
+from app.modules.rbac.presentation import endpoints as rbac_endpoints
+from app.modules.rbac.presentation import endpoints_permisos
+from app.modules.menus.presentation import endpoints as menus_endpoints
+from app.modules.menus.presentation import endpoints_areas
+from app.modules.tenant.presentation import endpoints_clientes, endpoints_modulos, endpoints_conexiones
+from app.modules.superadmin.presentation import endpoints_usuarios as superadmin_usuarios_endpoints
+from app.modules.superadmin.presentation import endpoints_auditoria as superadmin_auditoria_endpoints
 
 api_router = APIRouter()
 
@@ -24,34 +29,40 @@ api_router = APIRouter()
 # ENDPOINTS DE AUTENTICACIÓN Y SEGURIDAD
 # ========================================
 api_router.include_router(
-    auth.router,
+    auth_endpoints.router,
     prefix="/auth",
     tags=["Autenticación"]
 )
 
 api_router.include_router(
-    auth_config.router,
+    endpoints_auth_config.router,
     prefix="/auth-config",
     tags=["Configuración de Autenticación"]
+)
+
+api_router.include_router(
+    endpoints_sso.router,
+    prefix="/sso",
+    tags=["SSO - Single Sign On"]
 )
 
 # ========================================
 # ENDPOINTS DE ADMINISTRACIÓN GLOBAL (SUPER ADMIN)
 # ========================================
 api_router.include_router(
-    clientes.router,
+    endpoints_clientes.router,
     prefix="/clientes",
     tags=["Clientes (Super Admin)"]
 )
 
 api_router.include_router(
-    modulos.router,
+    endpoints_modulos.router,
     prefix="/modulos",
     tags=["Módulos (Super Admin)"]
 )
 
 api_router.include_router(
-    conexiones.router,
+    endpoints_conexiones.router,
     prefix="/conexiones",
     tags=["Conexiones BD (Super Admin)"]
 )
@@ -60,19 +71,19 @@ api_router.include_router(
 # ENDPOINTS DE GESTIÓN DE USUARIOS Y ROLES
 # ========================================
 api_router.include_router(
-    usuarios.router,
+    users_endpoints.router,
     prefix="/usuarios",
     tags=["Usuarios"]
 )
 
 api_router.include_router(
-    roles.router, 
+    rbac_endpoints.router, 
     prefix="/roles", 
     tags=["Roles"]
 )
 
 api_router.include_router(
-    permisos.router, 
+    endpoints_permisos.router, 
     prefix="/permisos", 
     tags=["Permisos (Rol-Menú)"]
 )
@@ -81,37 +92,29 @@ api_router.include_router(
 # ENDPOINTS DE GESTIÓN DE MENÚS Y NAVEGACIÓN
 # ========================================
 api_router.include_router(
-    menus.router,
+    menus_endpoints.router,
     prefix="/menus",
     tags=["Menus"]
 )
 
 api_router.include_router(
-    areas.router, 
+    endpoints_areas.router, 
     prefix="/areas", 
     tags=["Áreas de Menú"]
 )
 
-# ========================================
-# ENDPOINTS DE LÓGICA DE NEGOCIO ESPECÍFICA
-# ========================================
-api_router.include_router(
-    autorizacion.router,
-    prefix="/autorizacion",
-    tags=["Autorización de Procesos"]
-)
 
 # ========================================
 # ENDPOINTS DE SUPERADMIN (GESTIÓN GLOBAL)
 # ========================================
 api_router.include_router(
-    superadmin_usuarios.router,
+    superadmin_usuarios_endpoints.router,
     prefix="/superadmin/usuarios",
     tags=["Usuarios (Super Admin)"]
 )
 
 api_router.include_router(
-    superadmin_auditoria.router,
+    superadmin_auditoria_endpoints.router,
     prefix="/superadmin/auditoria",
     tags=["Auditoría (Super Admin)"]
 )

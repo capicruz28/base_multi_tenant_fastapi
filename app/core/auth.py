@@ -9,12 +9,19 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.core.security import verify_password
-from app.db.queries import execute_auth_query
-from app.schemas.auth import TokenPayload
+from app.core.security.password import verify_password
+from app.core.security.jwt import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token
+)
+from app.infrastructure.database.queries import execute_auth_query
+from app.modules.auth.presentation.schemas import TokenPayload
 # ✅ IMPORTACIÓN NECESARIA: Para acceder a la lógica de revocación de BD
-from app.services.refresh_token_service import RefreshTokenService
-from app.services.audit_service import AuditService
+from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
+from app.modules.superadmin.application.services.audit_service import AuditService
+# ✅ FASE 1: Importar para validación de tenant
+from app.core.tenant.context import get_current_client_id
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +41,7 @@ def get_user_access_level_info(usuario_id: int, cliente_id: int) -> Dict[str, An
     Obtiene información de niveles de acceso del usuario (CORREGIDA)
     """
     try:
-        from app.db.queries import execute_query, GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+        from app.infrastructure.database.queries import execute_query, GET_USER_ACCESS_LEVEL_INFO_COMPLETE
         
         # Usar execute_query para mayor control
         result = execute_query(GET_USER_ACCESS_LEVEL_INFO_COMPLETE, (usuario_id, cliente_id))
@@ -75,94 +82,6 @@ def get_user_access_level_info(usuario_id: int, cliente_id: int) -> Dict[str, An
             'is_super_admin': False,
             'user_type': 'user'
         }
-
-
-def create_access_token(data: dict) -> str:
-    """
-    Crea un token JWT de acceso con iat, exp y type='access'
-    - Usa SECRET_KEY específica
-    - Tiempo de expiración reducido (15 min por defecto)
-    - AHORA INCLUYE: access_level, is_super_admin, user_type
-    """
-    to_encode = data.copy()
-    now = datetime.utcnow()
-    expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    # ✅ AGREGAR CAMPOS DE NIVEL AL PAYLOAD
-    level_info = to_encode.get('level_info', {})
-    
-    to_encode.update({
-        "exp": expire,
-        "iat": now,
-        "type": "access",
-        "access_level": level_info.get('access_level', 1),
-        "is_super_admin": level_info.get('is_super_admin', False),
-        "user_type": level_info.get('user_type', 'user')
-    })
-    
-    # Remover level_info temporal del payload
-    to_encode.pop('level_info', None)
-    
-    # Usa SECRET_KEY para access tokens
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-
-
-def create_refresh_token(data: dict) -> str:
-    """
-    Crea un token JWT de refresh con iat, exp y type='refresh'
-    - Usa REFRESH_SECRET_KEY separada (mayor seguridad)
-    - Tiempo de expiración largo (7 días por defecto)
-    - AHORA INCLUYE: access_level, is_super_admin, user_type
-    """
-    to_encode = data.copy()
-    now = datetime.utcnow()
-    expire = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    
-    # ✅ AGREGAR CAMPOS DE NIVEL AL PAYLOAD
-    level_info = to_encode.get('level_info', {})
-    
-    to_encode.update({
-        "exp": expire,
-        "iat": now,
-        "type": "refresh",
-        "access_level": level_info.get('access_level', 1),
-        "is_super_admin": level_info.get('is_super_admin', False),
-        "user_type": level_info.get('user_type', 'user')
-    })
-    
-    # Remover level_info temporal del payload
-    to_encode.pop('level_info', None)
-    
-    # Usa REFRESH_SECRET_KEY separada
-    return jwt.encode(to_encode, settings.REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
-
-
-def decode_refresh_token(token: str) -> dict:
-    """
-    Decodifica y valida un refresh token (type='refresh')
-    - Usa REFRESH_SECRET_KEY para validación
-    - Verifica que el tipo sea 'refresh'
-    - AHORA VALIDA: access_level, is_super_admin, user_type
-    """
-    try:
-        # Usa REFRESH_SECRET_KEY para decodificar
-        payload = jwt.decode(token, settings.REFRESH_SECRET_KEY, algorithms=[settings.ALGORITHM])
-        if payload.get("type") != "refresh":
-            raise JWTError("Token type is not refresh")
-        
-        # ✅ VALIDAR QUE TENGA CAMPOS DE NIVEL
-        if 'access_level' not in payload or 'user_type' not in payload:
-            logger.warning("Refresh token no contiene campos de nivel de acceso")
-            raise JWTError("Token missing access level fields")
-            
-        return payload
-    except JWTError as e:
-        logger.error(f"Error decodificando refresh token: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
 
 async def authenticate_user(cliente_id: int, username: str, password: str) -> Dict:
@@ -214,8 +133,8 @@ async def authenticate_user(cliente_id: int, username: str, password: str) -> Di
         # ✅ CORRECCIÓN CRÍTICA: Usar BD apropiada según tipo de usuario
         if is_superadmin:
             # Superadmin: SIEMPRE usar BD ADMIN
-            from app.db.connection import DatabaseConnection
-            from app.db.queries import execute_query
+            from app.infrastructure.database.connection import DatabaseConnection
+            from app.infrastructure.database.queries import execute_query
             
             logger.debug(f"[AUTH] Ejecutando en BD ADMIN: cliente_id={search_cliente_id}, username='{username}'")
             
@@ -367,11 +286,55 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
         username = token_data.sub
         es_superadmin = payload.get("es_superadmin", False)
         target_cliente_id = payload.get("cliente_id")  # Cliente al que accede
+        token_cliente_id = payload.get("cliente_id")  # Cliente del token
         
         # ✅ EXTRAER CAMPOS DE NIVEL DEL TOKEN
         access_level = payload.get("access_level", 1)
         is_super_admin = payload.get("is_super_admin", False)
         user_type = payload.get("user_type", "user")
+        
+        # ============================================
+        # ✅ FASE 1: VALIDACIÓN DE TENANT EN TOKEN (CON FEATURE FLAG)
+        # ============================================
+        # IMPORTANTE: Solo se valida si el flag está activo
+        # Por defecto está desactivado (comportamiento actual)
+        if settings.ENABLE_TENANT_TOKEN_VALIDATION:
+            try:
+                current_cliente_id = get_current_client_id()
+                
+                # Superadmin puede cambiar de tenant (comportamiento actual)
+                # Solo validamos para usuarios regulares
+                if not es_superadmin and token_cliente_id is not None:
+                    if token_cliente_id != current_cliente_id:
+                        logger.warning(
+                            f"[SECURITY] Token de tenant {token_cliente_id} usado en tenant {current_cliente_id}. "
+                            f"Usuario: {username}"
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Token no válido para este tenant. Por favor, inicie sesión nuevamente."
+                        )
+                    logger.debug(
+                        f"[SECURITY] Validación de tenant exitosa: token_cliente_id={token_cliente_id}, "
+                        f"current_cliente_id={current_cliente_id}"
+                    )
+            except RuntimeError:
+                # Si no hay contexto (script de fondo, inicialización), permitir
+                # Esto mantiene compatibilidad con código que no tiene contexto
+                logger.debug(
+                    "[AUTH] Sin contexto de tenant disponible, validación omitida "
+                    "(comportamiento esperado para scripts de fondo)"
+                )
+            except HTTPException:
+                # Re-lanzar excepciones HTTP (como la de validación de tenant)
+                raise
+            except Exception as e:
+                # Si hay cualquier otro error en la validación, loggear pero NO bloquear
+                # Esto previene que errores en la validación rompan el sistema
+                logger.error(
+                    f"[SECURITY] Error en validación de tenant (no bloqueante): {str(e)}",
+                    exc_info=True
+                )
 
     except JWTError as e:
         logger.error(f"Error decodificando token: {str(e)}")
@@ -389,8 +352,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
     
     if es_superadmin:
         # Superadmin: Buscar en BD ADMIN
-        from app.db.connection import DatabaseConnection
-        from app.db.queries import execute_query
+        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.queries import execute_query
         
         result = execute_query(query, (username,), connection_type=DatabaseConnection.ADMIN)
         user = result[0] if result else None

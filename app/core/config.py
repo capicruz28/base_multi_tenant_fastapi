@@ -71,6 +71,43 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # ============================================
+    # FEATURE FLAGS - FASE 1: SEGURIDAD (ACTIVADO POR DEFECTO)
+    # ============================================
+    # ✅ ACTIVADO: Las funcionalidades de seguridad están activas por defecto
+    # Para desactivar, establecer variable de entorno a "false"
+    # Ejemplo: ENABLE_TENANT_TOKEN_VALIDATION=false
+    ENABLE_TENANT_TOKEN_VALIDATION: bool = os.getenv("ENABLE_TENANT_TOKEN_VALIDATION", "true").lower() == "true"
+    ENABLE_QUERY_TENANT_VALIDATION: bool = os.getenv("ENABLE_QUERY_TENANT_VALIDATION", "true").lower() == "true"
+    ENABLE_RATE_LIMITING: bool = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
+    
+    # Configuración de rate limiting
+    # Límites generosos para no afectar uso normal, pero proteger contra ataques
+    RATE_LIMIT_LOGIN: str = os.getenv("RATE_LIMIT_LOGIN", "10/minute")  # 10 intentos de login por minuto (generoso)
+    RATE_LIMIT_API: str = os.getenv("RATE_LIMIT_API", "200/minute")  # 200 requests API por minuto (generoso)
+
+    # ============================================
+    # FEATURE FLAGS - FASE 2: PERFORMANCE (ACTIVADO POR DEFECTO)
+    # ============================================
+    # ✅ ACTIVADO: Mejoras de performance están activas por defecto
+    # Para desactivar, establecer variable de entorno a "false"
+    ENABLE_CONNECTION_POOLING: bool = os.getenv("ENABLE_CONNECTION_POOLING", "true").lower() == "true"
+    ENABLE_REDIS_CACHE: bool = os.getenv("ENABLE_REDIS_CACHE", "true").lower() == "true"
+    
+    # Configuración de Connection Pooling
+    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))  # Tamaño del pool (conexiones simultáneas)
+    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "5"))  # Conexiones adicionales permitidas
+    DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # Reciclar conexiones cada hora (segundos)
+    DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))  # Timeout para obtener conexión (segundos)
+    
+    # Configuración de Redis Cache (opcional)
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD", None)
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_SOCKET_TIMEOUT: int = int(os.getenv("REDIS_SOCKET_TIMEOUT", "5"))  # Timeout en segundos
+    CACHE_DEFAULT_TTL: int = int(os.getenv("CACHE_DEFAULT_TTL", "300"))  # TTL por defecto: 5 minutos
+
     # ✅ MEJORA: Cookies - Configuración segura y dinámica
     REFRESH_COOKIE_NAME: str = "refresh_token"
     REFRESH_COOKIE_MAX_AGE: int = REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60  # segundos
