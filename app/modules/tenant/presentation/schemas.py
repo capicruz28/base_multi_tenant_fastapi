@@ -1101,17 +1101,6 @@ class ModuloActivoBase(BaseModel):
             raise ValueError("Los IDs deben ser números positivos.")
         return v
 
-    @validator('fecha_vencimiento')
-    def validar_fecha_vencimiento(cls, v):
-        """
-        Valida que la fecha de vencimiento sea futura si se proporciona.
-        """
-        if v is not None:
-            from datetime import datetime
-            if v <= datetime.now():
-                raise ValueError("La fecha de vencimiento debe ser futura.")
-        return v
-
     class Config:
         from_attributes = True
 
@@ -1121,7 +1110,19 @@ class ModuloActivoCreate(ModuloActivoBase):
     Esquema para la activación de un módulo para un cliente.
     Hereda todos los campos de ModuloActivoBase.
     """
-    pass
+    
+    @validator('fecha_vencimiento')
+    def validar_fecha_vencimiento(cls, v):
+        """
+        Valida que la fecha de vencimiento sea futura si se proporciona.
+        Esta validación solo aplica al CREAR/ACTIVAR un módulo.
+        Al LEER un módulo, puede tener fecha pasada (módulo vencido).
+        """
+        if v is not None:
+            from datetime import datetime
+            if v <= datetime.now():
+                raise ValueError("La fecha de vencimiento debe ser futura.")
+        return v
 
 
 class ModuloActivoUpdate(BaseModel):

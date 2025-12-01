@@ -9,7 +9,7 @@ from app.infrastructure.database.queries import (
     INSERT_LOG_SINCRONIZACION_USUARIO,
 )
 from app.core.exceptions import DatabaseError
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,90 @@ class AuditService(BaseService):
             logger.error(
                 f"[AUDIT] Error registrando log_sincronizacion_usuario: {e}",
                 exc_info=True,
+            )
+            return {"rows_affected": 0}
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def registrar_tenant_access(
+        *,
+        usuario_id: int,
+        token_cliente_id: Optional[int],
+        request_cliente_id: int,
+        tipo_acceso: str = "cross_tenant",
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        ✅ NUEVO: Registra accesos cross-tenant para auditoría de seguridad.
+        
+        Este método registra cuando un usuario accede a un tenant diferente
+        al de su token (típicamente SuperAdmin accediendo a otros tenants).
+        
+        Args:
+            usuario_id: ID del usuario que realiza el acceso
+            token_cliente_id: ID del cliente del token (puede ser None para SuperAdmin)
+            request_cliente_id: ID del cliente al que se está accediendo
+            tipo_acceso: Tipo de acceso ("cross_tenant", "same_tenant", "superadmin_access")
+            ip_address: IP del cliente
+            user_agent: User agent del cliente
+            metadata: Metadata adicional del acceso
+        
+        Returns:
+            Dict con el resultado de la inserción
+        
+        Ejemplo:
+            await AuditService.registrar_tenant_access(
+                usuario_id=1,
+                token_cliente_id=1,
+                request_cliente_id=2,
+                tipo_acceso="cross_tenant",
+                ip_address="192.168.1.1"
+            )
+        """
+        try:
+            # Determinar el cliente_id para el log (usar el del request)
+            cliente_id = request_cliente_id
+            
+            # Construir descripción
+            if token_cliente_id is None:
+                descripcion = f"SuperAdmin accediendo a tenant {request_cliente_id}"
+            elif token_cliente_id != request_cliente_id:
+                descripcion = (
+                    f"Acceso cross-tenant: usuario del tenant {token_cliente_id} "
+                    f"accediendo a tenant {request_cliente_id}"
+                )
+            else:
+                descripcion = f"Acceso normal al tenant {request_cliente_id}"
+            
+            # Construir metadata
+            audit_metadata = {
+                "tipo_acceso": tipo_acceso,
+                "token_cliente_id": token_cliente_id,
+                "request_cliente_id": request_cliente_id,
+                **(metadata or {})
+            }
+            
+            # Registrar como evento de auditoría
+            return await AuditService.registrar_auth_event(
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+                evento="tenant_access",
+                nombre_usuario_intento=None,  # Ya tenemos usuario_id
+                descripcion=descripcion,
+                exito=True,  # Es un acceso permitido, solo lo registramos
+                codigo_error=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata=audit_metadata,
+            )
+            
+        except Exception as e:
+            # No interrumpir el flujo si falla la auditoría
+            logger.error(
+                f"[AUDIT] Error registrando tenant_access: {e}",
+                exc_info=True
             )
             return {"rows_affected": 0}
 

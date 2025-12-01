@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     ENABLE_QUERY_TENANT_VALIDATION: bool = os.getenv("ENABLE_QUERY_TENANT_VALIDATION", "true").lower() == "true"
     ENABLE_RATE_LIMITING: bool = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
     
+    # ✅ CORRECCIÓN AUDITORÍA: Filtro obligatorio de cliente_id
+    # Por defecto, el filtro de tenant es OBLIGATORIO en BaseRepository
+    # Para permitir bypass (solo en casos especiales), establecer a "true"
+    # ⚠️ ADVERTENCIA: Permitir bypass reduce la seguridad multi-tenant
+    ALLOW_TENANT_FILTER_BYPASS: bool = os.getenv("ALLOW_TENANT_FILTER_BYPASS", "false").lower() == "true"
+    
     # Configuración de rate limiting
     # Límites generosos para no afectar uso normal, pero proteger contra ataques
     RATE_LIMIT_LOGIN: str = os.getenv("RATE_LIMIT_LOGIN", "10/minute")  # 10 intentos de login por minuto (generoso)
@@ -93,6 +99,11 @@ class Settings(BaseSettings):
     # Para desactivar, establecer variable de entorno a "false"
     ENABLE_CONNECTION_POOLING: bool = os.getenv("ENABLE_CONNECTION_POOLING", "true").lower() == "true"
     ENABLE_REDIS_CACHE: bool = os.getenv("ENABLE_REDIS_CACHE", "true").lower() == "true"
+    
+    # ✅ CORRECCIÓN AUDITORÍA: Conexiones async (desactivado por defecto hasta migración completa)
+    # Para activar, instalar dependencias: pip install 'sqlalchemy[asyncio]' aioodbc
+    # Luego establecer: ENABLE_ASYNC_CONNECTIONS=true
+    ENABLE_ASYNC_CONNECTIONS: bool = os.getenv("ENABLE_ASYNC_CONNECTIONS", "false").lower() == "true"
     
     # Configuración de Connection Pooling
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))  # Tamaño del pool (conexiones simultáneas)

@@ -12,7 +12,8 @@ from app.core.security.password import (
 from app.core.security.jwt import (
     create_access_token,
     create_refresh_token,
-    decode_refresh_token
+    decode_refresh_token,
+    oauth2_scheme
 )
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "pwd_context",
     "create_access_token",
     "create_refresh_token",
-    "decode_refresh_token"
+    "decode_refresh_token",
+    "oauth2_scheme"
 ]
 

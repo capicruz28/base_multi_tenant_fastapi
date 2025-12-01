@@ -5,10 +5,12 @@ Servicios de aplicación para autenticación
 
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
 from app.modules.auth.application.services.auth_config_service import AuthConfigService
+from app.modules.auth.application.services.auth_service import AuthService
 
 __all__ = [
     "RefreshTokenService",
-    "AuthConfigService"
+    "AuthConfigService",
+    "AuthService"
 ]
 
 

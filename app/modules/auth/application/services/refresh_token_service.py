@@ -19,7 +19,7 @@ from app.infrastructure.database.queries import (
 )
 from app.core.config import settings
 from app.core.exceptions import DatabaseError, AuthenticationError, CustomException 
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 from app.core.tenant.context import get_current_client_id
 from app.modules.superadmin.application.services.audit_service import AuditService
 

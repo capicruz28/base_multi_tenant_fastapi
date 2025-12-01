@@ -24,7 +24,7 @@ from app.core.exceptions import (
     ServiceError,
     DatabaseError
 )
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 from app.modules.tenant.presentation.schemas import (
     ModuloActivoCreate,
     ModuloActivoUpdate,
@@ -189,10 +189,14 @@ class ModuloActivoService(BaseService):
     async def activar_modulo(modulo_data: ModuloActivoCreate) -> ModuloActivoRead:
         """
         Activa un módulo para un cliente específico.
+        
+        LÓGICA CORREGIDA:
+        - Si el registro NO existe: INSERT
+        - Si el registro YA existe (activo o inactivo): UPDATE de esta_activo = 1 y otros campos
         """
         logger.info(f"Activando módulo {modulo_data.modulo_id} para cliente {modulo_data.cliente_id}")
 
-        # Validar que el módulo no esté ya activado
+        # Validar que el módulo no esté ya activado (solo si está activo)
         await ModuloActivoService._validar_modulo_activo_unico(
             modulo_data.cliente_id, 
             modulo_data.modulo_id
@@ -224,51 +228,99 @@ class ModuloActivoService(BaseService):
                     internal_code="INVALID_EXPIRATION_DATE"
                 )
 
-        # Preparar datos para inserción
+        # ✅ CORRECCIÓN: Verificar si ya existe un registro (activo o inactivo)
+        query_existe = """
+        SELECT cliente_modulo_activo_id, esta_activo
+        FROM cliente_modulo_activo
+        WHERE cliente_id = ? AND modulo_id = ?
+        """
+        existe_raw = execute_query(query_existe, (modulo_data.cliente_id, modulo_data.modulo_id), connection_type=DatabaseConnection.ADMIN)
+        
+        # Preparar datos
         configuracion_json = json.dumps(modulo_data.configuracion_json) if modulo_data.configuracion_json else None
 
-        fields = [
-            'cliente_id', 'modulo_id', 'esta_activo',
-            'fecha_vencimiento', 'configuracion_json', 'limite_usuarios', 'limite_registros'
-        ]
-        
-        params = [
-            modulo_data.cliente_id,
-            modulo_data.modulo_id,
-            1,  # esta_activo
-            modulo_data.fecha_vencimiento,
-            configuracion_json,
-            modulo_data.limite_usuarios,
-            modulo_data.limite_registros
-        ]
+        if existe_raw:
+            # ✅ El registro ya existe: hacer UPDATE
+            modulo_activo_id = existe_raw[0]['cliente_modulo_activo_id']
+            logger.info(f"[ACTIVAR] Registro existente encontrado (ID: {modulo_activo_id}), actualizando a activo")
+            
+            query_update = """
+            UPDATE cliente_modulo_activo
+            SET esta_activo = 1,
+                fecha_vencimiento = ?,
+                configuracion_json = ?,
+                limite_usuarios = ?,
+                limite_registros = ?
+            WHERE cliente_modulo_activo_id = ?
+            """
+            
+            params_update = [
+                modulo_data.fecha_vencimiento,
+                configuracion_json,
+                modulo_data.limite_usuarios,
+                modulo_data.limite_registros,
+                modulo_activo_id
+            ]
+            
+            # Ejecutar UPDATE
+            resultado_update = execute_update(query_update, tuple(params_update), connection_type=DatabaseConnection.ADMIN)
+            
+            if resultado_update.get('rows_affected', 0) == 0:
+                raise ServiceError(
+                    status_code=500,
+                    detail="No se pudo activar el módulo para el cliente.",
+                    internal_code="MODULE_ACTIVATION_FAILED"
+                )
+            
+            logger.info(f"[ACTIVAR] Módulo reactivado exitosamente (ID: {modulo_activo_id})")
+            modulo_activo_id_resultado = modulo_activo_id
+        else:
+            # ✅ El registro NO existe: hacer INSERT
+            logger.info(f"[ACTIVAR] Registro no existe, creando nuevo registro")
+            
+            fields = [
+                'cliente_id', 'modulo_id', 'esta_activo',
+                'fecha_vencimiento', 'configuracion_json', 'limite_usuarios', 'limite_registros'
+            ]
+            
+            params = [
+                modulo_data.cliente_id,
+                modulo_data.modulo_id,
+                1,  # esta_activo
+                modulo_data.fecha_vencimiento,
+                configuracion_json,
+                modulo_data.limite_usuarios,
+                modulo_data.limite_registros
+            ]
 
-        query = f"""
-        INSERT INTO cliente_modulo_activo ({', '.join(fields)})
-        OUTPUT 
-            INSERTED.cliente_modulo_activo_id,
-            INSERTED.cliente_id,
-            INSERTED.modulo_id,
-            INSERTED.esta_activo,
-            INSERTED.fecha_activacion,
-            INSERTED.fecha_vencimiento,
-            INSERTED.configuracion_json,
-            INSERTED.limite_usuarios,
-            INSERTED.limite_registros
-        VALUES ({', '.join(['?'] * len(fields))})
-        """
+            query = f"""
+            INSERT INTO cliente_modulo_activo ({', '.join(fields)})
+            OUTPUT 
+                INSERTED.cliente_modulo_activo_id,
+                INSERTED.cliente_id,
+                INSERTED.modulo_id,
+                INSERTED.esta_activo,
+                INSERTED.fecha_activacion,
+                INSERTED.fecha_vencimiento,
+                INSERTED.configuracion_json,
+                INSERTED.limite_usuarios,
+                INSERTED.limite_registros
+            VALUES ({', '.join(['?'] * len(fields))})
+            """
 
-        resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
-        if not resultado:
-            raise ServiceError(
-                status_code=500,
-                detail="No se pudo activar el módulo para el cliente.",
-                internal_code="MODULE_ACTIVATION_FAILED"
-            )
-
-        logger.info(f"Módulo activado exitosamente con ID: {resultado['cliente_modulo_activo_id']}")
+            resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+            if not resultado:
+                raise ServiceError(
+                    status_code=500,
+                    detail="No se pudo activar el módulo para el cliente.",
+                    internal_code="MODULE_ACTIVATION_FAILED"
+                )
+            
+            logger.info(f"[ACTIVAR] Módulo activado exitosamente con ID: {resultado['cliente_modulo_activo_id']}")
+            modulo_activo_id_resultado = resultado['cliente_modulo_activo_id']
         
         # Obtener el módulo activo completo con información del módulo
-        return await ModuloActivoService.obtener_modulo_activo_por_id(resultado['cliente_modulo_activo_id'])
+        return await ModuloActivoService.obtener_modulo_activo_por_id(modulo_activo_id_resultado)
 
     @staticmethod
     @BaseService.handle_service_errors

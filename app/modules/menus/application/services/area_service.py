@@ -19,7 +19,7 @@ from app.modules.menus.presentation.schemas import AreaCreate, AreaUpdate, AreaR
 from app.core.exceptions import ValidationError, NotFoundError, ConflictError, DatabaseError
 
 # 🏗️ BASE SERVICE - Nueva clase base para manejo consistente de errores
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 
 logger = logging.getLogger(__name__)
 

@@ -48,7 +48,7 @@ from app.core.exceptions import (
 )
 
 # Base Service
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -279,65 +279,229 @@ class SuperadminAuditoriaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_log_autenticacion(log_id: int) -> Optional[Dict]:
+    async def obtener_log_autenticacion(log_id: int, cliente_id: Optional[int] = None) -> Optional[Dict]:
         """
         Obtiene detalle completo de un log de autenticación.
+        
+        IMPORTANTE: En un sistema multi-tenant, los logs están en la BD del tenant donde ocurrió el evento.
+        
+        Args:
+            log_id: ID del log a obtener
+            cliente_id: ID del cliente (opcional). Si se proporciona, consulta directamente en la BD de ese tenant.
+                       Si no se proporciona, identifica el tenant del log y consulta en su BD.
         """
-        logger.info(f"Obteniendo log de autenticación ID {log_id}")
+        logger.info(f"Obteniendo log de autenticación ID {log_id}, cliente_id: {cliente_id}")
 
+        # ✅ CORRECCIÓN: Query sin JOIN con cliente (cliente no existe en BDs Multi-DB)
+        # La información del cliente se obtendrá desde ADMIN después de encontrar el log
         query = """
         SELECT 
             a.*,
-            c.razon_social as cliente_razon_social,
-            c.subdominio as cliente_subdominio,
-            c.codigo_cliente,
-            c.nombre_comercial,
-            c.tipo_instalacion,
-            c.estado_suscripcion,
             u.nombre_usuario,
             u.correo
         FROM dbo.auth_audit_log a
-        LEFT JOIN dbo.cliente c ON a.cliente_id = c.cliente_id
         LEFT JOIN dbo.usuario u ON a.usuario_id = u.usuario_id
         WHERE a.log_id = ?
         """
-        # Primero obtener el cliente_id del log desde la BD centralizada (ADMIN)
+        
+        # ✅ CORRECCIÓN: Lógica optimizada para SuperAdmin - Identificar tenant y consultar BD correcta
+        # PATRÓN CORRECTO (igual que get_logs_autenticacion):
+        # 1. Si se proporciona cliente_id, consultar directamente en la BD de ese tenant
+        # 2. Si el contexto es un tenant (no SuperAdmin), buscar directamente en su BD usando client_id
+        # 3. Si el contexto es SuperAdmin y no se proporciona cliente_id:
+        #    a. Obtener cliente_id del log buscando en todas las BDs (Single-DB y Multi-DB)
+        #    b. Una vez identificado el cliente_id, usar execute_query(..., client_id=log_cliente_id)
+        #       que automáticamente determinará la BD correcta (Single-DB o Multi-DB) basándose en metadata
         from app.infrastructure.database.connection import DatabaseConnection
-        query_cliente = """
-        SELECT cliente_id
-        FROM dbo.auth_audit_log
-        WHERE log_id = ?
-        """
-        cliente_info_raw = execute_query(query_cliente, (log_id,), connection_type=DatabaseConnection.ADMIN)
+        from app.core.tenant.context import try_get_current_client_id
+        from app.core.config import settings
         
-        if not cliente_info_raw:
-            raise NotFoundError(
-                detail=f"Log de autenticación con ID {log_id} no encontrado.",
-                internal_code="LOG_NOT_FOUND"
-            )
+        # Obtener cliente_id del contexto actual
+        context_cliente_id = try_get_current_client_id()
+        log_raw = None
+        log_row = None
+        log_cliente_id = None
         
-        log_cliente_id = cliente_info_raw[0]['cliente_id']
+        # 1. Si se proporciona cliente_id, consultar directamente en la BD de ese tenant
+        if cliente_id:
+            logger.info(f"[AUDIT] Cliente_id proporcionado ({cliente_id}), consultando log {log_id} directamente en BD del tenant")
+            try:
+                # Usar client_id para que execute_query determine automáticamente la BD correcta
+                log_raw = execute_query(query, (log_id,), client_id=cliente_id)
+                if log_raw:
+                    log_row = log_raw[0]
+                    log_cliente_id = log_row.get('cliente_id')
+                    # Verificar que el log pertenece al cliente especificado
+                    if log_cliente_id == cliente_id:
+                        logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {cliente_id}")
+                    else:
+                        logger.warning(f"[AUDIT] Log {log_id} encontrado pero pertenece a cliente {log_cliente_id}, no a {cliente_id}")
+                        log_raw = None
+                        log_row = None
+                else:
+                    logger.warning(f"[AUDIT] Log {log_id} no encontrado en BD del cliente {cliente_id}")
+            except Exception as e:
+                logger.warning(f"[AUDIT] Error buscando log {log_id} en BD del cliente {cliente_id}: {e}")
         
-        # Obtener el log usando la conexión del cliente
-        log_raw = execute_query(query, (log_id,), client_id=log_cliente_id)
-
+        # 2. Si no se proporcionó cliente_id y el contexto es un tenant (no SuperAdmin), buscar directamente en su BD
+        elif context_cliente_id and context_cliente_id != settings.SUPERADMIN_CLIENTE_ID:
+            logger.info(f"[AUDIT] Contexto de tenant detectado (cliente_id={context_cliente_id}), buscando log {log_id} en BD del tenant")
+            try:
+                # Usar client_id para que execute_query determine automáticamente la BD correcta
+                log_raw = execute_query(query, (log_id,), client_id=context_cliente_id)
+                if log_raw:
+                    log_row = log_raw[0]
+                    log_cliente_id = log_row.get('cliente_id')
+                    logger.info(f"[AUDIT] Log {log_id} encontrado en BD del tenant {context_cliente_id} (cliente_id del log: {log_cliente_id})")
+            except Exception as e:
+                logger.warning(f"[AUDIT] Error buscando log {log_id} en BD del tenant {context_cliente_id}: {e}")
+        
+        # 3. Si el contexto es SuperAdmin y no se proporcionó cliente_id, identificar el tenant del log primero
+        elif context_cliente_id == settings.SUPERADMIN_CLIENTE_ID:
+            logger.info(f"[AUDIT] Contexto de SuperAdmin detectado, identificando tenant del log {log_id}")
+            
+            # Query rápida para obtener solo el cliente_id del log
+            query_cliente_id = """
+            SELECT cliente_id
+            FROM dbo.auth_audit_log
+            WHERE log_id = ?
+            """
+            
+            # Buscar cliente_id del log en todas las BDs posibles:
+            # a. Primero en BD central (donde están los logs de tenants Single-DB)
+            # ✅ SEGURIDAD: auth_audit_log es una tabla de tenant, pero estamos buscando en BD central
+            # Usar skip_tenant_validation porque estamos buscando en BD central sin contexto de tenant específico
+            try:
+                cliente_id_raw = execute_query(
+                    query_cliente_id, 
+                    (log_id,), 
+                    connection_type=DatabaseConnection.DEFAULT,
+                    skip_tenant_validation=True  # ✅ Bypass: Buscando en BD central sin contexto de tenant
+                )
+                if cliente_id_raw:
+                    log_cliente_id = cliente_id_raw[0]['cliente_id']
+                    logger.info(f"[AUDIT] Cliente_id del log {log_id} obtenido desde BD central: {log_cliente_id}")
+            except Exception as e:
+                logger.debug(f"[AUDIT] Log {log_id} no encontrado en BD central: {e}")
+            
+            # b. Si no está en BD central, buscar en todas las BDs Multi-DB
+            if not log_cliente_id:
+                logger.info(f"[AUDIT] Log {log_id} no encontrado en BD central, buscando en BDs Multi-DB")
+                
+                # Obtener lista de clientes activos desde BD ADMIN
+                query_clientes = """
+                SELECT cliente_id
+                FROM dbo.cliente
+                WHERE es_activo = 1
+                ORDER BY cliente_id
+                """
+                clientes_raw = execute_query(query_clientes, (), connection_type=DatabaseConnection.ADMIN)
+                
+                if clientes_raw:
+                    clientes_ids = [row['cliente_id'] for row in clientes_raw]
+                    logger.debug(f"[AUDIT] Buscando cliente_id del log {log_id} en {len(clientes_ids)} clientes activos")
+                    
+                    # Buscar el cliente_id del log en cada BD de cliente Multi-DB
+                    for cliente_id in clientes_ids:
+                        try:
+                            cliente_id_raw = execute_query(query_cliente_id, (log_id,), client_id=cliente_id)
+                            if cliente_id_raw:
+                                log_cliente_id = cliente_id_raw[0]['cliente_id']
+                                logger.info(f"[AUDIT] Cliente_id del log {log_id} obtenido desde BD del cliente {cliente_id}: {log_cliente_id}")
+                                break
+                        except Exception as e:
+                            # Continuar con el siguiente cliente si hay error
+                            continue
+            
+            # c. Una vez identificado el cliente_id, consultar el log completo usando client_id
+            #    execute_query(..., client_id=log_cliente_id) automáticamente determinará la BD correcta
+            if log_cliente_id:
+                logger.info(f"[AUDIT] Consultando log {log_id} completo en BD del cliente {log_cliente_id} (execute_query determinará BD automáticamente)")
+                try:
+                    # ✅ CRÍTICO: Usar client_id para que execute_query determine automáticamente Single-DB o Multi-DB
+                    log_raw = execute_query(query, (log_id,), client_id=log_cliente_id)
+                    if log_raw:
+                        log_row = log_raw[0]
+                        logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {log_cliente_id}")
+                    else:
+                        logger.warning(f"[AUDIT] Log {log_id} no encontrado en BD del cliente {log_cliente_id} a pesar de tener su cliente_id")
+                except Exception as e:
+                    logger.warning(f"[AUDIT] Error consultando log {log_id} en BD del cliente {log_cliente_id}: {e}")
+            else:
+                logger.warning(f"[AUDIT] No se pudo identificar el cliente_id del log {log_id} en ninguna BD")
+        
+        # 3. Si no se encontró (fallback): buscar en todas las BDs de clientes activos
         if not log_raw:
-            return None
+            logger.info(f"[AUDIT] Log {log_id} no encontrado en contexto del tenant, buscando en todas las BDs de clientes activos")
+            
+            # Obtener lista de clientes activos desde BD ADMIN
+            query_clientes = """
+            SELECT cliente_id
+            FROM dbo.cliente
+            WHERE es_activo = 1
+            ORDER BY cliente_id
+            """
+            clientes_raw = execute_query(query_clientes, (), connection_type=DatabaseConnection.ADMIN)
+            
+            if not clientes_raw:
+                logger.warning(f"[AUDIT] No hay clientes activos en el sistema")
+                raise NotFoundError(
+                    detail=f"Log de autenticación con ID {log_id} no encontrado.",
+                    internal_code="LOG_NOT_FOUND"
+                )
+            
+            clientes_ids = [row['cliente_id'] for row in clientes_raw]
+            logger.info(f"[AUDIT] Buscando log {log_id} en {len(clientes_ids)} clientes activos: {clientes_ids}")
+            
+            # Buscar el log en cada BD de cliente
+            for cliente_id in clientes_ids:
+                # Si ya buscamos en este cliente (contexto del tenant), saltarlo
+                if context_cliente_id and context_cliente_id == cliente_id:
+                    continue
+                    
+                try:
+                    logger.debug(f"[AUDIT] Buscando log {log_id} en BD del cliente {cliente_id}")
+                    log_raw = execute_query(query, (log_id,), client_id=cliente_id)
+                    if log_raw:
+                        log_row = log_raw[0]
+                        logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {cliente_id}")
+                        break
+                except Exception as e:
+                    logger.warning(f"[AUDIT] Error buscando log {log_id} en cliente {cliente_id}: {e}")
+                    continue
+            
+            if not log_raw or not log_row:
+                logger.warning(f"[AUDIT] Log {log_id} no encontrado en ninguna BD de cliente activo")
+                raise NotFoundError(
+                    detail=f"Log de autenticación con ID {log_id} no encontrado.",
+                    internal_code="LOG_NOT_FOUND"
+                )
 
-        log_row = log_raw[0]
-
-        # Información del cliente
+        # Información del cliente (obtener desde BD ADMIN ya que cliente no existe en BDs Multi-DB)
         cliente_info = None
         if log_row.get('cliente_id'):
-            cliente_info = ClienteInfo(
-                cliente_id=log_row['cliente_id'],
-                razon_social=log_row.get('cliente_razon_social', ''),
-                subdominio=log_row.get('cliente_subdominio', ''),
-                codigo_cliente=log_row.get('codigo_cliente'),
-                nombre_comercial=log_row.get('nombre_comercial'),
-                tipo_instalacion=log_row.get('tipo_instalacion', 'cloud'),
-                estado_suscripcion=log_row.get('estado_suscripcion', 'activo')
-            )
+            # Obtener información del cliente desde BD ADMIN
+            query_cliente_info = """
+            SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
+                   nombre_comercial, tipo_instalacion, estado_suscripcion
+            FROM dbo.cliente
+            WHERE cliente_id = ?
+            """
+            cliente_raw = execute_query(query_cliente_info, (log_row['cliente_id'],), connection_type=DatabaseConnection.ADMIN)
+            
+            if cliente_raw:
+                cliente_row = cliente_raw[0]
+                cliente_info = ClienteInfo(
+                    cliente_id=cliente_row['cliente_id'],
+                    razon_social=cliente_row.get('razon_social', ''),
+                    subdominio=cliente_row.get('subdominio', ''),
+                    codigo_cliente=cliente_row.get('codigo_cliente'),
+                    nombre_comercial=cliente_row.get('nombre_comercial'),
+                    tipo_instalacion=cliente_row.get('tipo_instalacion', 'cloud'),
+                    estado_suscripcion=cliente_row.get('estado_suscripcion', 'activo')
+                )
+            else:
+                logger.warning(f"[AUDIT] Cliente {log_row['cliente_id']} no encontrado en BD ADMIN")
 
         # Información del usuario
         usuario_info = None

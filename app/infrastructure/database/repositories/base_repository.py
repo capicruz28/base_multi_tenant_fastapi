@@ -13,8 +13,9 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, TypeVar, Generic
 import logging
 
-# ✅ COMPATIBILIDAD: Re-exportar BaseService para mantener imports existentes
-from app.infrastructure.database.repositories.base_service import BaseService
+# ✅ COMPATIBILIDAD: Re-exportar BaseService desde su nueva ubicación
+# BaseService ahora está en app/core/application/base_service.py (corrige violación de capas)
+from app.core.application.base_service import BaseService
 
 from app.infrastructure.database.queries import (
     execute_query,
@@ -25,6 +26,7 @@ from app.infrastructure.database.queries import (
 from app.infrastructure.database.connection import DatabaseConnection
 from app.core.exceptions import DatabaseError, NotFoundError, ValidationError
 from app.core.tenant.context import get_current_client_id
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -79,22 +81,71 @@ class BaseRepository(ABC, Generic[T]):
             # Sin contexto (scripts de fondo, etc.)
             return None
     
-    def _build_tenant_filter(self, client_id: Optional[int] = None) -> tuple:
+    def _build_tenant_filter(
+        self, 
+        client_id: Optional[int] = None,
+        allow_no_context: bool = False
+    ) -> tuple:
         """
         Construye el filtro de tenant para queries.
         
+        ✅ CORRECCIÓN AUDITORÍA: Filtro OBLIGATORIO por defecto.
+        El filtro cliente_id se aplica SIEMPRE excepto en casos muy específicos.
+        
+        Args:
+            client_id: ID del cliente (opcional, usa contexto si no se proporciona)
+            allow_no_context: Si True, permite queries sin contexto (solo si ALLOW_TENANT_FILTER_BYPASS=True)
+        
         Returns:
             Tuple (where_clause, params) para agregar a queries
+        
+        Raises:
+            ValidationError: Si no hay contexto ni client_id y bypass no está permitido
         """
         if not self.tenant_column:
+            # Tabla sin columna de tenant (tabla global)
             return ("", ())
         
         target_client_id = client_id or self._get_current_client_id()
         
         if target_client_id is None:
-            # Sin contexto de tenant, no filtrar (comportamiento actual)
-            return ("", ())
+            # ✅ CORRECCIÓN AUDITORÍA: Bypass solo si está habilitado en configuración
+            if allow_no_context and settings.ALLOW_TENANT_FILTER_BYPASS:
+                # ⚠️ BYPASS PERMITIDO: Solo si está habilitado globalmente Y se solicita explícitamente
+                logger.error(
+                    f"[SECURITY CRITICAL] Query sin filtro de tenant permitida para tabla {self.table_name}. "
+                    f"Esto es un BYPASS de seguridad y solo debería usarse en scripts de migración o mantenimiento. "
+                    f"Si ves este mensaje en producción, revisa inmediatamente."
+                )
+                return ("", ())
+            elif allow_no_context and not settings.ALLOW_TENANT_FILTER_BYPASS:
+                # ⚠️ BYPASS SOLICITADO PERO NO PERMITIDO: Rechazar
+                logger.error(
+                    f"[SECURITY] Intento de bypass de filtro de tenant rechazado para tabla {self.table_name}. "
+                    f"ALLOW_TENANT_FILTER_BYPASS está desactivado. "
+                    f"Proporcione client_id explícitamente."
+                )
+                raise ValidationError(
+                    detail=(
+                        f"Bypass de filtro de tenant no permitido para {self.table_name}. "
+                        f"El filtro cliente_id es OBLIGATORIO por seguridad. "
+                        f"Proporcione client_id explícitamente. "
+                        f"Si es un script de migración, active ALLOW_TENANT_FILTER_BYPASS temporalmente."
+                    ),
+                    internal_code="TENANT_FILTER_BYPASS_DISABLED"
+                )
+            else:
+                # ✅ SEGURIDAD: Requerir contexto de tenant o client_id explícito
+                raise ValidationError(
+                    detail=(
+                        f"Contexto de tenant OBLIGATORIO para acceder a {self.table_name}. "
+                        f"Proporcione client_id explícitamente. "
+                        f"El filtro cliente_id es requerido por seguridad multi-tenant."
+                    ),
+                    internal_code="TENANT_CONTEXT_REQUIRED"
+                )
         
+        # ✅ FILTRO OBLIGATORIO: Siempre aplicar filtro de tenant
         return (f"AND {self.tenant_column} = ?", (target_client_id,))
     
     def find_by_id(
@@ -216,6 +267,15 @@ class BaseRepository(ABC, Generic[T]):
             target_client_id = client_id or self._get_current_client_id()
             if target_client_id:
                 data[self.tenant_column] = target_client_id
+            else:
+                # ✅ SEGURIDAD: Requerir contexto de tenant o client_id explícito para crear
+                raise ValidationError(
+                    detail=(
+                        f"Contexto de tenant requerido para crear en {self.table_name}. "
+                        f"Proporcione client_id explícitamente."
+                    ),
+                    internal_code="TENANT_CONTEXT_REQUIRED_FOR_CREATE"
+                )
         
         # Construir query INSERT
         columns = list(data.keys())

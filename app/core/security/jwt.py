@@ -1,16 +1,22 @@
 # app/core/security/jwt.py
 """
 Utilidades para creación y decodificación de tokens JWT.
+
+✅ ARQUITECTURA: Contiene utilidades de seguridad relacionadas con JWT.
 """
 from datetime import datetime, timedelta
 from typing import Dict, Any
 import logging
 from jose import JWTError, jwt
 from fastapi import HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Swagger/OpenAPI: flujo password con tokenUrl en /api/v1
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login/")
 
 
 def create_access_token(data: dict) -> str:

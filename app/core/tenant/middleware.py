@@ -62,16 +62,22 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
     def _get_host_from_request(self, request: Request) -> str:
         """
-        Extrae el host de la petición con fallback a origin/referer.
-        Esto es necesario para proxies de desarrollo (Vite, etc.) que 
-        reescriben el header Host pero preservan origin/referer.
+        Extrae el host de la petición con fallback a origin/referer SOLO en desarrollo.
         
-        ✅ CORRECCIÓN: También detecta subdominios de infraestructura (backend, api)
-        y usa origin/referer para obtener el tenant real.
+        🔒 SEGURIDAD MEJORADA:
+        - En PRODUCCIÓN: Solo confía en el header Host (no falsificable)
+        - En DESARROLLO: Permite fallback a Origin/Referer para proxies (Vite, etc.)
+        - Valida que el subdominio extraído exista en la BD antes de confiar
         
         Returns:
             str: Host completo (puede incluir puerto)
+        
+        Raises:
+            HTTPException: Si en producción el Host es inválido o no se puede determinar
         """
+        from app.core.config import settings
+        from starlette.responses import JSONResponse
+        
         host = request.headers.get("host", "")
         
         # 🔍 DEBUG: Mostrar headers relevantes
@@ -79,13 +85,32 @@ class TenantMiddleware(BaseHTTPMiddleware):
         logger.debug(f"  - host: {host}")
         logger.debug(f"  - origin: {request.headers.get('origin', 'N/A')}")
         logger.debug(f"  - referer: {request.headers.get('referer', 'N/A')}")
+        logger.debug(f"  - environment: {settings.ENVIRONMENT}")
         
-        # ✅ CORRECCIÓN: Extraer subdominio del host para verificar si es excluido
+        # ✅ SEGURIDAD: En producción, SOLO confiar en Host header
+        if settings.ENVIRONMENT == "production":
+            if not host or host.startswith(("localhost", "127.0.0.1")):
+                logger.error(
+                    f"[SECURITY] Host inválido en producción: '{host}'. "
+                    f"Origin/Referer no se usan en producción por seguridad."
+                )
+                # En producción, rechazar requests sin Host válido
+                raise ValueError(
+                    "Host header requerido y válido en producción. "
+                    "No se permite localhost o IPs privadas."
+                )
+            
+            # En producción, usar directamente el Host (ya validado)
+            logger.debug(f"[HOST_DETECTION] Producción: usando Host directamente: {host}")
+            return host
+        
+        # ✅ DESARROLLO: Permitir fallback a Origin/Referer para proxies
+        # (Mantiene compatibilidad con Vite, webpack-dev-server, etc.)
         host_without_port = host.split(':')[0] if ':' in host else host
         host_subdomain = host_without_port.split('.')[0]
         
         # Si el host es localhost, 127.0.0.1, o un subdominio excluido, 
-        # intentar extraer del origin o referer
+        # intentar extraer del origin o referer (SOLO EN DESARROLLO)
         should_extract_from_origin = (
             host.startswith(("localhost", "127.0.0.1")) or
             host_subdomain in self.EXCLUDED_SUBDOMAINS
@@ -93,7 +118,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         
         if should_extract_from_origin:
             logger.info(
-                f"[HOST_DETECTION] Host '{host}' es localhost/infraestructura, "
+                f"[HOST_DETECTION] Desarrollo: Host '{host}' es localhost/infraestructura, "
                 f"buscando tenant real en origin/referer"
             )
             
@@ -105,9 +130,39 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     # Verificar que el origin no sea también un subdominio excluido
                     origin_subdomain = parsed.netloc.split(':')[0].split('.')[0]
                     if origin_subdomain not in self.EXCLUDED_SUBDOMAINS:
-                        host = parsed.netloc
-                        logger.info(f"[HOST_DETECTION] Tenant extraído de 'origin': {host}")
-                        return host
+                        extracted_host = parsed.netloc
+                        logger.info(
+                            f"[HOST_DETECTION] Desarrollo: Tenant extraído de 'origin': {extracted_host}"
+                        )
+                        # ✅ VALIDACIÓN ADICIONAL: Verificar que el subdominio existe en BD
+                        # Esto previene spoofing incluso en desarrollo
+                        # EXCEPCIÓN: 'platform' es el subdominio del superadmin y no está en BD
+                        try:
+                            subdomain = self._extract_subdomain(extracted_host)
+                            if subdomain:
+                                # ✅ CORRECCIÓN: Reconocer 'platform' como subdominio del superadmin
+                                if subdomain.lower() == self.superadmin_subdominio.lower():
+                                    logger.debug(
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' reconocido como SUPERADMIN"
+                                    )
+                                    return extracted_host
+                                
+                                # Para otros subdominios, validar en BD
+                                client_data = self._get_client_data_by_subdomain(subdomain)
+                                if client_data:
+                                    logger.debug(
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD"
+                                    )
+                                    return extracted_host
+                                else:
+                                    logger.warning(
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' no existe en BD, "
+                                        f"rechazando origin"
+                                    )
+                        except Exception as e:
+                            logger.warning(
+                                f"[HOST_DETECTION] Error validando subdominio de origin: {e}"
+                            )
             
             # Si no, intentar con referer
             referer = request.headers.get("referer", "")
@@ -117,9 +172,38 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     # Verificar que el referer no sea también un subdominio excluido
                     referer_subdomain = parsed.netloc.split(':')[0].split('.')[0]
                     if referer_subdomain not in self.EXCLUDED_SUBDOMAINS:
-                        host = parsed.netloc
-                        logger.info(f"[HOST_DETECTION] Tenant extraído de 'referer': {host}")
-                        return host
+                        extracted_host = parsed.netloc
+                        logger.info(
+                            f"[HOST_DETECTION] Desarrollo: Tenant extraído de 'referer': {extracted_host}"
+                        )
+                        # ✅ VALIDACIÓN ADICIONAL: Verificar que el subdominio existe en BD
+                        # EXCEPCIÓN: 'platform' es el subdominio del superadmin y no está en BD
+                        try:
+                            subdomain = self._extract_subdomain(extracted_host)
+                            if subdomain:
+                                # ✅ CORRECCIÓN: Reconocer 'platform' como subdominio del superadmin
+                                if subdomain.lower() == self.superadmin_subdominio.lower():
+                                    logger.debug(
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' reconocido como SUPERADMIN"
+                                    )
+                                    return extracted_host
+                                
+                                # Para otros subdominios, validar en BD
+                                client_data = self._get_client_data_by_subdomain(subdomain)
+                                if client_data:
+                                    logger.debug(
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD"
+                                    )
+                                    return extracted_host
+                                else:
+                                    logger.warning(
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' no existe en BD, "
+                                        f"rechazando referer"
+                                    )
+                        except Exception as e:
+                            logger.warning(
+                                f"[HOST_DETECTION] Error validando subdominio de referer: {e}"
+                            )
             
             logger.warning(
                 f"[HOST_DETECTION] No se pudo extraer tenant real de origin/referer, "
@@ -143,7 +227,19 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # ============================================
         
         # 🔧 NUEVO: Obtener host con fallback a origin/referer
-        host = self._get_host_from_request(request)
+        try:
+            host = self._get_host_from_request(request)
+        except ValueError as e:
+            # ✅ SEGURIDAD: En producción, rechazar requests sin Host válido
+            logger.error(f"[SECURITY] Error de seguridad en detección de host: {e}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Host header inválido o faltante. "
+                             "En producción, el Host header es requerido y no puede ser localhost."
+                }
+            )
+        
         subdomain = self._extract_subdomain(host)
         
         client_id: Optional[int] = self.default_client_id

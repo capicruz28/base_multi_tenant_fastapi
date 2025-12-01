@@ -22,7 +22,7 @@ from app.core.exceptions import (
     ServiceError,
     DatabaseError
 )
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 from app.modules.auth.presentation.schemas import AuthConfigCreate, AuthConfigUpdate, AuthConfigRead
 from app.infrastructure.database.connection import DatabaseConnection
 

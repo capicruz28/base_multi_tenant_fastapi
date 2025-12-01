@@ -42,7 +42,7 @@ from app.core.exceptions import (
 )
 
 # Base Service
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 
 logger = logging.getLogger(__name__)
 
@@ -338,26 +338,37 @@ class SuperadminUsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_usuario_completo(usuario_id: int) -> Optional[Dict]:
+    async def obtener_usuario_completo(usuario_id: int, cliente_id: Optional[int] = None) -> Optional[Dict]:
         """
         Obtiene información completa de un usuario (Superadmin puede ver cualquier usuario).
+        
+        Args:
+            usuario_id: ID del usuario a obtener
+            cliente_id: ID del cliente (opcional). Si se proporciona, consulta directamente en la BD de ese tenant.
+                       Si no se proporciona, obtiene el cliente_id del usuario desde BD ADMIN.
         """
-        logger.info(f"Obteniendo usuario completo ID {usuario_id} (Superadmin)")
+        logger.info(f"Obteniendo usuario completo ID {usuario_id} (Superadmin), cliente_id: {cliente_id}")
 
-        # Primero obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
-        # para saber qué conexión usar
+        # Si se proporciona cliente_id, usarlo directamente
+        # Si no, obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
         from app.infrastructure.database.connection import DatabaseConnection
-        query_cliente = """
-        SELECT cliente_id
-        FROM dbo.usuario
-        WHERE usuario_id = ? AND es_eliminado = 0
-        """
-        cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+        usuario_cliente_id = cliente_id
         
-        if not cliente_info_raw:
-            return None
-        
-        usuario_cliente_id = cliente_info_raw[0]['cliente_id']
+        if not usuario_cliente_id:
+            query_cliente = """
+            SELECT cliente_id
+            FROM dbo.usuario
+            WHERE usuario_id = ? AND es_eliminado = 0
+            """
+            cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+            
+            if not cliente_info_raw:
+                return None
+            
+            usuario_cliente_id = cliente_info_raw[0]['cliente_id']
+            logger.info(f"[USUARIO] Cliente_id del usuario {usuario_id} obtenido desde BD ADMIN: {usuario_cliente_id}")
+        else:
+            logger.info(f"[USUARIO] Usando cliente_id proporcionado: {usuario_cliente_id}")
         
         # Obtener usuario básico usando la conexión del cliente (SIN JOIN con cliente)
         query = """
@@ -448,13 +459,21 @@ class SuperadminUsuarioService(BaseService):
     @BaseService.handle_service_errors
     async def obtener_actividad_usuario(
         usuario_id: int,
+        cliente_id: Optional[int] = None,
         limite: int = 50,
         tipo_evento: Optional[str] = None
     ) -> Dict:
         """
         Obtiene actividad reciente de un usuario.
+        
+        Args:
+            usuario_id: ID del usuario
+            cliente_id: ID del cliente (opcional). Si se proporciona, consulta directamente en la BD de ese tenant.
+                       Si no se proporciona, obtiene el cliente_id del usuario desde BD ADMIN.
+            limite: Número de eventos a retornar
+            tipo_evento: Tipo de evento a filtrar (opcional)
         """
-        logger.info(f"Obteniendo actividad para usuario {usuario_id}")
+        logger.info(f"Obteniendo actividad para usuario {usuario_id}, cliente_id: {cliente_id}")
 
         # Validar límite
         if limite < 1 or limite > 200:
@@ -463,22 +482,29 @@ class SuperadminUsuarioService(BaseService):
                 internal_code="INVALID_LIMIT"
             )
 
-        # Primero obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
+        # Si se proporciona cliente_id, usarlo directamente
+        # Si no, obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
         from app.infrastructure.database.connection import DatabaseConnection
-        query_cliente = """
-        SELECT cliente_id
-        FROM dbo.usuario
-        WHERE usuario_id = ? AND es_eliminado = 0
-        """
-        cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+        usuario_cliente_id = cliente_id
         
-        if not cliente_info_raw:
-            raise NotFoundError(
-                detail=f"Usuario con ID {usuario_id} no encontrado.",
-                internal_code="USER_NOT_FOUND"
-            )
-        
-        usuario_cliente_id = cliente_info_raw[0]['cliente_id']
+        if not usuario_cliente_id:
+            query_cliente = """
+            SELECT cliente_id
+            FROM dbo.usuario
+            WHERE usuario_id = ? AND es_eliminado = 0
+            """
+            cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+            
+            if not cliente_info_raw:
+                raise NotFoundError(
+                    detail=f"Usuario con ID {usuario_id} no encontrado.",
+                    internal_code="USER_NOT_FOUND"
+                )
+            
+            usuario_cliente_id = cliente_info_raw[0]['cliente_id']
+            logger.info(f"[ACTIVIDAD] Cliente_id del usuario {usuario_id} obtenido desde BD ADMIN: {usuario_cliente_id}")
+        else:
+            logger.info(f"[ACTIVIDAD] Usando cliente_id proporcionado: {usuario_cliente_id}")
         
         # Obtener información básica del usuario usando la conexión del cliente
         query_usuario = """
@@ -576,29 +602,43 @@ class SuperadminUsuarioService(BaseService):
     @BaseService.handle_service_errors
     async def obtener_sesiones_usuario(
         usuario_id: int,
+        cliente_id: Optional[int] = None,
         solo_activas: bool = True
     ) -> Dict:
         """
         Obtiene sesiones (tokens refresh) de un usuario.
+        
+        Args:
+            usuario_id: ID del usuario
+            cliente_id: ID del cliente (opcional). Si se proporciona, consulta directamente en la BD de ese tenant.
+                       Si no se proporciona, obtiene el cliente_id del usuario desde BD ADMIN.
+            solo_activas: Si solo mostrar sesiones activas
         """
-        logger.info(f"Obteniendo sesiones para usuario {usuario_id}")
+        logger.info(f"Obteniendo sesiones para usuario {usuario_id}, cliente_id: {cliente_id}")
 
-        # Primero obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
+        # Si se proporciona cliente_id, usarlo directamente
+        # Si no, obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
         from app.infrastructure.database.connection import DatabaseConnection
-        query_cliente = """
-        SELECT cliente_id
-        FROM dbo.usuario
-        WHERE usuario_id = ? AND es_eliminado = 0
-        """
-        cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+        usuario_cliente_id = cliente_id
         
-        if not cliente_info_raw:
-            raise NotFoundError(
-                detail=f"Usuario con ID {usuario_id} no encontrado.",
-                internal_code="USER_NOT_FOUND"
-            )
-        
-        usuario_cliente_id = cliente_info_raw[0]['cliente_id']
+        if not usuario_cliente_id:
+            query_cliente = """
+            SELECT cliente_id
+            FROM dbo.usuario
+            WHERE usuario_id = ? AND es_eliminado = 0
+            """
+            cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+            
+            if not cliente_info_raw:
+                raise NotFoundError(
+                    detail=f"Usuario con ID {usuario_id} no encontrado.",
+                    internal_code="USER_NOT_FOUND"
+                )
+            
+            usuario_cliente_id = cliente_info_raw[0]['cliente_id']
+            logger.info(f"[SESIONES] Cliente_id del usuario {usuario_id} obtenido desde BD ADMIN: {usuario_cliente_id}")
+        else:
+            logger.info(f"[SESIONES] Usando cliente_id proporcionado: {usuario_cliente_id}")
         
         # Validar que usuario existe usando la conexión del cliente
         query_usuario = """

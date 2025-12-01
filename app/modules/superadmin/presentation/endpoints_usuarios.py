@@ -135,6 +135,9 @@ async def list_usuarios_global(
     **Parámetros de ruta:**
     - usuario_id: ID numérico del usuario a consultar
     
+    **Parámetros de consulta:**
+    - cliente_id (opcional): Filtrar por cliente específico. Si se proporciona, consulta directamente en la BD de ese tenant.
+    
     **Respuestas:**
     - 200: Usuario encontrado y devuelto
     - 403: Acceso denegado - se requiere nivel de super administrador
@@ -145,15 +148,16 @@ async def list_usuarios_global(
 @require_super_admin()
 async def read_usuario_superadmin(
     usuario_id: int,
+    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user)
 ):
     """
     Endpoint para obtener los detalles completos de un usuario específico (Superadmin).
     """
-    logger.debug(f"Superadmin {current_user.usuario_id} solicitando usuario ID {usuario_id}")
+    logger.debug(f"Superadmin {current_user.usuario_id} solicitando usuario ID {usuario_id}, cliente_id: {cliente_id}")
     
     try:
-        usuario = await SuperadminUsuarioService.obtener_usuario_completo(usuario_id)
+        usuario = await SuperadminUsuarioService.obtener_usuario_completo(usuario_id, cliente_id=cliente_id)
         
         if usuario is None:
             logger.warning(f"Usuario con ID {usuario_id} no encontrado")
@@ -195,6 +199,7 @@ async def read_usuario_superadmin(
     - usuario_id: ID numérico del usuario
     
     **Parámetros de query:**
+    - cliente_id (opcional): Filtrar por cliente específico. Si se proporciona, consulta directamente en la BD de ese tenant.
     - limite: Número de eventos a retornar (1-200, default: 50)
     - tipo_evento: Filtrar por tipo de evento (opcional)
     
@@ -208,6 +213,7 @@ async def read_usuario_superadmin(
 @require_super_admin()
 async def read_usuario_actividad(
     usuario_id: int,
+    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user),
     limite: int = Query(50, ge=1, le=200, description="Número de eventos a retornar"),
     tipo_evento: Optional[str] = Query(None, description="Filtrar por tipo de evento")
@@ -215,11 +221,12 @@ async def read_usuario_actividad(
     """
     Endpoint para obtener la actividad reciente de un usuario.
     """
-    logger.debug(f"Superadmin {current_user.usuario_id} solicitando actividad de usuario ID {usuario_id}")
+    logger.debug(f"Superadmin {current_user.usuario_id} solicitando actividad de usuario ID {usuario_id}, cliente_id: {cliente_id}")
     
     try:
         actividad = await SuperadminUsuarioService.obtener_actividad_usuario(
             usuario_id=usuario_id,
+            cliente_id=cliente_id,
             limite=limite,
             tipo_evento=tipo_evento
         )
@@ -257,6 +264,7 @@ async def read_usuario_actividad(
     - usuario_id: ID numérico del usuario
     
     **Parámetros de query:**
+    - cliente_id (opcional): Filtrar por cliente específico. Si se proporciona, consulta directamente en la BD de ese tenant.
     - solo_activas: Si solo mostrar sesiones activas (default: true)
     
     **Respuestas:**
@@ -269,17 +277,19 @@ async def read_usuario_actividad(
 @require_super_admin()
 async def read_usuario_sesiones(
     usuario_id: int,
+    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user),
     solo_activas: bool = Query(True, description="Solo mostrar sesiones activas")
 ):
     """
     Endpoint para obtener las sesiones de un usuario.
     """
-    logger.debug(f"Superadmin {current_user.usuario_id} solicitando sesiones de usuario ID {usuario_id}")
+    logger.debug(f"Superadmin {current_user.usuario_id} solicitando sesiones de usuario ID {usuario_id}, cliente_id: {cliente_id}")
     
     try:
         sesiones = await SuperadminUsuarioService.obtener_sesiones_usuario(
             usuario_id=usuario_id,
+            cliente_id=cliente_id,
             solo_activas=solo_activas
         )
         

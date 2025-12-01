@@ -29,6 +29,7 @@ from app.modules.tenant.presentation.schemas import ConexionCreate, ConexionRead
 from app.modules.tenant.application.services.modulo_service import ModuloService
 from app.modules.tenant.application.services.modulo_activo_service import ModuloActivoService
 from app.modules.tenant.application.services.conexion_service import ConexionService
+from app.core.exceptions import CustomException
 from app.api.deps import get_current_active_user
 from app.core.authorization.lbac import require_super_admin
 
@@ -567,28 +568,44 @@ async def desactivar_modulo_cliente(
     """
     logger.info(f"Solicitud POST /clientes/{cliente_id}/modulos/{modulo_id}/desactivar/ recibida")
     
-    # Obtener el módulo activo
-    modulo_activo = await ModuloActivoService.obtener_modulo_activo_por_cliente_y_modulo(
-        cliente_id, modulo_id
-    )
-    
-    if not modulo_activo:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Módulo {modulo_id} no está activado para el cliente {cliente_id}."
+    try:
+        # Obtener el módulo activo
+        modulo_activo = await ModuloActivoService.obtener_modulo_activo_por_cliente_y_modulo(
+            cliente_id, modulo_id
         )
+        
+        if not modulo_activo:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Módulo {modulo_id} no está activado para el cliente {cliente_id}."
+            )
+        
+        # Desactivar módulo
+        await ModuloActivoService.desactivar_modulo(modulo_activo.cliente_modulo_activo_id)
+        
+        logger.info(f"Módulo {modulo_id} desactivado para cliente {cliente_id}")
+        
+        return {
+            "success": True,
+            "message": "Módulo desactivado exitosamente para el cliente.",
+            "cliente_id": cliente_id,
+            "modulo_id": modulo_id
+        }
     
-    # Desactivar módulo
-    await ModuloActivoService.desactivar_modulo(modulo_activo.cliente_modulo_activo_id)
-    
-    logger.info(f"Módulo {modulo_id} desactivado para cliente {cliente_id}")
-    
-    return {
-        "success": True,
-        "message": "Módulo desactivado exitosamente para el cliente.",
-        "cliente_id": cliente_id,
-        "modulo_id": modulo_id
-    }
+    except HTTPException:
+        raise
+    except CustomException as ce:
+        logger.warning(f"Error de negocio al desactivar módulo {modulo_id} para cliente {cliente_id}: {ce.detail}")
+        raise HTTPException(
+            status_code=ce.status_code,
+            detail=ce.detail
+        )
+    except Exception as e:
+        logger.exception(f"Error inesperado al desactivar módulo {modulo_id} para cliente {cliente_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor al desactivar el módulo."
+        )
 
 
 # ============================================================================

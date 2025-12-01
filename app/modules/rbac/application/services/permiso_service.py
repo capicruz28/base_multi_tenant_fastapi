@@ -11,7 +11,7 @@ from app.core.exceptions import (
 )
 
 # 🏗️ BASE SERVICE - Clase base para manejo consistente de errores
-from app.infrastructure.database.repositories.base_repository import BaseService
+from app.core.application.base_service import BaseService
 
 # 👥 SERVICIOS RELACIONADOS
 from app.modules.rbac.application.services.rol_service import RolService

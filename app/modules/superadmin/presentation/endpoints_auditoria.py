@@ -147,6 +147,9 @@ async def list_logs_autenticacion(
     **Parámetros de ruta:**
     - log_id: ID numérico del log
     
+    **Parámetros de consulta:**
+    - cliente_id (opcional): Filtrar por cliente específico. Si se proporciona, consulta directamente en la BD de ese tenant.
+    
     **Respuestas:**
     - 200: Log encontrado y devuelto
     - 403: Acceso denegado
@@ -157,15 +160,16 @@ async def list_logs_autenticacion(
 @require_super_admin()
 async def read_log_autenticacion(
     log_id: int,
+    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user)
 ):
     """
     Endpoint para obtener el detalle completo de un log de autenticación.
     """
-    logger.debug(f"Superadmin {current_user.usuario_id} solicitando log de autenticación ID {log_id}")
+    logger.debug(f"Superadmin {current_user.usuario_id} solicitando log de autenticación ID {log_id}, cliente_id: {cliente_id}")
     
     try:
-        log = await SuperadminAuditoriaService.obtener_log_autenticacion(log_id)
+        log = await SuperadminAuditoriaService.obtener_log_autenticacion(log_id, cliente_id=cliente_id)
         
         if log is None:
             logger.warning(f"Log de autenticación con ID {log_id} no encontrado")

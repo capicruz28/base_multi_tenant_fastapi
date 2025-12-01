@@ -1,6 +1,10 @@
-# app/infrastructure/database/repositories/base_service.py
+# app/core/application/base_service.py
 """
 BaseService: Clase base para todos los servicios con manejo estandarizado de errores.
+
+✅ ARQUITECTURA: Movido desde app/infrastructure/database/repositories/base_service.py
+para corregir violación de capas. BaseService pertenece a la capa de aplicación,
+no a la capa de infraestructura.
 
 Esta clase proporciona utilidades comunes para validación, logging y manejo de errores
 que todos los servicios pueden usar.
@@ -20,6 +24,11 @@ logger = logging.getLogger(__name__)
 class BaseService:
     """
     Clase base para todos los servicios con manejo estandarizado de errores.
+    
+    ✅ ARQUITECTURA: Ubicado en core/application porque:
+    - Pertenece a la capa de aplicación (no infraestructura)
+    - Es usado por servicios de aplicación en todos los módulos
+    - No tiene dependencias de infraestructura (solo excepciones core)
     
     IMPORTANTE: Todos los servicios deben heredar de esta clase para garantizar
     consistencia en el manejo de errores y validaciones.
