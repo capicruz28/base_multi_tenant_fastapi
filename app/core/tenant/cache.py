@@ -3,7 +3,7 @@
 Sistema de cache para metadata de conexiones de clientes.
 
 PROPÓSITO:
-- Evitar consultas repetidas a cliente_modulo_conexion por cada request
+- Evitar consultas repetidas a cliente_conexion por cada request
 - Reducir latencia en resolución de conexiones
 - Permitir invalidación manual cuando cambia configuración
 

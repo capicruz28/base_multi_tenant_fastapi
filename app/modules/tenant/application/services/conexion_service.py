@@ -1,12 +1,12 @@
 # app/services/conexion_service.py
 """
-Servicio para la gestión de conexiones de base de datos por cliente y módulo en arquitectura multi-tenant.
-Este servicio implementa la lógica de negocio para operaciones sobre la entidad `cliente_modulo_conexion`,
+Servicio para la gestión de conexiones de base de datos por cliente en arquitectura multi-tenant.
+Este servicio implementa la lógica de negocio para operaciones sobre la entidad `cliente_conexion`,
 incluyendo la creación, validación, testing y gestión del ciclo de vida de conexiones de BD.
 
 Características clave:
 - Gestión segura de credenciales de base de datos con encriptación
-- Validación de conexiones únicas por cliente-módulo
+- Validación de conexiones únicas por cliente (una conexión principal por cliente)
 - Testing de conectividad en tiempo real
 - Soporte para múltiples motores de BD (SQL Server, PostgreSQL, MySQL, Oracle)
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 class ConexionService(BaseService):
     """
-    Servicio central para la administración de conexiones de base de datos por cliente-módulo.
+    Servicio central para la administración de conexiones de base de datos por cliente.
     """
 
     @staticmethod
@@ -44,15 +44,15 @@ class ConexionService(BaseService):
 
         query = """
         SELECT 
-            conexion_id, cliente_id, modulo_id, servidor, puerto, nombre_bd,
+            conexion_id, cliente_id, servidor, puerto, nombre_bd,
             usuario_encriptado, password_encriptado, connection_string_encriptado,
             tipo_bd, usa_ssl, timeout_segundos, max_pool_size,
             es_solo_lectura, es_conexion_principal, es_activo,
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
-        FROM cliente_modulo_conexion
+        FROM cliente_conexion
         WHERE cliente_id = ? --AND es_activo = 1
-        ORDER BY modulo_id, es_conexion_principal DESC
+        ORDER BY es_conexion_principal DESC, conexion_id DESC
         """
         
         resultados = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
@@ -66,13 +66,13 @@ class ConexionService(BaseService):
         """
         query = """
         SELECT 
-            conexion_id, cliente_id, modulo_id, servidor, puerto, nombre_bd,
+            conexion_id, cliente_id, servidor, puerto, nombre_bd,
             usuario_encriptado, password_encriptado, connection_string_encriptado,
             tipo_bd, usa_ssl, timeout_segundos, max_pool_size,
             es_solo_lectura, es_conexion_principal, es_activo,
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
-        FROM cliente_modulo_conexion
+        FROM cliente_conexion
         WHERE conexion_id = ?
         """
         
@@ -83,38 +83,38 @@ class ConexionService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_conexion_principal(cliente_id: int, modulo_id: int) -> Optional[ConexionRead]:
+    async def obtener_conexion_principal(cliente_id: int) -> Optional[ConexionRead]:
         """
-        Obtiene la conexión principal para un cliente y módulo específicos.
+        Obtiene la conexión principal para un cliente específico.
         """
         query = """
         SELECT 
-            conexion_id, cliente_id, modulo_id, servidor, puerto, nombre_bd,
+            conexion_id, cliente_id, servidor, puerto, nombre_bd,
             usuario_encriptado, password_encriptado, connection_string_encriptado,
             tipo_bd, usa_ssl, timeout_segundos, max_pool_size,
             es_solo_lectura, es_conexion_principal, es_activo,
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
-        FROM cliente_modulo_conexion
-        WHERE cliente_id = ? AND modulo_id = ? AND es_conexion_principal = 1 AND es_activo = 1
+        FROM cliente_conexion
+        WHERE cliente_id = ? AND es_conexion_principal = 1 AND es_activo = 1
         """
         
-        resultado = execute_query(query, (cliente_id, modulo_id), connection_type=DatabaseConnection.ADMIN)
+        resultado = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             return None
         return ConexionRead(**resultado[0])
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def _validar_conexion_unica(cliente_id: int, modulo_id: int, conexion_id: Optional[int] = None) -> None:
+    async def _validar_conexion_unica(cliente_id: int, conexion_id: Optional[int] = None) -> None:
         """
-        Valida que solo exista una conexión principal por cliente-módulo.
+        Valida que solo exista una conexión principal por cliente.
         """
         query = """
-        SELECT conexion_id FROM cliente_modulo_conexion 
-        WHERE cliente_id = ? AND modulo_id = ? AND es_conexion_principal = 1 AND es_activo = 1
+        SELECT conexion_id FROM cliente_conexion 
+        WHERE cliente_id = ? AND es_conexion_principal = 1 AND es_activo = 1
         """
-        params = [cliente_id, modulo_id]
+        params = [cliente_id]
         
         if conexion_id:
             query += " AND conexion_id != ?"
@@ -123,7 +123,7 @@ class ConexionService(BaseService):
         resultado = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if resultado:
             raise ConflictError(
-                detail="Ya existe una conexión principal activa para este cliente y módulo.",
+                detail="Ya existe una conexión principal activa para este cliente.",
                 internal_code="PRIMARY_CONNECTION_CONFLICT"
             )
 
@@ -153,15 +153,14 @@ class ConexionService(BaseService):
     @BaseService.handle_service_errors
     async def crear_conexion(conexion_data: ConexionCreate, creado_por_usuario_id: int) -> ConexionRead:
         """
-        Crea una nueva conexión de base de datos para un cliente y módulo.
+        Crea una nueva conexión de base de datos para un cliente.
         """
-        logger.info(f"Creando nueva conexión para cliente {conexion_data.cliente_id}, módulo {conexion_data.modulo_id}")
+        logger.info(f"Creando nueva conexión para cliente {conexion_data.cliente_id}")
 
         # Validar unicidad si es conexión principal
         if conexion_data.es_conexion_principal:
             await ConexionService._validar_conexion_unica(
-                conexion_data.cliente_id, 
-                conexion_data.modulo_id
+                conexion_data.cliente_id
             )
 
         # Encriptar credenciales
@@ -172,7 +171,7 @@ class ConexionService(BaseService):
 
         # Preparar datos para inserción
         fields = [
-            'cliente_id', 'modulo_id', 'servidor', 'puerto', 'nombre_bd',
+            'cliente_id', 'servidor', 'puerto', 'nombre_bd',
             'usuario_encriptado', 'password_encriptado', 'connection_string_encriptado',
             'tipo_bd', 'usa_ssl', 'timeout_segundos', 'max_pool_size',
             'es_solo_lectura', 'es_conexion_principal', 'es_activo', 'creado_por_usuario_id'
@@ -180,7 +179,6 @@ class ConexionService(BaseService):
         
         params = [
             conexion_data.cliente_id,
-            conexion_data.modulo_id,
             conexion_data.servidor,
             conexion_data.puerto,
             conexion_data.nombre_bd,
@@ -198,11 +196,10 @@ class ConexionService(BaseService):
         ]
 
         query = f"""
-        INSERT INTO cliente_modulo_conexion ({', '.join(fields)})
+        INSERT INTO cliente_conexion ({', '.join(fields)})
         OUTPUT 
             INSERTED.conexion_id,
             INSERTED.cliente_id,
-            INSERTED.modulo_id,
             INSERTED.servidor,
             INSERTED.puerto,
             INSERTED.nombre_bd,
@@ -256,7 +253,6 @@ class ConexionService(BaseService):
         if conexion_data.es_conexion_principal:
             await ConexionService._validar_conexion_unica(
                 conexion_existente.cliente_id,
-                conexion_existente.modulo_id,
                 conexion_id
             )
 
@@ -289,12 +285,11 @@ class ConexionService(BaseService):
         params.append(conexion_id)
 
         query = f"""
-        UPDATE cliente_modulo_conexion
+        UPDATE cliente_conexion
         SET {', '.join(update_fields)}, fecha_actualizacion = GETDATE()
         OUTPUT 
             INSERTED.conexion_id,
             INSERTED.cliente_id,
-            INSERTED.modulo_id,
             INSERTED.servidor,
             INSERTED.puerto,
             INSERTED.nombre_bd,
@@ -388,12 +383,11 @@ class ConexionService(BaseService):
             )
 
         query = """
-        UPDATE cliente_modulo_conexion
+        UPDATE cliente_conexion
         SET es_activo = 0, fecha_actualizacion = GETDATE()
         OUTPUT 
             INSERTED.conexion_id,
             INSERTED.cliente_id,
-            INSERTED.modulo_id,
             INSERTED.servidor,
             INSERTED.puerto,
             INSERTED.nombre_bd,

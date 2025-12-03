@@ -69,7 +69,7 @@ async def execute_query_async(
             # Tablas globales que no requieren filtro
             global_tables = [
                 'cliente', 'cliente_modulo', 'modulo', 'cliente_modulo_activo', 
-                'cliente_modulo_conexion', 'sistema_config'
+                'cliente_conexion', 'sistema_config'
             ]
             
             is_global_table = any(

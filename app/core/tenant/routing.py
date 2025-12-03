@@ -7,7 +7,7 @@ ARQUITECTURA SOPORTADA:
 
 FLUJO DE ROUTING:
 1. Obtener cliente_id del contexto actual (TenantContext)
-2. Consultar metadata en cliente_modulo_conexion (con cache)
+2. Consultar metadata en cliente_conexion (con cache)
 3. Determinar database_type (single/multi)
 4. Construir connection string apropiado
 5. Retornar conexión
@@ -72,23 +72,23 @@ def _query_connection_metadata_from_db(client_id: int) -> Optional[Dict[str, Any
     # Query para obtener metadata de conexión
     query = """
         SELECT 
-            cmc.conexion_id,
-            cmc.servidor,
-            cmc.puerto,
-            cmc.nombre_bd,
-            cmc.usuario_encriptado,
-            cmc.password_encriptado,
-            cmc.tipo_bd,
-            cmc.usa_ssl,
+            cc.conexion_id,
+            cc.servidor,
+            cc.puerto,
+            cc.nombre_bd,
+            cc.usuario_encriptado,
+            cc.password_encriptado,
+            cc.tipo_bd,
+            cc.usa_ssl,
             c.tipo_instalacion,
             c.metadata_json
-        FROM cliente_modulo_conexion cmc
-        JOIN cliente c ON cmc.cliente_id = c.cliente_id
+        FROM cliente_conexion cc
+        JOIN cliente c ON cc.cliente_id = c.cliente_id
         WHERE 
-            cmc.cliente_id = ? 
-            AND cmc.es_activo = 1 
-            AND cmc.es_conexion_principal = 1
-        ORDER BY cmc.conexion_id DESC
+            cc.cliente_id = ? 
+            AND cc.es_activo = 1 
+            AND cc.es_conexion_principal = 1
+        ORDER BY cc.conexion_id DESC
     """
     
     conn = None
@@ -530,7 +530,7 @@ def invalidate_client_connection_cache(client_id: int) -> bool:
     Invalida el cache de metadata para un cliente específico.
     
     CUÁNDO USAR:
-    - Después de actualizar cliente_modulo_conexion
+    - Después de actualizar cliente_conexion
     - Al cambiar database_type de un cliente
     - Al rotar credenciales
     

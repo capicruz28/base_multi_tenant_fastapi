@@ -4,7 +4,7 @@ Middleware para identificación y contextualización del cliente (tenant)
 con soporte para arquitectura HÍBRIDA (Single-DB + Multi-DB).
 
 MEJORAS EN ESTA VERSIÓN:
-- Carga metadata de conexión desde cliente_modulo_conexion
+- Carga metadata de conexión desde cliente_conexion
 - Determina database_type (single/multi) automáticamente
 - Establece contexto enriquecido con información de BD
 - Mantiene compatibilidad con código existente

@@ -25,7 +25,7 @@ from app.modules.tenant.presentation.schemas import (
     PaginatedModuloResponse, ModuloDeleteResponse,
     ModuloActivoRead, ModuloActivoCreate, ModuloActivoUpdate
 )
-from app.modules.tenant.presentation.schemas import ConexionCreate, ConexionRead
+from app.modules.tenant.presentation.schemas import ConexionCreate, ConexionRead, ConexionTest
 from app.modules.tenant.application.services.modulo_service import ModuloService
 from app.modules.tenant.application.services.modulo_activo_service import ModuloActivoService
 from app.modules.tenant.application.services.conexion_service import ConexionService
@@ -679,7 +679,6 @@ async def activar_modulo_completo(
         test_conexion = None
         if conexion_data:
             conexion_data.cliente_id = cliente_id
-            conexion_data.modulo_id = modulo_id
             
             conexion = await ConexionService.crear_conexion(
                 conexion_data,
@@ -688,7 +687,6 @@ async def activar_modulo_completo(
             logger.info(f"[WORKFLOW] Conexión configurada exitosamente")
             
             # Paso 5: Testear conexión
-            from app.schemas.conexion import ConexionTest
             test_data = ConexionTest(
                 servidor=conexion_data.servidor,
                 puerto=conexion_data.puerto,
@@ -770,16 +768,15 @@ async def desactivar_modulo_completo(
                 detail=f"Módulo {modulo_id} no está activado para el cliente {cliente_id}."
             )
         
-        # Paso 2: Obtener y desactivar conexiones asociadas
+        # Paso 2: Obtener conexiones del cliente (nota: conexiones son por cliente, no por módulo)
         conexiones = await ConexionService.obtener_conexiones_cliente(cliente_id)
-        conexiones_modulo = [c for c in conexiones if c.modulo_id == modulo_id]
         
+        # Nota: En el nuevo modelo, las conexiones son por cliente, no por módulo
+        # Por lo tanto, no se desactivan automáticamente al desactivar un módulo
+        # Si se requiere desactivar conexiones, debe hacerse manualmente
         conexiones_desactivadas = []
-        for conexion in conexiones_modulo:
-            await ConexionService.desactivar_conexion(conexion.conexion_id)
-            conexiones_desactivadas.append(conexion.conexion_id)
         
-        logger.info(f"[WORKFLOW] Desactivadas {len(conexiones_desactivadas)} conexiones")
+        logger.info(f"[WORKFLOW] Módulo desactivado. Conexiones del cliente: {len(conexiones)} (no se desactivan automáticamente)")
         
         # Paso 3: Desactivar módulo
         await ModuloActivoService.desactivar_modulo(modulo_activo.cliente_modulo_activo_id)
@@ -867,12 +864,11 @@ async def obtener_estado_completo_modulo(
             cliente_id, modulo_id
         )
         
-        # Paso 4: Obtener conexiones
+        # Paso 4: Obtener conexiones del cliente (nota: conexiones son por cliente, no por módulo)
         conexiones = await ConexionService.obtener_conexiones_cliente(cliente_id)
-        conexiones_modulo = [c for c in conexiones if c.modulo_id == modulo_id]
         
-        # Paso 5: Obtener conexión principal
-        conexion_principal = await ConexionService.obtener_conexion_principal(cliente_id, modulo_id)
+        # Paso 5: Obtener conexión principal del cliente
+        conexion_principal = await ConexionService.obtener_conexion_principal(cliente_id)
         
         # Paso 6: Retornar estado completo
         return {
@@ -884,9 +880,9 @@ async def obtener_estado_completo_modulo(
                 "activacion": modulo_activo,
                 "estadisticas": estadisticas,
                 "conexiones": {
-                    "total": len(conexiones_modulo),
+                    "total": len(conexiones),
                     "principal": conexion_principal,
-                    "todas": conexiones_modulo
+                    "todas": conexiones
                 }
             }
         }

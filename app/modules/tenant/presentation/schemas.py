@@ -769,7 +769,7 @@ class ModuloDeleteResponse(BaseModel):
 """
 Esquemas Pydantic para la entidad Conexion en arquitectura multi-tenant.
 Estos esquemas definen la estructura de datos para la gestión de conexiones de base de datos
-por cliente y módulo, incluyendo validación de configuraciones, encriptación de credenciales
+por cliente, incluyendo validación de configuraciones, encriptación de credenciales
 y soporte para múltiples motores de base de datos.
 
 Características clave:
@@ -777,7 +777,7 @@ Características clave:
 - Soporte para múltiples motores (SQL Server, PostgreSQL, MySQL, Oracle)
 - Manejo seguro de credenciales con encriptación
 - Configuración de connection pooling y timeouts
-- Total coherencia con la estructura de la tabla cliente_modulo_conexion
+- Total coherencia con la estructura de la tabla cliente_conexion
 """
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -787,14 +787,13 @@ import re
 
 class ConexionBase(BaseModel):
     """
-    Esquema base para la entidad Conexion, alineado con la tabla cliente_modulo_conexion.
-    Define la configuración de conexiones de base de datos específicas por cliente y módulo.
+    Esquema base para la entidad Conexion, alineado con la tabla cliente_conexion.
+    Define la configuración de conexiones de base de datos específicas por cliente.
     """
     # ========================================
     # IDENTIFICACIÓN Y CONTEXTO
     # ========================================
     cliente_id: int = Field(..., description="ID del cliente al que pertenece la conexión.")
-    modulo_id: int = Field(..., description="ID del módulo para el que se configura la conexión.")
 
     # ========================================
     # CONFIGURACIÓN DE CONEXIÓN
@@ -839,7 +838,7 @@ class ConexionBase(BaseModel):
     )
     es_conexion_principal: bool = Field(
         False, 
-        description="True = Es la conexión principal del módulo (solo una por cliente-módulo)."
+        description="True = Es la conexión principal del cliente (solo una por cliente)."
     )
 
     # === VALIDADORES ===

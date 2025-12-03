@@ -3,7 +3,7 @@
 Módulo de endpoints para la gestión de conexiones de base de datos en arquitectura multi-tenant.
 
 Este módulo proporciona una API REST completa para operaciones sobre conexiones de BD
-por cliente y módulo, incluyendo creación, configuración, testing y gestión del ciclo de vida.
+por cliente, incluyendo creación, configuración, testing y gestión del ciclo de vida.
 
 Características principales:
 - Autenticación JWT con requerimiento de nivel de super administrador para todas las operaciones.
@@ -68,18 +68,17 @@ async def listar_conexiones_cliente(
 
 
 @router.get(
-    "/clientes/{cliente_id}/modulos/{modulo_id}/principal/",
+    "/clientes/{cliente_id}/principal/",
     response_model=Optional[ConexionRead],
-    summary="Obtener conexión principal de módulo",
+    summary="Obtener conexión principal del cliente",
     description="""
-    Obtiene la conexión principal configurada para un módulo específico de un cliente.
+    Obtiene la conexión principal configurada para un cliente.
     
     **Permisos requeridos:**
     - Nivel de acceso 5 (Super Administrador)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
-    - modulo_id: ID del módulo
     
     **Respuestas:**
     - 200: Conexión principal encontrada (puede ser null si no existe)
@@ -90,19 +89,18 @@ async def listar_conexiones_cliente(
 @require_super_admin()
 async def obtener_conexion_principal(
     cliente_id: int,
-    modulo_id: int,
     current_user=Depends(get_current_active_user)
 ):
     """
-    Obtiene la conexión principal para un cliente y módulo específicos.
+    Obtiene la conexión principal para un cliente específico.
     """
-    logger.info(f"Solicitud GET /conexiones/clientes/{cliente_id}/modulos/{modulo_id}/principal recibida")
+    logger.info(f"Solicitud GET /conexiones/clientes/{cliente_id}/principal recibida")
     try:
-        conexion = await ConexionService.obtener_conexion_principal(cliente_id, modulo_id)
+        conexion = await ConexionService.obtener_conexion_principal(cliente_id)
         if conexion:
-            logger.info(f"Conexión principal encontrada para cliente {cliente_id}, módulo {modulo_id}")
+            logger.info(f"Conexión principal encontrada para cliente {cliente_id}")
         else:
-            logger.info(f"No se encontró conexión principal para cliente {cliente_id}, módulo {modulo_id}")
+            logger.info(f"No se encontró conexión principal para cliente {cliente_id}")
         return conexion
     except Exception as e:
         logger.exception(f"Error inesperado en obtener_conexion_principal: {str(e)}")
@@ -118,7 +116,7 @@ async def obtener_conexion_principal(
     status_code=status.HTTP_201_CREATED,
     summary="Crear nueva conexión",
     description="""
-    Crea una nueva conexión de base de datos para un cliente y módulo.
+    Crea una nueva conexión de base de datos para un cliente.
     
     **Permisos requeridos:**
     - Nivel de acceso 5 (Super Administrador)
@@ -129,7 +127,7 @@ async def obtener_conexion_principal(
     **Respuestas:**
     - 201: Conexión creada exitosamente
     - 403: Acceso denegado - se requiere nivel de super administrador
-    - 409: Conflicto - ya existe conexión principal para este cliente-módulo
+    - 409: Conflicto - ya existe conexión principal para este cliente
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """
@@ -178,7 +176,7 @@ async def crear_conexion(
     - 200: Conexión actualizada exitosamente
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Conexión no encontrada
-    - 409: Conflicto - ya existe conexión principal para este cliente-módulo
+    - 409: Conflicto - ya existe conexión principal para este cliente
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """

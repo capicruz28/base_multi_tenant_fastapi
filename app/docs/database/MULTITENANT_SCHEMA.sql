@@ -41,9 +41,10 @@ ruc NVARCHAR(11) NULL,
 -- ========================================
 tipo_instalacion NVARCHAR(20) DEFAULT 'cloud' NOT NULL,
 -- Define dónde corre el sistema para este cliente:
---   'cloud'      = Tu servidor centralizado (caso 1 y 2)
---   'onpremise'  = Servidor local del cliente (caso 3)
---   'hybrid'     = Local pero sincroniza con central
+--   'shared'      = Cliente usa la BD centralizada
+--   'dedicated'  = Cliente tiene su propia BD en tu infraestructura
+--   'onpremise'     = Cliente tiene BD en su servidor local
+--   'hybrid'     = Cliente con BD local + sincronización con tu SaaS
 
 servidor_api_local NVARCHAR(255) NULL,       
 -- URL del API si el cliente tiene instalación local
@@ -692,110 +693,135 @@ fecha_creacion DATETIME DEFAULT GETDATE()
 CREATE INDEX IDX_cliente_modulo_codigo ON cliente_modulo(codigo_modulo);
 
 -- ============================================================================
--- TABLA: cliente_modulo_conexion
--- Propósito: Conexiones de BD específicas por cliente y módulo
--- Permite: Cada cliente puede tener diferentes BDs para cada módulo
--- Caso de uso: Cliente A tiene Planillas en servidor1, Contabilidad en servidor2
+-- TABLA: cliente_conexion
+-- Propósito:
+--      Administrar las conexiones a bases de datos específicas por cliente,
+--      permitiendo una arquitectura multi-tenant híbrida moderna.
+--
+-- Permite:
+--      - Clientes con BD centralizada (shared) sin registros en esta tabla.
+--      - Clientes con BD dedicada (dedicated) usando una única conexión principal.
+--      - Clientes on-premise/híbridos con BD local o en su infraestructura.
+--      - Conexiones externas adicionales (read-only, reportes, ETL, integraciones).
+--
+-- Caso de uso:
+--      ✓ Cliente A usa la BD central → no necesita entradas aquí.
+--      ✓ Cliente B tiene su propia BD aislada → 1 conexión principal.
+--      ✓ Cliente C tiene BD en su servidor (on-premise) → 1 conexión principal.
+--      ✓ Cliente D usa una BD read-only para reportes → entrada secundaria.
+--
+-- Notas:
+--      - Reemplaza al esquema anterior donde había BD por módulo.
+--      - Ahora solo existe 1 conexión principal por cliente (única BD "master").
+--      - Las demás conexiones son opcionales y nunca principales.
 -- ============================================================================
-CREATE TABLE cliente_modulo_conexion (
-conexion_id INT PRIMARY KEY IDENTITY(1,1),
-cliente_id INT NOT NULL,
-modulo_id INT NOT NULL,
 
--- ========================================
--- INFORMACIÓN DE CONEXIÓN
--- ========================================
-servidor NVARCHAR(255) NOT NULL,              
--- Nombre o IP del servidor de BD
--- Ejemplos: 'CARLOSPC', 'perufashions11', 'sql.azure.com', '192.168.1.100'
+CREATE TABLE cliente_conexion (
+    conexion_id INT PRIMARY KEY IDENTITY(1,1),
 
-puerto INT DEFAULT 1433,                      
--- Puerto de conexión (1433 para SQL Server)
+    -- FK hacia el cliente
+    cliente_id INT NOT NULL,
 
-nombre_bd NVARCHAR(100) NOT NULL,             
--- Nombre de la base de datos
--- Ejemplos: 'bdpla_psf_web', 'bdcon2020', 'produccion_2024'
+    -- ========================================
+    -- INFORMACIÓN DE CONEXIÓN
+    -- ========================================
+    servidor NVARCHAR(255) NOT NULL,              
+        -- Nombre o IP del servidor SQL
+        -- Ejemplos: 'CARLOSPC', 'sqlserver-01', '192.168.10.50', 'azure.database.windows.net'
 
--- ========================================
--- CREDENCIALES (SIEMPRE ENCRIPTADAS)
--- ========================================
-usuario_encriptado NVARCHAR(500) NOT NULL,    
--- Usuario de BD encriptado con AES-256
--- NUNCA guardar en texto plano
--- Se encripta/desencripta en la aplicación usando SECRET_KEY
+    puerto INT DEFAULT 1433,                      
+        -- Puerto de conexión (por defecto 1433)
 
-password_encriptado NVARCHAR(500) NOT NULL,   
--- Password de BD encriptado
--- CRÍTICO: Nunca exponer este campo en APIs
+    nombre_bd NVARCHAR(100) NOT NULL,             
+        -- Nombre de la BD principal del cliente
+        -- Ejemplos: 'erp_cliente_a', 'fksourcing_db', 'produccion_2024'
 
-connection_string_encriptado NVARCHAR(MAX) NULL,
--- Connection string completo encriptado
--- Se genera automáticamente desde los campos anteriores
--- Formato: "Server=xxx;Database=xxx;User=xxx;Password=xxx;..."
+    -- ========================================
+    -- CREDENCIALES SIEMPRE ENCRIPTADAS
+    -- ========================================
+    usuario_encriptado NVARCHAR(500) NOT NULL,    
+        -- Usuario de BD encriptado con AES-256
+        -- NUNCA guardar en texto plano
 
--- ========================================
--- CONFIGURACIÓN AVANZADA
--- ========================================
-tipo_bd NVARCHAR(20) DEFAULT 'sqlserver',     
--- Tipo de base de datos: 'sqlserver', 'postgresql', 'mysql', 'oracle'
--- Permite soportar diferentes motores en el futuro
+    password_encriptado NVARCHAR(500) NOT NULL,   
+        -- Password encriptado
+        -- CRÍTICO: Nunca exponer vía API
 
-usa_ssl BIT DEFAULT 0,                        
--- Si la conexión usa SSL/TLS
+    connection_string_encriptado NVARCHAR(MAX) NULL,
+        -- Connection string completa encriptada
+        -- Se genera desde la aplicación
+        -- Formato típico: "Server=xxx;Database=xxx;User=xxx;Password=xxx;..."
 
-timeout_segundos INT DEFAULT 30,              
--- Timeout de conexión en segundos
+    -- ========================================
+    -- CONFIGURACIÓN AVANZADA
+    -- ========================================
+    tipo_bd NVARCHAR(20) DEFAULT 'sqlserver',     
+        -- Tipo de motor soportado:
+        -- 'sqlserver', 'postgresql', 'mysql', 'oracle'
+        -- Garantiza portabilidad futura del SaaS
 
-max_pool_size INT DEFAULT 100,                
--- Tamaño máximo del connection pool
+    usa_ssl BIT DEFAULT 0,                        
+        -- Si requiere conexión SSL/TLS
 
--- ========================================
--- CONFIGURACIÓN DE ACCESO
--- ========================================
-es_solo_lectura BIT DEFAULT 0,                
--- True = Conexión read-only (útil para replicas)
+    timeout_segundos INT DEFAULT 30,              
+        -- Timeout de conexión
 
-es_conexion_principal BIT DEFAULT 0,          
--- True = Es la conexión principal del módulo
--- Solo puede haber una conexión principal por cliente-módulo
+    max_pool_size INT DEFAULT 100,                
+        -- Tamaño máximo del pool de conexiones
 
--- ========================================
--- ESTADO Y MONITOREO
--- ========================================
-es_activo BIT DEFAULT 1,
+    -- ========================================
+    -- CONFIGURACIÓN DE ACCESO
+    -- ========================================
+    es_solo_lectura BIT DEFAULT 0,                
+        -- Conexión read-only
+        -- Útil para reporting, replicas, ETL
 
-ultima_conexion_exitosa DATETIME NULL,        
--- Última vez que se conectó exitosamente
--- Se actualiza automáticamente en cada conexión
+    es_conexion_principal BIT DEFAULT 0,          
+        -- Indica si esta conexión es la conexión principal del cliente
+        -- SOLO DEBE HABER UNA CONEXIÓN PRINCIPAL POR CLIENTE
+        -- Para BD dedicada o BD on-premise
 
-ultimo_error NVARCHAR(MAX) NULL,              
--- Último mensaje de error de conexión
--- Para troubleshooting
+    -- ========================================
+    -- ESTADO Y MONITOREO
+    -- ========================================
+    es_activo BIT DEFAULT 1,                      
+        -- Habilita/deshabilita conexión sin eliminarla
 
-fecha_ultimo_error DATETIME NULL,
+    ultima_conexion_exitosa DATETIME NULL,        
+        -- Última conexión exitosa (registrada por el backend)
 
--- ========================================
--- AUDITORÍA
--- ========================================
-fecha_creacion DATETIME DEFAULT GETDATE(),
-fecha_actualizacion DATETIME NULL,
-creado_por_usuario_id INT NULL,               
--- Quién configuró esta conexión
+    ultimo_error NVARCHAR(MAX) NULL,              
+        -- Último error de conexión
 
--- ========================================
--- CONSTRAINTS
--- ========================================
-CONSTRAINT FK_conexion_cliente FOREIGN KEY (cliente_id) 
-    REFERENCES cliente(cliente_id) ON DELETE CASCADE,
-CONSTRAINT FK_conexion_modulo FOREIGN KEY (modulo_id) 
-    REFERENCES cliente_modulo(modulo_id) ON DELETE CASCADE,
+    fecha_ultimo_error DATETIME NULL,
 
--- Solo puede haber una conexión principal por cliente-módulo
-CONSTRAINT UQ_conexion_principal UNIQUE (cliente_id, modulo_id, es_conexion_principal)
+    -- ========================================
+    -- AUDITORÍA
+    -- ========================================
+    fecha_creacion DATETIME DEFAULT GETDATE(),
+    fecha_actualizacion DATETIME NULL,
+    creado_por_usuario_id INT NULL,               
+        -- Usuario que creó/modificó la conexión
+
+    -- ========================================
+    -- RELACIONES
+    -- ========================================
+    CONSTRAINT FK_conexion_cliente_ FOREIGN KEY (cliente_id) 
+        REFERENCES cliente(cliente_id) ON DELETE CASCADE,
+
+    -- SOLO PUEDE HABER UNA CONEXIÓN PRINCIPAL POR CLIENTE
+    CONSTRAINT UQ_conexion_principal_cliente UNIQUE (cliente_id, es_conexion_principal)
 );
--- Índices optimizados
-CREATE INDEX IDX_conexion_cliente_modulo ON cliente_modulo_conexion(cliente_id, modulo_id, es_activo);
-CREATE INDEX IDX_conexion_principal ON cliente_modulo_conexion(cliente_id, modulo_id, es_conexion_principal);
+
+-- ============================================================================
+-- ÍNDICES OPTIMIZADOS PARA LA ARQUITECTURA MULTITENANT
+-- ============================================================================
+CREATE INDEX IDX_conexion_cliente_
+    ON cliente_conexion(cliente_id, es_activo);
+
+CREATE INDEX IDX_conexion_principal
+    ON cliente_conexion(cliente_id, es_conexion_principal);
+
 
 -- ============================================================================
 -- TABLA: cliente_modulo_activo

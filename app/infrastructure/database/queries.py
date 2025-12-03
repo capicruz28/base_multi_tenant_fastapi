@@ -63,7 +63,7 @@ def execute_query(
             # NOTA: auth_audit_log NO es global, es de tenant, pero puede estar en BD central para tenants Single-DB
             global_tables = [
                 'cliente', 'cliente_modulo', 'modulo', 'cliente_modulo_activo', 
-                'cliente_modulo_conexion', 'sistema_config'
+                'cliente_conexion', 'sistema_config'
             ]
             
             # Detectar si la query es en una tabla global
@@ -1523,23 +1523,23 @@ WHERE federacion_id = ? AND cliente_id = ?;
 
 SELECT_CLIENT_CONNECTION_METADATA = """
 SELECT 
-    cmc.conexion_id,
-    cmc.servidor,
-    cmc.puerto,
-    cmc.nombre_bd,
-    cmc.usuario_encriptado,
-    cmc.password_encriptado,
-    cmc.tipo_bd,
-    cmc.usa_ssl,
+    cc.conexion_id,
+    cc.servidor,
+    cc.puerto,
+    cc.nombre_bd,
+    cc.usuario_encriptado,
+    cc.password_encriptado,
+    cc.tipo_bd,
+    cc.usa_ssl,
     c.tipo_instalacion,
     c.metadata_json
-FROM cliente_modulo_conexion cmc
-JOIN cliente c ON cmc.cliente_id = c.cliente_id
+FROM cliente_conexion cc
+JOIN cliente c ON cc.cliente_id = c.cliente_id
 WHERE 
-    cmc.cliente_id = ? 
-    AND cmc.es_activo = 1 
-    AND cmc.es_conexion_principal = 1
-ORDER BY cmc.conexion_id DESC;
+    cc.cliente_id = ? 
+    AND cc.es_activo = 1 
+    AND cc.es_conexion_principal = 1
+ORDER BY cc.conexion_id DESC;
 """
 
 CHECK_CLIENT_DATABASE_TYPE = """

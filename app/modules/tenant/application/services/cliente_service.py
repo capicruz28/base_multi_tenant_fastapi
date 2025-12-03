@@ -589,7 +589,7 @@ class ClienteService(BaseService):
         # Estadísticas de conexiones BD
         conexiones_query = """
         SELECT COUNT(*) as total_conexiones
-        FROM cliente_modulo_conexion
+        FROM cliente_conexion
         WHERE cliente_id = ? AND es_activo = 1
         """
         conexiones_result = execute_query(conexiones_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
