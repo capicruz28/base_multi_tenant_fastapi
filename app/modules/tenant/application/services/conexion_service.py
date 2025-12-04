@@ -12,8 +12,11 @@ Características clave:
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
 """
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 import logging
-from app.infrastructure.database.queries import execute_query, execute_insert, execute_update
+from sqlalchemy import text
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
     ValidationError,
     ConflictError,
@@ -23,7 +26,7 @@ from app.core.exceptions import (
 )
 from app.core.application.base_service import BaseService
 from app.modules.tenant.presentation.schemas import ConexionCreate, ConexionUpdate, ConexionRead, ConexionTest
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection
 from app.core.security.encryption import encrypt_credential, decrypt_credential
 
 logger = logging.getLogger(__name__)
@@ -36,7 +39,7 @@ class ConexionService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_conexiones_cliente(cliente_id: int) -> List[ConexionRead]:
+    async def obtener_conexiones_cliente(cliente_id: UUID) -> List[ConexionRead]:
         """
         Obtiene todas las conexiones configuradas para un cliente específico.
         """
@@ -51,16 +54,21 @@ class ConexionService(BaseService):
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
         FROM cliente_conexion
-        WHERE cliente_id = ? --AND es_activo = 1
+        WHERE cliente_id = :cliente_id --AND es_activo = 1
         ORDER BY es_conexion_principal DESC, conexion_id DESC
         """
         
-        resultados = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultados = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         return [ConexionRead(**conexion) for conexion in resultados]
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_conexion_por_id(conexion_id: int) -> Optional[ConexionRead]:
+    async def obtener_conexion_por_id(conexion_id: UUID) -> Optional[ConexionRead]:
         """
         Obtiene una conexión específica por su ID.
         """
@@ -73,17 +81,22 @@ class ConexionService(BaseService):
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
         FROM cliente_conexion
-        WHERE conexion_id = ?
+        WHERE conexion_id = :conexion_id
         """
         
-        resultado = execute_query(query, (conexion_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(
+            text(query).bindparams(conexion_id=conexion_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         return ConexionRead(**resultado[0])
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_conexion_principal(cliente_id: int) -> Optional[ConexionRead]:
+    async def obtener_conexion_principal(cliente_id: UUID) -> Optional[ConexionRead]:
         """
         Obtiene la conexión principal para un cliente específico.
         """
@@ -96,31 +109,41 @@ class ConexionService(BaseService):
             ultima_conexion_exitosa, ultimo_error, fecha_ultimo_error,
             fecha_creacion, fecha_actualizacion, creado_por_usuario_id
         FROM cliente_conexion
-        WHERE cliente_id = ? AND es_conexion_principal = 1 AND es_activo = 1
+        WHERE cliente_id = :cliente_id AND es_conexion_principal = 1 AND es_activo = 1
         """
         
-        resultado = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         return ConexionRead(**resultado[0])
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def _validar_conexion_unica(cliente_id: int, conexion_id: Optional[int] = None) -> None:
+    async def _validar_conexion_unica(cliente_id: UUID, conexion_id: Optional[UUID] = None) -> None:
         """
         Valida que solo exista una conexión principal por cliente.
         """
         query = """
         SELECT conexion_id FROM cliente_conexion 
-        WHERE cliente_id = ? AND es_conexion_principal = 1 AND es_activo = 1
+        WHERE cliente_id = :cliente_id AND es_conexion_principal = 1 AND es_activo = 1
         """
-        params = [cliente_id]
+        bind_params = {"cliente_id": cliente_id}
         
         if conexion_id:
-            query += " AND conexion_id != ?"
-            params.append(conexion_id)
+            query += " AND conexion_id != :conexion_id"
+            bind_params["conexion_id"] = conexion_id
             
-        resultado = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if resultado:
             raise ConflictError(
                 detail="Ya existe una conexión principal activa para este cliente.",
@@ -151,7 +174,7 @@ class ConexionService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_conexion(conexion_data: ConexionCreate, creado_por_usuario_id: int) -> ConexionRead:
+    async def crear_conexion(conexion_data: ConexionCreate, creado_por_usuario_id: UUID) -> ConexionRead:
         """
         Crea una nueva conexión de base de datos para un cliente.
         """
@@ -222,7 +245,8 @@ class ConexionService(BaseService):
         VALUES ({', '.join(['?'] * len(fields))})
         """
 
-        resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -235,7 +259,7 @@ class ConexionService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_conexion(conexion_id: int, conexion_data: ConexionUpdate) -> ConexionRead:
+    async def actualizar_conexion(conexion_id: UUID, conexion_data: ConexionUpdate) -> ConexionRead:
         """
         Actualiza una conexión existente.
         """
@@ -312,7 +336,8 @@ class ConexionService(BaseService):
         WHERE conexion_id = ?
         """
 
-        resultado = execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -362,7 +387,7 @@ class ConexionService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def desactivar_conexion(conexion_id: int) -> ConexionRead:
+    async def desactivar_conexion(conexion_id: UUID) -> ConexionRead:
         """
         Desactiva una conexión (soft delete).
         """
@@ -410,7 +435,8 @@ class ConexionService(BaseService):
         WHERE conexion_id = ?
         """
 
-        resultado = execute_update(query, (conexion_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_update(query, (conexion_id,), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             raise ServiceError(
                 status_code=500,

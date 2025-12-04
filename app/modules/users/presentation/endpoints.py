@@ -18,8 +18,9 @@ Características principales:
 - **✅ MULTI-TENANT: Todas las operaciones están aisladas por cliente_id.**
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Path, Body
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 
 # Importar Schemas
 from app.modules.users.presentation.schemas import (
@@ -222,7 +223,7 @@ async def crear_usuario(
     dependencies=[Depends(get_current_active_user)]
 )
 async def read_usuario(
-    usuario_id: int,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -305,8 +306,8 @@ async def read_usuario(
     dependencies=[Depends(require_admin)]
 )
 async def actualizar_usuario(
-    usuario_id: int,
-    usuario_in: UsuarioUpdate,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    usuario_in: UsuarioUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -385,7 +386,7 @@ async def actualizar_usuario(
     dependencies=[Depends(require_admin)]
 )
 async def eliminar_usuario(
-    usuario_id: int,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -456,8 +457,8 @@ async def eliminar_usuario(
     dependencies=[Depends(require_admin)]
 )
 async def assign_rol_to_usuario(
-    usuario_id: int,
-    rol_id: int,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    rol_id: UUID = Path(..., description="ID del rol"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -527,8 +528,8 @@ async def assign_rol_to_usuario(
     dependencies=[Depends(require_admin)]
 )
 async def revoke_rol_from_usuario(
-    usuario_id: int,
-    rol_id: int,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    rol_id: UUID = Path(..., description="ID del rol"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -592,7 +593,7 @@ async def revoke_rol_from_usuario(
     dependencies=[Depends(get_current_active_user)]
 )
 async def read_usuario_roles(
-    usuario_id: int,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """

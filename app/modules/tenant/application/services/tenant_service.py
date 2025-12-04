@@ -9,8 +9,10 @@ a través de un mecanismo de contexto (middleware de tenant), que se implementar
 en fases posteriores.
 """
 from typing import Optional, Dict, Any, List
+from uuid import UUID
 import logging
-from app.infrastructure.database.queries import execute_query
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query
 from app.core.exceptions import (
     NotFoundError,
     ServiceError,
@@ -30,7 +32,7 @@ class TenantService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_configuracion_tenant(cliente_id: int) -> ClienteWithConfig:
+    async def obtener_configuracion_tenant(cliente_id: UUID) -> ClienteWithConfig:
         """
         Obtiene la configuración completa del tenant, incluyendo políticas de autenticación
         y proveedores de identidad configurados.
@@ -47,7 +49,8 @@ class TenantService(BaseService):
         FROM cliente
         WHERE cliente_id = ? AND es_activo = 1
         """
-        cliente_result = execute_query(cliente_query, (cliente_id,))
+        # ✅ FASE 2: Usar await
+        cliente_result = await execute_query(cliente_query, (cliente_id,))
         if not cliente_result:
             raise NotFoundError(
                 detail=f"Cliente con ID {cliente_id} no encontrado o inactivo.",
@@ -58,14 +61,14 @@ class TenantService(BaseService):
         # 2. Obtener configuración de autenticación
         auth_config = None
         auth_query = "SELECT * FROM cliente_auth_config WHERE cliente_id = ?"
-        auth_result = execute_query(auth_query, (cliente_id,))
+        auth_result = await execute_query(auth_query, (cliente_id,))
         if auth_result:
             auth_config = AuthConfigRead(**auth_result[0])
 
         # 3. Obtener proveedores SSO
         sso_providers: List[FederacionRead] = []
         sso_query = "SELECT * FROM federacion_identidad WHERE cliente_id = ? AND es_activo = 1"
-        sso_results = execute_query(sso_query, (cliente_id,))
+        sso_results = await execute_query(sso_query, (cliente_id,))
         for row in sso_results:
             sso_providers.append(FederacionRead(**row))
 
@@ -77,7 +80,7 @@ class TenantService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_modulos_activos(cliente_id: int) -> List[Dict[str, Any]]:
+    async def obtener_modulos_activos(cliente_id: UUID) -> List[Dict[str, Any]]:
         """
         Obtiene la lista de módulos activos para el cliente.
         """
@@ -98,5 +101,6 @@ class TenantService(BaseService):
         INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
         WHERE cma.cliente_id = ? AND cma.esta_activo = 1
         """
-        resultados = execute_query(query, (cliente_id,))
+        # ✅ FASE 2: Usar await
+        resultados = await execute_query(query, (cliente_id,))
         return resultados

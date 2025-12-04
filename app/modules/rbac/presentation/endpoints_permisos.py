@@ -15,8 +15,9 @@ Características principales:
 - **✅ MULTI-TENANT: Aislamiento de permisos por cliente_id.**
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Path
 from typing import List, Dict, Optional, Any
+from uuid import UUID
 
 # Importar Schemas (Manteniéndolos aquí como se especificó, idealmente en app/schemas/permiso.py)
 from pydantic import BaseModel, Field
@@ -31,9 +32,9 @@ class PermisoCreateUpdate(PermisoBase):
     pass
 
 class PermisoRead(PermisoBase):
-    rol_menu_id: int
-    rol_id: int
-    menu_id: int
+    rol_menu_id: UUID
+    rol_id: UUID
+    menu_id: UUID
 
     class Config:
         from_attributes = True # Compatible con ORM o diccionarios
@@ -90,8 +91,8 @@ require_admin = RoleChecker(["Administrador"])
     dependencies=[Depends(require_admin)]
 )
 async def set_permission(
-    rol_id: int,
-    menu_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
+    menu_id: UUID = Path(..., description="ID del menú"),
     permisos_in: PermisoCreateUpdate = Body(...),
     current_user: Any = Depends(get_current_active_user)
 ):
@@ -153,7 +154,7 @@ async def set_permission(
     dependencies=[Depends(require_admin)]
 )
 async def get_permissions_for_role(
-    rol_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -207,8 +208,8 @@ async def get_permissions_for_role(
     dependencies=[Depends(require_admin)]
 )
 async def get_specific_permission(
-    rol_id: int,
-    menu_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
+    menu_id: UUID = Path(..., description="ID del menú"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -267,8 +268,8 @@ async def get_specific_permission(
     dependencies=[Depends(require_admin)]
 )
 async def revoke_permission(
-    rol_id: int,
-    menu_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
+    menu_id: UUID = Path(..., description="ID del menú"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """

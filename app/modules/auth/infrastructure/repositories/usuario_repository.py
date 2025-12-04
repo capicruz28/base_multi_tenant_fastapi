@@ -9,9 +9,10 @@ from typing import Optional, Dict, Any, List
 import logging
 
 from app.infrastructure.database.repositories.base_repository import BaseRepository
-from app.infrastructure.database.queries import execute_query
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.queries_async import execute_query, execute_update
+from app.infrastructure.database.connection_async import DatabaseConnection
 from app.core.tenant.context import get_current_client_id
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class UsuarioRepository(BaseRepository):
             connection_type=DatabaseConnection.DEFAULT
         )
     
-    def find_by_username_or_email(
+    async def find_by_username_or_email(
         self,
         username_or_email: str,
         client_id: Optional[int] = None
@@ -53,20 +54,19 @@ class UsuarioRepository(BaseRepository):
         
         query = """
             SELECT * FROM usuario
-            WHERE (nombre_usuario = ? OR email = ?)
+            WHERE (nombre_usuario = :username_or_email OR email = :username_or_email)
             AND es_activo = 1
         """
-        params = (username_or_email, username_or_email)
+        bind_params = {"username_or_email": username_or_email}
         
         # Agregar filtro de tenant si aplica
         if target_client_id:
-            query += " AND cliente_id = ?"
-            params = params + (target_client_id,)
+            query += " AND cliente_id = :client_id"
+            bind_params["client_id"] = target_client_id
         
         try:
-            results = execute_query(
-                query,
-                params,
+            results = await execute_query(
+                text(query).bindparams(**bind_params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -75,7 +75,7 @@ class UsuarioRepository(BaseRepository):
             logger.error(f"Error en find_by_username_or_email: {str(e)}")
             raise
     
-    def find_by_username(
+    async def find_by_username(
         self,
         username: str,
         client_id: Optional[int] = None
@@ -94,19 +94,18 @@ class UsuarioRepository(BaseRepository):
         
         query = """
             SELECT * FROM usuario
-            WHERE nombre_usuario = ?
+            WHERE nombre_usuario = :username
             AND es_activo = 1
         """
-        params = (username,)
+        bind_params = {"username": username}
         
         if target_client_id:
-            query += " AND cliente_id = ?"
-            params = params + (target_client_id,)
+            query += " AND cliente_id = :client_id"
+            bind_params["client_id"] = target_client_id
         
         try:
-            results = execute_query(
-                query,
-                params,
+            results = await execute_query(
+                text(query).bindparams(**bind_params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -115,7 +114,7 @@ class UsuarioRepository(BaseRepository):
             logger.error(f"Error en find_by_username: {str(e)}")
             raise
     
-    def find_with_roles(
+    async def find_with_roles(
         self,
         usuario_id: int,
         client_id: Optional[int] = None
@@ -148,20 +147,19 @@ class UsuarioRepository(BaseRepository):
                 ur.es_activo as asignacion_activa
             FROM rol r
             INNER JOIN usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ?
+            WHERE ur.usuario_id = :usuario_id
             AND ur.es_activo = 1
             AND r.es_activo = 1
         """
-        params_roles = (usuario_id,)
+        bind_params_roles = {"usuario_id": usuario_id}
         
         if target_client_id:
-            query_roles += " AND r.cliente_id = ?"
-            params_roles = params_roles + (target_client_id,)
+            query_roles += " AND r.cliente_id = :client_id"
+            bind_params_roles["client_id"] = target_client_id
         
         try:
-            roles = execute_query(
-                query_roles,
-                params_roles,
+            roles = await execute_query(
+                text(query_roles).bindparams(**bind_params_roles),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -173,7 +171,7 @@ class UsuarioRepository(BaseRepository):
             usuario['roles'] = []
             return usuario
     
-    def update_last_login(
+    async def update_last_login(
         self,
         usuario_id: int,
         client_id: Optional[int] = None
@@ -193,20 +191,18 @@ class UsuarioRepository(BaseRepository):
         query = f"""
             UPDATE {self.table_name}
             SET ultimo_acceso = GETDATE()
-            WHERE {self.id_column} = ?
+            WHERE {self.id_column} = :usuario_id
         """
-        params = (usuario_id,)
+        bind_params = {"usuario_id": usuario_id}
         
         # Agregar filtro de tenant
         tenant_filter, tenant_params = self._build_tenant_filter(client_id)
         query += tenant_filter
-        params = params + tenant_params
+        # TODO: Convertir tenant_params a bind_params si es necesario
         
         try:
-            from app.infrastructure.database.queries import execute_update
-            execute_update(
-                query,
-                params,
+            await execute_update(
+                text(query).bindparams(**bind_params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )

@@ -78,8 +78,14 @@ class Usuario:
         if "@" not in self.email:
             raise ValueError("El email debe tener un formato válido")
         
-        if self.cliente_id is None or self.cliente_id <= 0:
-            raise ValueError("El cliente_id debe ser un número positivo")
+        # ✅ CORRECCIÓN: cliente_id ahora es UUID, no int
+        from uuid import UUID
+        if self.cliente_id is None:
+            raise ValueError("El cliente_id no puede ser None")
+        
+        # Verificar que no sea UUID nulo
+        if isinstance(self.cliente_id, UUID) and self.cliente_id == UUID('00000000-0000-0000-0000-000000000000'):
+            raise ValueError("El cliente_id no puede ser UUID nulo")
     
     def is_active(self) -> bool:
         """Verifica si el usuario está activo."""

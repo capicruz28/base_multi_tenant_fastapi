@@ -80,12 +80,15 @@ class RefreshTokenUseCase:
             )
         
         # 2. Obtener información de niveles de acceso
-        level_info = get_user_access_level_info(usuario_id, cliente_id)
+        level_info = await get_user_access_level_info(usuario_id, cliente_id)
         
         # 3. Preparar datos para nuevos tokens
+        # ✅ Convertir cliente_id a string para JSON serialization
+        cliente_id_str = str(cliente_id) if cliente_id and not isinstance(cliente_id, str) else cliente_id
+        
         token_data = {
             "sub": username,
-            "cliente_id": cliente_id,
+            "cliente_id": cliente_id_str,
             "level_info": level_info
         }
         

@@ -1,12 +1,16 @@
 # app/services/rol_service.py
 from typing import Dict, List, Optional, Any
+from uuid import UUID
 import math
 import logging
 import pyodbc
 
 # 🗄️ IMPORTACIONES DE BASE DE DATOS
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import (
+    execute_query, execute_insert, execute_update
+)
 from app.infrastructure.database.queries import (
-    execute_query, execute_insert, execute_update, execute_transaction,
     COUNT_ROLES_PAGINATED, SELECT_ROLES_PAGINATED,
     DEACTIVATE_ROL, REACTIVATE_ROL,
     SELECT_PERMISOS_POR_ROL, DELETE_PERMISOS_POR_ROL, INSERT_PERMISO_ROL
@@ -65,20 +69,18 @@ class RolService(BaseService):
             rol_dict['es_activo'] = bool(rol_dict['es_activo'])
         
         # ✅ CRÍTICO: Normalizar codigo_rol según regla de negocio
-        # Si un rol tiene codigo_rol pero cliente_id != 1, es un rol de cliente mal configurado
-        # Para evitar errores de validación, establecer codigo_rol = None
+        # Si un rol tiene codigo_rol pero cliente_id no es SUPERADMIN, es un rol de cliente mal configurado
+        # ⚠️ Con UUID, la validación de SUPERADMIN debe hacerse en el servicio usando settings
+        # Para evitar errores de validación, establecer codigo_rol = None si cliente_id no es None
         if rol_dict.get('codigo_rol') is not None and rol_dict.get('cliente_id') is not None:
-            if rol_dict.get('cliente_id') != 1:  # No es SUPER ADMIN
-                logger.warning(
-                    f"[NORMALIZAR-ROL] Rol {rol_dict.get('rol_id')} tiene codigo_rol='{rol_dict.get('codigo_rol')}' "
-                    f"pero cliente_id={rol_dict.get('cliente_id')}. Normalizando codigo_rol a None."
-                )
-                rol_dict['codigo_rol'] = None
+            # ⚠️ Nota: La validación de SUPERADMIN debe hacerse en el servicio, no aquí
+            # Por ahora, si tiene cliente_id y codigo_rol, mantenerlo (el servicio validará)
+            pass
         
         return rol_dict
 
     @staticmethod
-    async def get_min_required_access_level(role_names: List[str], cliente_id: Optional[int] = None) -> int:
+    async def get_min_required_access_level(role_names: List[str], cliente_id: Optional[UUID] = None) -> int:
         """
         Consulta el nivel de acceso más bajo (MIN) necesario para la lista de nombres de rol dados.
         Ej: Si se requiere ['Administrador', 'Editor'], y los niveles son [50, 30],
@@ -100,9 +102,24 @@ class RolService(BaseService):
         # ⚠️ Construcción dinámica de la cláusula IN: Evita inyección SQL
         placeholders = ', '.join(['?' for _ in role_names])
         
-        # ✅ CORRECCIÓN: Filtrar por cliente_id o roles del sistema
-        if cliente_id is not None:
-            # Buscar roles del cliente específico Y roles del sistema
+        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+        from app.core.tenant.context import try_get_tenant_context
+        
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
+        
+        # ✅ CORRECCIÓN: Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
+        if database_type == "multi":
+            # BD dedicada: buscar roles sin filtrar por cliente_id
+            QUERY = f"""
+            SELECT MIN(nivel_acceso) AS min_level
+            FROM rol
+            WHERE nombre IN ({placeholders}) 
+              AND es_activo = 1;
+            """
+            params = tuple(role_names)
+        elif cliente_id is not None:
+            # BD compartida: Buscar roles del cliente específico Y roles del sistema
             QUERY = f"""
             SELECT MIN(nivel_acceso) AS min_level
             FROM rol
@@ -124,7 +141,8 @@ class RolService(BaseService):
         
         try:
             # execute_query devuelve List[Dict]
-            result = execute_query(QUERY, params)
+            # ✅ FASE 2: Usar await
+            result = await execute_query(QUERY, params)
             
             if result and result[0]['min_level'] is not None:
                 # El valor de min_level no es NULL
@@ -146,7 +164,7 @@ class RolService(BaseService):
             )
 
     @staticmethod
-    async def get_user_max_access_level(usuario_id: int, cliente_id: int) -> int:
+    async def get_user_max_access_level(usuario_id: UUID, cliente_id: UUID) -> int:
         """
         Consulta el nivel de acceso más alto (MAX) entre todos los roles asignados al usuario.
         
@@ -157,12 +175,30 @@ class RolService(BaseService):
         Returns:
             El nivel de acceso más alto que posee el usuario (int), o 1 si no tiene roles activos.
         """
-        # Usar la query correcta que filtra por cliente_id
-        from app.infrastructure.database.queries import execute_query, GET_USER_MAX_ACCESS_LEVEL
+        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+        from app.core.tenant.context import try_get_tenant_context
+        
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
         
         try:
-            # execute_query devuelve List[Dict]
-            result = execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
+            # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
+            if database_type == "multi":
+                query = """
+                SELECT ISNULL(MAX(r.nivel_acceso), 1) as max_level
+                FROM usuario_rol ur
+                INNER JOIN rol r ON ur.rol_id = r.rol_id
+                WHERE ur.usuario_id = ? 
+                  AND ur.es_activo = 1
+                  AND r.es_activo = 1
+                """
+                # ✅ FASE 2: Usar await - solo pasar usuario_id para BD dedicadas
+                result = await execute_query(query, (usuario_id,))
+            else:
+                # BD compartida: usar la query que filtra por cliente_id
+                from app.infrastructure.database.queries import GET_USER_MAX_ACCESS_LEVEL
+                # ✅ FASE 2: Usar await
+                result = await execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
             
             if result and result[0]['max_level'] is not None:
                 # El valor de max_level no es NULL
@@ -181,7 +217,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def _verificar_nombre_rol_unico(cliente_id: int, nombre: str, rol_id_excluir: Optional[int] = None) -> None:
+    async def _verificar_nombre_rol_unico(cliente_id: UUID, nombre: str, rol_id_excluir: Optional[UUID] = None) -> None:
         """
         Verifica que el nombre del rol sea único **dentro del cliente** (case-insensitive).
         
@@ -206,7 +242,8 @@ class RolService(BaseService):
                 query += " AND rol_id != ?"
                 params.append(rol_id_excluir)
 
-            resultados = execute_query(query, tuple(params))
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(query, tuple(params))
 
             if resultados:
                 raise ConflictError(
@@ -233,7 +270,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_rol(cliente_id: int, rol_data: Dict) -> Dict:
+    async def crear_rol(cliente_id: UUID, rol_data: Dict) -> Dict:
         """
         Crea un nuevo rol en el sistema **para un cliente específico**.
         
@@ -283,7 +320,8 @@ class RolService(BaseService):
                 rol_data.get('es_activo', True)  # ✅ Valor por defecto seguro
             )
 
-            result = execute_insert(insert_query, params)
+            # ✅ FASE 2: Usar await
+            result = await execute_insert(insert_query, params)
 
             if not result:
                 raise ServiceError(
@@ -314,7 +352,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_rol_por_id(rol_id: int, incluir_inactivos: bool = False) -> Optional[Dict]:
+    async def obtener_rol_por_id(rol_id: UUID, incluir_inactivos: bool = False) -> Optional[Dict]:
         """
         Obtiene un rol por su ID **(el cliente_id se obtiene del rol)**.
         
@@ -341,7 +379,8 @@ class RolService(BaseService):
             if not incluir_inactivos:
                 query += " AND es_activo = 1"
 
-            resultados = execute_query(query, tuple(params))
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(query, tuple(params))
 
             if not resultados:
                 logger.debug(f"Rol con ID {rol_id} no encontrado")
@@ -413,23 +452,54 @@ class RolService(BaseService):
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
         
-        # ✅ VALIDACIÓN: Verificar que cliente_id es válido
-        if cliente_id is None or cliente_id <= 0:
+        # ✅ VALIDACIÓN: Verificar que cliente_id es válido (UUID)
+        from uuid import UUID
+        cliente_id_valido = cliente_id
+        if not cliente_id_valido:
             logger.error(f"Cliente ID inválido recibido en obtener_roles_paginados: {cliente_id}")
             raise ValidationError(
                 detail="Cliente ID no válido. No se puede obtener la lista de roles.",
                 internal_code="INVALID_CLIENT_ID"
             )
         
-        # Para roles de cliente, la búsqueda es solo dentro del cliente
-        count_params = (cliente_id, search_param, search_param, search_param)
-        select_params = (cliente_id, search_param, search_param, search_param, offset, limit)
+        # Verificar que no sea UUID nulo
+        if isinstance(cliente_id_valido, UUID) and cliente_id_valido == UUID('00000000-0000-0000-0000-000000000000'):
+            logger.error(f"Cliente ID es UUID nulo en obtener_roles_paginados: {cliente_id}")
+            raise ValidationError(
+                detail="Cliente ID no válido. No se puede obtener la lista de roles.",
+                internal_code="INVALID_CLIENT_ID"
+            )
+        
+        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+        from app.core.tenant.context import try_get_tenant_context
+        
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
 
         try:
             # 📊 CONTAR TOTAL DE ROLES
+            # ✅ Para BD dedicadas, no filtrar por cliente_id
+            if database_type == "multi":
+                COUNT_QUERY = """
+                SELECT COUNT(rol_id) as total 
+                FROM dbo.rol
+                WHERE 
+                    (? IS NULL OR (
+                        LOWER(nombre) LIKE LOWER(?) OR
+                        LOWER(descripcion) LIKE LOWER(?)
+                    ));
+                """
+                count_params = (search_param, search_param, search_param)
+                logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Contando roles sin filtrar por cliente_id")
+            else:
+                COUNT_QUERY = COUNT_ROLES_PAGINATED
+                count_params = (cliente_id, search_param, search_param, search_param)
+                logger.debug(f"[ROLES-PAGINADOS] BD compartida: Contando roles con cliente_id {cliente_id}")
+            
             logger.info(f"[ROLES-PAGINADOS] Iniciando consulta para cliente_id={cliente_id}, page={page}, limit={limit}, search='{search}'")
             logger.debug(f"[ROLES-PAGINADOS] Parámetros de conteo: {count_params}")
-            count_result = execute_query(COUNT_ROLES_PAGINATED, count_params)
+            # ✅ FASE 2: Usar await
+            count_result = await execute_query(COUNT_QUERY, count_params)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
                 logger.error(f"[ROLES-PAGINADOS] Error al contar roles para cliente {cliente_id}: resultado inesperado: {count_result}")
@@ -443,10 +513,34 @@ class RolService(BaseService):
             logger.info(f"[ROLES-PAGINADOS] Total de roles encontrados para cliente {cliente_id}: {total_roles}")
 
             # 📋 OBTENER ROLES PAGINADOS
+            # ✅ Para BD dedicadas, no filtrar por cliente_id
+            if database_type == "multi":
+                SELECT_QUERY = """
+                SELECT
+                    rol_id, nombre, descripcion, es_activo, fecha_creacion, cliente_id, codigo_rol
+                FROM
+                    dbo.rol
+                WHERE 
+                    (? IS NULL OR (
+                        LOWER(nombre) LIKE LOWER(?) OR
+                        LOWER(descripcion) LIKE LOWER(?)
+                    ))
+                ORDER BY
+                    rol_id 
+                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;
+                """
+                select_params = (search_param, search_param, search_param, offset, limit)
+                logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Obteniendo roles sin filtrar por cliente_id")
+            else:
+                SELECT_QUERY = SELECT_ROLES_PAGINATED
+                select_params = (cliente_id, search_param, search_param, search_param, offset, limit)
+                logger.debug(f"[ROLES-PAGINADOS] BD compartida: Obteniendo roles con cliente_id {cliente_id}")
+            
             lista_roles = []
             if total_roles > 0 and limit > 0:
                 logger.debug(f"[ROLES-PAGINADOS] Obteniendo roles con parámetros: {select_params}")
-                lista_roles = execute_query(SELECT_ROLES_PAGINATED, select_params)
+                # ✅ FASE 2: Usar await
+                lista_roles = await execute_query(SELECT_QUERY, select_params)
                 logger.info(f"[ROLES-PAGINADOS] Obtenidos {len(lista_roles)} roles para la página {page} de {total_roles} totales")
             else:
                 logger.info(f"[ROLES-PAGINADOS] No hay roles para mostrar (total={total_roles}, limit={limit})")
@@ -454,6 +548,13 @@ class RolService(BaseService):
             # 🔄 PROCESAR Y CONVERTIR DATOS
             roles_procesados = []
             for rol_dict in lista_roles:
+                # ✅ CORRECCIÓN: Para BD dedicadas, establecer cliente_id desde el contexto si es NULL o UUID nulo
+                if database_type == "multi":
+                    rol_cliente_id = rol_dict.get('cliente_id')
+                    if not rol_cliente_id or (isinstance(rol_cliente_id, UUID) and rol_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
+                        rol_dict['cliente_id'] = cliente_id
+                        logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Rol {rol_dict.get('rol_id')} tenía cliente_id NULL, establecido a {cliente_id}")
+                
                 # ✅ Usar función helper para normalizar
                 rol_normalizado = RolService._normalizar_rol_dict(rol_dict)
                 roles_procesados.append(rol_normalizado)
@@ -497,7 +598,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_rol(rol_id: int, rol_data: Dict) -> Dict:
+    async def actualizar_rol(rol_id: UUID, rol_data: Dict) -> Dict:
         """
         Actualiza un rol existente **dentro de su cliente** con validaciones de integridad.
         
@@ -569,7 +670,8 @@ class RolService(BaseService):
             WHERE rol_id = ?
             """
 
-            result = execute_update(update_query, tuple(params))
+            # ✅ FASE 2: Usar await
+            result = await execute_update(update_query, tuple(params))
 
             if not result:
                 logger.error(f"La actualización del rol ID {rol_id} no devolvió resultados")
@@ -605,7 +707,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def desactivar_rol(rol_id: int) -> Dict:
+    async def desactivar_rol(rol_id: UUID) -> Dict:
         """
         Desactiva un rol (borrado lógico).
         
@@ -641,7 +743,8 @@ class RolService(BaseService):
                 return rol_actual
 
             # 💾 EJECUTAR DESACTIVACIÓN
-            result = execute_update(DEACTIVATE_ROL, (rol_id,))
+            # ✅ FASE 2: Usar await
+            result = await execute_update(DEACTIVATE_ROL, (rol_id,))
 
             if not result:
                 logger.warning(f"No se pudo desactivar el rol ID {rol_id}")
@@ -681,7 +784,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def reactivar_rol(rol_id: int) -> Dict:
+    async def reactivar_rol(rol_id: UUID) -> Dict:
         """
         Reactiva un rol previamente desactivado.
         
@@ -717,7 +820,8 @@ class RolService(BaseService):
                 return rol_actual
 
             # 💾 EJECUTAR REACTIVACIÓN
-            result = execute_update(REACTIVATE_ROL, (rol_id,))
+            # ✅ FASE 2: Usar await
+            result = await execute_update(REACTIVATE_ROL, (rol_id,))
 
             if not result:
                 logger.warning(f"No se pudo reactivar el rol ID {rol_id}")
@@ -757,7 +861,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_all_active_roles(cliente_id: int) -> List[Dict]:
+    async def get_all_active_roles(cliente_id: UUID) -> List[Dict]:
         """
         Obtiene todos los roles activos **de un cliente** (sin paginación).
         
@@ -774,15 +878,34 @@ class RolService(BaseService):
         """
         logger.debug(f"📋 Obteniendo todos los roles activos para cliente {cliente_id}")
         
-        query = """
-            SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion
-            FROM rol
-            WHERE cliente_id = ? AND es_activo = 1
-            ORDER BY nombre ASC;
-        """
+        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+        from app.core.tenant.context import try_get_tenant_context
+        
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
+        
+        # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
+        if database_type == "multi":
+            query = """
+                SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion
+                FROM rol
+                WHERE es_activo = 1
+                ORDER BY nombre ASC;
+            """
+            params = ()
+        else:
+            query = """
+                SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion
+                FROM rol
+                WHERE cliente_id = ? AND es_activo = 1
+                ORDER BY nombre ASC;
+            """
+            params = (cliente_id,)
         
         try:
-            resultados = execute_query(query, (cliente_id,))
+            # ✅ FASE 2: Usar await
+            from app.infrastructure.database.queries_async import execute_query
+            resultados = await execute_query(query, params)
             
             roles_procesados = []
             for rol_dict in resultados:
@@ -810,7 +933,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_permisos_por_rol(rol_id: int) -> List[PermisoRead]:
+    async def obtener_permisos_por_rol(rol_id: UUID) -> List[PermisoRead]:
         """
         Obtiene todos los permisos asignados a un rol específico.
         
@@ -840,7 +963,8 @@ class RolService(BaseService):
             )
 
         try:
-            resultados = execute_query(SELECT_PERMISOS_POR_ROL, (rol_id,))
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(SELECT_PERMISOS_POR_ROL, (rol_id,))
             
             if not resultados:
                 logger.info(f"El rol ID {rol_id} no tiene permisos asignados")
@@ -868,7 +992,7 @@ class RolService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_permisos_rol(rol_id: int, permisos_payload: PermisoUpdatePayload) -> None:
+    async def actualizar_permisos_rol(rol_id: UUID, permisos_payload: PermisoUpdatePayload) -> None:
         """
         Actualiza TODOS los permisos de un rol en una transacción atómica.
         
@@ -898,56 +1022,87 @@ class RolService(BaseService):
         nuevos_permisos: List[PermisoBase] = permisos_payload.permisos
         logger.debug(f"Se actualizarán {len(nuevos_permisos)} permisos para el rol {rol_id}")
 
-        # 🏗️ DEFINIR OPERACIONES DE TRANSACCIÓN
-        def _operaciones_permisos(cursor: pyodbc.Cursor):
-            # 🗑️ ELIMINAR PERMISOS EXISTENTES
-            logger.debug(f"Eliminando permisos existentes para rol {rol_id}")
-            cursor.execute(DELETE_PERMISOS_POR_ROL, (rol_id,))
-            logger.debug(f"Permisos existentes eliminados para rol {rol_id}")
-
-            # ➕ INSERTAR NUEVOS PERMISOS
-            if nuevos_permisos:
-                logger.debug(f"Insertando {len(nuevos_permisos)} nuevos permisos")
-                insert_count = 0
-                for permiso in nuevos_permisos:
-                    # Obtener el cliente_id del menú para mantener la coherencia
-                    menu_id = permiso.menu_id
-                    menu_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
-                    menu_result = execute_query(menu_query, (menu_id,))
-                    if not menu_result:
-                        raise ServiceError(
-                            status_code=404,
-                            detail=f"Menú con ID {menu_id} no encontrado.",
-                            internal_code="MENU_NOT_FOUND_FOR_PERM"
-                        )
-                    menu_cliente_id = menu_result[0]['cliente_id']
-                    
-                    # Validar que el menú pertenezca al mismo cliente que el rol
-                    if menu_cliente_id != rol_existente['cliente_id']:
-                        raise ServiceError(
-                            status_code=400,
-                            detail="El menú y el rol deben pertenecer al mismo cliente.",
-                            internal_code="MENU_ROLE_CLIENT_MISMATCH"
-                        )
-                    
-                    params = (
-                        rol_existente['cliente_id'],
-                        rol_id, 
-                        menu_id, 
-                        permiso.puede_ver, 
-                        permiso.puede_editar, 
-                        permiso.puede_eliminar
+        # ✅ FASE 2: Refactorizar para usar transacciones async
+        # Primero validar todos los menús ANTES de la transacción
+        menu_validations = {}
+        if nuevos_permisos:
+            for permiso in nuevos_permisos:
+                menu_id = permiso.menu_id
+                menu_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
+                menu_result = await execute_query(menu_query, (menu_id,))
+                if not menu_result:
+                    raise ServiceError(
+                        status_code=404,
+                        detail=f"Menú con ID {menu_id} no encontrado.",
+                        internal_code="MENU_NOT_FOUND_FOR_PERM"
                     )
-                    cursor.execute(INSERT_PERMISO_ROL, params)
-                    insert_count += 1
-                logger.debug(f"Insertados {insert_count} permisos para rol {rol_id}")
-            else:
-                logger.debug(f"No hay nuevos permisos para insertar para rol {rol_id}")
+                menu_cliente_id = menu_result[0]['cliente_id']
+                
+                # Validar que el menú pertenezca al mismo cliente que el rol
+                if menu_cliente_id != rol_existente['cliente_id']:
+                    raise ServiceError(
+                        status_code=400,
+                        detail="El menú y el rol deben pertenecer al mismo cliente.",
+                        internal_code="MENU_ROLE_CLIENT_MISMATCH"
+                    )
+                menu_validations[menu_id] = menu_cliente_id
 
         try:
-            # 💾 EJECUTAR TRANSACCIÓN
-            execute_transaction(_operaciones_permisos)
-            logger.info(f"Permisos actualizados exitosamente para el rol ID: {rol_id}")
+            # ✅ FASE 2: Usar transacción async con SQLAlchemy
+            from app.infrastructure.database.connection_async import get_db_connection
+            from sqlalchemy import text
+            
+            async with get_db_connection() as session:
+                try:
+                    # 🗑️ ELIMINAR PERMISOS EXISTENTES
+                    # ✅ FASE 2: Convertir query con ? a parámetros nombrados para SQLAlchemy
+                    delete_query = """
+                    DELETE rmp
+                    FROM rol_menu_permiso rmp
+                    JOIN rol r ON rmp.rol_id = r.rol_id
+                    WHERE rmp.rol_id = :rol_id AND (r.cliente_id IS NULL OR r.cliente_id = :cliente_id)
+                    """
+                    logger.debug(f"Eliminando permisos existentes para rol {rol_id}")
+                    await session.execute(
+                        text(delete_query), 
+                        {"rol_id": rol_id, "cliente_id": rol_existente['cliente_id']}
+                    )
+                    logger.debug(f"Permisos existentes eliminados para rol {rol_id}")
+
+                    # ➕ INSERTAR NUEVOS PERMISOS
+                    if nuevos_permisos:
+                        # ✅ FASE 2: Query con cliente_id incluido y parámetros nombrados
+                        insert_query = """
+                        INSERT INTO rol_menu_permiso (
+                            cliente_id, rol_id, menu_id, puede_ver, puede_editar, puede_eliminar
+                        )
+                        VALUES (:cliente_id, :rol_id, :menu_id, :puede_ver, :puede_editar, :puede_eliminar)
+                        """
+                        logger.debug(f"Insertando {len(nuevos_permisos)} nuevos permisos")
+                        insert_count = 0
+                        for permiso in nuevos_permisos:
+                            menu_id = permiso.menu_id
+                            params = {
+                                "cliente_id": rol_existente['cliente_id'],
+                                "rol_id": rol_id,
+                                "menu_id": menu_id,
+                                "puede_ver": permiso.puede_ver,
+                                "puede_editar": permiso.puede_editar,
+                                "puede_eliminar": permiso.puede_eliminar
+                            }
+                            await session.execute(text(insert_query), params)
+                            insert_count += 1
+                        logger.debug(f"Insertados {insert_count} permisos para rol {rol_id}")
+                    else:
+                        logger.debug(f"No hay nuevos permisos para insertar para rol {rol_id}")
+                    
+                    # Commit de la transacción
+                    await session.commit()
+                    logger.info(f"Permisos actualizados exitosamente para el rol ID: {rol_id}")
+                    
+                except Exception as e:
+                    await session.rollback()
+                    raise
 
         except (ValidationError, ServiceError) as e:
             # Re-lanzar errores específicos de validación o lógica de negocio

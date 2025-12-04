@@ -39,7 +39,7 @@ ruc NVARCHAR(11) NULL,
 -- ========================================
 -- CONFIGURACIÓN DE INSTALACIÓN
 -- ========================================
-tipo_instalacion NVARCHAR(20) DEFAULT 'cloud' NOT NULL,
+tipo_instalacion NVARCHAR(20) DEFAULT 'shared' NOT NULL,
 -- Define dónde corre el sistema para este cliente:
 --   'shared'      = Cliente usa la BD centralizada
 --   'dedicated'  = Cliente tiene su propia BD en tu infraestructura

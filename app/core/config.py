@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     
     # --- NUEVAS VARIABLES MULTI-TENANT (CRÍTICO) ---
     BASE_DOMAIN: str = os.getenv("BASE_DOMAIN", "localhost")  # Ej: "tudominio.com"
-    SUPERADMIN_CLIENTE_ID: int = int(os.getenv("SUPERADMIN_CLIENTE_ID", "1"))
+    SUPERADMIN_CLIENTE_ID: str = os.getenv("SUPERADMIN_CLIENTE_ID", "")  # UUID como string
     SUPERADMIN_CLIENTE_CODIGO: str = os.getenv("SUPERADMIN_CLIENTE_CODIGO", "SYSTEM")
     SUPERADMIN_SUBDOMINIO: str = os.getenv("SUPERADMIN_SUBDOMINIO", "platform")
     # ✅ CORRECCIÓN: Agregar el nombre de usuario del Super Admin

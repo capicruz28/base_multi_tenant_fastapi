@@ -12,8 +12,9 @@ Características principales:
 - Soporte para múltiples motores de base de datos.
 - Validación de configuraciones de conexión.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Path
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 import logging
 
 from app.modules.tenant.presentation.schemas import ConexionRead, ConexionCreate, ConexionUpdate, ConexionTest
@@ -48,7 +49,7 @@ router = APIRouter()
 )
 @require_super_admin()
 async def listar_conexiones_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user=Depends(get_current_active_user)
 ):
     """
@@ -88,7 +89,7 @@ async def listar_conexiones_cliente(
 )
 @require_super_admin()
 async def obtener_conexion_principal(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user=Depends(get_current_active_user)
 ):
     """
@@ -134,7 +135,7 @@ async def obtener_conexion_principal(
 )
 @require_super_admin()
 async def crear_conexion(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     conexion_data: ConexionCreate = Body(...),
     current_user=Depends(get_current_active_user)
 ):
@@ -183,7 +184,7 @@ async def crear_conexion(
 )
 @require_super_admin()
 async def actualizar_conexion(
-    conexion_id: int,
+    conexion_id: UUID = Path(..., description="ID de la conexión"),
     conexion_data: ConexionUpdate = Body(...),
     current_user=Depends(get_current_active_user)
 ):
@@ -227,7 +228,7 @@ async def actualizar_conexion(
 )
 @require_super_admin()
 async def desactivar_conexion(
-    conexion_id: int,
+    conexion_id: UUID = Path(..., description="ID de la conexión"),
     current_user=Depends(get_current_active_user)
 ):
     """

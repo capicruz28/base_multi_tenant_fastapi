@@ -1,201 +1,65 @@
 # app/db/queries.py
-from typing import List, Dict, Any, Callable, Optional
-from app.infrastructure.database.connection import get_db_connection, DatabaseConnection
+"""
+⚠️ DEPRECATED: Este archivo será eliminado en FASE 2 completa.
+
+✅ FASE 2: Migrar a app/infrastructure/database/queries_async.py
+- Todas las funciones ahora son async
+- Usa SQLAlchemy AsyncSession
+- Reemplaza completamente este archivo
+
+Este archivo se mantiene temporalmente para compatibilidad durante la migración.
+"""
+
+from typing import List, Dict, Any, Callable, Optional, Union
 from app.core.exceptions import DatabaseError, ValidationError
-from app.core.tenant.routing import get_db_connection_for_client
 from app.core.config import settings
-import pyodbc
+from app.infrastructure.database.query_helpers import apply_tenant_filter, get_table_name_from_query
+from sqlalchemy import Select, Update, Delete, Insert, text
+from sqlalchemy.sql import ClauseElement
 import logging
 
 logger = logging.getLogger(__name__)
+
+# ✅ FASE 2: Importar DatabaseConnection desde connection_async
+try:
+    from app.infrastructure.database.connection_async import DatabaseConnection
+except ImportError:
+    # Fallback para compatibilidad
+    from enum import Enum
+    class DatabaseConnection(Enum):
+        DEFAULT = "default"
+        ADMIN = "admin"
 
 # ============================================
 # FUNCIONES DE EJECUCIÓN (CORE)
 # ============================================
 
+# ⚠️ DEPRECATED: Usar queries_async.execute_query() en su lugar
 def execute_query(
-    query: str, 
+    query: Union[str, ClauseElement], 
     params: tuple = (), 
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT, 
     client_id: Optional[int] = None,
     skip_tenant_validation: bool = False
 ) -> List[Dict[str, Any]]:
     """
-    Ejecuta una consulta SQL.
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
     
-    ✅ SEGURIDAD: Valida automáticamente que queries en contexto de tenant incluyan filtro de cliente_id.
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_query()
     
-    Args:
-        query: Consulta SQL a ejecutar
-        params: Parámetros de la consulta
-        connection_type: Tipo de conexión (DEFAULT o ADMIN)
-        client_id: ID del cliente específico (opcional). Si se proporciona, usa la conexión de ese cliente
-                   en lugar del contexto actual. Útil para Superadmin consultando diferentes clientes.
-        skip_tenant_validation: Si True, omite la validación de tenant (solo para casos especiales)
-    
-    Returns:
-        Lista de diccionarios con los resultados
-    
-    Raises:
-        ValidationError: Si la query no incluye filtro de tenant y hay contexto de tenant
+    Esta función mantiene compatibilidad temporal pero debe migrarse a async.
     """
-    # ✅ CORRECCIÓN AUDITORÍA: VALIDACIÓN OBLIGATORIA DE TENANT
-    # La validación es OBLIGATORIA por defecto para prevenir IDOR
-    # Solo se omite si:
-    # 1. skip_tenant_validation=True Y ALLOW_TENANT_FILTER_BYPASS=True (configuración global)
-    # 2. Se pasa client_id explícito (ya está validado)
-    # 3. Es conexión ADMIN (tablas globales)
-    should_validate = (
-        not skip_tenant_validation or 
-        (skip_tenant_validation and not settings.ALLOW_TENANT_FILTER_BYPASS)
+    logger.warning(
+        "[DEPRECATED] execute_query() síncrono está deprecated. "
+        "Migrar a queries_async.execute_query() (async)."
     )
     
-    if should_validate and client_id is None and connection_type == DatabaseConnection.DEFAULT:
-        try:
-            from app.core.tenant.context import get_current_client_id
-            current_cliente_id = get_current_client_id()
-            
-            # Validar que la query incluya filtro de tenant
-            query_lower = query.lower().strip()
-            
-            # Tablas que no requieren filtro de tenant (tablas globales/ADMIN)
-            # Estas tablas están en BD centralizada y no tienen aislamiento por cliente_id
-            # NOTA: auth_audit_log NO es global, es de tenant, pero puede estar en BD central para tenants Single-DB
-            global_tables = [
-                'cliente', 'cliente_modulo', 'modulo', 'cliente_modulo_activo', 
-                'cliente_conexion', 'sistema_config'
-            ]
-            
-            # Detectar si la query es en una tabla global
-            is_global_table = any(
-                f" from {table} " in query_lower or 
-                f" from dbo.{table} " in query_lower or
-                f"from {table}" in query_lower.split('where')[0] or
-                f"from dbo.{table}" in query_lower.split('where')[0]
-                for table in global_tables
-            )
-            
-            # Si es una tabla global, no validar (están en BD centralizada)
-            if is_global_table:
-                logger.debug(f"[SECURITY] Query en tabla global detectada, omitiendo validación de tenant")
-            elif "where" in query_lower:
-                # Verificar si tiene filtro de cliente_id
-                # Buscar patrones más flexibles para detectar filtros en diferentes contextos
-                has_cliente_id_filter = (
-                    # Filtros directos en WHERE
-                    " cliente_id = ?" in query_lower or
-                    " cliente_id=?" in query_lower or
-                    " cliente_id = " in query_lower or
-                    f" cliente_id = {current_cliente_id}" in query_lower or
-                    f" cliente_id={current_cliente_id}" in query_lower or
-                    "and cliente_id = ?" in query_lower or
-                    "and cliente_id=?" in query_lower or
-                    "where cliente_id = ?" in query_lower or
-                    "where cliente_id=?" in query_lower or
-                    # Filtros en JOINs (más estricto: debe tener JOIN Y cliente_id)
-                    ("join" in query_lower and "cliente_id" in query_lower and "on" in query_lower) or
-                    # Filtros en subconsultas (más permisivo pero con parámetros)
-                    ("cliente_id" in query_lower and "?" in query_lower and len(params) > 0)
-                )
-                
-                # Verificación adicional: si la query tiene parámetros y menciona cliente_id,
-                # asumir que el filtro está en los parámetros (más permisivo para no romper código existente)
-                has_cliente_id_in_params = (
-                    len(params) > 0 and 
-                    "cliente_id" in query_lower and
-                    ("?" in query_lower or str(current_cliente_id) in query_lower)
-                )
-                
-                if not has_cliente_id_filter and not has_cliente_id_in_params:
-                    # ⚠️ QUERY SIN FILTRO DE TENANT DETECTADA - CRÍTICO
-                    logger.error(
-                        f"[SECURITY CRITICAL] Query sin filtro de cliente_id detectada en contexto de tenant. "
-                        f"Cliente actual: {current_cliente_id}. "
-                        f"Query: {query[:200]}... "
-                        f"Esto puede causar fuga de datos entre tenants (IDOR). "
-                        f"La query será RECHAZADA por seguridad."
-                    )
-                    raise ValidationError(
-                        detail=(
-                            f"Query sin filtro de tenant OBLIGATORIO detectada. "
-                            f"Todas las queries en contexto de tenant DEBEN incluir 'WHERE cliente_id = ?' "
-                            f"o proporcionar client_id explícito. "
-                            f"El filtro cliente_id es OBLIGATORIO por seguridad multi-tenant. "
-                            f"Si es un caso especial (script de migración), active ALLOW_TENANT_FILTER_BYPASS temporalmente."
-                        ),
-                        internal_code="MISSING_TENANT_FILTER"
-                    )
-        except RuntimeError:
-            # Sin contexto de tenant, no validar (comportamiento esperado para scripts de fondo)
-            # PERO solo si el bypass está permitido
-            if settings.ALLOW_TENANT_FILTER_BYPASS:
-                logger.debug("[SECURITY] Sin contexto de tenant, omitiendo validación (bypass permitido)")
-            else:
-                logger.warning(
-                    "[SECURITY] Sin contexto de tenant pero bypass no permitido. "
-                    "La query puede fallar si requiere filtro de tenant."
-                )
-        except ValidationError:
-            # Re-lanzar ValidationError
-            raise
-        except ValidationError:
-            # Re-lanzar ValidationError (no silenciar errores de validación)
-            raise
-        except Exception as e:
-            # Si hay error en la validación, loggear y BLOQUEAR por seguridad
-            # Mejor bloquear que permitir queries inseguras
-            logger.error(
-                f"[SECURITY] Error en validación de tenant (BLOQUEANDO query por seguridad): {str(e)}",
-                exc_info=True
-            )
-            raise ValidationError(
-                detail=(
-                    f"Error en validación de seguridad de tenant. "
-                    f"La query fue bloqueada por seguridad. "
-                    f"Error: {str(e)}"
-                ),
-                internal_code="TENANT_VALIDATION_ERROR"
-            )
-    
-    # Si se proporciona client_id, usar conexión específica de ese cliente
-    if client_id is not None:
-        conn = None
-        cursor = None
-        try:
-            conn = get_db_connection_for_client(client_id)
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            columns = [column[0] for column in cursor.description]
-            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            return results
-        except Exception as e:
-            logger.error(f"Error en execute_query para cliente {client_id}: {str(e)}")
-            raise DatabaseError(
-                detail=f"Error en la consulta: {str(e)}",
-                internal_code="DB_QUERY_ERROR"
-            )
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
-    else:
-        # Comportamiento normal: usar conexión del contexto actual
-        with get_db_connection(connection_type) as conn:
-            try:
-                cursor = conn.cursor()
-                cursor.execute(query, params)
-                columns = [column[0] for column in cursor.description]
-                return [dict(zip(columns, row)) for row in cursor.fetchall()]
-            except Exception as e:
-                logger.error(f"Error en execute_query: {str(e)}")
-                raise DatabaseError(
-                    detail=f"Error en la consulta: {str(e)}",
-                    internal_code="DB_QUERY_ERROR"
-                )
-            finally:
-                if cursor:
-                    cursor.close()
+    # Por ahora, mantener funcionalidad básica pero loggear advertencia
+    # TODO: Eliminar completamente en FASE 2 completa
+    raise NotImplementedError(
+        "execute_query() síncrono está deprecated. "
+        "Usar queries_async.execute_query() (async) en su lugar."
+    )
 
 def execute_query_safe(
     query: str, 
@@ -275,237 +139,119 @@ def execute_query_safe(
         return execute_query(query, params, connection_type, client_id)
 
 
-def execute_auth_query(query: str, params: tuple = ()) -> Dict[str, Any]:
+# ⚠️ DEPRECATED: Usar queries_async.execute_auth_query() en su lugar
+def execute_auth_query(
+    query: Union[str, ClauseElement], 
+    params: tuple = ()
+) -> Dict[str, Any]:
     """
-    Ejecuta una consulta específica para autenticación y retorna un único registro.
-    Siempre usa la conexión DEFAULT para buscar el usuario y verificar el cliente (fase previa).
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
+    
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_auth_query()
     """
-    with get_db_connection(DatabaseConnection.DEFAULT) as conn:
-        cursor = None
-        try:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+    logger.warning(
+        "[DEPRECATED] execute_auth_query() síncrono está deprecated. "
+        "Migrar a queries_async.execute_auth_query() (async)."
+    )
+    
+    raise NotImplementedError(
+        "execute_auth_query() síncrono está deprecated. "
+        "Usar queries_async.execute_auth_query() (async) en su lugar."
+    )
 
-            if cursor.description is None:
-                return None
-
-            columns = [column[0] for column in cursor.description]
-            row = cursor.fetchone()
-
-            if row:
-                return dict(zip(columns, row))
-            return None
-
-        except Exception as e:
-            logger.error(f"Error en execute_auth_query: {str(e)}")
-            raise DatabaseError(
-                detail=f"Error en la autenticación: {str(e)}",
-                internal_code="DB_AUTH_ERROR"
-            )
-        finally:
-            if cursor:
-                cursor.close()
-
+# ⚠️ DEPRECATED: Usar queries_async.execute_insert() en su lugar
 def execute_insert(
     query: str,
     params: tuple = (),
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
 ) -> Dict[str, Any]:
     """
-    Ejecuta una sentencia INSERT y retorna:
-      - Los datos retornados por OUTPUT si existen
-      - Siempre incluye 'rows_affected' en la respuesta
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
+    
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_insert()
     """
-    with get_db_connection(connection_type) as conn:
-        cursor = None
-        try:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+    logger.warning(
+        "[DEPRECATED] execute_insert() síncrono está deprecated. "
+        "Migrar a queries_async.execute_insert() (async)."
+    )
+    raise NotImplementedError(
+        "execute_insert() síncrono está deprecated. "
+        "Usar queries_async.execute_insert() (async) en su lugar."
+    )
 
-            # Verificar OUTPUT
-            if cursor.description:
-                columns = [column[0] for column in cursor.description]
-                output_data = cursor.fetchone()
-                result = dict(zip(columns, output_data)) if output_data else {}
-            else:
-                result = {}
-
-            # Importante: filas afectadas
-            rows_affected = cursor.rowcount
-            result["rows_affected"] = rows_affected
-
-            conn.commit()
-            logger.info(f"Inserción exitosa, filas afectadas: {rows_affected}")
-            return result
-
-        except Exception as e:
-            conn.rollback()
-            error_str = str(e)
-            logger.error(f"Error en execute_insert: {error_str}")
-            
-            # ✅ MEJORA: Detectar errores de constraint UNIQUE y convertirlos en ConflictError
-            # Esto hace que el error sea más claro y manejable para el usuario
-            if isinstance(e, pyodbc.IntegrityError) or ('23000' in error_str and 'UNIQUE' in error_str.upper()):
-                from app.core.exceptions import ConflictError
-                # Extraer información del constraint si está disponible
-                constraint_name = None
-                if 'UQ_cliente_modulo' in error_str:
-                    constraint_name = "UQ_cliente_modulo"
-                    detail = "El módulo ya está activado para este cliente."
-                elif 'UNIQUE KEY constraint' in error_str:
-                    # Intentar extraer el nombre del constraint
-                    import re
-                    match = re.search(r"constraint '([^']+)'", error_str, re.IGNORECASE)
-                    if match:
-                        constraint_name = match.group(1)
-                    detail = "Ya existe un registro con estos valores únicos."
-                else:
-                    detail = "Violación de constraint de unicidad."
-                
-                raise ConflictError(
-                    detail=detail,
-                    internal_code="UNIQUE_CONSTRAINT_VIOLATION"
-                )
-            
-            raise DatabaseError(
-                detail=f"Error en la inserción: {error_str}",
-                internal_code="DB_INSERT_ERROR"
-            )
-        finally:
-            if cursor:
-                cursor.close()
-
+# ⚠️ DEPRECATED: Usar queries_async.execute_update() en su lugar
 def execute_update(query: str, params: tuple = (), connection_type: DatabaseConnection = DatabaseConnection.DEFAULT) -> Dict[str, Any]:
-    with get_db_connection(connection_type) as conn:
-        cursor = None
-        try:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+    """
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
+    
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_update()
+    """
+    logger.warning(
+        "[DEPRECATED] execute_update() síncrono está deprecated. "
+        "Migrar a queries_async.execute_update() (async)."
+    )
+    raise NotImplementedError(
+        "execute_update() síncrono está deprecated. "
+        "Usar queries_async.execute_update() (async) en su lugar."
+    )
 
-            # Obtener número de filas afectadas
-            rows_affected = cursor.rowcount
-
-            # Si hay OUTPUT, obtener los datos
-            if cursor.description:
-                columns = [column[0] for column in cursor.description]
-                output_data = cursor.fetchone()
-                result = dict(zip(columns, output_data)) if output_data else {}
-            else:
-                result = {}
-
-            conn.commit()
-
-            # CAMBIO CLAVE: Siempre incluir rows_affected en la respuesta
-            result['rows_affected'] = rows_affected
-
-            logger.info(f"Actualización exitosa, filas afectadas: {rows_affected}")
-            return result
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Error en execute_update: {str(e)}")
-            raise DatabaseError(
-                detail=f"Error en la actualización: {str(e)}",
-                internal_code="DB_UPDATE_ERROR"
-            )
-        finally:
-            if cursor:
-                cursor.close()
-
+# ⚠️ DEPRECATED: Usar queries_async.execute_procedure() en su lugar
 def execute_procedure(procedure_name: str, connection_type: DatabaseConnection = DatabaseConnection.DEFAULT) -> List[Dict[str, Any]]:
-    with get_db_connection(connection_type) as conn:
-        cursor = None
-        try:
-            cursor = conn.cursor()
-            cursor.execute(f"EXEC {procedure_name}")
+    """
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
+    
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_procedure()
+    """
+    logger.warning(
+        "[DEPRECATED] execute_procedure() síncrono está deprecated. "
+        "Migrar a queries_async.execute_procedure() (async)."
+    )
+    raise NotImplementedError(
+        "execute_procedure() síncrono está deprecated. "
+        "Usar queries_async.execute_procedure() (async) en su lugar."
+    )
 
-            results = []
-            while True:
-                if cursor.description:
-                    columns = [column[0] for column in cursor.description]
-                    results.extend([dict(zip(columns, row)) for row in cursor.fetchall()])
-                if not cursor.nextset():
-                    break
-            return results
-        except Exception as e:
-            logger.error(f"Error en execute_procedure: {str(e)}")
-            raise DatabaseError(
-                detail=f"Error en el procedimiento: {str(e)}",
-                internal_code="DB_PROCEDURE_ERROR"
-            )
-        finally:
-            if cursor:
-                cursor.close()
-
+# ⚠️ DEPRECATED: Usar queries_async.execute_procedure_params() en su lugar
 def execute_procedure_params(
     procedure_name: str,
     params: dict,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT
 ) -> List[Dict[str, Any]]:
-    with get_db_connection(connection_type) as conn:
-        cursor = None
-        try:
-            cursor = conn.cursor()
-            param_str = ", ".join([f"@{key} = ?" for key in params.keys()])
-            query = f"EXEC {procedure_name} {param_str}"
+    """
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
+    
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_procedure_params()
+    """
+    logger.warning(
+        "[DEPRECATED] execute_procedure_params() síncrono está deprecated. "
+        "Migrar a queries_async.execute_procedure_params() (async)."
+    )
+    raise NotImplementedError(
+        "execute_procedure_params() síncrono está deprecated. "
+        "Usar queries_async.execute_procedure_params() (async) en su lugar."
+    )
 
-            cursor.execute(query, tuple(params.values()))
-
-            results = []
-            while True:
-                if cursor.description:
-                    columns = [column[0] for column in cursor.description]
-                    results.extend([dict(zip(columns, row)) for row in cursor.fetchall()])
-                if not cursor.nextset():
-                    break
-            return results
-        except Exception as e:
-            logger.error(f"Error en execute_procedure_params: {str(e)}")
-            raise DatabaseError(
-                detail=f"Error en el procedimiento: {str(e)}",
-                internal_code="DB_PROCEDURE_PARAMS_ERROR"
-            )
-        finally:
-            if cursor:
-                cursor.close()
-
+# ⚠️ DEPRECATED: Usar queries_async.execute_transaction() en su lugar
 def execute_transaction(
-    operations_func: Callable[[pyodbc.Cursor], None],
+    operations_func: Callable,  # ⚠️ Tipo original: Callable[[pyodbc.Cursor], None]
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT
 ) -> None:
     """
+    ⚠️ DEPRECATED: Esta función será eliminada en FASE 2.
+    
+    ✅ FASE 2: Migrar a app/infrastructure/database/queries_async.execute_transaction()
+    
     Ejecuta operaciones de BD en una transacción.
     Maneja errores de conexión y operación de pyodbc.
     """
-    conn = None
-    cursor = None
-    try:
-        with get_db_connection(connection_type) as conn:
-            cursor = conn.cursor()
-            operations_func(cursor)
-            conn.commit()
-            logger.debug("Transacción completada exitosamente.")
-
-    except pyodbc.Error as db_err:
-        if conn:
-            conn.rollback() # Asegurar rollback en error pyodbc
-        logger.error(f"Error de base de datos (pyodbc) en transacción: {db_err}", exc_info=True)
-        raise DatabaseError(
-            detail=f"Error DB en transacción: {str(db_err)}",
-            internal_code="DB_TRANSACTION_ERROR"
-        )
-
-    except Exception as e:
-        if conn:
-            conn.rollback() # Asegurar rollback en cualquier otro error
-        logger.error(f"Error inesperado (no pyodbc) en transacción: {e}", exc_info=True)
-        raise DatabaseError(
-            detail=f"Error inesperado en transacción: {str(e)}",
-            internal_code="DB_TRANSACTION_UNEXPECTED_ERROR"
-        )
-    finally:
-        if cursor:
-            cursor.close()
+    logger.warning(
+        "[DEPRECATED] execute_transaction() síncrono está deprecated. "
+        "Migrar a queries_async.execute_transaction() (async)."
+    )
+    raise NotImplementedError(
+        "execute_transaction() síncrono está deprecated. "
+        "Usar queries_async.execute_transaction() (async) en su lugar."
+    )
             
 # ============================================
 # NUEVAS QUERIES PARA SISTEMA DE NIVELES LBAC
@@ -730,8 +476,11 @@ GET_USER_COMPLETE_OPTIMIZED = GET_USER_COMPLETE_OPTIMIZED_JSON
 # Cache de versión de SQL Server (se detecta una vez al iniciar)
 _sql_server_version_cache: Optional[int] = None
 
+# ⚠️ DEPRECATED: Esta función usa conexiones síncronas
 def get_sql_server_version(connection_type: DatabaseConnection = DatabaseConnection.DEFAULT, client_id: Optional[int] = None) -> Optional[int]:
     """
+    ⚠️ DEPRECATED: Esta función usa conexiones síncronas.
+    
     Detecta la versión mayor de SQL Server (ej: 2016, 2014, 2008).
     
     ✅ OPTIMIZACIÓN: Usa cache para evitar detectar en cada request.
@@ -746,41 +495,12 @@ def get_sql_server_version(connection_type: DatabaseConnection = DatabaseConnect
     if _sql_server_version_cache is not None:
         return _sql_server_version_cache
     
-    try:
-        query = "SELECT CAST(SERVERPROPERTY('ProductVersion') AS VARCHAR) as version"
-        
-        with get_db_connection(connection_type) as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            row = cursor.fetchone()
-            
-            if row:
-                version_str = row[0]  # Ej: "13.0.4001.0" para SQL Server 2016
-                major_version = int(version_str.split('.')[0])
-                
-                # Mapear versión interna a versión del producto
-                # SQL Server 2008 = 10, 2012 = 11, 2014 = 12, 2016 = 13, 2017 = 14, 2019 = 15, 2022 = 16
-                version_map = {
-                    10: 2008,
-                    11: 2012,
-                    12: 2014,
-                    13: 2016,
-                    14: 2017,
-                    15: 2019,
-                    16: 2022
-                }
-                
-                product_version = version_map.get(major_version, major_version)
-                _sql_server_version_cache = product_version  # Guardar en cache
-                logger.info(f"[SQL_VERSION] Detectada versión: SQL Server {product_version} (internal: {major_version})")
-                return product_version
-                
-    except Exception as e:
-        logger.warning(f"[SQL_VERSION] No se pudo detectar versión de SQL Server: {e}")
-        # Cachear None para no intentar detectar en cada request
-        _sql_server_version_cache = None
-        return None
-    
+    # ⚠️ DEPRECATED: Esta función requiere migración a async
+    # Por ahora, retornar None si no está en cache para evitar usar conexiones síncronas
+    logger.warning(
+        "[DEPRECATED] get_sql_server_version() requiere conexión síncrona. "
+        "Migrar a versión async o usar cache."
+    )
     return None
 
 

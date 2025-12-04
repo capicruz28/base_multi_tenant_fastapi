@@ -9,8 +9,9 @@ from typing import Optional, Dict, Any, List
 import logging
 
 from app.infrastructure.database.repositories.base_repository import BaseRepository
-from app.infrastructure.database.queries import execute_query
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.queries_async import execute_query
+from app.infrastructure.database.connection_async import DatabaseConnection
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class RolRepository(BaseRepository):
         )
         return results[0] if results else None
     
-    def find_with_permisos(
+    async def find_with_permisos(
         self,
         rol_id: int,
         client_id: Optional[int] = None
@@ -104,15 +105,14 @@ class RolRepository(BaseRepository):
                 rp.es_activo as asignacion_activa
             FROM permiso p
             INNER JOIN rol_permiso rp ON p.permiso_id = rp.permiso_id
-            WHERE rp.rol_id = ?
+            WHERE rp.rol_id = :rol_id
             AND rp.es_activo = 1
             AND p.es_activo = 1
         """
         
         try:
-            permisos = execute_query(
-                query_permisos,
-                (rol_id,),
+            permisos = await execute_query(
+                text(query_permisos).bindparams(rol_id=rol_id),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -123,7 +123,7 @@ class RolRepository(BaseRepository):
             rol['permisos'] = []
             return rol
     
-    def find_roles_by_usuario(
+    async def find_roles_by_usuario(
         self,
         usuario_id: int,
         client_id: Optional[int] = None
@@ -147,18 +147,18 @@ class RolRepository(BaseRepository):
                 ur.es_activo as asignacion_activa
             FROM {self.table_name} r
             INNER JOIN usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ?
+            WHERE ur.usuario_id = :usuario_id
             AND ur.es_activo = 1
             AND r.es_activo = 1
             {tenant_filter}
             ORDER BY r.nombre ASC
         """
-        params = (usuario_id,) + tenant_params
+        bind_params = {"usuario_id": usuario_id}
+        # TODO: Convertir tenant_params a bind_params si es necesario
         
         try:
-            return execute_query(
-                query,
-                params,
+            return await execute_query(
+                text(query).bindparams(**bind_params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )

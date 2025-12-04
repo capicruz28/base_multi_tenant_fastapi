@@ -2,11 +2,15 @@
 from datetime import datetime
 import math
 from typing import Dict, List, Optional, Any
+from uuid import UUID
 import logging
 
 # 🗄️ IMPORTACIONES DE BASE DE DATOS
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import (
+    execute_query, execute_insert, execute_update, execute_auth_query
+)
 from app.infrastructure.database.queries import (
-    execute_query, execute_insert, execute_update, execute_auth_query,
     SELECT_USUARIOS_PAGINATED, COUNT_USUARIOS_PAGINATED
 )
 
@@ -51,7 +55,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_user_access_level(usuario_id: int, cliente_id: int) -> int:
+    async def get_user_access_level(usuario_id: UUID, cliente_id: UUID) -> int:
         """
         Obtiene el nivel de acceso máximo del usuario basado en sus roles activos
         
@@ -66,16 +70,37 @@ class UsuarioService(BaseService):
             ServiceError: Si hay errores en la consulta
         """
         try:
-            query = """
-            SELECT MAX(r.nivel_acceso) as max_level
-            FROM usuario_rol ur
-            INNER JOIN rol r ON ur.rol_id = r.rol_id
-            WHERE ur.usuario_id = ? 
-              AND ur.es_activo = 1
-              AND r.es_activo = 1
-              AND (r.cliente_id = ? OR r.cliente_id IS NULL)
-            """
-            result = execute_auth_query(query, (usuario_id, cliente_id))
+            # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+            from app.core.tenant.context import try_get_tenant_context
+            
+            tenant_context = try_get_tenant_context()
+            database_type = tenant_context.database_type if tenant_context else "single"
+            
+            # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
+            if database_type == "multi":
+                query = """
+                SELECT MAX(r.nivel_acceso) as max_level
+                FROM usuario_rol ur
+                INNER JOIN rol r ON ur.rol_id = r.rol_id
+                WHERE ur.usuario_id = ? 
+                  AND ur.es_activo = 1
+                  AND r.es_activo = 1
+                """
+                # ✅ FASE 2: Usar await - solo pasar usuario_id para BD dedicadas
+                result = await execute_auth_query(query, (usuario_id,))
+            else:
+                # BD compartida: filtrar por cliente_id
+                query = """
+                SELECT MAX(r.nivel_acceso) as max_level
+                FROM usuario_rol ur
+                INNER JOIN rol r ON ur.rol_id = r.rol_id
+                WHERE ur.usuario_id = ? 
+                  AND ur.es_activo = 1
+                  AND r.es_activo = 1
+                  AND (r.cliente_id = ? OR r.cliente_id IS NULL)
+                """
+                # ✅ FASE 2: Usar await
+                result = await execute_auth_query(query, (usuario_id, cliente_id))
             
             if result and result.get('max_level') is not None:
                 return result['max_level']
@@ -100,7 +125,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def is_super_admin(usuario_id: int) -> bool:
+    async def is_super_admin(usuario_id: UUID) -> bool:
         """
         Verifica si el usuario tiene rol de SUPER_ADMIN (nivel 5)
         
@@ -124,7 +149,8 @@ class UsuarioService(BaseService):
               AND r.codigo_rol = 'SUPER_ADMIN'
               AND r.nivel_acceso = 5
             """
-            result = execute_auth_query(query, (usuario_id,))
+            # ✅ FASE 2: Usar await
+            result = await execute_auth_query(query, (usuario_id,))
             
             return result and result.get('is_super_admin', 0) > 0
             
@@ -164,7 +190,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_user_level_info(usuario_id: int, cliente_id: int) -> Dict[str, Any]:
+    async def get_user_level_info(usuario_id: UUID, cliente_id: UUID) -> Dict[str, Any]:
         """
         Obtiene información completa de niveles de acceso del usuario
         
@@ -208,7 +234,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_usuario_completo_por_id(cliente_id: int, usuario_id: int) -> Optional[Dict[str, Any]]:
+    async def obtener_usuario_completo_por_id(cliente_id: UUID, usuario_id: UUID) -> Optional[Dict[str, Any]]:
         """
         Obtiene un usuario completo por su ID incluyendo todos sus datos y roles activos.
         
@@ -232,51 +258,103 @@ class UsuarioService(BaseService):
         logger.info(f"Obteniendo usuario completo ID {usuario_id} para cliente {cliente_id}")
         
         try:
-            # 🔍 CONSULTA UNIFICADA PARA USUARIO Y SUS ROLES
-            query = """
-            SELECT 
-                -- 📋 DATOS BÁSICOS DEL USUARIO
-                u.usuario_id,
-                u.cliente_id,
-                u.nombre_usuario,
-                u.correo,
-                u.nombre,
-                u.apellido,
-                u.dni,
-                u.telefono,
-                u.proveedor_autenticacion,
-                u.es_activo,
-                u.correo_confirmado,
-                u.fecha_creacion,
-                u.fecha_ultimo_acceso,
-                u.fecha_actualizacion,
-                
-                -- 🎭 DATOS DE ROLES ASIGNADOS (si existen)
-                r.rol_id,
-                r.nombre as nombre_rol,
-                r.descripcion as descripcion_rol,
-                r.es_activo as rol_activo,
-                ur.fecha_asignacion,
-                ur.es_activo as asignacion_activa
-                
-            FROM dbo.usuario u
-            -- 🔄 LEFT JOIN para incluir usuarios sin roles asignados
-            LEFT JOIN dbo.usuario_rol ur ON u.usuario_id = ur.usuario_id 
-                AND u.cliente_id = ur.cliente_id 
-                AND ur.es_activo = 1
-            LEFT JOIN dbo.rol r ON ur.rol_id = r.rol_id 
-                AND r.es_activo = 1
-            WHERE 
-                u.usuario_id = ? 
-                AND u.cliente_id = ? 
-                AND u.es_eliminado = 0
-            ORDER BY 
-                u.usuario_id, 
-                r.nombre
-            """
+            # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+            from app.core.tenant.context import try_get_tenant_context
             
-            params = (usuario_id, cliente_id)
-            resultados = execute_query(query, params)
+            tenant_context = try_get_tenant_context()
+            database_type = tenant_context.database_type if tenant_context else "single"
+            
+            # 🔍 CONSULTA UNIFICADA PARA USUARIO Y SUS ROLES
+            # ✅ Para BD dedicadas, no filtrar por cliente_id en WHERE (todos los usuarios pertenecen al mismo cliente)
+            if database_type == "multi":
+                # BD dedicada: buscar solo por usuario_id
+                query = """
+                SELECT 
+                    -- 📋 DATOS BÁSICOS DEL USUARIO
+                    u.usuario_id,
+                    u.cliente_id,
+                    u.nombre_usuario,
+                    u.correo,
+                    u.nombre,
+                    u.apellido,
+                    u.dni,
+                    u.telefono,
+                    u.proveedor_autenticacion,
+                    u.es_activo,
+                    u.correo_confirmado,
+                    u.fecha_creacion,
+                    u.fecha_ultimo_acceso,
+                    u.fecha_actualizacion,
+                    
+                    -- 🎭 DATOS DE ROLES ASIGNADOS (si existen)
+                    r.rol_id,
+                    r.nombre as nombre_rol,
+                    r.descripcion as descripcion_rol,
+                    r.es_activo as rol_activo,
+                    ur.fecha_asignacion,
+                    ur.es_activo as asignacion_activa
+                    
+                FROM dbo.usuario u
+                -- 🔄 LEFT JOIN para incluir usuarios sin roles asignados
+                LEFT JOIN dbo.usuario_rol ur ON u.usuario_id = ur.usuario_id 
+                    AND ur.es_activo = 1
+                LEFT JOIN dbo.rol r ON ur.rol_id = r.rol_id 
+                    AND r.es_activo = 1
+                WHERE 
+                    u.usuario_id = ? 
+                    AND u.es_eliminado = 0
+                ORDER BY 
+                    u.usuario_id, 
+                    r.nombre
+                """
+                params = (usuario_id,)
+            else:
+                # BD compartida: filtrar por cliente_id
+                query = """
+                SELECT 
+                    -- 📋 DATOS BÁSICOS DEL USUARIO
+                    u.usuario_id,
+                    u.cliente_id,
+                    u.nombre_usuario,
+                    u.correo,
+                    u.nombre,
+                    u.apellido,
+                    u.dni,
+                    u.telefono,
+                    u.proveedor_autenticacion,
+                    u.es_activo,
+                    u.correo_confirmado,
+                    u.fecha_creacion,
+                    u.fecha_ultimo_acceso,
+                    u.fecha_actualizacion,
+                    
+                    -- 🎭 DATOS DE ROLES ASIGNADOS (si existen)
+                    r.rol_id,
+                    r.nombre as nombre_rol,
+                    r.descripcion as descripcion_rol,
+                    r.es_activo as rol_activo,
+                    ur.fecha_asignacion,
+                    ur.es_activo as asignacion_activa
+                    
+                FROM dbo.usuario u
+                -- 🔄 LEFT JOIN para incluir usuarios sin roles asignados
+                LEFT JOIN dbo.usuario_rol ur ON u.usuario_id = ur.usuario_id 
+                    AND u.cliente_id = ur.cliente_id 
+                    AND ur.es_activo = 1
+                LEFT JOIN dbo.rol r ON ur.rol_id = r.rol_id 
+                    AND r.es_activo = 1
+                WHERE 
+                    u.usuario_id = ? 
+                    AND u.cliente_id = ? 
+                    AND u.es_eliminado = 0
+                ORDER BY 
+                    u.usuario_id, 
+                    r.nombre
+                """
+                params = (usuario_id, cliente_id)
+            
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(query, params)
             
             if not resultados:
                 logger.warning(f"Usuario ID {usuario_id} no encontrado en cliente {cliente_id} o está eliminado")
@@ -286,10 +364,37 @@ class UsuarioService(BaseService):
             
             # 🎯 ESTRUCTURA BASE DEL USUARIO (primera fila contiene datos del usuario)
             usuario_base = resultados[0]
+            
+            # ✅ CORRECCIÓN CRÍTICA: Para BD dedicadas, el cliente_id del usuario puede ser NULL o UUID nulo
+            # Usar el cliente_id del contexto del tenant en su lugar
+            usuario_cliente_id = usuario_base.get('cliente_id')
+            if database_type == "multi":
+                # Convertir cliente_id a UUID si es string para comparar
+                user_cliente_id = usuario_cliente_id
+                if user_cliente_id:
+                    if isinstance(user_cliente_id, str):
+                        try:
+                            user_cliente_id = UUID(user_cliente_id)
+                        except (ValueError, AttributeError):
+                            user_cliente_id = None
+                    elif not isinstance(user_cliente_id, UUID):
+                        user_cliente_id = None
+                
+                # Verificar si es None o UUID nulo
+                if not user_cliente_id or (isinstance(user_cliente_id, UUID) and user_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
+                    # Usar cliente_id del contexto del tenant
+                    usuario_cliente_id = cliente_id
+                    logger.debug(
+                        f"[USER_SERVICE] BD dedicada: cliente_id del usuario era NULL/nulo, "
+                        f"usando cliente_id del contexto: {cliente_id}"
+                    )
+                else:
+                    usuario_cliente_id = user_cliente_id
+            
             usuario_completo = {
                 # 📋 DATOS PRINCIPALES
                 "usuario_id": usuario_base['usuario_id'],
-                "cliente_id": usuario_base['cliente_id'],
+                "cliente_id": usuario_cliente_id,
                 "nombre_usuario": usuario_base['nombre_usuario'],
                 "correo": usuario_base['correo'],
                 "nombre": usuario_base.get('nombre'),
@@ -369,7 +474,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_user_role_names(cliente_id: int, user_id: int) -> List[str]:
+    async def get_user_role_names(cliente_id: UUID, user_id: UUID) -> List[str]:
         """
         Obtiene solo los NOMBRES de roles activos para un usuario dentro de un cliente.
         
@@ -395,7 +500,8 @@ class UsuarioService(BaseService):
             WHERE ur.usuario_id = ? AND ur.cliente_id = ? AND ur.es_activo = 1 AND r.es_activo = 1;
             """
             
-            results = execute_query(query, (user_id, cliente_id))
+            # ✅ FASE 2: Usar await
+            results = await execute_query(query, (user_id, cliente_id))
             
             if results:
                 role_names = [row['nombre'] for row in results if 'nombre' in row]
@@ -422,7 +528,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_usuario_por_id(cliente_id: int, usuario_id: int) -> Optional[Dict]:
+    async def obtener_usuario_por_id(cliente_id: UUID, usuario_id: UUID) -> Optional[Dict]:
         """
         Obtiene un usuario por su ID dentro de un cliente (excluyendo eliminados).
         
@@ -476,7 +582,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def verificar_usuario_existente(cliente_id: int, nombre_usuario: str, correo: str) -> bool:
+    async def verificar_usuario_existente(cliente_id: UUID, nombre_usuario: str, correo: str) -> bool:
         """
         Verifica si ya existe un usuario con el mismo nombre o correo **dentro del cliente**.
         
@@ -504,7 +610,8 @@ class UsuarioService(BaseService):
             """
             
             params = (cliente_id, nombre_usuario.lower(), correo.lower())
-            resultados = execute_query(query, params)
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(query, params)
 
             if resultados:
                 nombre_usuario_coincide = any(
@@ -548,7 +655,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_usuario(cliente_id: int, usuario_data: Dict) -> Dict:
+    async def crear_usuario(cliente_id: UUID, usuario_data: Dict) -> Dict:
         """
         Crea un nuevo usuario en el sistema **para un cliente específico**.
         
@@ -607,7 +714,8 @@ class UsuarioService(BaseService):
                 usuario_data.get('proveedor_autenticacion', 'local')
             )
             
-            result = execute_insert(insert_query, params)
+            # ✅ FASE 2: Usar await
+            result = await execute_insert(insert_query, params)
 
             if not result:
                 raise ServiceError(
@@ -638,7 +746,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_usuario(cliente_id: int, usuario_id: int, usuario_data: Dict) -> Dict:
+    async def actualizar_usuario(cliente_id: UUID, usuario_id: UUID, usuario_data: Dict) -> Dict:
         """
         Actualiza un usuario existente **dentro de un cliente** con validaciones de integridad.
         
@@ -688,7 +796,8 @@ class UsuarioService(BaseService):
                 check_nombre_usuario = usuario_data.get('nombre_usuario', usuario_existente.get('nombre_usuario'))
                 check_correo = usuario_data.get('correo', usuario_existente.get('correo'))
                 params_verify = (cliente_id, check_nombre_usuario, check_correo, usuario_id)
-                duplicados = execute_query(verify_query, params_verify)
+                # ✅ FASE 2: Usar await
+                duplicados = await execute_query(verify_query, params_verify)
 
                 if duplicados:
                     if any(d['nombre_usuario'] == check_nombre_usuario for d in duplicados):
@@ -740,7 +849,8 @@ class UsuarioService(BaseService):
             WHERE cliente_id = ? AND usuario_id = ? AND es_eliminado = 0
             """
             
-            result = execute_update(update_query, tuple(params_update))
+            # ✅ FASE 2: Usar await
+            result = await execute_update(update_query, tuple(params_update))
 
             if not result:
                 logger.warning(f"No se pudo actualizar el usuario ID {usuario_id}")
@@ -772,7 +882,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def eliminar_usuario(cliente_id: int, usuario_id: int) -> Dict:
+    async def eliminar_usuario(cliente_id: UUID, usuario_id: UUID) -> Dict:
         """
         Realiza un borrado lógico del usuario y desactiva sus roles.
         
@@ -797,7 +907,8 @@ class UsuarioService(BaseService):
         try:
             # 🔍 VERIFICAR EXISTENCIA Y ESTADO
             check_query = "SELECT es_eliminado FROM dbo.usuario WHERE cliente_id = ? AND usuario_id = ?"
-            user_status = execute_query(check_query, (cliente_id, usuario_id))
+            # ✅ FASE 2: Usar await
+            user_status = await execute_query(check_query, (cliente_id, usuario_id))
 
             if not user_status:
                  raise NotFoundError(
@@ -836,7 +947,8 @@ class UsuarioService(BaseService):
                 UPDATE dbo.usuario_rol SET es_activo = 0
                 WHERE usuario_id = ? AND cliente_id = ?
                 """
-                execute_update(deactivate_roles_query, (usuario_id, cliente_id))
+                # ✅ FASE 2: Usar await
+                await execute_update(deactivate_roles_query, (usuario_id, cliente_id))
                 logger.info(f"Roles desactivados para usuario eliminado ID {usuario_id} en cliente {cliente_id}")
             except Exception as role_error:
                  logger.error(f"Error desactivando roles para usuario {usuario_id}: {role_error}")
@@ -868,7 +980,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def asignar_rol_a_usuario(cliente_id: int, usuario_id: int, rol_id: int) -> Dict:
+    async def asignar_rol_a_usuario(cliente_id: UUID, usuario_id: UUID, rol_id: UUID) -> Dict:
         """
         Asigna un rol a un usuario con validaciones completas.
         
@@ -921,7 +1033,8 @@ class UsuarioService(BaseService):
             WHERE usuario_id = ? AND rol_id = ? AND cliente_id = ?
             """
             
-            existing_assignment = execute_query(check_query, (usuario_id, rol_id, cliente_id))
+            # ✅ FASE 2: Usar await
+            existing_assignment = await execute_query(check_query, (usuario_id, rol_id, cliente_id))
 
             if existing_assignment:
                 assignment = existing_assignment[0]
@@ -933,7 +1046,8 @@ class UsuarioService(BaseService):
                     SELECT usuario_rol_id, usuario_id, rol_id, fecha_asignacion, es_activo
                     FROM dbo.usuario_rol WHERE usuario_rol_id = ?
                     """
-                    final_result = execute_query(get_assignment_query, (assignment['usuario_rol_id'],))
+                    # ✅ FASE 2: Usar await
+                    final_result = await execute_query(get_assignment_query, (assignment['usuario_rol_id'],))
                     if not final_result:
                         raise ServiceError(
                             status_code=500,
@@ -969,7 +1083,8 @@ class UsuarioService(BaseService):
                        INSERTED.fecha_asignacion, INSERTED.es_activo
                 VALUES (?, ?, ?, 1)
                 """
-                result = execute_insert(insert_query, (usuario_id, rol_id, cliente_id))
+                # ✅ FASE 2: Usar await
+                result = await execute_insert(insert_query, (usuario_id, rol_id, cliente_id))
                 if not result:
                     raise ServiceError(
                         status_code=500,
@@ -998,7 +1113,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def revocar_rol_de_usuario(cliente_id: int, usuario_id: int, rol_id: int) -> Dict:
+    async def revocar_rol_de_usuario(cliente_id: UUID, usuario_id: UUID, rol_id: UUID) -> Dict:
         """
         Revoca (desactiva) un rol asignado a un usuario.
         
@@ -1029,7 +1144,8 @@ class UsuarioService(BaseService):
             WHERE usuario_id = ? AND rol_id = ? AND cliente_id = ?
             """
             
-            existing_assignment = execute_query(check_query, (usuario_id, rol_id, cliente_id))
+            # ✅ FASE 2: Usar await
+            existing_assignment = await execute_query(check_query, (usuario_id, rol_id, cliente_id))
 
             if not existing_assignment:
                  raise NotFoundError(
@@ -1090,7 +1206,7 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_roles_de_usuario(cliente_id: int, usuario_id: int) -> List[Dict]:
+    async def obtener_roles_de_usuario(cliente_id: UUID, usuario_id: UUID) -> List[Dict]:
         """
         Obtiene la lista completa de roles activos asignados a un usuario.
         
@@ -1119,7 +1235,8 @@ class UsuarioService(BaseService):
             ORDER BY r.nombre;
             """
             
-            roles = execute_query(query, (usuario_id, cliente_id))
+            # ✅ FASE 2: Usar await
+            roles = await execute_query(query, (usuario_id, cliente_id))
             logger.debug(f"Obtenidos {len(roles)} roles activos para usuario ID {usuario_id} en cliente {cliente_id}")
             return roles
 
@@ -1184,10 +1301,37 @@ class UsuarioService(BaseService):
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
 
+        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
+        from app.core.tenant.context import try_get_tenant_context
+        
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
+
         try:
             # 📊 CONTAR TOTAL DE USUARIOS
-            count_params = (cliente_id, search_param, search_param, search_param, search_param, search_param)
-            count_result = execute_query(COUNT_USUARIOS_PAGINATED, count_params)
+            # ✅ Para BD dedicadas, no filtrar por cliente_id
+            if database_type == "multi":
+                COUNT_QUERY = """
+                SELECT COUNT(DISTINCT u.usuario_id)
+                FROM usuario u
+                WHERE
+                    u.es_eliminado = 0
+                    AND (? IS NULL OR (
+                        u.nombre_usuario LIKE ? OR
+                        u.correo LIKE ? OR
+                        u.nombre LIKE ? OR
+                        u.apellido LIKE ?
+                    ));
+                """
+                count_params = (search_param, search_param, search_param, search_param, search_param)
+                logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Contando usuarios sin filtrar por cliente_id")
+            else:
+                COUNT_QUERY = COUNT_USUARIOS_PAGINATED
+                count_params = (cliente_id, search_param, search_param, search_param, search_param, search_param)
+                logger.debug(f"[USUARIOS-PAGINADOS] BD compartida: Contando usuarios con cliente_id {cliente_id}")
+            
+            # ✅ FASE 2: Usar await
+            count_result = await execute_query(COUNT_QUERY, count_params)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
                 logger.error("Error al contar usuarios: resultado inesperado")
@@ -1213,14 +1357,79 @@ class UsuarioService(BaseService):
             logger.debug(f"Total de usuarios encontrados para cliente {cliente_id}: {total_usuarios}")
 
             # 📋 OBTENER DATOS PAGINADOS CON ROLES
-            # ✅ ORDEN CORRECTO DE PARÁMETROS según SELECT_USUARIOS_PAGINATED:
-            # 1. cliente_id (WHERE u.cliente_id = ?)
-            # 2. search_param (AND (? IS NULL OR ...))
-            # 3-6. search_param (4 veces para los LIKE)
-            # 7. offset (OFFSET ? ROWS)
-            # 8. limit (FETCH NEXT ? ROWS ONLY)
-            data_params = (cliente_id, search_param, search_param, search_param, search_param, search_param, offset, limit)
-            raw_results = execute_query(SELECT_USUARIOS_PAGINATED, data_params)
+            # ✅ Para BD dedicadas, no filtrar por cliente_id en la query
+            if database_type == "multi":
+                SELECT_QUERY = """
+                WITH UserRoles AS (
+                    SELECT
+                        u.usuario_id,
+                        u.nombre_usuario,
+                        u.correo,
+                        u.contrasena, 
+                        u.nombre,
+                        u.apellido,
+                        u.es_activo,
+                        u.correo_confirmado,
+                        u.fecha_creacion,
+                        u.fecha_ultimo_acceso,
+                        u.fecha_actualizacion,
+                        u.cliente_id,
+                        -- ✅ CAMPOS DE SEGURIDAD (según schema SQL)
+                        u.proveedor_autenticacion,
+                        u.fecha_ultimo_cambio_contrasena,
+                        u.requiere_cambio_contrasena,
+                        u.intentos_fallidos,
+                        u.fecha_bloqueo,
+                        -- ✅ CAMPOS DE SINCRONIZACIÓN (según schema SQL)
+                        u.sincronizado_desde,
+                        u.fecha_ultima_sincronizacion,
+                        -- ✅ CAMPOS ADICIONALES (según schema SQL)
+                        u.dni,
+                        u.telefono,
+                        u.referencia_externa_id,
+                        u.referencia_externa_email,
+                        -- ✅ CAMPO DE ELIMINACIÓN LÓGICA
+                        u.es_eliminado,
+                        -- ✅ CAMPOS DE ROLES
+                        r.rol_id,
+                        r.nombre AS nombre_rol,
+                        r.descripcion AS descripcion_rol,
+                        r.es_activo AS rol_es_activo,
+                        r.fecha_creacion AS rol_fecha_creacion,
+                        r.cliente_id AS rol_cliente_id,
+                        r.codigo_rol AS rol_codigo_rol
+                    FROM usuario u
+                    LEFT JOIN usuario_rol ur ON u.usuario_id = ur.usuario_id AND ur.es_activo = 1
+                    LEFT JOIN rol r ON ur.rol_id = r.rol_id AND r.es_activo = 1
+                    WHERE
+                        u.es_eliminado = 0
+                        AND (? IS NULL OR (
+                            u.nombre_usuario LIKE ? OR
+                            u.correo LIKE ? OR
+                            u.nombre LIKE ? OR
+                            u.apellido LIKE ?
+                        ))
+                )
+                SELECT * FROM UserRoles
+                ORDER BY usuario_id 
+                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;
+                """
+                # Parámetros: search_param (5 veces), offset, limit
+                data_params = (search_param, search_param, search_param, search_param, search_param, offset, limit)
+                logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Obteniendo usuarios sin filtrar por cliente_id")
+            else:
+                SELECT_QUERY = SELECT_USUARIOS_PAGINATED
+                # ✅ ORDEN CORRECTO DE PARÁMETROS según SELECT_USUARIOS_PAGINATED:
+                # 1. cliente_id (WHERE u.cliente_id = ?)
+                # 2. search_param (AND (? IS NULL OR ...))
+                # 3-6. search_param (4 veces para los LIKE)
+                # 7. offset (OFFSET ? ROWS)
+                # 8. limit (FETCH NEXT ? ROWS ONLY)
+                data_params = (cliente_id, search_param, search_param, search_param, search_param, search_param, offset, limit)
+                logger.debug(f"[USUARIOS-PAGINADOS] BD compartida: Obteniendo usuarios con cliente_id {cliente_id}")
+            
+            # ✅ FASE 2: Usar await
+            raw_results = await execute_query(SELECT_QUERY, data_params)
             
             logger.debug(f"[USUARIOS-PAGINADOS] Query ejecutada con {len(data_params)} parámetros: cliente_id={cliente_id}, search='{search}', offset={offset}, limit={limit}")
             logger.debug(f"[USUARIOS-PAGINADOS] Resultados crudos obtenidos: {len(raw_results) if raw_results else 0} filas")
@@ -1235,6 +1444,14 @@ class UsuarioService(BaseService):
                     try:
                         usuario_id = row['usuario_id']
                         
+                        # ✅ CORRECCIÓN: Para BD dedicadas, establecer cliente_id desde el contexto si es NULL o UUID nulo
+                        usuario_cliente_id = row.get('cliente_id')
+                        if database_type == "multi":
+                            from uuid import UUID
+                            if not usuario_cliente_id or (isinstance(usuario_cliente_id, UUID) and usuario_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
+                                usuario_cliente_id = cliente_id
+                                logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Usuario {usuario_id} tenía cliente_id NULL, establecido a {cliente_id}")
+                        
                         if usuario_id not in usuarios_dict:
                             # 🆕 CREAR ENTRADA DE USUARIO CON TODOS LOS CAMPOS REQUERIDOS
                             usuarios_dict[usuario_id] = UsuarioReadWithRoles(
@@ -1248,7 +1465,7 @@ class UsuarioService(BaseService):
                                 fecha_creacion=row['fecha_creacion'],
                                 fecha_ultimo_acceso=row.get('fecha_ultimo_acceso'),
                                 fecha_actualizacion=row.get('fecha_actualizacion'),
-                                cliente_id=row['cliente_id'],
+                                cliente_id=usuario_cliente_id,
                                 # ✅ CAMPOS DE SEGURIDAD
                                 proveedor_autenticacion=row.get('proveedor_autenticacion', 'local'),
                                 fecha_ultimo_cambio_contrasena=row.get('fecha_ultimo_cambio_contrasena'),

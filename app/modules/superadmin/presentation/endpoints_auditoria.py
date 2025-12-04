@@ -12,8 +12,9 @@ Características principales:
 - Incluye información de usuario y cliente en respuestas
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Path
 from typing import Optional
+from uuid import UUID
 from datetime import datetime
 
 # Importar Schemas
@@ -76,8 +77,8 @@ router = APIRouter()
 @require_super_admin()
 async def list_logs_autenticacion(
     current_user = Depends(get_current_active_user),
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
-    usuario_id: Optional[int] = Query(None, description="Filtrar por usuario específico"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    usuario_id: Optional[UUID] = Query(None, description="Filtrar por usuario específico"),
     evento: Optional[str] = Query(None, description="Filtrar por tipo de evento"),
     exito: Optional[bool] = Query(None, description="Filtrar por éxito/fallo"),
     fecha_desde: Optional[datetime] = Query(None, description="Fecha inicial"),
@@ -159,8 +160,8 @@ async def list_logs_autenticacion(
 )
 @require_super_admin()
 async def read_log_autenticacion(
-    log_id: int,
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    log_id: UUID = Path(..., description="ID del log"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user)
 ):
     """
@@ -232,9 +233,9 @@ async def read_log_autenticacion(
 @require_super_admin()
 async def list_logs_sincronizacion(
     current_user = Depends(get_current_active_user),
-    cliente_origen_id: Optional[int] = Query(None, description="Filtrar por cliente origen"),
-    cliente_destino_id: Optional[int] = Query(None, description="Filtrar por cliente destino"),
-    usuario_id: Optional[int] = Query(None, description="Filtrar por usuario sincronizado"),
+    cliente_origen_id: Optional[UUID] = Query(None, description="Filtrar por cliente origen"),
+    cliente_destino_id: Optional[UUID] = Query(None, description="Filtrar por cliente destino"),
+    usuario_id: Optional[UUID] = Query(None, description="Filtrar por usuario sincronizado"),
     tipo_sincronizacion: Optional[str] = Query(None, description="Tipo de sincronización"),
     direccion: Optional[str] = Query(None, description="Dirección (push/pull/bidireccional)"),
     operacion: Optional[str] = Query(None, description="Operación (create/update/delete)"),
@@ -319,7 +320,7 @@ async def list_logs_sincronizacion(
 @require_super_admin()
 async def get_estadisticas_auditoria(
     current_user = Depends(get_current_active_user),
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
     fecha_desde: Optional[datetime] = Query(None, description="Fecha inicial"),
     fecha_hasta: Optional[datetime] = Query(None, description="Fecha final")
 ):

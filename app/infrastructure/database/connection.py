@@ -1,29 +1,37 @@
-# app/db/connection.py (MODIFICADO)
-import pyodbc
-from app.core.config import settings
-from contextlib import contextmanager
+# app/infrastructure/database/connection.py
+"""
+⚠️ DEPRECATED: Este archivo está deprecated en FASE 2.
+
+✅ FASE 2: Migrar a app/infrastructure/database/connection_async.py
+- Todas las funciones ahora son async
+- Usa SQLAlchemy AsyncSession + aioodbc
+- Reemplaza completamente este archivo
+
+Este archivo se mantiene temporalmente para compatibilidad durante la migración.
+NO usar en código nuevo.
+"""
+
 import logging
-from app.core.exceptions import DatabaseError
-from enum import Enum
 from typing import Iterator, Optional
+from enum import Enum
 
-# CRÍTICO: Importar la nueva función que resuelve la conexión por cliente_id
-from app.core.tenant.routing import get_db_connection_for_current_tenant, get_client_db_connection_string
-from app.core.tenant.context import get_current_client_id
-
-# ✅ FASE 2: Connection pooling (opcional)
+# ⚠️ DEPRECATED: Este archivo está deprecated, solo mantener imports mínimos
 try:
-    from app.infrastructure.database.connection_pool import (
-        get_connection_from_pool,
-        is_pooling_enabled
-    )
-    POOLING_AVAILABLE = True
+    from app.core.config import settings
 except ImportError:
-    POOLING_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.debug("[CONNECTION] Connection pooling no disponible")
+    # Fallback si settings no está disponible
+    settings = None
 
 logger = logging.getLogger(__name__)
+
+# ✅ FASE 2: Re-exportar DatabaseConnection desde connection_async
+try:
+    from app.infrastructure.database.connection_async import DatabaseConnection
+except ImportError:
+    # Fallback para compatibilidad
+    class DatabaseConnection(Enum):
+        DEFAULT = "default"
+        ADMIN = "admin"
 
 class DatabaseConnection(Enum):
     # DEFAULT ahora será tenant-aware
@@ -53,18 +61,24 @@ def get_connection_string(connection_type: DatabaseConnection = DatabaseConnecti
         return settings.get_database_url(is_admin=False)
 
 
-@contextmanager
-def get_db_connection(connection_type: DatabaseConnection = DatabaseConnection.DEFAULT) -> Iterator[pyodbc.Connection]:
+# ⚠️ DEPRECATED: Usar connection_async.get_db_connection() en su lugar
+def get_db_connection(connection_type: DatabaseConnection = DatabaseConnection.DEFAULT):
     """
-    Context manager para obtener y cerrar una conexión a BD.
+    ⚠️ DEPRECATED: Esta función está deprecated en FASE 2.
     
-    ✅ FASE 2: Connection pooling con fallback
-    - Intenta usar pool si está habilitado
-    - Si falla o no está disponible, usa conexión directa (fallback seguro)
+    ✅ FASE 2: Migrar a app/infrastructure/database/connection_async.get_db_connection()
     
-    Si connection_type es DEFAULT, utiliza el contexto del tenant.
-    Si connection_type es ADMIN, utiliza la conexión de administración fija.
+    Esta función mantiene compatibilidad temporal pero debe migrarse a async.
     """
+    logger.error(
+        "[DEPRECATED] get_db_connection() síncrono está deprecated. "
+        "Migrar a connection_async.get_db_connection() (async)."
+    )
+    
+    raise NotImplementedError(
+        "get_db_connection() síncrono está deprecated. "
+        "Usar connection_async.get_db_connection() (async) en su lugar."
+    )
     conn = None
     pool_conn = None
     use_pool = False

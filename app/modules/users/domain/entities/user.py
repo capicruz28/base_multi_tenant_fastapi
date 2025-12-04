@@ -78,8 +78,14 @@ class User:
         if not self.nombre_usuario or len(self.nombre_usuario.strip()) == 0:
             raise ValueError("El nombre de usuario no puede estar vacío")
         
-        if self.cliente_id is None or self.cliente_id <= 0:
-            raise ValueError("El cliente_id debe ser un número positivo")
+        # ✅ CORRECCIÓN: cliente_id ahora es UUID, no int
+        from uuid import UUID
+        if self.cliente_id is None:
+            raise ValueError("El cliente_id no puede ser None")
+        
+        # Verificar que no sea UUID nulo
+        if isinstance(self.cliente_id, UUID) and self.cliente_id == UUID('00000000-0000-0000-0000-000000000000'):
+            raise ValueError("El cliente_id no puede ser UUID nulo")
         
         if self.correo and "@" not in self.correo:
             raise ValueError("El email debe tener un formato válido")

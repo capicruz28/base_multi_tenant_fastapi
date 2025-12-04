@@ -17,6 +17,7 @@ Características principales:
 from pydantic import BaseModel, Field, EmailStr, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 import re
 
 # Importar schema de roles para relaciones
@@ -29,10 +30,10 @@ class UsuarioBase(BaseModel):
     """
     
     # === CRÍTICO: MULTI-TENANT AWARENESS ===
-    cliente_id: int = Field(
+    cliente_id: UUID = Field(
         ...,
-        description="Identificador único del cliente/tenant al que pertenece el usuario. Obligatorio para el aislamiento.",
-        examples=[1, 10]
+        description="Identificador único del cliente/tenant al que pertenece el usuario. Obligatorio para el aislamiento (UUID).",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     # === DATOS BÁSICOS ===
@@ -301,9 +302,9 @@ class UsuarioRead(UsuarioBase):
     y campos de sincronización COMPATIBLES con la estructura REAL de la BD.
     """
     
-    usuario_id: int = Field(
+    usuario_id: UUID = Field(
         ...,
-        description="Identificador único del usuario en el sistema"
+        description="Identificador único del usuario en el sistema (UUID)"
     )
     
     fecha_creacion: datetime = Field(
@@ -501,7 +502,8 @@ Características principales:
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
+from uuid import UUID
 
 class UsuarioRolBase(BaseModel):
     """
@@ -511,64 +513,24 @@ class UsuarioRolBase(BaseModel):
     las reglas de validación esenciales para mantener la integridad del sistema.
     """
     
-    usuario_id: int = Field(
+    usuario_id: UUID = Field(
         ...,
-        ge=1,
-        description="ID del usuario al que se asigna el rol",
-        examples=[1, 2, 3]
+        description="ID del usuario al que se asigna el rol (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        ge=1,
-        description="ID del rol que se asigna al usuario",
-        examples=[1, 2, 3]
+        description="ID del rol que se asigna al usuario (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440001"]
     )
     
     es_activo: bool = Field(
         True,
         description="Indica si la asignación usuario-rol está activa"
     )
-
-    @field_validator('usuario_id')
-    @classmethod
-    def validar_usuario_id(cls, valor: int) -> int:
-        """
-        Valida que el ID del usuario sea un valor positivo.
-        
-        Args:
-            valor: ID del usuario a validar
-            
-        Returns:
-            int: ID del usuario validado
-            
-        Raises:
-            ValueError: Cuando el ID no es positivo
-        """
-        if valor < 1:
-            raise ValueError('El ID del usuario debe ser un número positivo mayor a 0')
-        
-        return valor
-
-    @field_validator('rol_id')
-    @classmethod
-    def validar_rol_id(cls, valor: int) -> int:
-        """
-        Valida que el ID del rol sea un valor positivo.
-        
-        Args:
-            valor: ID del rol a validar
-            
-        Returns:
-            int: ID del rol validado
-            
-        Raises:
-            ValueError: Cuando el ID no es positivo
-        """
-        if valor < 1:
-            raise ValueError('El ID del rol debe ser un número positivo mayor a 0')
-        
-        return valor
+    
+    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
 
     @model_validator(mode='after')
     def validar_consistencia_asignacion(self) -> 'UsuarioRolBase':
@@ -625,10 +587,10 @@ class UsuarioRolRead(UsuarioRolBase):
     que se generan automáticamente durante la creación de la asignación.
     """
     
-    usuario_rol_id: int = Field(
+    usuario_rol_id: UUID = Field(
         ...,
-        description="Identificador único de la asignación usuario-rol en el sistema",
-        examples=[1, 2, 3]
+        description="Identificador único de la asignación usuario-rol en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440002"]
     )
     
     fecha_asignacion: datetime = Field(
@@ -650,16 +612,16 @@ class UsuarioRolResponse(BaseModel):
     la asignación, como nombres de usuario y rol en lugar de solo IDs.
     """
     
-    usuario_rol_id: int = Field(
+    usuario_rol_id: UUID = Field(
         ...,
-        description="ID único de la asignación",
-        examples=[1, 2, 3]
+        description="ID único de la asignación (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440002"]
     )
     
-    usuario_id: int = Field(
+    usuario_id: UUID = Field(
         ...,
-        description="ID del usuario",
-        examples=[1, 2, 3]
+        description="ID del usuario (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     nombre_usuario: Optional[str] = Field(
@@ -668,10 +630,10 @@ class UsuarioRolResponse(BaseModel):
         examples=["juan_perez", "maria_garcia"]
     )
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        description="ID del rol",
-        examples=[1, 2, 3]
+        description="ID del rol (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440001"]
     )
     
     nombre_rol: Optional[str] = Field(
@@ -706,16 +668,16 @@ class UsuarioRolBulkOperation(BaseModel):
     simultáneamente, como asignaciones/revocaciones por lote.
     """
     
-    usuario_ids: list[int] = Field(
+    usuario_ids: List[UUID] = Field(
         ...,
-        description="Lista de IDs de usuarios a afectar",
-        examples=[[1, 2, 3], [4, 5, 6]]
+        description="Lista de IDs de usuarios a afectar (UUID)",
+        examples=[["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"]]
     )
     
-    rol_ids: list[int] = Field(
+    rol_ids: List[UUID] = Field(
         ...,
-        description="Lista de IDs de roles a asignar/revocar",
-        examples=[[1, 2], [3, 4]]
+        description="Lista de IDs de roles a asignar/revocar (UUID)",
+        examples=[["550e8400-e29b-41d4-a716-446655440002", "550e8400-e29b-41d4-a716-446655440003"]]
     )
     
     operacion: str = Field(
@@ -723,54 +685,8 @@ class UsuarioRolBulkOperation(BaseModel):
         description="Tipo de operación a realizar: 'asignar' o 'revocar'",
         examples=["asignar", "revocar"]
     )
-
-    @field_validator('usuario_ids')
-    @classmethod
-    def validar_usuario_ids(cls, valor: list[int]) -> list[int]:
-        """
-        Valida que la lista de IDs de usuario contenga valores positivos.
-        
-        Args:
-            valor: Lista de IDs de usuario a validar
-            
-        Returns:
-            list[int]: Lista de IDs validada
-            
-        Raises:
-            ValueError: Cuando algún ID no es válido
-        """
-        if not valor:
-            raise ValueError('La lista de IDs de usuario no puede estar vacía')
-        
-        for usuario_id in valor:
-            if usuario_id < 1:
-                raise ValueError('Todos los IDs de usuario deben ser números positivos')
-        
-        return valor
-
-    @field_validator('rol_ids')
-    @classmethod
-    def validar_rol_ids(cls, valor: list[int]) -> list[int]:
-        """
-        Valida que la lista de IDs de rol contenga valores positivos.
-        
-        Args:
-            valor: Lista de IDs de rol a validar
-            
-        Returns:
-            list[int]: Lista de IDs validada
-            
-        Raises:
-            ValueError: Cuando algún ID no es válido
-        """
-        if not valor:
-            raise ValueError('La lista de IDs de rol no puede estar vacía')
-        
-        for rol_id in valor:
-            if rol_id < 1:
-                raise ValueError('Todos los IDs de rol deben ser números positivos')
-        
-        return valor
+    
+    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
 
     @field_validator('operacion')
     @classmethod

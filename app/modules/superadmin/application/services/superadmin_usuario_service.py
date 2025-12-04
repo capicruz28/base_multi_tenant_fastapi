@@ -15,11 +15,13 @@ Características principales:
 from datetime import datetime
 import math
 from typing import Dict, List, Optional, Any
+from uuid import UUID
 import logging
 import json
 
 # Importaciones de base de datos
-from app.infrastructure.database.queries import execute_query, execute_auth_query
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query, execute_auth_query
 
 # Schemas
 from app.modules.superadmin.presentation.schemas import (
@@ -97,6 +99,7 @@ class SuperadminUsuarioService(BaseService):
 
         # Validar cliente_id si se proporciona y obtener información del cliente
         cliente_info = None
+        database_type = "single"  # Por defecto BD compartida
         if cliente_id:
             cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
             if not cliente:
@@ -114,6 +117,15 @@ class SuperadminUsuarioService(BaseService):
                 tipo_instalacion=getattr(cliente, 'tipo_instalacion', 'cloud'),
                 estado_suscripcion=getattr(cliente, 'estado_suscripcion', 'activo')
             )
+            
+            # ✅ Obtener database_type del cliente para determinar si es BD dedicada
+            tipo_instalacion = getattr(cliente, 'tipo_instalacion', 'cloud')
+            if tipo_instalacion == "dedicated":
+                database_type = "multi"
+                logger.debug(f"[SUPERADMIN_USUARIOS] Cliente {cliente_id} es 'dedicated' → database_type=multi")
+            else:
+                database_type = "single"
+                logger.debug(f"[SUPERADMIN_USUARIOS] Cliente {cliente_id} es '{tipo_instalacion}' → database_type=single")
 
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
@@ -122,10 +134,14 @@ class SuperadminUsuarioService(BaseService):
         where_conditions = ["u.es_eliminado = 0"]
         params = []
 
-        # Filtro por cliente_id
-        if cliente_id:
+        # ✅ Filtro por cliente_id: Solo para BD compartidas
+        # Para BD dedicadas, no filtrar por cliente_id (todos los usuarios pertenecen al mismo cliente)
+        if cliente_id and database_type == "single":
             where_conditions.append("u.cliente_id = ?")
             params.append(cliente_id)
+            logger.debug(f"[SUPERADMIN_USUARIOS] BD compartida: Filtrando usuarios por cliente_id {cliente_id}")
+        elif cliente_id and database_type == "multi":
+            logger.debug(f"[SUPERADMIN_USUARIOS] BD dedicada: No filtrando por cliente_id (todos los usuarios pertenecen al mismo cliente)")
 
         # Filtro por búsqueda
         if search_param:
@@ -165,7 +181,8 @@ class SuperadminUsuarioService(BaseService):
         WHERE {where_clause}
         """
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        count_result = execute_query(count_query, tuple(params), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        count_result = await execute_query(count_query, tuple(params), client_id=cliente_id)
         total_usuarios = count_result[0]['total'] if count_result else 0
 
         # Query para obtener datos (SIN JOIN con cliente, ya que cliente está en BD centralizada)
@@ -201,22 +218,33 @@ class SuperadminUsuarioService(BaseService):
         """
         params.extend([offset, limit])
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        usuarios_raw = execute_query(data_query, tuple(params), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        usuarios_raw = await execute_query(data_query, tuple(params), client_id=cliente_id)
 
         # Procesar usuarios y obtener roles
         usuarios_procesados = []
         for usuario_row in usuarios_raw:
+            # ✅ CORRECCIÓN: Para BD dedicadas, establecer cliente_id desde el contexto si es NULL o UUID nulo
+            usuario_cliente_id = usuario_row.get('cliente_id')
+            if database_type == "multi":
+                from uuid import UUID
+                if not usuario_cliente_id or (isinstance(usuario_cliente_id, UUID) and usuario_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
+                    usuario_cliente_id = cliente_id
+                    usuario_row['cliente_id'] = cliente_id
+                    logger.debug(f"[SUPERADMIN_USUARIOS] BD dedicada: Usuario {usuario_row.get('usuario_id')} tenía cliente_id NULL, establecido a {cliente_id}")
+            
             # Usar la información del cliente obtenida previamente, o obtenerla si no está disponible
-            if not cliente_info and usuario_row.get('cliente_id'):
+            if not cliente_info and usuario_cliente_id:
                 # Si no tenemos la info del cliente, obtenerla desde ADMIN
-                from app.infrastructure.database.connection import DatabaseConnection
+                from app.infrastructure.database.connection_async import DatabaseConnection
                 query_cliente = """
                 SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
                        nombre_comercial, tipo_instalacion, estado_suscripcion
                 FROM dbo.cliente
                 WHERE cliente_id = ?
                 """
-                cliente_raw = execute_query(query_cliente, (usuario_row['cliente_id'],), connection_type=DatabaseConnection.ADMIN)
+                # ✅ FASE 2: Usar await
+                cliente_raw = await execute_query(query_cliente, (usuario_cliente_id,), connection_type=DatabaseConnection.ADMIN)
                 if cliente_raw:
                     cliente_row = cliente_raw[0]
                     cliente_info = ClienteInfo(
@@ -231,8 +259,13 @@ class SuperadminUsuarioService(BaseService):
             
             # Si aún no tenemos cliente_info, crear uno básico
             if not cliente_info:
+                from uuid import UUID
+                cliente_id_default = usuario_cliente_id or cliente_id
+                if not cliente_id_default:
+                    # Usar UUID nulo si no hay cliente_id
+                    cliente_id_default = UUID('00000000-0000-0000-0000-000000000000')
                 cliente_info = ClienteInfo(
-                    cliente_id=usuario_row.get('cliente_id', 0),
+                    cliente_id=cliente_id_default,
                     razon_social="N/A",
                     subdominio="N/A",
                     codigo_cliente=None,
@@ -244,19 +277,19 @@ class SuperadminUsuarioService(BaseService):
             # Obtener roles del usuario
             roles = await SuperadminUsuarioService._obtener_roles_usuario(
                 usuario_row['usuario_id'],
-                usuario_row['cliente_id']
+                usuario_cliente_id
             )
 
             # Obtener niveles de acceso
             level_info = await UsuarioService.get_user_level_info(
                 usuario_row['usuario_id'],
-                usuario_row['cliente_id']
+                usuario_cliente_id
             )
 
             # Construir usuario completo
             usuario = UsuarioSuperadminRead(
                 usuario_id=usuario_row['usuario_id'],
-                cliente_id=usuario_row['cliente_id'],
+                cliente_id=usuario_cliente_id,
                 cliente=cliente_info,
                 nombre_usuario=usuario_row['nombre_usuario'],
                 correo=usuario_row.get('correo'),
@@ -295,7 +328,7 @@ class SuperadminUsuarioService(BaseService):
         }
 
     @staticmethod
-    async def _obtener_roles_usuario(usuario_id: int, cliente_id: int) -> List[RolInfo]:
+    async def _obtener_roles_usuario(usuario_id: UUID, cliente_id: UUID) -> List[RolInfo]:
         """Obtiene roles activos de un usuario."""
         try:
             query = """
@@ -316,7 +349,9 @@ class SuperadminUsuarioService(BaseService):
             ORDER BY r.nombre
             """
             # Usar la conexión del cliente del usuario
-            roles_raw = execute_query(query, (usuario_id, cliente_id), client_id=cliente_id)
+            # ✅ CORRECCIÓN: Convertir UUIDs a string para SQL Server
+            # ✅ FASE 2: Usar await
+            roles_raw = await execute_query(query, (str(usuario_id), str(cliente_id)), client_id=cliente_id)
             
             roles = []
             for rol_row in roles_raw:
@@ -338,7 +373,7 @@ class SuperadminUsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_usuario_completo(usuario_id: int, cliente_id: Optional[int] = None) -> Optional[Dict]:
+    async def obtener_usuario_completo(usuario_id: UUID, cliente_id: Optional[UUID] = None) -> Optional[Dict]:
         """
         Obtiene información completa de un usuario (Superadmin puede ver cualquier usuario).
         
@@ -351,7 +386,7 @@ class SuperadminUsuarioService(BaseService):
 
         # Si se proporciona cliente_id, usarlo directamente
         # Si no, obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
-        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.connection_async import DatabaseConnection
         usuario_cliente_id = cliente_id
         
         if not usuario_cliente_id:
@@ -360,7 +395,9 @@ class SuperadminUsuarioService(BaseService):
             FROM dbo.usuario
             WHERE usuario_id = ? AND es_eliminado = 0
             """
-            cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+            # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+            # ✅ FASE 2: Usar await
+            cliente_info_raw = await execute_query(query_cliente, (str(usuario_id),), connection_type=DatabaseConnection.ADMIN)
             
             if not cliente_info_raw:
                 return None
@@ -377,7 +414,8 @@ class SuperadminUsuarioService(BaseService):
         FROM dbo.usuario u
         WHERE u.usuario_id = ? AND u.es_eliminado = 0
         """
-        usuario_raw = execute_query(query, (usuario_id,), client_id=usuario_cliente_id)
+        # ✅ FASE 2: Usar await
+        usuario_raw = await execute_query(query, (usuario_id,), client_id=usuario_cliente_id)
         
         if not usuario_raw:
             return None
@@ -385,14 +423,15 @@ class SuperadminUsuarioService(BaseService):
         usuario_row = usuario_raw[0]
         
         # Obtener información del cliente desde BD centralizada (ADMIN)
-        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.connection_async import DatabaseConnection
         query_cliente = """
         SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
                nombre_comercial, tipo_instalacion, estado_suscripcion
         FROM dbo.cliente
         WHERE cliente_id = ?
         """
-        cliente_raw = execute_query(query_cliente, (usuario_cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        cliente_raw = await execute_query(query_cliente, (usuario_cliente_id,), connection_type=DatabaseConnection.ADMIN)
         
         if not cliente_raw:
             return None
@@ -458,8 +497,8 @@ class SuperadminUsuarioService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_actividad_usuario(
-        usuario_id: int,
-        cliente_id: Optional[int] = None,
+        usuario_id: UUID,
+        cliente_id: Optional[UUID] = None,
         limite: int = 50,
         tipo_evento: Optional[str] = None
     ) -> Dict:
@@ -484,7 +523,7 @@ class SuperadminUsuarioService(BaseService):
 
         # Si se proporciona cliente_id, usarlo directamente
         # Si no, obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
-        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.connection_async import DatabaseConnection
         usuario_cliente_id = cliente_id
         
         if not usuario_cliente_id:
@@ -493,7 +532,9 @@ class SuperadminUsuarioService(BaseService):
             FROM dbo.usuario
             WHERE usuario_id = ? AND es_eliminado = 0
             """
-            cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+            # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+            # ✅ FASE 2: Usar await
+            cliente_info_raw = await execute_query(query_cliente, (str(usuario_id),), connection_type=DatabaseConnection.ADMIN)
             
             if not cliente_info_raw:
                 raise NotFoundError(
@@ -517,7 +558,9 @@ class SuperadminUsuarioService(BaseService):
         FROM dbo.usuario
         WHERE usuario_id = ? AND es_eliminado = 0
         """
-        usuario_raw = execute_query(query_usuario, (usuario_id,), client_id=usuario_cliente_id)
+        # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+        # ✅ FASE 2: Usar await
+        usuario_raw = await execute_query(query_usuario, (str(usuario_id),), client_id=usuario_cliente_id)
         
         if not usuario_raw:
             raise NotFoundError(
@@ -529,7 +572,8 @@ class SuperadminUsuarioService(BaseService):
 
         # Construir query para eventos
         where_conditions = ["a.usuario_id = ?"]
-        params = [usuario_id]
+        # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+        params = [str(usuario_id)]
 
         if tipo_evento:
             where_conditions.append("a.evento = ?")
@@ -537,6 +581,7 @@ class SuperadminUsuarioService(BaseService):
 
         where_clause = " AND ".join(where_conditions)
 
+        # ✅ CORRECCIÓN: Orden correcto de parámetros: primero el límite para TOP, luego los WHERE
         query = f"""
         SELECT TOP (?)
             a.log_id,
@@ -553,10 +598,12 @@ class SuperadminUsuarioService(BaseService):
         WHERE {where_clause}
         ORDER BY a.fecha_evento DESC
         """
-        params.append(limite)
+        # ✅ CORRECCIÓN: El orden debe ser: límite primero (para TOP), luego los parámetros WHERE
+        params_final = [limite] + params
 
         # Usar la conexión del cliente del usuario
-        eventos_raw = execute_query(query, tuple(params), client_id=usuario_cliente_id)
+        # ✅ FASE 2: Usar await
+        eventos_raw = await execute_query(query, tuple(params_final), client_id=usuario_cliente_id)
 
         eventos = []
         for evento_row in eventos_raw:
@@ -581,13 +628,15 @@ class SuperadminUsuarioService(BaseService):
             })
 
         # Contar total
+        # ✅ CORRECCIÓN: params no incluye el límite, solo los parámetros del WHERE
         count_query = f"""
         SELECT COUNT(*) as total
         FROM dbo.auth_audit_log a
         WHERE {where_clause}
         """
         # Usar la conexión del cliente del usuario
-        count_result = execute_query(count_query, tuple(params[:-1]), client_id=usuario_cliente_id)  # Excluir límite
+        # ✅ FASE 2: Usar await
+        count_result = await execute_query(count_query, tuple(params), client_id=usuario_cliente_id)
         total_eventos = count_result[0]['total'] if count_result else 0
 
         return {
@@ -601,8 +650,8 @@ class SuperadminUsuarioService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_sesiones_usuario(
-        usuario_id: int,
-        cliente_id: Optional[int] = None,
+        usuario_id: UUID,
+        cliente_id: Optional[UUID] = None,
         solo_activas: bool = True
     ) -> Dict:
         """
@@ -618,7 +667,7 @@ class SuperadminUsuarioService(BaseService):
 
         # Si se proporciona cliente_id, usarlo directamente
         # Si no, obtener el cliente_id del usuario desde la BD centralizada (ADMIN)
-        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.connection_async import DatabaseConnection
         usuario_cliente_id = cliente_id
         
         if not usuario_cliente_id:
@@ -627,7 +676,9 @@ class SuperadminUsuarioService(BaseService):
             FROM dbo.usuario
             WHERE usuario_id = ? AND es_eliminado = 0
             """
-            cliente_info_raw = execute_query(query_cliente, (usuario_id,), connection_type=DatabaseConnection.ADMIN)
+            # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+            # ✅ FASE 2: Usar await
+            cliente_info_raw = await execute_query(query_cliente, (str(usuario_id),), connection_type=DatabaseConnection.ADMIN)
             
             if not cliente_info_raw:
                 raise NotFoundError(
@@ -646,7 +697,9 @@ class SuperadminUsuarioService(BaseService):
         FROM dbo.usuario
         WHERE usuario_id = ? AND es_eliminado = 0
         """
-        usuario_raw = execute_query(query_usuario, (usuario_id,), client_id=usuario_cliente_id)
+        # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+        # ✅ FASE 2: Usar await
+        usuario_raw = await execute_query(query_usuario, (str(usuario_id),), client_id=usuario_cliente_id)
         
         if not usuario_raw:
             raise NotFoundError(
@@ -656,7 +709,8 @@ class SuperadminUsuarioService(BaseService):
 
         # Construir query
         where_conditions = ["rt.usuario_id = ?"]
-        params = [usuario_id]
+        # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+        params = [str(usuario_id)]
 
         if solo_activas:
             where_conditions.append("rt.is_revoked = 0")
@@ -684,7 +738,8 @@ class SuperadminUsuarioService(BaseService):
         ORDER BY rt.created_at DESC
         """
         # Usar la conexión del cliente del usuario
-        sesiones_raw = execute_query(query, tuple(params), client_id=usuario_cliente_id)
+        # ✅ FASE 2: Usar await
+        sesiones_raw = await execute_query(query, tuple(params), client_id=usuario_cliente_id)
 
         sesiones = []
         sesiones_activas = 0

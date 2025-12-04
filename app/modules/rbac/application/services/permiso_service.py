@@ -1,9 +1,11 @@
 # app/services/permiso_service.py
 from typing import Dict, List, Optional, Any
+from uuid import UUID
 import logging
 
 # 🗄️ IMPORTACIONES DE BASE DE DATOS
-from app.infrastructure.database.queries import execute_query, execute_insert, execute_update
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 # 🚨 EXCEPCIONES - Nuevo sistema de manejo de errores
 from app.core.exceptions import (
@@ -38,7 +40,7 @@ class PermisoService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def _validar_rol_y_menu(cliente_id: int, rol_id: int, menu_id: int) -> None:
+    async def _validar_rol_y_menu(cliente_id: UUID, rol_id: UUID, menu_id: UUID) -> None:
         """
         Valida la existencia del rol y el menú **y que pertenezcan al mismo cliente**.
         
@@ -108,9 +110,9 @@ class PermisoService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def asignar_o_actualizar_permiso(
-        cliente_id: int,
-        rol_id: int,
-        menu_id: int,
+        cliente_id: UUID,
+        rol_id: UUID,
+        menu_id: UUID,
         puede_ver: Optional[bool] = None,
         puede_editar: Optional[bool] = None,
         puede_eliminar: Optional[bool] = None,
@@ -179,7 +181,8 @@ class PermisoService(BaseService):
             FROM rol_menu_permiso
             WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
             """
-            existing_perm = execute_query(check_query, (cliente_id, rol_id, menu_id))
+            # ✅ FASE 2: Usar await
+            existing_perm = await execute_query(check_query, (cliente_id, rol_id, menu_id))
 
             if existing_perm:
                 # 🟡 ACTUALIZAR PERMISO EXISTENTE
@@ -205,7 +208,9 @@ class PermisoService(BaseService):
                            puede_exportar, puede_imprimir
                     FROM rol_menu_permiso WHERE permiso_id = ?
                     """
-                    return execute_query(get_query, (perm_id,))[0]
+                    # ✅ FASE 2: Usar await
+                    result = await execute_query(get_query, (perm_id,))
+                    return result[0] if result else None
 
                 params.append(perm_id)  # Añadir ID para el WHERE
 
@@ -217,7 +222,8 @@ class PermisoService(BaseService):
                        INSERTED.puede_eliminar, INSERTED.puede_exportar, INSERTED.puede_imprimir
                 WHERE permiso_id = ?
                 """
-                result = execute_update(update_query, tuple(params))
+                # ✅ FASE 2: Usar await
+                result = await execute_update(update_query, tuple(params))
                 if not result:
                     raise ServiceError(
                         status_code=500,
@@ -255,7 +261,8 @@ class PermisoService(BaseService):
                     final_puede_ver, final_puede_crear, final_puede_editar, 
                     final_puede_eliminar, final_puede_exportar, final_puede_imprimir
                 )
-                result = execute_insert(insert_query, params)
+                # ✅ FASE 2: Usar await
+                result = await execute_insert(insert_query, params)
                 if not result:
                     raise ServiceError(
                         status_code=500,
@@ -284,7 +291,7 @@ class PermisoService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_permisos_por_rol(cliente_id: int, rol_id: int) -> List[Dict]:
+    async def obtener_permisos_por_rol(cliente_id: UUID, rol_id: UUID) -> List[Dict]:
         """
         Obtiene todos los permisos asignados a un rol específico **dentro de un cliente**.
         
@@ -321,7 +328,8 @@ class PermisoService(BaseService):
             WHERE p.cliente_id = ? AND p.rol_id = ?
             ORDER BY m.orden;
             """
-            permisos = execute_query(query, (cliente_id, rol_id))
+            # ✅ FASE 2: Usar await
+            permisos = await execute_query(query, (cliente_id, rol_id))
             logger.debug(f"Obtenidos {len(permisos)} permisos para rol ID {rol_id} en cliente {cliente_id}")
             return permisos
 
@@ -342,7 +350,7 @@ class PermisoService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_permiso_especifico(cliente_id: int, rol_id: int, menu_id: int) -> Optional[Dict]:
+    async def obtener_permiso_especifico(cliente_id: UUID, rol_id: UUID, menu_id: UUID) -> Optional[Dict]:
         """
         Obtiene el permiso específico de un rol sobre un menú **dentro de un cliente**.
         
@@ -369,7 +377,8 @@ class PermisoService(BaseService):
             FROM rol_menu_permiso
             WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
             """
-            resultados = execute_query(query, (cliente_id, rol_id, menu_id))
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(query, (cliente_id, rol_id, menu_id))
             if not resultados:
                 logger.debug(f"Permiso no encontrado - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
                 return None
@@ -392,7 +401,7 @@ class PermisoService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def revocar_permiso(cliente_id: int, rol_id: int, menu_id: int) -> Dict:
+    async def revocar_permiso(cliente_id: UUID, rol_id: UUID, menu_id: UUID) -> Dict:
         """
         Revoca (elimina) el permiso de un rol sobre un menú **dentro de un cliente**.
         
@@ -428,7 +437,8 @@ class PermisoService(BaseService):
             WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
             """
             # 📝 Usamos execute_update para operaciones DELETE
-            result = execute_update(delete_query, (cliente_id, rol_id, menu_id))
+            # ✅ FASE 2: Usar await
+            result = await execute_update(delete_query, (cliente_id, rol_id, menu_id))
 
             # ✅ VERIFICAR QUE SE ELIMINÓ AL MENOS UNA FILA
             if result.get('rows_affected', 0) == 0:

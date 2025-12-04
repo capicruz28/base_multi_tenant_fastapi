@@ -27,15 +27,19 @@ from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 from starlette.types import ASGIApp
 from typing import Dict, Any, Optional
+from uuid import UUID
 from urllib.parse import urlparse
 
 from app.core.tenant.context import TenantContext, set_tenant_context, reset_tenant_context
 from app.core.config import settings
-from app.infrastructure.database.connection import get_db_connection, DatabaseConnection
+from app.infrastructure.database.connection_async import get_db_connection, DatabaseConnection
 from app.core.exceptions import ClientNotFoundException
 
-# NUEVO: Importar función para obtener metadata
-from app.core.tenant.routing import get_connection_metadata
+# ✅ FASE 2: Importar función async para obtener metadata
+from app.core.tenant.routing import get_connection_metadata_async
+from app.infrastructure.database.queries_async import execute_query
+from app.infrastructure.database.tables import ClienteTable
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             f"EXCLUDED_SUBDOMAINS={self.EXCLUDED_SUBDOMAINS}"
         )
 
-    def _get_host_from_request(self, request: Request) -> str:
+    async def _get_host_from_request(self, request: Request) -> str:
         """
         Extrae el host de la petición con fallback a origin/referer SOLO en desarrollo.
         
@@ -148,7 +152,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                                     return extracted_host
                                 
                                 # Para otros subdominios, validar en BD
-                                client_data = self._get_client_data_by_subdomain(subdomain)
+                                client_data = await self._get_client_data_by_subdomain(subdomain)
                                 if client_data:
                                     logger.debug(
                                         f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD"
@@ -189,7 +193,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                                     return extracted_host
                                 
                                 # Para otros subdominios, validar en BD
-                                client_data = self._get_client_data_by_subdomain(subdomain)
+                                client_data = await self._get_client_data_by_subdomain(subdomain)
                                 if client_data:
                                     logger.debug(
                                         f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD"
@@ -228,7 +232,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         
         # 🔧 NUEVO: Obtener host con fallback a origin/referer
         try:
-            host = self._get_host_from_request(request)
+            host = await self._get_host_from_request(request)
         except ValueError as e:
             # ✅ SEGURIDAD: En producción, rechazar requests sin Host válido
             logger.error(f"[SECURITY] Error de seguridad en detección de host: {e}")
@@ -242,9 +246,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         
         subdomain = self._extract_subdomain(host)
         
-        client_id: Optional[int] = self.default_client_id
+        # Convertir SUPERADMIN_CLIENTE_ID de string a UUID si es necesario
+        default_client_id_uuid = UUID(settings.SUPERADMIN_CLIENTE_ID) if settings.SUPERADMIN_CLIENTE_ID else None
+        
+        client_id: Optional[UUID] = default_client_id_uuid
         client_data: Dict[str, Any] = {
-            "cliente_id": settings.SUPERADMIN_CLIENTE_ID,
+            "cliente_id": default_client_id_uuid,
             "codigo_cliente": settings.SUPERADMIN_CLIENTE_CODIGO
         }
         
@@ -254,7 +261,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if subdomain:
             if subdomain.lower() == settings.SUPERADMIN_SUBDOMINIO.lower():
                 # Caso 1: Subdominio SUPERADMIN
-                client_id = settings.SUPERADMIN_CLIENTE_ID
+                client_id = default_client_id_uuid
                 logger.info(
                     f"[TENANT] Subdominio SUPERADMIN: {subdomain} -> "
                     f"Cliente ID: {client_id}"
@@ -264,7 +271,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 try:
                     logger.debug(f"[TENANT] Buscando cliente: '{subdomain}'")
                     
-                    client_data_db = self._get_client_data_by_subdomain(subdomain)
+                    client_data_db = await self._get_client_data_by_subdomain(subdomain)
                     
                     if client_data_db:
                         client_data = client_data_db
@@ -319,10 +326,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
         tipo_instalacion: str = "cloud"
         
         try:
-            # CRÍTICO: Cargar metadata de conexión
+            # CRÍTICO: Cargar metadata de conexión (async)
             logger.debug(f"[TENANT] Cargando metadata de conexión para cliente {client_id}")
             
-            conn_metadata = get_connection_metadata(client_id)
+            conn_metadata = await get_connection_metadata_async(client_id)
             
             if conn_metadata:
                 connection_metadata = conn_metadata
@@ -334,14 +341,38 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 
                 logger.info(
                     f"[TENANT] Metadata cargada: "
+                    f"tipo_instalacion={tipo_instalacion}, "
                     f"db_type={database_type}, "
                     f"bd={nombre_bd}, "
                     f"servidor={servidor or 'N/A'}"
                 )
             else:
+                # Si no hay metadata, intentar obtener tipo_instalacion del cliente directamente
+                try:
+                    from app.modules.tenant.application.services.cliente_service import ClienteService
+                    cliente = await ClienteService.obtener_cliente_por_id(client_id)
+                    if cliente:
+                        tipo_instalacion = cliente.get("tipo_instalacion", "shared")
+                        logger.info(
+                            f"[TENANT] Tipo de instalación obtenido del cliente: {tipo_instalacion}"
+                        )
+                        
+                        # ✅ LÓGICA: Si tipo_instalacion es 'dedicated', debe usar Multi-DB
+                        if tipo_instalacion == "dedicated":
+                            database_type = "multi"
+                            logger.warning(
+                                f"[TENANT] Cliente {client_id} es 'dedicated' pero no tiene metadata de conexión. "
+                                f"Estableciendo database_type=multi (requiere configuración de conexión en cliente_conexion)."
+                            )
+                        else:
+                            database_type = "single"
+                except Exception:
+                    pass
+                
                 logger.warning(
                     f"[TENANT] No se pudo cargar metadata para cliente {client_id}. "
-                    f"Usando Single-DB por defecto."
+                    f"Usando {database_type.upper()}-DB por defecto. "
+                    f"tipo_instalacion={tipo_instalacion}"
                 )
                 
         except Exception as metadata_err:
@@ -376,8 +407,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
         logger.info(
             f"[TENANT] CONTEXTO ESTABLECIDO: "
             f"cliente_id={client_id}, "
+            f"tipo_instalacion={tipo_instalacion}, "
             f"db_type={database_type}, "
             f"bd={nombre_bd}, "
+            f"servidor={servidor or 'N/A'}, "
             f"path={request.url.path}"
         )
         
@@ -453,42 +486,47 @@ class TenantMiddleware(BaseHTTPMiddleware):
         )
         return None
 
-    def _get_client_data_by_subdomain(
+    async def _get_client_data_by_subdomain(
         self, 
         subdomain: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Consulta la BD para obtener cliente_id y código por subdominio.
+        Consulta la BD para obtener cliente_id y código por subdominio (ASYNC).
+        
+        ✅ FASE 2: Versión async que reemplaza la función síncrona.
         
         IMPORTANTE: Usa conexión ADMIN porque aún no tenemos contexto establecido.
         """
-        query = """
-            SELECT cliente_id, codigo_cliente 
-            FROM cliente 
-            WHERE subdominio = ? AND es_activo = 1
-        """
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        query = select(
+            ClienteTable.c.cliente_id,
+            ClienteTable.c.codigo_cliente
+        ).where(
+            ClienteTable.c.subdominio == subdomain,
+            ClienteTable.c.es_activo == True
+        )
         
         try:
             logger.debug(f"[DB] Consultando subdominio: '{subdomain}'")
             
-            # CRÍTICO: Usar conexión ADMIN para evitar recursión
-            with get_db_connection(DatabaseConnection.ADMIN) as conn:
-                cursor = conn.cursor()
-                cursor.execute(query, (subdomain,))
-                row = cursor.fetchone()
-                
-                if row:
-                    result = {
-                        "cliente_id": row[0], 
-                        "codigo_cliente": row[1]
-                    }
-                    logger.debug(f"[DB] Cliente encontrado: {result}")
-                    return result
-                else:
-                    logger.debug(
-                        f"[DB] No se encontró cliente para subdominio: '{subdomain}'"
-                    )
-                    return None
+            # CRÍTICO: Usar conexión ADMIN async para evitar recursión
+            results = await execute_query(
+                query,
+                connection_type=DatabaseConnection.ADMIN
+            )
+            
+            if results:
+                result = {
+                    "cliente_id": results[0]["cliente_id"], 
+                    "codigo_cliente": results[0]["codigo_cliente"]
+                }
+                logger.debug(f"[DB] Cliente encontrado: {result}")
+                return result
+            else:
+                logger.debug(
+                    f"[DB] No se encontró cliente para subdominio: '{subdomain}'"
+                )
+                return None
                     
         except Exception as e:
             logger.error(

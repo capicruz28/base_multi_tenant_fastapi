@@ -13,6 +13,7 @@ Características principales:
 - **✅ SSO:** Soporte para Azure AD y Google Workspace.
 """
 from typing import List, Dict, Optional
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -179,7 +180,13 @@ async def login(
         # 5. ✅ CORRECCIÓN: Manejar contexto multi-tenant para superadmin
         user_id = user_base_data.get('usuario_id')
         es_superadmin = user_base_data.get('es_superadmin', False)
-        target_cliente_id = user_base_data.get('target_cliente_id', cliente_id)
+        # ✅ CORRECCIÓN CRÍTICA: Para BD dedicadas, target_cliente_id debe ser el cliente_id del contexto
+        # no el cliente_id del usuario (que puede ser nulo)
+        target_cliente_id = user_base_data.get('target_cliente_id')
+        if not target_cliente_id:
+            # Si no hay target_cliente_id, usar cliente_id del contexto (siempre correcto)
+            target_cliente_id = cliente_id
+            logger.debug(f"[LOGIN] target_cliente_id no encontrado en user_base_data, usando cliente_id del contexto: {cliente_id}")
         
         # Para superadmin, podría no tener roles en el cliente destino
         if es_superadmin:
@@ -191,10 +198,10 @@ async def login(
         user_full_data = {**user_base_data, "roles": user_role_names}
 
         # 6. ✅ Tokens con contexto correcto
-        level_info = get_user_access_level_info(user_id, target_cliente_id)
+        level_info = await get_user_access_level_info(user_id, target_cliente_id)
         token_data = {
             "sub": form_data.username,
-            "cliente_id": target_cliente_id,  # Cliente al que accede
+            "cliente_id": str(target_cliente_id),  # ✅ Convertir UUID a string para JSON serialization
             "level_info": level_info 
         }
         
@@ -216,7 +223,7 @@ async def login(
                 is_rotation=False  # ✅ CRÍTICO: False porque es un login nuevo
             )
             
-            if stored and stored.get('token_id', -1) > 0:
+            if stored and stored.get('token_id'):
                 logger.info(f"[LOGIN-{client_type.upper()}] Token almacenado - ID: {stored['token_id']}")
             else:
                 logger.warning(f"[LOGIN-{client_type.upper()}] Token duplicado en login (revisar)")
@@ -399,14 +406,19 @@ async def refresh_access_token(
                 detail="Refresh token no proporcionado"
             )
 
-        level_info = get_user_access_level_info(
+        level_info = await get_user_access_level_info(
             current_user.get("usuario_id"),
             current_user.get("cliente_id")
         )
 
+        # ✅ Convertir cliente_id a string para JSON serialization
+        cliente_id = current_user.get("cliente_id")
+        if cliente_id and not isinstance(cliente_id, str):
+            cliente_id = str(cliente_id)
+
         token_data = {
             "sub": username,
-            "cliente_id": current_user.get("cliente_id"),
+            "cliente_id": cliente_id,
             "level_info": level_info  # ✅ AGREGAR ESTO
         }
 
@@ -422,8 +434,14 @@ async def refresh_access_token(
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
 
+            # ✅ Obtener cliente_id del contexto si no está en current_user
+            cliente_id_for_token = current_user.get("cliente_id")
+            if not cliente_id_for_token:
+                from app.core.tenant.context import try_get_current_client_id
+                cliente_id_for_token = try_get_current_client_id()
+            
             stored = await RefreshTokenService.store_refresh_token(
-                cliente_id=current_user.get("cliente_id"),
+                cliente_id=cliente_id_for_token,
                 usuario_id=current_user.get("usuario_id"),
                 token=new_refresh_token,
                 client_type=client_type,
@@ -449,7 +467,7 @@ async def refresh_access_token(
                     logger.warning(f"[REFRESH] Error revocando token antiguo (no crítico): {str(revoke_err)}")
             
             # Logging según resultado
-            if stored and stored.get('token_id', -1) > 0:
+            if stored and stored.get('token_id'):
                 logger.info(f"[REFRESH-{client_type.upper()}] Token rotado exitosamente - ID: {stored['token_id']}")
             elif stored and stored.get('duplicate_ignored'):
                 logger.info(f"[REFRESH-{client_type.upper()}] Duplicado ignorado (doble refresh simultáneo)")
@@ -494,8 +512,14 @@ async def refresh_access_token(
         
         # Registrar refresh exitoso en auditoría (no bloquear flujo si falla)
         try:
+            # ✅ Obtener cliente_id del contexto si no está en current_user
+            cliente_id_for_audit = current_user.get("cliente_id")
+            if not cliente_id_for_audit:
+                from app.core.tenant.context import try_get_current_client_id
+                cliente_id_for_audit = try_get_current_client_id()
+            
             await AuditService.registrar_auth_event(
-                cliente_id=current_user.get("cliente_id"),
+                cliente_id=cliente_id_for_audit,
                 usuario_id=current_user.get("usuario_id"),
                 evento="token_refresh",
                 nombre_usuario_intento=username,
@@ -899,7 +923,7 @@ async def admin_list_all_active_sessions(current_user: dict = Depends(get_curren
     dependencies=[Depends(require_admin)]
 )
 async def admin_revoke_session_by_id(
-    token_id: int = Path(..., description="ID del token de sesión a revocar (PK en refresh_tokens)"), 
+    token_id: UUID = Path(..., description="ID del token de sesión a revocar (PK en refresh_tokens)"), 
     current_user: dict = Depends(get_current_user) # Para contexto/logging
 ):
     """
@@ -970,7 +994,7 @@ async def sso_azure_login(
     request: Request,
     response: Response,
     id_token: str = Body(..., embed=True),
-    cliente_id: Optional[int] = Body(None),
+    cliente_id: Optional[UUID] = Body(None),
     subdominio: Optional[str] = Body(None)
 ):
     """
@@ -1092,7 +1116,7 @@ async def sso_google_login(
     request: Request,
     response: Response,
     id_token: str = Body(..., embed=True),
-    cliente_id: Optional[int] = Body(None),
+    cliente_id: Optional[UUID] = Body(None),
     subdominio: Optional[str] = Body(None)
 ):
     """

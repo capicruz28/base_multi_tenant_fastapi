@@ -14,7 +14,8 @@ Características clave:
 """
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 import logging
-from app.infrastructure.database.queries import execute_query, execute_insert, execute_update
+from sqlalchemy import text
+from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
     ValidationError,
     ConflictError,
@@ -24,7 +25,7 @@ from app.core.exceptions import (
 )
 from app.core.application.base_service import BaseService
 from app.modules.tenant.presentation.schemas import ModuloCreate, ModuloUpdate, ModuloRead
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection
 
 if TYPE_CHECKING:
     from app.modules.tenant.presentation.schemas import ModuloConInfoActivacion
@@ -57,10 +58,14 @@ class ModuloService(BaseService):
         FROM cliente_modulo
         {where_clause}
         ORDER BY orden, nombre
-        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+        OFFSET :skip ROWS FETCH NEXT :limit ROWS ONLY
         """
         
-        resultados = execute_query(query, (skip, limit), connection_type=DatabaseConnection.ADMIN)
+        resultados = await execute_query(
+            text(query).bindparams(skip=skip, limit=limit),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         return [ModuloRead(**modulo) for modulo in resultados]
 
     @staticmethod
@@ -74,10 +79,14 @@ class ModuloService(BaseService):
             modulo_id, codigo_modulo, nombre, descripcion, icono,
             es_modulo_core, requiere_licencia, orden, es_activo, fecha_creacion
         FROM cliente_modulo
-        WHERE modulo_id = ?
+        WHERE modulo_id = :modulo_id
         """
         
-        resultado = execute_query(query, (modulo_id,), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(modulo_id=modulo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         return ModuloRead(**resultado[0])
@@ -99,10 +108,14 @@ class ModuloService(BaseService):
             modulo_id, codigo_modulo, nombre, descripcion, icono,
             es_modulo_core, requiere_licencia, orden, es_activo, fecha_creacion
         FROM cliente_modulo
-        WHERE codigo_modulo = ?
+        WHERE codigo_modulo = :codigo_modulo
         """
         
-        resultado = execute_query(query, (codigo_modulo,), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(codigo_modulo=codigo_modulo),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         return ModuloRead(**resultado[0])
@@ -113,14 +126,18 @@ class ModuloService(BaseService):
         """
         Valida que el código de módulo sea único en el sistema.
         """
-        query = "SELECT modulo_id FROM cliente_modulo WHERE codigo_modulo = ?"
-        params = [codigo_modulo]
+        query = "SELECT modulo_id FROM cliente_modulo WHERE codigo_modulo = :codigo_modulo"
+        bind_params = {"codigo_modulo": codigo_modulo}
         
         if modulo_id:
-            query += " AND modulo_id != ?"
-            params.append(modulo_id)
+            query += " AND modulo_id != :modulo_id"
+            bind_params["modulo_id"] = modulo_id
             
-        resultado = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if resultado:
             raise ConflictError(
                 detail=f"El código de módulo '{codigo_modulo}' ya está en uso.",
@@ -145,6 +162,10 @@ class ModuloService(BaseService):
         ]
         params = [getattr(modulo_data, field) for field in fields]
 
+        # Crear parámetros nombrados
+        param_names = [f"param_{i}" for i in range(len(fields))]
+        bind_params = {name: value for name, value in zip(param_names, params)}
+        
         query = f"""
         INSERT INTO cliente_modulo ({', '.join(fields)})
         OUTPUT 
@@ -158,10 +179,14 @@ class ModuloService(BaseService):
             INSERTED.orden,
             INSERTED.es_activo,
             INSERTED.fecha_creacion
-        VALUES ({', '.join(['?'] * len(fields))})
+        VALUES ({', '.join([f':{name}' for name in param_names])})
         """
 
-        resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_insert(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -194,12 +219,13 @@ class ModuloService(BaseService):
 
         # Construir query dinámica basada en los campos proporcionados
         update_fields = []
-        params = []
+        bind_params = {}
         
-        for field, value in modulo_data.dict(exclude_unset=True).items():
+        for idx, (field, value) in enumerate(modulo_data.dict(exclude_unset=True).items()):
             if value is not None:
-                update_fields.append(f"{field} = ?")
-                params.append(value)
+                param_name = f"param_{idx}"
+                update_fields.append(f"{field} = :{param_name}")
+                bind_params[param_name] = value
                 
         if not update_fields:
             raise ValidationError(
@@ -207,7 +233,7 @@ class ModuloService(BaseService):
                 internal_code="NO_UPDATE_FIELDS"
             )
             
-        params.append(modulo_id)
+        bind_params["modulo_id"] = modulo_id
 
         query = f"""
         UPDATE cliente_modulo
@@ -223,10 +249,14 @@ class ModuloService(BaseService):
             INSERTED.orden,
             INSERTED.es_activo,
             INSERTED.fecha_creacion
-        WHERE modulo_id = ?
+        WHERE modulo_id = :modulo_id
         """
 
-        resultado = execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_update(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -268,12 +298,16 @@ class ModuloService(BaseService):
             cma.limite_usuarios,
             cma.limite_registros
         FROM cliente_modulo m
-        LEFT JOIN cliente_modulo_activo cma ON m.modulo_id = cma.modulo_id AND cma.cliente_id = ?
+        LEFT JOIN cliente_modulo_activo cma ON m.modulo_id = cma.modulo_id AND cma.cliente_id = :cliente_id
         WHERE m.es_activo = 1
         ORDER BY m.orden, m.nombre
         """
         
-        resultados = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        resultados = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         
         # Mapear resultados a ModuloConInfoActivacion
         modulos = []
@@ -307,7 +341,11 @@ class ModuloService(BaseService):
         ORDER BY orden, nombre
         """
         
-        resultados = execute_query(query, connection_type=DatabaseConnection.ADMIN)
+        resultados = await execute_query(
+            text(query),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         return [ModuloRead(**modulo) for modulo in resultados]
 
     @staticmethod
@@ -326,7 +364,11 @@ class ModuloService(BaseService):
         {where_clause}
         """
         
-        resultado = execute_query(query, connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         return resultado[0]['total'] if resultado else 0
 
     @staticmethod
@@ -347,25 +389,26 @@ class ModuloService(BaseService):
 
         # Construir cláusulas WHERE dinámicamente
         where_clauses = []
-        params = []
+        bind_params = {}
 
         if solo_activos:
             where_clauses.append("es_activo = 1")
 
         if buscar:
-            where_clauses.append("(nombre LIKE ? OR codigo_modulo LIKE ? OR descripcion LIKE ?)")
-            search_pattern = f"%{buscar}%"
-            params.extend([search_pattern, search_pattern, search_pattern])
+            where_clauses.append("(nombre LIKE :search_pattern OR codigo_modulo LIKE :search_pattern OR descripcion LIKE :search_pattern)")
+            bind_params["search_pattern"] = f"%{buscar}%"
 
         if es_modulo_core is not None:
-            where_clauses.append("es_modulo_core = ?")
-            params.append(1 if es_modulo_core else 0)
+            where_clauses.append("es_modulo_core = :es_modulo_core")
+            bind_params["es_modulo_core"] = 1 if es_modulo_core else 0
 
         if requiere_licencia is not None:
-            where_clauses.append("requiere_licencia = ?")
-            params.append(1 if requiere_licencia else 0)
+            where_clauses.append("requiere_licencia = :requiere_licencia")
+            bind_params["requiere_licencia"] = 1 if requiere_licencia else 0
 
         where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        bind_params["skip"] = skip
+        bind_params["limit"] = limit
 
         query = f"""
         SELECT 
@@ -374,11 +417,14 @@ class ModuloService(BaseService):
         FROM cliente_modulo
         {where_clause}
         ORDER BY orden, nombre
-        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+        OFFSET :skip ROWS FETCH NEXT :limit ROWS ONLY
         """
         
-        params.extend([skip, limit])
-        resultados = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultados = await execute_query(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         return [ModuloRead(**modulo) for modulo in resultados]
 
     @staticmethod
@@ -397,23 +443,22 @@ class ModuloService(BaseService):
 
         # Construir cláusulas WHERE dinámicamente (igual que en buscar_modulos)
         where_clauses = []
-        params = []
+        bind_params = {}
 
         if solo_activos:
             where_clauses.append("es_activo = 1")
 
         if buscar:
-            where_clauses.append("(nombre LIKE ? OR codigo_modulo LIKE ? OR descripcion LIKE ?)")
-            search_pattern = f"%{buscar}%"
-            params.extend([search_pattern, search_pattern, search_pattern])
+            where_clauses.append("(nombre LIKE :search_pattern OR codigo_modulo LIKE :search_pattern OR descripcion LIKE :search_pattern)")
+            bind_params["search_pattern"] = f"%{buscar}%"
 
         if es_modulo_core is not None:
-            where_clauses.append("es_modulo_core = ?")
-            params.append(1 if es_modulo_core else 0)
+            where_clauses.append("es_modulo_core = :es_modulo_core")
+            bind_params["es_modulo_core"] = 1 if es_modulo_core else 0
 
         if requiere_licencia is not None:
-            where_clauses.append("requiere_licencia = ?")
-            params.append(1 if requiere_licencia else 0)
+            where_clauses.append("requiere_licencia = :requiere_licencia")
+            bind_params["requiere_licencia"] = 1 if requiere_licencia else 0
 
         where_clause = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
@@ -423,7 +468,11 @@ class ModuloService(BaseService):
         {where_clause}
         """
         
-        resultado = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(**bind_params) if bind_params else text(query),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         return resultado[0]['total'] if resultado else 0
 
     @staticmethod
@@ -458,9 +507,13 @@ class ModuloService(BaseService):
         query_check = """
         SELECT COUNT(*) as total
         FROM cliente_modulo_activo
-        WHERE modulo_id = ? AND esta_activo = 1
+        WHERE modulo_id = :modulo_id AND esta_activo = 1
         """
-        resultado_check = execute_query(query_check, (modulo_id,), connection_type=DatabaseConnection.ADMIN)
+        resultado_check = await execute_query(
+            text(query_check).bindparams(modulo_id=modulo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         clientes_activos = resultado_check[0]['total'] if resultado_check else 0
 
         if clientes_activos > 0:
@@ -473,9 +526,13 @@ class ModuloService(BaseService):
         query = """
         UPDATE cliente_modulo
         SET es_activo = 0
-        WHERE modulo_id = ?
+        WHERE modulo_id = :modulo_id
         """
         
-        execute_update(query, (modulo_id,), connection_type=DatabaseConnection.ADMIN)
+        await execute_update(
+            text(query).bindparams(modulo_id=modulo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         logger.info(f"Módulo ID {modulo_id} desactivado exitosamente.")
         return True

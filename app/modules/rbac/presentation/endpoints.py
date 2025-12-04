@@ -18,6 +18,7 @@ Características principales:
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Path
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 
 # Importar Schemas
 from app.modules.rbac.presentation.schemas import RolCreate, RolUpdate, RolRead, PaginatedRolResponse, PermisoRead, PermisoUpdatePayload
@@ -174,9 +175,19 @@ async def read_roles_paginated(
     """
     logger.info(f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'")
     
-    # ✅ VALIDACIÓN: Verificar que cliente_id es válido
-    if not current_user.cliente_id or current_user.cliente_id <= 0:
+    # ✅ VALIDACIÓN: Verificar que cliente_id es válido (UUID)
+    from uuid import UUID
+    cliente_id_valido = current_user.cliente_id
+    if not cliente_id_valido:
         logger.error(f"Cliente ID inválido en endpoint /roles/: {current_user.cliente_id} para usuario {current_user.usuario_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cliente ID no disponible en el contexto del usuario. No se puede obtener la lista de roles."
+        )
+    
+    # Verificar que no sea UUID nulo
+    if isinstance(cliente_id_valido, UUID) and cliente_id_valido == UUID('00000000-0000-0000-0000-000000000000'):
+        logger.error(f"Cliente ID es UUID nulo en endpoint /roles/ para usuario {current_user.usuario_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cliente ID no disponible en el contexto del usuario. No se puede obtener la lista de roles."
@@ -236,7 +247,12 @@ async def read_all_active_roles(
     """
     logger.info(f"Solicitud GET /roles/all-active/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para lista simple")
     try:
-        active_roles = await RolService.get_all_active_roles(cliente_id=current_user.cliente_id)
+        active_roles_dicts = await RolService.get_all_active_roles(cliente_id=current_user.cliente_id)
+        
+        # ✅ Convertir dicts a RolRead para cumplir con el schema de respuesta
+        from app.modules.rbac.presentation.schemas import RolRead
+        active_roles = [RolRead(**rol_dict) for rol_dict in active_roles_dicts]
+        
         logger.info(f"Lista simple de roles activos recuperada para cliente {current_user.cliente_id} - Total: {len(active_roles)}")
         return active_roles
     except CustomException as ce:
@@ -273,7 +289,7 @@ async def read_all_active_roles(
     dependencies=[Depends(require_admin)]
 )
 async def read_rol(
-    rol_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -345,7 +361,7 @@ async def read_rol(
     dependencies=[Depends(require_admin)]
 )
 async def update_rol(
-    rol_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
     rol_in: RolUpdate = Body(...),
     current_user: Any = Depends(get_current_active_user)
 ):
@@ -425,7 +441,7 @@ async def update_rol(
     dependencies=[Depends(require_admin)]
 )
 async def deactivate_rol(
-    rol_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -490,7 +506,7 @@ async def deactivate_rol(
     dependencies=[Depends(require_admin)]
 )
 async def reactivate_rol(
-    rol_id: int,
+    rol_id: UUID = Path(..., description="ID del rol"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -553,7 +569,7 @@ async def reactivate_rol(
     dependencies=[Depends(require_admin)]
 )
 async def get_permisos_por_rol(
-    rol_id: int = Path(..., title="ID del Rol", description="El ID del rol para consultar sus permisos"),
+    rol_id: UUID = Path(..., title="ID del Rol", description="El ID del rol para consultar sus permisos"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -621,7 +637,7 @@ async def get_permisos_por_rol(
     dependencies=[Depends(require_admin)]
 )
 async def update_permisos_rol(
-    rol_id: int = Path(..., title="ID del Rol", description="El ID del rol cuyos permisos se actualizarán"),
+    rol_id: UUID = Path(..., title="ID del Rol", description="El ID del rol cuyos permisos se actualizarán"),
     payload: PermisoUpdatePayload = Body(..., description="Objeto que contiene la lista completa de los nuevos permisos para el rol"),
     current_user: Any = Depends(get_current_active_user)
 ):

@@ -31,7 +31,7 @@ from collections import OrderedDict
 
 from app.core.config import settings
 from app.core.exceptions import DatabaseError
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 

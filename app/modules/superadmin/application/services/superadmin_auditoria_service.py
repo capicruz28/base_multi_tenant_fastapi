@@ -12,13 +12,16 @@ Características principales:
 """
 
 from datetime import datetime
+from uuid import UUID
 import math
 import json
 from typing import Dict, List, Optional, Any
 import logging
 
 # Importaciones de base de datos
-from app.infrastructure.database.queries import execute_query
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query
+from sqlalchemy import text
 
 # Schemas
 from app.modules.superadmin.presentation.schemas import (
@@ -168,7 +171,8 @@ class SuperadminAuditoriaService(BaseService):
         WHERE {where_clause}
         """
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        count_result = execute_query(count_query, tuple(params), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        count_result = await execute_query(count_query, tuple(params), client_id=cliente_id)
         total_logs = count_result[0]['total'] if count_result else 0
 
         # Query para obtener datos (SIN JOIN con cliente, ya que cliente está en BD centralizada)
@@ -199,7 +203,8 @@ class SuperadminAuditoriaService(BaseService):
         """
         params.extend([offset, limit])
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        logs_raw = execute_query(data_query, tuple(params), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        logs_raw = await execute_query(data_query, tuple(params), client_id=cliente_id)
 
         # Procesar logs
         logs = []
@@ -211,14 +216,19 @@ class SuperadminAuditoriaService(BaseService):
                     cliente_info = cliente_info_cache
                 else:
                     # Obtener desde BD centralizada (ADMIN)
-                    from app.infrastructure.database.connection import DatabaseConnection
+                    from app.infrastructure.database.connection_async import DatabaseConnection
                     query_cliente = """
                     SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
                            nombre_comercial, tipo_instalacion, estado_suscripcion
                     FROM dbo.cliente
-                    WHERE cliente_id = ?
+                    WHERE cliente_id = :cliente_id
                     """
-                    cliente_raw = execute_query(query_cliente, (log_row['cliente_id'],), connection_type=DatabaseConnection.ADMIN)
+                    # ✅ FASE 2: Usar await
+                    cliente_raw = await execute_query(
+                        text(query_cliente).bindparams(cliente_id=log_row['cliente_id']),
+                        connection_type=DatabaseConnection.ADMIN,
+                        client_id=None
+                    )
                     if cliente_raw:
                         cliente_row = cliente_raw[0]
                         cliente_info = ClienteInfo(
@@ -279,7 +289,7 @@ class SuperadminAuditoriaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_log_autenticacion(log_id: int, cliente_id: Optional[int] = None) -> Optional[Dict]:
+    async def obtener_log_autenticacion(log_id: UUID, cliente_id: Optional[UUID] = None) -> Optional[Dict]:
         """
         Obtiene detalle completo de un log de autenticación.
         
@@ -301,7 +311,7 @@ class SuperadminAuditoriaService(BaseService):
             u.correo
         FROM dbo.auth_audit_log a
         LEFT JOIN dbo.usuario u ON a.usuario_id = u.usuario_id
-        WHERE a.log_id = ?
+        WHERE a.log_id = :log_id
         """
         
         # ✅ CORRECCIÓN: Lógica optimizada para SuperAdmin - Identificar tenant y consultar BD correcta
@@ -312,7 +322,7 @@ class SuperadminAuditoriaService(BaseService):
         #    a. Obtener cliente_id del log buscando en todas las BDs (Single-DB y Multi-DB)
         #    b. Una vez identificado el cliente_id, usar execute_query(..., client_id=log_cliente_id)
         #       que automáticamente determinará la BD correcta (Single-DB o Multi-DB) basándose en metadata
-        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.connection_async import DatabaseConnection
         from app.core.tenant.context import try_get_current_client_id
         from app.core.config import settings
         
@@ -327,17 +337,40 @@ class SuperadminAuditoriaService(BaseService):
             logger.info(f"[AUDIT] Cliente_id proporcionado ({cliente_id}), consultando log {log_id} directamente en BD del tenant")
             try:
                 # Usar client_id para que execute_query determine automáticamente la BD correcta
-                log_raw = execute_query(query, (log_id,), client_id=cliente_id)
+                # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+                # ✅ FASE 2: Usar await
+                log_raw = await execute_query(
+                    text(query).bindparams(log_id=str(log_id)),
+                    client_id=cliente_id
+                )
                 if log_raw:
                     log_row = log_raw[0]
                     log_cliente_id = log_row.get('cliente_id')
-                    # Verificar que el log pertenece al cliente especificado
-                    if log_cliente_id == cliente_id:
-                        logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {cliente_id}")
+                    # ✅ CORRECCIÓN: Normalizar UUIDs para comparación (pueden venir como string o UUID)
+                    from uuid import UUID
+                    if isinstance(log_cliente_id, str):
+                        try:
+                            log_cliente_id_uuid = UUID(log_cliente_id)
+                        except (ValueError, AttributeError):
+                            log_cliente_id_uuid = None
+                    elif isinstance(log_cliente_id, UUID):
+                        log_cliente_id_uuid = log_cliente_id
                     else:
-                        logger.warning(f"[AUDIT] Log {log_id} encontrado pero pertenece a cliente {log_cliente_id}, no a {cliente_id}")
+                        log_cliente_id_uuid = None
+                    
+                    # Verificar que el log pertenece al cliente especificado
+                    # ✅ CORRECCIÓN: Normalizar ambos UUIDs para comparación
+                    if log_cliente_id_uuid and str(log_cliente_id_uuid).lower() == str(cliente_id).lower():
+                        logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {cliente_id}")
+                        # ✅ CORRECCIÓN: Establecer log_cliente_id para uso posterior
+                        log_cliente_id = log_cliente_id_uuid
+                    else:
+                        logger.warning(f"[AUDIT] Log {log_id} encontrado pero pertenece a cliente {log_cliente_id_uuid}, no a {cliente_id}")
                         log_raw = None
                         log_row = None
+                        # ✅ CORRECCIÓN: Si el log pertenece a otro cliente, usar ese cliente_id
+                        if log_cliente_id_uuid:
+                            log_cliente_id = log_cliente_id_uuid
                 else:
                     logger.warning(f"[AUDIT] Log {log_id} no encontrado en BD del cliente {cliente_id}")
             except Exception as e:
@@ -348,7 +381,12 @@ class SuperadminAuditoriaService(BaseService):
             logger.info(f"[AUDIT] Contexto de tenant detectado (cliente_id={context_cliente_id}), buscando log {log_id} en BD del tenant")
             try:
                 # Usar client_id para que execute_query determine automáticamente la BD correcta
-                log_raw = execute_query(query, (log_id,), client_id=context_cliente_id)
+                # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+                # ✅ FASE 2: Usar await
+                log_raw = await execute_query(
+                    text(query).bindparams(log_id=str(log_id)),
+                    client_id=context_cliente_id
+                )
                 if log_raw:
                     log_row = log_raw[0]
                     log_cliente_id = log_row.get('cliente_id')
@@ -356,15 +394,17 @@ class SuperadminAuditoriaService(BaseService):
             except Exception as e:
                 logger.warning(f"[AUDIT] Error buscando log {log_id} en BD del tenant {context_cliente_id}: {e}")
         
-        # 3. Si el contexto es SuperAdmin y no se proporcionó cliente_id, identificar el tenant del log primero
-        elif context_cliente_id == settings.SUPERADMIN_CLIENTE_ID:
+        # 3. Si el contexto es SuperAdmin y no se encontró el log aún, identificar el tenant del log primero
+        from uuid import UUID
+        superadmin_uuid = UUID(settings.SUPERADMIN_CLIENTE_ID) if settings.SUPERADMIN_CLIENTE_ID else None
+        if not log_raw and not log_row and superadmin_uuid and context_cliente_id == superadmin_uuid:
             logger.info(f"[AUDIT] Contexto de SuperAdmin detectado, identificando tenant del log {log_id}")
             
             # Query rápida para obtener solo el cliente_id del log
             query_cliente_id = """
             SELECT cliente_id
             FROM dbo.auth_audit_log
-            WHERE log_id = ?
+            WHERE log_id = :log_id
             """
             
             # Buscar cliente_id del log en todas las BDs posibles:
@@ -372,15 +412,30 @@ class SuperadminAuditoriaService(BaseService):
             # ✅ SEGURIDAD: auth_audit_log es una tabla de tenant, pero estamos buscando en BD central
             # Usar skip_tenant_validation porque estamos buscando en BD central sin contexto de tenant específico
             try:
-                cliente_id_raw = execute_query(
-                    query_cliente_id, 
-                    (log_id,), 
+                # ✅ CORRECCIÓN: Usar text().bindparams() para named parameters
+                # ✅ FASE 2: Usar await
+                cliente_id_raw = await execute_query(
+                    text(query_cliente_id).bindparams(log_id=str(log_id)), 
                     connection_type=DatabaseConnection.DEFAULT,
                     skip_tenant_validation=True  # ✅ Bypass: Buscando en BD central sin contexto de tenant
                 )
                 if cliente_id_raw:
-                    log_cliente_id = cliente_id_raw[0]['cliente_id']
-                    logger.info(f"[AUDIT] Cliente_id del log {log_id} obtenido desde BD central: {log_cliente_id}")
+                    log_cliente_id_raw = cliente_id_raw[0]['cliente_id']
+                    # ✅ CORRECCIÓN: Normalizar UUID (puede venir como string o UUID)
+                    from uuid import UUID
+                    if isinstance(log_cliente_id_raw, str):
+                        try:
+                            log_cliente_id = UUID(log_cliente_id_raw)
+                        except (ValueError, AttributeError):
+                            log_cliente_id = None
+                    elif isinstance(log_cliente_id_raw, UUID):
+                        log_cliente_id = log_cliente_id_raw
+                    else:
+                        log_cliente_id = None
+                    if log_cliente_id:
+                        logger.info(f"[AUDIT] Cliente_id del log {log_id} obtenido desde BD central: {log_cliente_id}")
+                    else:
+                        logger.warning(f"[AUDIT] Cliente_id del log {log_id} no es un UUID válido: {log_cliente_id_raw}")
             except Exception as e:
                 logger.debug(f"[AUDIT] Log {log_id} no encontrado en BD central: {e}")
             
@@ -395,7 +450,12 @@ class SuperadminAuditoriaService(BaseService):
                 WHERE es_activo = 1
                 ORDER BY cliente_id
                 """
-                clientes_raw = execute_query(query_clientes, (), connection_type=DatabaseConnection.ADMIN)
+                # ✅ FASE 2: Usar await
+                clientes_raw = await execute_query(
+                    text(query_clientes),
+                    connection_type=DatabaseConnection.ADMIN,
+                    client_id=None
+                )
                 
                 if clientes_raw:
                     clientes_ids = [row['cliente_id'] for row in clientes_raw]
@@ -404,11 +464,30 @@ class SuperadminAuditoriaService(BaseService):
                     # Buscar el cliente_id del log en cada BD de cliente Multi-DB
                     for cliente_id in clientes_ids:
                         try:
-                            cliente_id_raw = execute_query(query_cliente_id, (log_id,), client_id=cliente_id)
+                            # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+                            # ✅ FASE 2: Usar await
+                            cliente_id_raw = await execute_query(
+                                text(query_cliente_id).bindparams(log_id=str(log_id)),
+                                client_id=cliente_id
+                            )
                             if cliente_id_raw:
-                                log_cliente_id = cliente_id_raw[0]['cliente_id']
-                                logger.info(f"[AUDIT] Cliente_id del log {log_id} obtenido desde BD del cliente {cliente_id}: {log_cliente_id}")
-                                break
+                                log_cliente_id_raw = cliente_id_raw[0]['cliente_id']
+                                # ✅ CORRECCIÓN: Normalizar UUID (puede venir como string o UUID)
+                                from uuid import UUID
+                                if isinstance(log_cliente_id_raw, str):
+                                    try:
+                                        log_cliente_id = UUID(log_cliente_id_raw)
+                                    except (ValueError, AttributeError):
+                                        log_cliente_id = None
+                                elif isinstance(log_cliente_id_raw, UUID):
+                                    log_cliente_id = log_cliente_id_raw
+                                else:
+                                    log_cliente_id = None
+                                if log_cliente_id:
+                                    logger.info(f"[AUDIT] Cliente_id del log {log_id} obtenido desde BD del cliente {cliente_id}: {log_cliente_id}")
+                                    break
+                                else:
+                                    logger.warning(f"[AUDIT] Cliente_id del log {log_id} no es un UUID válido: {log_cliente_id_raw}")
                         except Exception as e:
                             # Continuar con el siguiente cliente si hay error
                             continue
@@ -419,7 +498,12 @@ class SuperadminAuditoriaService(BaseService):
                 logger.info(f"[AUDIT] Consultando log {log_id} completo en BD del cliente {log_cliente_id} (execute_query determinará BD automáticamente)")
                 try:
                     # ✅ CRÍTICO: Usar client_id para que execute_query determine automáticamente Single-DB o Multi-DB
-                    log_raw = execute_query(query, (log_id,), client_id=log_cliente_id)
+                    # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+                    # ✅ FASE 2: Usar await
+                    log_raw = await execute_query(
+                        text(query).bindparams(log_id=str(log_id)),
+                        client_id=log_cliente_id
+                    )
                     if log_raw:
                         log_row = log_raw[0]
                         logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {log_cliente_id}")
@@ -441,7 +525,12 @@ class SuperadminAuditoriaService(BaseService):
             WHERE es_activo = 1
             ORDER BY cliente_id
             """
-            clientes_raw = execute_query(query_clientes, (), connection_type=DatabaseConnection.ADMIN)
+            # ✅ FASE 2: Usar await
+            clientes_raw = await execute_query(
+                text(query_clientes),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None
+            )
             
             if not clientes_raw:
                 logger.warning(f"[AUDIT] No hay clientes activos en el sistema")
@@ -461,7 +550,12 @@ class SuperadminAuditoriaService(BaseService):
                     
                 try:
                     logger.debug(f"[AUDIT] Buscando log {log_id} en BD del cliente {cliente_id}")
-                    log_raw = execute_query(query, (log_id,), client_id=cliente_id)
+                    # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
+                    # ✅ FASE 2: Usar await
+                    log_raw = await execute_query(
+                        text(query).bindparams(log_id=str(log_id)),
+                        client_id=cliente_id
+                    )
                     if log_raw:
                         log_row = log_raw[0]
                         logger.info(f"[AUDIT] Log {log_id} encontrado en BD del cliente {cliente_id}")
@@ -485,9 +579,14 @@ class SuperadminAuditoriaService(BaseService):
             SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
                    nombre_comercial, tipo_instalacion, estado_suscripcion
             FROM dbo.cliente
-            WHERE cliente_id = ?
+            WHERE cliente_id = :cliente_id
             """
-            cliente_raw = execute_query(query_cliente_info, (log_row['cliente_id'],), connection_type=DatabaseConnection.ADMIN)
+            # ✅ FASE 2: Usar await
+            cliente_raw = await execute_query(
+                text(query_cliente_info).bindparams(cliente_id=log_row['cliente_id']),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None
+            )
             
             if cliente_raw:
                 cliente_row = cliente_raw[0]
@@ -659,7 +758,8 @@ class SuperadminAuditoriaService(BaseService):
         # Determinar qué cliente usar para la conexión (priorizar origen, luego destino)
         target_client_id = cliente_origen_id or cliente_destino_id
         # Si se filtra por cliente, usar la conexión de ese cliente
-        count_result = execute_query(count_query, tuple(params), client_id=target_client_id)
+        # ✅ FASE 2: Usar await
+        count_result = await execute_query(count_query, tuple(params), client_id=target_client_id)
         total_logs = count_result[0]['total'] if count_result else 0
 
         # Query para obtener datos (SIN JOIN con cliente, ya que cliente está en BD centralizada)
@@ -682,20 +782,26 @@ class SuperadminAuditoriaService(BaseService):
         # Determinar qué cliente usar para la conexión (priorizar origen, luego destino)
         target_client_id = cliente_origen_id or cliente_destino_id
         # Si se filtra por cliente, usar la conexión de ese cliente
-        logs_raw = execute_query(data_query, tuple(params), client_id=target_client_id)
+        # ✅ FASE 2: Usar await
+        logs_raw = await execute_query(data_query, tuple(params), client_id=target_client_id)
         
         # Obtener información de clientes desde BD centralizada (ADMIN) si es necesario
         clientes_cache = {}
-        from app.infrastructure.database.connection import DatabaseConnection
+        from app.infrastructure.database.connection_async import DatabaseConnection
         for log_row in logs_raw:
             if log_row.get('cliente_origen_id') and log_row['cliente_origen_id'] not in clientes_cache:
                 query_cliente = """
                 SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
                        nombre_comercial, tipo_instalacion, estado_suscripcion
                 FROM dbo.cliente
-                WHERE cliente_id = ?
+                WHERE cliente_id = :cliente_id
                 """
-                cliente_raw = execute_query(query_cliente, (log_row['cliente_origen_id'],), connection_type=DatabaseConnection.ADMIN)
+                # ✅ FASE 2: Usar await
+                cliente_raw = await execute_query(
+                    text(query_cliente).bindparams(cliente_id=log_row['cliente_origen_id']),
+                    connection_type=DatabaseConnection.ADMIN,
+                    client_id=None
+                )
                 if cliente_raw:
                     cliente_row = cliente_raw[0]
                     clientes_cache[log_row['cliente_origen_id']] = ClienteInfo(
@@ -712,9 +818,14 @@ class SuperadminAuditoriaService(BaseService):
                 SELECT cliente_id, razon_social, subdominio, codigo_cliente, 
                        nombre_comercial, tipo_instalacion, estado_suscripcion
                 FROM dbo.cliente
-                WHERE cliente_id = ?
+                WHERE cliente_id = :cliente_id
                 """
-                cliente_raw = execute_query(query_cliente, (log_row['cliente_destino_id'],), connection_type=DatabaseConnection.ADMIN)
+                # ✅ FASE 2: Usar await
+                cliente_raw = await execute_query(
+                    text(query_cliente).bindparams(cliente_id=log_row['cliente_destino_id']),
+                    connection_type=DatabaseConnection.ADMIN,
+                    client_id=None
+                )
                 if cliente_raw:
                     cliente_row = cliente_raw[0]
                     clientes_cache[log_row['cliente_destino_id']] = ClienteInfo(
@@ -857,7 +968,8 @@ class SuperadminAuditoriaService(BaseService):
         GROUP BY evento
         """
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        auth_stats_raw = execute_query(auth_stats_query, tuple(params_auth), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        auth_stats_raw = await execute_query(auth_stats_query, tuple(params_auth), client_id=cliente_id)
 
         # Procesar estadísticas de autenticación
         total_eventos = 0
@@ -900,7 +1012,8 @@ class SuperadminAuditoriaService(BaseService):
         GROUP BY tipo_sincronizacion
         """
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        sync_stats_raw = execute_query(sync_stats_query, tuple(params_sync), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        sync_stats_raw = await execute_query(sync_stats_query, tuple(params_sync), client_id=cliente_id)
 
         # Procesar estadísticas de sincronización
         total_sincronizaciones = 0
@@ -928,7 +1041,8 @@ class SuperadminAuditoriaService(BaseService):
         ORDER BY total_eventos DESC
         """
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        top_ips_raw = execute_query(top_ips_query, tuple(params_auth), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        top_ips_raw = await execute_query(top_ips_query, tuple(params_auth), client_id=cliente_id)
         top_ips = [
             IPStats(
                 ip_address=row['ip_address'],
@@ -950,7 +1064,8 @@ class SuperadminAuditoriaService(BaseService):
         ORDER BY total_eventos DESC
         """
         # Si se filtra por cliente_id, usar la conexión de ese cliente
-        top_usuarios_raw = execute_query(top_usuarios_query, tuple(params_auth), client_id=cliente_id)
+        # ✅ FASE 2: Usar await
+        top_usuarios_raw = await execute_query(top_usuarios_query, tuple(params_auth), client_id=cliente_id)
         top_usuarios = [
             UsuarioStats(
                 usuario_id=row['usuario_id'],

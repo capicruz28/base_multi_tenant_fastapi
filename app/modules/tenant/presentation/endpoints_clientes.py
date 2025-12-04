@@ -11,8 +11,9 @@ Características principales:
 - Gestión completa del ciclo de vida de clientes.
 - Integración con políticas de autenticación y módulos.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Request, Path
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 import logging
 
 from app.modules.tenant.presentation.schemas import (
@@ -163,7 +164,7 @@ async def listar_clientes(
 )
 @require_super_admin()
 async def obtener_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user = Depends(get_current_active_user)
 ):
     """
@@ -212,7 +213,7 @@ async def obtener_cliente(
 )
 @require_super_admin()
 async def actualizar_cliente(
-    cliente_id: int, 
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     cliente_data: ClienteUpdate = Body(...),
     current_user = Depends(get_current_active_user)
 ):
@@ -264,7 +265,7 @@ async def actualizar_cliente(
 )
 @require_super_admin()
 async def eliminar_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user = Depends(get_current_active_user)
 ):
     """
@@ -312,7 +313,7 @@ async def eliminar_cliente(
 )
 @require_super_admin()
 async def suspender_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user = Depends(get_current_active_user)
 ):
     """
@@ -359,7 +360,7 @@ async def suspender_cliente(
 )
 @require_super_admin()
 async def activar_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user = Depends(get_current_active_user)
 ):
     """
@@ -405,7 +406,7 @@ async def activar_cliente(
 )
 @require_super_admin()
 async def obtener_estadisticas_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user = Depends(get_current_active_user)
 ):
     """

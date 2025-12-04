@@ -13,8 +13,11 @@ Características clave:
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
 """
 from typing import Optional, Dict, Any
+from uuid import UUID
 import logging
-from app.infrastructure.database.queries import execute_query, execute_insert, execute_update
+from sqlalchemy import text
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
     ValidationError,
     ConflictError,
@@ -24,7 +27,7 @@ from app.core.exceptions import (
 )
 from app.core.application.base_service import BaseService
 from app.modules.auth.presentation.schemas import AuthConfigCreate, AuthConfigUpdate, AuthConfigRead
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ class AuthConfigService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_config_cliente(cliente_id: int) -> AuthConfigRead:
+    async def obtener_config_cliente(cliente_id: UUID) -> AuthConfigRead:
         """
         Obtiene la configuración de autenticación para un cliente específico.
         Si no existe, crea una configuración por defecto.
@@ -56,10 +59,15 @@ class AuthConfigService(BaseService):
             horario_acceso_enabled, horario_acceso_config,
             fecha_creacion, fecha_actualizacion
         FROM cliente_auth_config
-        WHERE cliente_id = ?
+        WHERE cliente_id = :cliente_id
         """
         
-        resultado = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         
         if resultado:
             return AuthConfigRead(**resultado[0])
@@ -70,7 +78,7 @@ class AuthConfigService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_config_default(cliente_id: int) -> AuthConfigRead:
+    async def crear_config_default(cliente_id: UUID) -> AuthConfigRead:
         """
         Crea una configuración de autenticación por defecto para un cliente.
         """
@@ -114,8 +122,13 @@ class AuthConfigService(BaseService):
         logger.info(f"Creando configuración de autenticación para cliente ID: {config_data.cliente_id}")
 
         # Validar que el cliente existe y no tiene configuración
-        query_check = "SELECT config_id FROM cliente_auth_config WHERE cliente_id = ?"
-        resultado_existente = execute_query(query_check, (config_data.cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        query_check = "SELECT config_id FROM cliente_auth_config WHERE cliente_id = :cliente_id"
+        # ✅ FASE 2: Usar await
+        resultado_existente = await execute_query(
+            text(query_check).bindparams(cliente_id=config_data.cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         
         if resultado_existente:
             raise ConflictError(
@@ -175,7 +188,8 @@ class AuthConfigService(BaseService):
         VALUES ({', '.join(['?'] * len(fields))})
         """
 
-        resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -188,7 +202,7 @@ class AuthConfigService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_config_cliente(cliente_id: int, config_data: AuthConfigUpdate) -> AuthConfigRead:
+    async def actualizar_config_cliente(cliente_id: UUID, config_data: AuthConfigUpdate) -> AuthConfigRead:
         """
         Actualiza la configuración de autenticación para un cliente.
         """
@@ -259,7 +273,8 @@ class AuthConfigService(BaseService):
         WHERE cliente_id = ?
         """
 
-        resultado = execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if not resultado:
             raise ServiceError(
                 status_code=500,

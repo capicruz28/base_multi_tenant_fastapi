@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.exceptions import configure_exception_handlers, CustomException 
 from app.api.v1.api import api_router
-from app.infrastructure.database.connection import get_db_connection
+from app.infrastructure.database.connection_async import get_db_connection
 
 # CRÍTICO: Importar el nuevo middleware y el contexto
 from app.core.tenant.middleware import TenantMiddleware
@@ -258,9 +258,10 @@ async def health_check():
     try:
         # Se obtiene el ID del cliente del request (o el default si no hay subdominio)
         client_id = get_current_client_id() 
-        with get_db_connection() as conn:
+        from sqlalchemy import text
+        async with get_db_connection() as session:
             # Esta conexión ahora es tenant-aware gracias a multi_db.py
-            conn.cursor().execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
             db_status = "connected"
     except Exception as e:
         logger.error(f"Error en health check para Cliente ID {client_id}: {str(e)}")
@@ -278,8 +279,10 @@ async def health_check():
 async def test_db():
     try:
         # PRUEBA: Usará la conexión del tenant actual (SYSTEM si no hay subdominio)
-        with get_db_connection() as conn: 
-            if conn:
+        from sqlalchemy import text
+        async with get_db_connection() as session: 
+            if session:
+                await session.execute(text("SELECT 1"))
                 return {"message": "Conexión exitosa al tenant actual"}
             else:
                 return {"error": "Conexión fallida: objeto de conexión es None"}

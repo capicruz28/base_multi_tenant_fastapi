@@ -14,8 +14,9 @@ Características principales:
 - **✅ MULTI-TENANT: Aislamiento de datos por cliente_id.**
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Path
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 import logging
 
 # Schemas para áreas
@@ -282,7 +283,7 @@ async def obtener_lista_simple_areas_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def obtener_area_por_id_endpoint(
-    area_id: int,
+    area_id: UUID = Path(..., description="ID del área"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -357,7 +358,7 @@ async def obtener_area_por_id_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def actualizar_area_endpoint(
-    area_id: int, 
+    area_id: UUID = Path(..., description="ID del área"),
     area_in: AreaUpdate = Body(...),
     current_user: Any = Depends(get_current_active_user)
 ):
@@ -444,7 +445,7 @@ async def actualizar_area_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def desactivar_area_endpoint(
-    area_id: int,
+    area_id: UUID = Path(..., description="ID del área"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """
@@ -515,7 +516,7 @@ async def desactivar_area_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def reactivar_area_endpoint(
-    area_id: int,
+    area_id: UUID = Path(..., description="ID del área"),
     current_user: Any = Depends(get_current_active_user)
 ):
     """

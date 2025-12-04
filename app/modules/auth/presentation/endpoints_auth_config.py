@@ -11,8 +11,9 @@ Características principales:
 - Configuración granular de políticas por cliente.
 - Valores por defecto coherentes con mejores prácticas.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Path
 from typing import Dict, Any
+from uuid import UUID
 import logging
 
 from app.modules.auth.presentation.schemas import AuthConfigRead, AuthConfigUpdate
@@ -48,7 +49,7 @@ require_super_admin = RoleChecker(["SUPER_ADMIN"])
     """,
     dependencies=[Depends(require_super_admin)]
 )
-async def obtener_config_auth_cliente(cliente_id: int):
+async def obtener_config_auth_cliente(cliente_id: UUID = Path(..., description="ID del cliente")):
     """
     Obtiene la configuración de autenticación para un cliente.
     """
@@ -87,7 +88,7 @@ async def obtener_config_auth_cliente(cliente_id: int):
     dependencies=[Depends(require_super_admin)]
 )
 async def actualizar_config_auth_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     config_data: AuthConfigUpdate = Body(...)
 ):
     """

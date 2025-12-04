@@ -15,6 +15,7 @@ Características principales:
 from pydantic import BaseModel, Field, field_validator, EmailStr
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from uuid import UUID
 import re
 
 class UserDataBase(BaseModel):
@@ -25,10 +26,10 @@ class UserDataBase(BaseModel):
     para mostrar información y tomar decisiones de UI/UX.
     """
     
-    usuario_id: int = Field(
+    usuario_id: UUID = Field(
         ...,
-        description="Identificador único del usuario en el sistema",
-        examples=[1, 2, 3]
+        description="Identificador único del usuario en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     nombre_usuario: str = Field(
@@ -147,10 +148,10 @@ class RolInfo(BaseModel):
     y para la toma de decisiones de autorización.
     """
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        description="ID único del rol en el sistema",
-        examples=[1, 2, 3]
+        description="ID único del rol en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     nombre: str = Field(
@@ -189,10 +190,10 @@ class PermisoInfo(BaseModel):
     a través de sus roles asignados.
     """
     
-    permiso_id: int = Field(
+    permiso_id: UUID = Field(
         ...,
-        description="ID único del permiso en el sistema",
-        examples=[1, 2, 3]
+        description="ID único del permiso en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     nombre: str = Field(
@@ -221,10 +222,10 @@ class ClienteInfo(BaseModel):
     que define su ámbito de datos y permisos.
     """
     
-    cliente_id: int = Field(
+    cliente_id: UUID = Field(
         ...,
-        description="ID único del cliente en el sistema",
-        examples=[1, 2, 3]
+        description="ID único del cliente en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     nombre: str = Field(
@@ -470,10 +471,10 @@ class UserDataWithRoles(UserDataBase):
         examples=["super_admin", "tenant_admin", "user"]
     )
     
-    cliente_id: Optional[int] = Field(
+    cliente_id: Optional[UUID] = Field(
         None,
-        description="ID del cliente al que pertenece el usuario",
-        examples=[1, 2, 3]
+        description="ID del cliente al que pertenece el usuario (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
 
     @field_validator('roles')
@@ -721,10 +722,10 @@ class TokenPayload(BaseModel):
         examples=["super_admin", "tenant_admin", "user"]
     )
     
-    cliente_id: Optional[int] = Field(
+    cliente_id: Optional[UUID] = Field(
         None,
-        description="ID del cliente al que pertenece el usuario",
-        examples=[1, 2, 3]
+        description="ID del cliente al que pertenece el usuario (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
 
     @field_validator('type')
@@ -1136,8 +1137,8 @@ class AuthConfigRead(AuthConfigBase):
     Esquema de lectura completo de una configuración de autenticación.
     Incluye campos de identificación y auditoría generados por el sistema.
     """
-    config_id: int = Field(..., description="Identificador único de la configuración.")
-    cliente_id: int = Field(..., description="ID del cliente dueño de esta configuración.")
+    config_id: UUID = Field(..., description="Identificador único de la configuración (UUID).")
+    cliente_id: UUID = Field(..., description="ID del cliente dueño de esta configuración (UUID).")
     fecha_creacion: datetime = Field(..., description="Fecha de creación del registro.")
     fecha_actualizacion: Optional[datetime] = Field(None, description="Fecha de última actualización.")
 
@@ -1221,8 +1222,8 @@ class FederacionUpdate(FederacionBase):
 
 class FederacionRead(FederacionBase):
     """Esquema de lectura para una configuración de federación."""
-    federacion_id: int = Field(..., description="ID único de la configuración de federación.")
-    cliente_id: int = Field(..., description="ID del cliente al que pertenece esta configuración.")
+    federacion_id: UUID = Field(..., description="ID único de la configuración de federación (UUID).")
+    cliente_id: UUID = Field(..., description="ID del cliente al que pertenece esta configuración (UUID).")
     configuracion_json: dict = Field(..., alias="configuracion", description="Configuración detallada del proveedor (JSON).") 
     fecha_creacion: datetime
     fecha_actualizacion: Optional[datetime] = None

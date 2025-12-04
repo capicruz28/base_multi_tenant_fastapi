@@ -28,6 +28,7 @@ USO:
 from contextvars import ContextVar
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
+from uuid import UUID
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,8 @@ logger = logging.getLogger(__name__)
 # CONTEXTVARS (Thread-safe para async)
 # ============================================
 
-# ContextVar para el ID del cliente (mantiene compatibilidad con código existente)
-current_client_id: ContextVar[Optional[int]] = ContextVar(
+# ContextVar para el ID del cliente (UUID)
+current_client_id: ContextVar[Optional[UUID]] = ContextVar(
     'current_client_id', 
     default=None
 )
@@ -75,7 +76,7 @@ class TenantContext:
     """
     
     # CAMPOS BÁSICOS (OBLIGATORIOS)
-    client_id: int
+    client_id: UUID
     subdominio: Optional[str] = None
     codigo_cliente: Optional[str] = None
     
@@ -192,7 +193,7 @@ class TenantContext:
 # FUNCIONES HELPER
 # ============================================
 
-def get_current_client_id() -> int:
+def get_current_client_id() -> UUID:
     """
     Obtiene el cliente_id del contexto actual.
     
@@ -250,7 +251,7 @@ def get_tenant_context() -> TenantContext:
     return context
 
 
-def try_get_current_client_id() -> Optional[int]:
+def try_get_current_client_id() -> Optional[UUID]:
     """
     Intenta obtener el cliente_id sin lanzar excepción si no existe.
     

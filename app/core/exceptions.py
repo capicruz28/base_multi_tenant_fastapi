@@ -106,6 +106,48 @@ def configure_exception_handlers(app: FastAPI):
     NOTA: Esto asegura que todas nuestras excepciones personalizadas se conviertan
     en respuestas HTTP consistentes con el formato correcto.
     """
+    from fastapi.exceptions import RequestValidationError
+    
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """
+        Maneja errores de validación de FastAPI (422) y proporciona mensajes más claros.
+        """
+        errors = exc.errors()
+        error_messages = []
+        
+        for error in errors:
+            field = ".".join(str(loc) for loc in error.get("loc", []))
+            error_type = error.get("type", "")
+            error_msg = error.get("msg", "")
+            
+            # Mensajes más claros para errores comunes
+            if error_type == "value_error.str.regex" or "uuid" in error_msg.lower():
+                if "NaN" in str(error.get("input", "")):
+                    error_messages.append(
+                        f"El parámetro '{field}' tiene un valor inválido (NaN). "
+                        f"Se espera un UUID válido."
+                    )
+                else:
+                    error_messages.append(
+                        f"El parámetro '{field}' no es un UUID válido. "
+                        f"Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    )
+            else:
+                error_messages.append(f"{field}: {error_msg}")
+        
+        logger.warning(
+            f"RequestValidationError en {request.url.path}: {error_messages}"
+        )
+        
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": error_messages[0] if len(error_messages) == 1 else error_messages,
+                "error_code": "VALIDATION_ERROR"
+            }
+        )
+    
     @app.exception_handler(CustomException)
     async def custom_exception_handler(request: Request, exc: CustomException):
         # Loggear el error con contexto para debugging

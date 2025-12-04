@@ -12,10 +12,13 @@ Características clave:
 - Total coherencia con los patrones de BaseService y manejo de excepciones del sistema
 """
 from typing import Optional, Dict, Any, List
+from uuid import UUID
 import re
 import logging
 from datetime import datetime
-from app.infrastructure.database.queries import execute_query, execute_insert, execute_update
+from sqlalchemy import text
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
     ValidationError,
     ConflictError,
@@ -25,7 +28,7 @@ from app.core.exceptions import (
 )
 from app.core.application.base_service import BaseService
 from app.modules.tenant.presentation.schemas import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse, BrandingRead
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,8 @@ class ClienteService(BaseService):
             )
         # Verificar unicidad
         query = "SELECT cliente_id FROM cliente WHERE LOWER(subdominio) = LOWER(?) AND es_activo = 1"
-        resultado = execute_query(query, (subdominio,))
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(query, (subdominio,))
         if resultado:
             raise ConflictError(
                 detail=f"El subdominio '{subdominio}' ya está en uso por otro cliente activo.",
@@ -80,7 +84,8 @@ class ClienteService(BaseService):
                 internal_code="CLIENT_CODE_REQUIRED"
             )
         query = "SELECT cliente_id FROM cliente WHERE LOWER(codigo_cliente) = LOWER(?) AND es_activo = 1"
-        resultado = execute_query(query, (codigo_cliente,))
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(query, (codigo_cliente,))
         if resultado:
             raise ConflictError(
                 detail=f"El código de cliente '{codigo_cliente}' ya está en uso.",
@@ -147,7 +152,8 @@ class ClienteService(BaseService):
         VALUES ({', '.join(['?'] * len(fields))})
         """
 
-        resultado = execute_insert(query, tuple(params))
+        # ✅ FASE 2: Usar await
+        resultado = await execute_insert(query, tuple(params))
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -160,7 +166,7 @@ class ClienteService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_cliente_por_id(cliente_id: int) -> Optional[ClienteRead]:
+    async def obtener_cliente_por_id(cliente_id: UUID) -> Optional[ClienteRead]:
         """
         Obtiene un cliente por su ID.
         """
@@ -175,16 +181,21 @@ class ClienteService(BaseService):
             api_key_sincronizacion, sincronizacion_habilitada, ultima_sincronizacion,
             fecha_creacion, fecha_actualizacion, fecha_ultimo_acceso
         FROM cliente
-        WHERE cliente_id = ?
+        WHERE cliente_id = :cliente_id
         """
-        resultado = execute_query(query, (cliente_id,),connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         return ClienteRead(**resultado[0])
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def suspender_cliente(cliente_id: int) -> ClienteRead:
+    async def suspender_cliente(cliente_id: UUID) -> ClienteRead:
         """
         Suspende un cliente cambiando su estado de suscripción a 'suspendido'.
         """
@@ -237,7 +248,8 @@ class ClienteService(BaseService):
             INSERTED.fecha_ultimo_acceso
         WHERE cliente_id = ?
         """
-        resultado = execute_update(query, (cliente_id,))
+        # ✅ FASE 2: Usar await
+        resultado = await execute_update(query, (cliente_id,))
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -249,7 +261,7 @@ class ClienteService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def activar_cliente(cliente_id: int) -> ClienteRead:
+    async def activar_cliente(cliente_id: UUID) -> ClienteRead:
         """
         Reactiva un cliente cambiando su estado de suscripción a 'activo'.
         """
@@ -302,7 +314,8 @@ class ClienteService(BaseService):
             INSERTED.fecha_ultimo_acceso
         WHERE cliente_id = ?
         """
-        resultado = execute_update(query, (cliente_id,))
+        # ✅ FASE 2: Usar await
+        resultado = await execute_update(query, (cliente_id,))
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -314,7 +327,7 @@ class ClienteService(BaseService):
     
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_cliente(cliente_id: int, cliente_data: ClienteUpdate) -> ClienteRead:
+    async def actualizar_cliente(cliente_id: UUID, cliente_data: ClienteUpdate) -> ClienteRead:
         """
         Actualiza un cliente existente con validaciones.
         """
@@ -335,11 +348,16 @@ class ClienteService(BaseService):
             # Validar que el nuevo subdominio no esté en uso por otro cliente
             query = """
             SELECT cliente_id FROM cliente 
-            WHERE LOWER(subdominio) = LOWER(?) 
-            AND cliente_id != ? 
+            WHERE LOWER(subdominio) = LOWER(:subdominio) 
+            AND cliente_id != :cliente_id 
             AND es_activo = 1
             """
-            resultado = execute_query(query, (update_dict['subdominio'], cliente_id), connection_type=DatabaseConnection.ADMIN)
+            # ✅ FASE 2: Usar await
+            resultado = await execute_query(
+                text(query).bindparams(subdominio=update_dict['subdominio'], cliente_id=cliente_id),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None
+            )
             if resultado:
                 raise ConflictError(
                     detail=f"El subdominio '{update_dict['subdominio']}' ya está en uso por otro cliente.",
@@ -350,11 +368,16 @@ class ClienteService(BaseService):
             # Validar que el nuevo código no esté en uso por otro cliente
             query = """
             SELECT cliente_id FROM cliente 
-            WHERE LOWER(codigo_cliente) = LOWER(?) 
-            AND cliente_id != ? 
+            WHERE LOWER(codigo_cliente) = LOWER(:codigo_cliente) 
+            AND cliente_id != :cliente_id 
             AND es_activo = 1
             """
-            resultado = execute_query(query, (update_dict['codigo_cliente'], cliente_id), connection_type=DatabaseConnection.ADMIN)
+            # ✅ FASE 2: Usar await
+            resultado = await execute_query(
+                text(query).bindparams(codigo_cliente=update_dict['codigo_cliente'], cliente_id=cliente_id),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None
+            )
             if resultado:
                 raise ConflictError(
                     detail=f"El código de cliente '{update_dict['codigo_cliente']}' ya está en uso.",
@@ -428,7 +451,8 @@ class ClienteService(BaseService):
         WHERE cliente_id = ?
         """
         
-        resultado = execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
         if not resultado or resultado.get('rows_affected', 0) == 0:
             raise ServiceError(
                 status_code=500,
@@ -441,7 +465,7 @@ class ClienteService(BaseService):
     
     @staticmethod
     @BaseService.handle_service_errors
-    async def eliminar_cliente(cliente_id: int) -> bool:
+    async def eliminar_cliente(cliente_id: UUID) -> bool:
         """
         Elimina un cliente (eliminación lógica - marca como inactivo).
         """
@@ -457,7 +481,9 @@ class ClienteService(BaseService):
         
         # No permitir eliminar el cliente SYSTEM
         from app.core.config import settings
-        if cliente_id == settings.SUPERADMIN_CLIENTE_ID:
+        from uuid import UUID
+        superadmin_uuid = UUID(settings.SUPERADMIN_CLIENTE_ID) if settings.SUPERADMIN_CLIENTE_ID else None
+        if superadmin_uuid and cliente_id == superadmin_uuid:
             raise ValidationError(
                 detail="No se puede eliminar el cliente SYSTEM.",
                 internal_code="CANNOT_DELETE_SYSTEM_CLIENT"
@@ -501,29 +527,37 @@ class ClienteService(BaseService):
         
         # Construir WHERE clause
         where_conditions = []
-        params = []
+        bind_params = {}
         
         if solo_activos:
             where_conditions.append("es_activo = 1")
         
         if buscar:
             where_conditions.append("""
-                (LOWER(razon_social) LIKE LOWER(?) OR 
-                 LOWER(nombre_comercial) LIKE LOWER(?) OR 
-                 LOWER(codigo_cliente) LIKE LOWER(?) OR 
-                 LOWER(subdominio) LIKE LOWER(?))
+                (LOWER(razon_social) LIKE LOWER(:search_pattern) OR 
+                 LOWER(nombre_comercial) LIKE LOWER(:search_pattern) OR 
+                 LOWER(codigo_cliente) LIKE LOWER(:search_pattern) OR 
+                 LOWER(subdominio) LIKE LOWER(:search_pattern))
             """)
-            search_pattern = f"%{buscar}%"
-            params.extend([search_pattern] * 4)
+            bind_params["search_pattern"] = f"%{buscar}%"
         
         where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
         
         # Query para contar total
         count_query = f"SELECT COUNT(*) as total FROM cliente {where_clause}"
-        count_result = execute_query(count_query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        count_result = await execute_query(
+            text(count_query).bindparams(**bind_params) if bind_params else text(count_query),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         total = count_result[0]['total'] if count_result else 0
         
         # Query para obtener datos
+        bind_params_query = bind_params.copy()
+        bind_params_query["skip"] = skip
+        bind_params_query["limit"] = limit
+        
         query = f"""
         SELECT 
             cliente_id, codigo_cliente, subdominio, razon_social, nombre_comercial, ruc,
@@ -537,11 +571,15 @@ class ClienteService(BaseService):
         FROM cliente
         {where_clause}
         ORDER BY razon_social
-        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+        OFFSET :skip ROWS FETCH NEXT :limit ROWS ONLY
         """
         
-        params.extend([skip, limit])
-        resultados = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultados = await execute_query(
+            text(query).bindparams(**bind_params_query),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         
         clientes = [ClienteRead(**row) for row in resultados]
         logger.info(f"Listados {len(clientes)} clientes de {total} totales")
@@ -550,7 +588,7 @@ class ClienteService(BaseService):
     
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_estadisticas(cliente_id: int) -> ClienteStatsResponse:
+    async def obtener_estadisticas(cliente_id: UUID) -> ClienteStatsResponse:
         """
         Obtiene estadísticas completas de un cliente.
         """
@@ -570,9 +608,14 @@ class ClienteService(BaseService):
             COUNT(CASE WHEN es_activo = 1 THEN 1 END) as total_activos,
             COUNT(CASE WHEN es_activo = 0 THEN 1 END) as total_inactivos
         FROM usuario
-        WHERE cliente_id = ? AND es_eliminado = 0
+        WHERE cliente_id = :cliente_id AND es_eliminado = 0
         """
-        usuarios_result = execute_query(usuarios_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        usuarios_result = await execute_query(
+            text(usuarios_query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         usuarios_stats = usuarios_result[0] if usuarios_result else {'total_activos': 0, 'total_inactivos': 0}
         
         # Estadísticas de módulos
@@ -581,18 +624,28 @@ class ClienteService(BaseService):
             COUNT(CASE WHEN esta_activo = 1 THEN 1 END) as modulos_activos,
             COUNT(*) as modulos_contratados
         FROM cliente_modulo_activo
-        WHERE cliente_id = ?
+        WHERE cliente_id = :cliente_id
         """
-        modulos_result = execute_query(modulos_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        modulos_result = await execute_query(
+            text(modulos_query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         modulos_stats = modulos_result[0] if modulos_result else {'modulos_activos': 0, 'modulos_contratados': 0}
         
         # Estadísticas de conexiones BD
         conexiones_query = """
         SELECT COUNT(*) as total_conexiones
         FROM cliente_conexion
-        WHERE cliente_id = ? AND es_activo = 1
+        WHERE cliente_id = :cliente_id AND es_activo = 1
         """
-        conexiones_result = execute_query(conexiones_query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        conexiones_result = await execute_query(
+            text(conexiones_query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         conexiones_count = conexiones_result[0]['total_conexiones'] if conexiones_result else 0
         
         # Calcular días activo
@@ -622,7 +675,7 @@ class ClienteService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_branding_by_cliente(cliente_id: int) -> BrandingRead:
+    async def get_branding_by_cliente(cliente_id: UUID) -> BrandingRead:
         """
         Obtiene la configuración de branding de un cliente.
         
@@ -652,12 +705,17 @@ class ClienteService(BaseService):
             tema_personalizado,
             es_activo
         FROM cliente
-        WHERE cliente_id = ?
+        WHERE cliente_id = :cliente_id
         """
         
         # ✅ IMPORTANTE: La tabla 'cliente' está en la BD del sistema (ADMIN), no en la BD del tenant
         # Por eso usamos DatabaseConnection.ADMIN para acceder a ella
-        resultado = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        # ✅ FASE 2: Usar await
+        resultado = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         
         if not resultado or len(resultado) == 0:
             raise NotFoundError(

@@ -2,8 +2,9 @@
 """
 BaseRepository: Clase base abstracta para todos los repositorios.
 
-✅ FASE 3: ARQUITECTURA - Completar capa de repositorios
-- Abstrae el acceso a datos
+✅ FASE 2: Refactorizado para usar conexiones async
+- Todas las operaciones son async
+- Usa SQLAlchemy AsyncSession
 - Maneja multi-tenancy automáticamente
 - Proporciona operaciones CRUD estándar
 - Facilita testing y cambio de BD
@@ -11,22 +12,26 @@ BaseRepository: Clase base abstracta para todos los repositorios.
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, TypeVar, Generic
+from uuid import UUID
 import logging
 
 # ✅ COMPATIBILIDAD: Re-exportar BaseService desde su nueva ubicación
 # BaseService ahora está en app/core/application/base_service.py (corrige violación de capas)
 from app.core.application.base_service import BaseService
 
-from app.infrastructure.database.queries import (
+# ✅ FASE 2: Importar funciones async
+from app.infrastructure.database.queries_async import (
     execute_query,
     execute_insert,
     execute_update,
-    execute_procedure
 )
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection, get_db_connection
 from app.core.exceptions import DatabaseError, NotFoundError, ValidationError
 from app.core.tenant.context import get_current_client_id
 from app.core.config import settings
+from sqlalchemy import select, update, delete, insert, and_
+from sqlalchemy.sql import Select, Update, Delete, Insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +78,8 @@ class BaseRepository(ABC, Generic[T]):
         self.tenant_column = tenant_column
         self.connection_type = connection_type
     
-    def _get_current_client_id(self) -> Optional[int]:
-        """Obtiene el cliente_id del contexto actual."""
+    def _get_current_client_id(self) -> Optional[UUID]:
+        """Obtiene el cliente_id del contexto actual (UUID)."""
         try:
             return get_current_client_id()
         except RuntimeError:
@@ -83,7 +88,7 @@ class BaseRepository(ABC, Generic[T]):
     
     def _build_tenant_filter(
         self, 
-        client_id: Optional[int] = None,
+        client_id: Optional[UUID] = None,
         allow_no_context: bool = False
     ) -> tuple:
         """
@@ -145,16 +150,20 @@ class BaseRepository(ABC, Generic[T]):
                     internal_code="TENANT_CONTEXT_REQUIRED"
                 )
         
-        # ✅ FILTRO OBLIGATORIO: Siempre aplicar filtro de tenant
+        # ⚠️ NOTA: Este método ya no se usa en los métodos actuales que usan SQLAlchemy Core
+        # Se mantiene para compatibilidad con código legacy que pueda usarlo
+        # El filtro de tenant ahora se aplica directamente en las queries SQLAlchemy
         return (f"AND {self.tenant_column} = ?", (target_client_id,))
     
-    def find_by_id(
+    async def find_by_id(
         self,
-        entity_id: Any,
-        client_id: Optional[int] = None
+        entity_id: Any,  # UUID o str
+        client_id: Optional[UUID] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Busca una entidad por su ID.
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             entity_id: ID de la entidad
@@ -163,19 +172,28 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Diccionario con los datos de la entidad o None si no existe
         """
-        tenant_filter, tenant_params = self._build_tenant_filter(client_id)
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        from app.infrastructure.database.tables import metadata
+        from sqlalchemy import select
         
-        query = f"""
-            SELECT * FROM {self.table_name}
-            WHERE {self.id_column} = ?
-            {tenant_filter}
-        """
-        params = (entity_id,) + tenant_params
+        table = metadata.tables.get(self.table_name)
+        if not table:
+            raise DatabaseError(
+                detail=f"Tabla {self.table_name} no encontrada en metadata",
+                internal_code="TABLE_NOT_FOUND"
+            )
+        
+        query = select(table).where(table.c[self.id_column] == entity_id)
+        
+        # Aplicar filtro de tenant
+        if self.tenant_column:
+            target_client_id = client_id or self._get_current_client_id()
+            if target_client_id:
+                query = query.where(table.c[self.tenant_column] == target_client_id)
         
         try:
-            results = execute_query(
+            results = await execute_query(
                 query,
-                params,
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -187,16 +205,18 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="REPOSITORY_FIND_ERROR"
             )
     
-    def find_all(
+    async def find_all(
         self,
         filters: Optional[Dict[str, Any]] = None,
-        client_id: Optional[int] = None,
+        client_id: Optional[UUID] = None,
         limit: Optional[int] = None,
         offset: Optional[int] = None,
         order_by: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Busca todas las entidades que cumplan con los filtros.
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             filters: Diccionario con filtros {campo: valor}
@@ -208,35 +228,51 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Lista de diccionarios con los resultados
         """
-        tenant_filter, tenant_params = self._build_tenant_filter(client_id)
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        from app.infrastructure.database.tables import metadata
+        from sqlalchemy import select
         
-        where_clauses = []
-        params = []
+        table = metadata.tables.get(self.table_name)
+        if not table:
+            raise DatabaseError(
+                detail=f"Tabla {self.table_name} no encontrada en metadata",
+                internal_code="TABLE_NOT_FOUND"
+            )
         
-        # Agregar filtros personalizados
+        query = select(table)
+        
+        # Aplicar filtros personalizados
         if filters:
             for field, value in filters.items():
-                if value is not None:
-                    where_clauses.append(f"{field} = ?")
-                    params.append(value)
+                if value is not None and field in table.c:
+                    query = query.where(table.c[field] == value)
         
-        where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-        where_clause += tenant_filter
-        params.extend(tenant_params)
+        # Aplicar filtro de tenant
+        if self.tenant_column:
+            target_client_id = client_id or self._get_current_client_id()
+            if target_client_id:
+                query = query.where(table.c[self.tenant_column] == target_client_id)
         
-        # Construir query
-        query = f"SELECT * FROM {self.table_name} WHERE {where_clause}"
-        
+        # Aplicar ordenamiento
         if order_by:
-            query += f" ORDER BY {order_by}"
+            parts = order_by.split()
+            if len(parts) == 2:
+                field, direction = parts
+                if field in table.c:
+                    if direction.upper() == "DESC":
+                        query = query.order_by(table.c[field].desc())
+                    else:
+                        query = query.order_by(table.c[field])
         
+        # Aplicar paginación
         if limit:
-            query += f" OFFSET {offset or 0} ROWS FETCH NEXT {limit} ROWS ONLY"
+            query = query.limit(limit)
+        if offset:
+            query = query.offset(offset)
         
         try:
-            return execute_query(
+            return await execute_query(
                 query,
-                tuple(params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -247,13 +283,15 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="REPOSITORY_FIND_ALL_ERROR"
             )
     
-    def create(
+    async def create(
         self,
         data: Dict[str, Any],
-        client_id: Optional[int] = None
+        client_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """
         Crea una nueva entidad.
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             data: Diccionario con los datos de la entidad
@@ -262,6 +300,17 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Diccionario con los datos de la entidad creada (incluyendo ID generado)
         """
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        from app.infrastructure.database.tables import metadata
+        from sqlalchemy import insert
+        
+        table = metadata.tables.get(self.table_name)
+        if not table:
+            raise DatabaseError(
+                detail=f"Tabla {self.table_name} no encontrada en metadata",
+                internal_code="TABLE_NOT_FOUND"
+            )
+        
         # Agregar cliente_id automáticamente si aplica
         if self.tenant_column and self.tenant_column not in data:
             target_client_id = client_id or self._get_current_client_id()
@@ -278,25 +327,15 @@ class BaseRepository(ABC, Generic[T]):
                 )
         
         # Construir query INSERT
-        columns = list(data.keys())
-        placeholders = ", ".join(["?" for _ in columns])
-        columns_str = ", ".join(columns)
-        values = tuple(data.values())
-        
-        query = f"""
-            INSERT INTO {self.table_name} ({columns_str})
-            OUTPUT INSERTED.*
-            VALUES ({placeholders})
-        """
+        query = insert(table).values(**data)
         
         try:
-            result = execute_insert(
+            result = await execute_insert(
                 query,
-                values,
                 connection_type=self.connection_type,
                 client_id=client_id
             )
-            return result[0] if result else data
+            return result if result else data
         except Exception as e:
             logger.error(f"Error en create para {self.table_name}: {str(e)}")
             raise DatabaseError(
@@ -304,14 +343,16 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="REPOSITORY_CREATE_ERROR"
             )
     
-    def update(
+    async def update(
         self,
-        entity_id: Any,
+        entity_id: Any,  # UUID o str
         data: Dict[str, Any],
-        client_id: Optional[int] = None
+        client_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """
         Actualiza una entidad existente.
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             entity_id: ID de la entidad a actualizar
@@ -324,8 +365,19 @@ class BaseRepository(ABC, Generic[T]):
         Raises:
             NotFoundError: Si la entidad no existe
         """
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        from app.infrastructure.database.tables import metadata
+        from sqlalchemy import update
+        
+        table = metadata.tables.get(self.table_name)
+        if not table:
+            raise DatabaseError(
+                detail=f"Tabla {self.table_name} no encontrada en metadata",
+                internal_code="TABLE_NOT_FOUND"
+            )
+        
         # Verificar que existe
-        existing = self.find_by_id(entity_id, client_id)
+        existing = await self.find_by_id(entity_id, client_id)
         if not existing:
             raise NotFoundError(
                 detail=f"{self.table_name} con ID {entity_id} no encontrado",
@@ -333,29 +385,21 @@ class BaseRepository(ABC, Generic[T]):
             )
         
         # Construir query UPDATE
-        set_clauses = [f"{key} = ?" for key in data.keys()]
-        set_clause = ", ".join(set_clauses)
-        values = tuple(data.values())
+        query = update(table).where(table.c[self.id_column] == entity_id).values(**data)
         
-        tenant_filter, tenant_params = self._build_tenant_filter(client_id)
-        
-        query = f"""
-            UPDATE {self.table_name}
-            SET {set_clause}
-            OUTPUT INSERTED.*
-            WHERE {self.id_column} = ?
-            {tenant_filter}
-        """
-        params = values + (entity_id,) + tenant_params
+        # Aplicar filtro de tenant
+        if self.tenant_column:
+            target_client_id = client_id or self._get_current_client_id()
+            if target_client_id:
+                query = query.where(table.c[self.tenant_column] == target_client_id)
         
         try:
-            result = execute_update(
+            result = await execute_update(
                 query,
-                params,
                 connection_type=self.connection_type,
                 client_id=client_id
             )
-            return result[0] if result else existing
+            return result if result else existing
         except Exception as e:
             logger.error(f"Error en update para {self.table_name}: {str(e)}")
             raise DatabaseError(
@@ -363,15 +407,17 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="REPOSITORY_UPDATE_ERROR"
             )
     
-    def delete(
+    async def delete(
         self,
-        entity_id: Any,
-        client_id: Optional[int] = None,
+        entity_id: Any,  # UUID o str
+        client_id: Optional[UUID] = None,
         soft_delete: bool = True,
         soft_delete_column: str = "es_activo"
     ) -> bool:
         """
         Elimina una entidad (soft delete por defecto).
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             entity_id: ID de la entidad a eliminar
@@ -385,38 +431,42 @@ class BaseRepository(ABC, Generic[T]):
         Raises:
             NotFoundError: Si la entidad no existe
         """
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        from app.infrastructure.database.tables import metadata
+        from sqlalchemy import update, delete
+        
+        table = metadata.tables.get(self.table_name)
+        if not table:
+            raise DatabaseError(
+                detail=f"Tabla {self.table_name} no encontrada en metadata",
+                internal_code="TABLE_NOT_FOUND"
+            )
+        
         # Verificar que existe
-        existing = self.find_by_id(entity_id, client_id)
+        existing = await self.find_by_id(entity_id, client_id)
         if not existing:
             raise NotFoundError(
                 detail=f"{self.table_name} con ID {entity_id} no encontrado",
                 internal_code="ENTITY_NOT_FOUND"
             )
         
-        tenant_filter, tenant_params = self._build_tenant_filter(client_id)
+        # Aplicar filtro de tenant
+        target_client_id = client_id or self._get_current_client_id()
         
         if soft_delete:
             # Soft delete: marcar como inactivo
-            query = f"""
-                UPDATE {self.table_name}
-                SET {soft_delete_column} = 0
-                WHERE {self.id_column} = ?
-                {tenant_filter}
-            """
-            params = (entity_id,) + tenant_params
+            query = update(table).where(table.c[self.id_column] == entity_id).values(**{soft_delete_column: False})
+            if self.tenant_column and target_client_id:
+                query = query.where(table.c[self.tenant_column] == target_client_id)
         else:
             # Hard delete: eliminar físicamente
-            query = f"""
-                DELETE FROM {self.table_name}
-                WHERE {self.id_column} = ?
-                {tenant_filter}
-            """
-            params = (entity_id,) + tenant_params
+            query = delete(table).where(table.c[self.id_column] == entity_id)
+            if self.tenant_column and target_client_id:
+                query = query.where(table.c[self.tenant_column] == target_client_id)
         
         try:
-            execute_update(
+            await execute_update(
                 query,
-                params,
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -428,13 +478,15 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="REPOSITORY_DELETE_ERROR"
             )
     
-    def count(
+    async def count(
         self,
         filters: Optional[Dict[str, Any]] = None,
-        client_id: Optional[int] = None
+        client_id: Optional[UUID] = None
     ) -> int:
         """
         Cuenta el número de entidades que cumplan con los filtros.
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             filters: Diccionario con filtros {campo: valor}
@@ -443,31 +495,38 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             Número de entidades
         """
-        tenant_filter, tenant_params = self._build_tenant_filter(client_id)
+        # ✅ FASE 2: Usar SQLAlchemy Core con async
+        from app.infrastructure.database.tables import metadata
+        from sqlalchemy import select, func
         
-        where_clauses = []
-        params = []
+        table = metadata.tables.get(self.table_name)
+        if not table:
+            raise DatabaseError(
+                detail=f"Tabla {self.table_name} no encontrada en metadata",
+                internal_code="TABLE_NOT_FOUND"
+            )
         
+        query = select(func.count()).select_from(table)
+        
+        # Aplicar filtros personalizados
         if filters:
             for field, value in filters.items():
-                if value is not None:
-                    where_clauses.append(f"{field} = ?")
-                    params.append(value)
+                if value is not None and field in table.c:
+                    query = query.where(table.c[field] == value)
         
-        where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
-        where_clause += tenant_filter
-        params.extend(tenant_params)
-        
-        query = f"SELECT COUNT(*) as total FROM {self.table_name} WHERE {where_clause}"
+        # Aplicar filtro de tenant
+        if self.tenant_column:
+            target_client_id = client_id or self._get_current_client_id()
+            if target_client_id:
+                query = query.where(table.c[self.tenant_column] == target_client_id)
         
         try:
-            result = execute_query(
+            result = await execute_query(
                 query,
-                tuple(params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
-            return result[0]["total"] if result else 0
+            return result[0]["count_1"] if result else 0
         except Exception as e:
             logger.error(f"Error en count para {self.table_name}: {str(e)}")
             raise DatabaseError(
@@ -475,13 +534,15 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="REPOSITORY_COUNT_ERROR"
             )
     
-    def exists(
+    async def exists(
         self,
-        entity_id: Any,
-        client_id: Optional[int] = None
+        entity_id: Any,  # UUID o str
+        client_id: Optional[UUID] = None
     ) -> bool:
         """
         Verifica si una entidad existe.
+        
+        ✅ FASE 2: Refactorizado para usar async.
         
         Args:
             entity_id: ID de la entidad
@@ -490,4 +551,5 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             True si existe, False en caso contrario
         """
-        return self.find_by_id(entity_id, client_id) is not None
+        result = await self.find_by_id(entity_id, client_id)
+        return result is not None

@@ -13,8 +13,9 @@ Características principales:
 - Respuestas estandarizadas con paginación completa.
 - Workflows integrados para gestión completa de módulos.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Path
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 import logging
 import json
 import math
@@ -195,7 +196,7 @@ async def buscar_modulos(
     """
 )
 async def obtener_modulo(
-    modulo_id: int,
+    modulo_id: UUID = Path(..., description="ID del módulo"),
     current_user=Depends(get_current_active_user)
 ):
     """
@@ -287,8 +288,8 @@ async def crear_modulo(
     """
 )
 async def actualizar_modulo(
-    modulo_id: int,
-    modulo_data: ModuloUpdate,
+    modulo_id: UUID = Path(..., description="ID del módulo"),
+    modulo_data: ModuloUpdate = Body(...),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -333,7 +334,7 @@ async def actualizar_modulo(
     """
 )
 async def eliminar_modulo(
-    modulo_id: int,
+    modulo_id: UUID = Path(..., description="ID del módulo"),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -378,7 +379,7 @@ async def eliminar_modulo(
     """
 )
 async def listar_modulos_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user=Depends(get_current_active_user)
 ):
     """
@@ -430,9 +431,9 @@ async def listar_modulos_cliente(
     """
 )
 async def activar_modulo_cliente(
-    cliente_id: int,
-    modulo_id: int,
-    activacion_data: ModuloActivoCreate,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    modulo_id: UUID = Path(..., description="ID del módulo"),
+    activacion_data: ModuloActivoCreate = Body(...),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -494,9 +495,9 @@ async def activar_modulo_cliente(
     """
 )
 async def actualizar_modulo_activo(
-    cliente_id: int,
-    modulo_id: int,
-    actualizacion_data: ModuloActivoUpdate,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    modulo_id: UUID = Path(..., description="ID del módulo"),
+    actualizacion_data: ModuloActivoUpdate = Body(...),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -558,8 +559,8 @@ async def actualizar_modulo_activo(
     """
 )
 async def desactivar_modulo_cliente(
-    cliente_id: int,
-    modulo_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    modulo_id: UUID = Path(..., description="ID del módulo"),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -645,10 +646,10 @@ async def desactivar_modulo_cliente(
     """
 )
 async def activar_modulo_completo(
-    cliente_id: int,
-    modulo_id: int,
-    activacion_data: ModuloActivoCreate,
-    conexion_data: Optional[ConexionCreate] = None,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    modulo_id: UUID = Path(..., description="ID del módulo"),
+    activacion_data: ModuloActivoCreate = Body(...),
+    conexion_data: Optional[ConexionCreate] = Body(None),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -746,8 +747,8 @@ async def activar_modulo_completo(
     """
 )
 async def desactivar_modulo_completo(
-    cliente_id: int,
-    modulo_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    modulo_id: UUID = Path(..., description="ID del módulo"),
     current_user=Depends(require_super_admin)
 ):
     """
@@ -830,8 +831,8 @@ async def desactivar_modulo_completo(
     """
 )
 async def obtener_estado_completo_modulo(
-    cliente_id: int,
-    modulo_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    modulo_id: UUID = Path(..., description="ID del módulo"),
     current_user=Depends(get_current_active_user)
 ):
     """

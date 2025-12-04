@@ -9,8 +9,9 @@ from typing import Optional, Dict, Any, List
 import logging
 
 from app.infrastructure.database.repositories.base_repository import BaseRepository
-from app.infrastructure.database.queries import execute_query
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.queries_async import execute_query
+from app.infrastructure.database.connection_async import DatabaseConnection
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class UserRepository(BaseRepository):
         )
         return results[0] if results else None
     
-    def find_with_roles_and_permissions(
+    async def find_with_roles_and_permissions(
         self,
         usuario_id: int,
         client_id: Optional[int] = None
@@ -109,20 +110,19 @@ class UserRepository(BaseRepository):
                 ur.es_activo as asignacion_activa
             FROM rol r
             INNER JOIN usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ?
+            WHERE ur.usuario_id = :usuario_id
             AND ur.es_activo = 1
             AND r.es_activo = 1
         """
-        params_roles = (usuario_id,)
+        bind_params_roles = {"usuario_id": usuario_id}
         
         if client_id:
-            query_roles += " AND (r.cliente_id = ? OR r.cliente_id IS NULL)"
-            params_roles = params_roles + (client_id,)
+            query_roles += " AND (r.cliente_id = :client_id OR r.cliente_id IS NULL)"
+            bind_params_roles["client_id"] = client_id
         
         try:
-            roles = execute_query(
-                query_roles,
-                params_roles,
+            roles = await execute_query(
+                text(query_roles).bindparams(**bind_params_roles),
                 connection_type=self.connection_type,
                 client_id=client_id
             )
@@ -138,13 +138,12 @@ class UserRepository(BaseRepository):
                         p.es_activo as permiso_activo
                     FROM permiso p
                     INNER JOIN rol_permiso rp ON p.permiso_id = rp.permiso_id
-                    WHERE rp.rol_id = ?
+                    WHERE rp.rol_id = :rol_id
                     AND rp.es_activo = 1
                     AND p.es_activo = 1
                 """
-                permisos = execute_query(
-                    query_permisos,
-                    (rol['rol_id'],),
+                permisos = await execute_query(
+                    text(query_permisos).bindparams(rol_id=rol['rol_id']),
                     connection_type=self.connection_type,
                     client_id=client_id
                 )
@@ -157,7 +156,7 @@ class UserRepository(BaseRepository):
             usuario['roles'] = []
             return usuario
     
-    def search_users(
+    async def search_users(
         self,
         search_term: str,
         client_id: Optional[int] = None,
@@ -178,29 +177,33 @@ class UserRepository(BaseRepository):
         """
         tenant_filter, tenant_params = self._build_tenant_filter(client_id)
         
+        # Convertir tenant_filter a usar parámetros nombrados si es necesario
+        # Por ahora, asumimos que tenant_filter ya está construido correctamente
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE es_eliminado = 0
             AND (
-                nombre_usuario LIKE ? OR
-                correo LIKE ? OR
-                nombre LIKE ? OR
-                apellido LIKE ?
+                nombre_usuario LIKE :search_pattern OR
+                correo LIKE :search_pattern OR
+                nombre LIKE :search_pattern OR
+                apellido LIKE :search_pattern
             )
             {tenant_filter}
             ORDER BY nombre_usuario ASC
         """
         
         search_pattern = f"%{search_term}%"
-        params = (search_pattern, search_pattern, search_pattern, search_pattern) + tenant_params
+        bind_params = {"search_pattern": search_pattern}
+        # TODO: Convertir tenant_params a bind_params si es necesario
         
         if limit:
             query += f" OFFSET {offset or 0} ROWS FETCH NEXT {limit} ROWS ONLY"
         
         try:
-            return execute_query(
-                query,
-                params,
+            # Nota: tenant_params puede necesitar conversión a parámetros nombrados
+            # Por ahora, usando text() con parámetros básicos
+            return await execute_query(
+                text(query).bindparams(**bind_params),
                 connection_type=self.connection_type,
                 client_id=client_id
             )

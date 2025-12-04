@@ -1,11 +1,15 @@
 # app/services/area_service.py
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 import math
 import logging
 
-# 🗄️ IMPORTACIONES DE BASE DE DATOS - Mantener compatibilidad con queries existentes
+# 🗄️ IMPORTACIONES DE BASE DE DATOS
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import (
+    execute_query, execute_insert, execute_update
+)
 from app.infrastructure.database.queries import (
-    execute_query, execute_insert, execute_update,
     GET_AREAS_PAGINATED_QUERY, COUNT_AREAS_QUERY, GET_AREA_BY_ID_QUERY,
     CHECK_AREA_EXISTS_BY_NAME_QUERY, CREATE_AREA_QUERY,
     UPDATE_AREA_BASE_QUERY_TEMPLATE, TOGGLE_AREA_STATUS_QUERY, 
@@ -16,7 +20,7 @@ from app.infrastructure.database.queries import (
 from app.modules.menus.presentation.schemas import AreaCreate, AreaUpdate, AreaRead, PaginatedAreaResponse, AreaSimpleList
 
 # 🚨 EXCEPCIONES - Nuevo sistema de manejo de errores
-from app.core.exceptions import ValidationError, NotFoundError, ConflictError, DatabaseError
+from app.core.exceptions import ValidationError, NotFoundError, ConflictError, DatabaseError, ServiceError
 
 # 🏗️ BASE SERVICE - Nueva clase base para manejo consistente de errores
 from app.core.application.base_service import BaseService
@@ -39,7 +43,7 @@ class AreaService(BaseService):
     """
 
     @staticmethod
-    async def _verificar_nombre_existente(cliente_id: int, nombre: str, excluir_id: Optional[int] = None) -> bool:
+    async def _verificar_nombre_existente(cliente_id: UUID, nombre: str, excluir_id: Optional[UUID] = None) -> bool:
         """
         Verifica si ya existe un área con el mismo nombre **dentro del cliente** (case-insensitive).
         
@@ -56,12 +60,29 @@ class AreaService(BaseService):
             
         🛡️ SEGURIDAD: Este método es interno y no expone detalles de errores de BD
         """
-        id_a_excluir = excluir_id if excluir_id is not None else -1
-        params = (cliente_id, nombre.lower(), id_a_excluir)
+        # ⚠️ UUID: Manejar None correctamente en la query
+        if excluir_id is not None:
+            params = (cliente_id, nombre.lower(), excluir_id, cliente_id)
+        else:
+            params = (cliente_id, nombre.lower(), cliente_id)
         
         try:
             # 🗃️ CONSULTA A BD: Verificar existencia **dentro del cliente**
-            resultado_lista = execute_query(CHECK_AREA_EXISTS_BY_NAME_QUERY, params)
+            # Construir query dinámica para manejar UUID None
+            if excluir_id is not None:
+                query = """
+                SELECT COUNT(*) as count 
+                FROM area_menu 
+                WHERE LOWER(nombre) = LOWER(?) AND area_id != ? AND (cliente_id IS NULL OR cliente_id = ?);
+                """
+            else:
+                query = """
+                SELECT COUNT(*) as count 
+                FROM area_menu 
+                WHERE LOWER(nombre) = LOWER(?) AND (cliente_id IS NULL OR cliente_id = ?);
+                """
+            # ✅ FASE 2: Usar await
+            resultado_lista = await execute_query(query, params)
             
             if resultado_lista:
                 return resultado_lista[0].get('count', 0) > 0
@@ -77,7 +98,7 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_area(cliente_id: int, area_data: AreaCreate) -> AreaRead:
+    async def crear_area(cliente_id: UUID, area_data: AreaCreate) -> AreaRead:
         """
         Crea una nueva área en el sistema **para un cliente específico**.
         
@@ -116,7 +137,8 @@ class AreaService(BaseService):
         )
         
         # 💾 EJECUTAR INSERCIÓN EN BD
-        resultado_insert = execute_insert(CREATE_AREA_QUERY, params)
+        # ✅ FASE 2: Usar await
+        resultado_insert = await execute_insert(CREATE_AREA_QUERY, params)
         
         # 🔍 VERIFICAR RESULTADO DE INSERCIÓN
         if not resultado_insert:
@@ -133,7 +155,7 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_area_por_id(area_id: int) -> Optional[AreaRead]:
+    async def obtener_area_por_id(area_id: UUID) -> Optional[AreaRead]:
         """
         Obtiene un área específica por su ID **(cliente_id se obtiene del área)**.
         
@@ -150,7 +172,8 @@ class AreaService(BaseService):
         logger.debug(f"Buscando área con ID: {area_id}")
         
         # 🗃️ CONSULTA SIMPLE POR ID (incluye cliente_id en el resultado)
-        resultado_lista = execute_query(GET_AREA_BY_ID_QUERY, (area_id,))
+        # ✅ FASE 2: Usar await
+        resultado_lista = await execute_query(GET_AREA_BY_ID_QUERY, (area_id,))
         
         if not resultado_lista:
             logger.debug(f"Área con ID {area_id} no encontrada.")
@@ -162,7 +185,7 @@ class AreaService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_areas_paginadas(
-        cliente_id: int,
+        cliente_id: UUID,
         skip: int = 0,
         limit: int = 10,
         search: Optional[str] = None
@@ -191,14 +214,16 @@ class AreaService(BaseService):
         where_params = (cliente_id, search, search_param, search_param)
         
         # 1. 📊 OBTENER CONTEO TOTAL (para calcular páginas)
-        count_result_list = execute_query(COUNT_AREAS_QUERY, where_params)
+        # ✅ FASE 2: Usar await
+        count_result_list = await execute_query(COUNT_AREAS_QUERY, where_params)
         total_count = count_result_list[0].get('total_count', 0) if count_result_list else 0
 
         # 2. 📋 OBTENER DATOS PAGINADOS (solo si hay resultados)
         areas_lista: List[AreaRead] = []
         if total_count > 0 and limit > 0:
             pagination_params = where_params + (skip, limit)
-            rows = execute_query(GET_AREAS_PAGINATED_QUERY, pagination_params)
+            # ✅ FASE 2: Usar await
+            rows = await execute_query(GET_AREAS_PAGINATED_QUERY, pagination_params)
             
             # 🎯 MAPEAR RESULTADOS CON MANEJO DE ERRORES INDIVIDUALES
             for row_dict in rows:
@@ -224,7 +249,7 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_area(area_id: int, area_data: AreaUpdate) -> AreaRead:
+    async def actualizar_area(area_id: UUID, area_data: AreaUpdate) -> AreaRead:
         """
         Actualiza un área existente con validaciones de negocio **por cliente**.
         
@@ -284,7 +309,8 @@ class AreaService(BaseService):
 
         # 💾 EJECUTAR ACTUALIZACIÓN
         update_query = UPDATE_AREA_BASE_QUERY_TEMPLATE.format(fields=", ".join(fields_to_update))
-        resultado_update = execute_update(update_query, tuple(params_list))
+        # ✅ FASE 2: Usar await
+        resultado_update = await execute_update(update_query, tuple(params_list))
         
         # 🔄 FALLBACK: Si no retorna datos, obtener el área actualizada
         if not resultado_update:
@@ -305,7 +331,7 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def cambiar_estado_area(area_id: int, activar: bool) -> AreaRead:
+    async def cambiar_estado_area(area_id: UUID, activar: bool) -> AreaRead:
         """
         Activa o desactiva un área (borrado lógico).
         
@@ -344,7 +370,8 @@ class AreaService(BaseService):
             )
 
         # 💾 EJECUTAR CAMBIO DE ESTADO **(el cliente_id ya está en el área)**
-        resultado_toggle = execute_update(TOGGLE_AREA_STATUS_QUERY, (activar, area_id))
+        # ✅ FASE 2: Usar await
+        resultado_toggle = await execute_update(TOGGLE_AREA_STATUS_QUERY, (activar, area_id))
         
         # 🔄 FALLBACK: Verificar cambio si no retorna datos
         if not resultado_toggle:
@@ -365,7 +392,7 @@ class AreaService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_lista_simple_areas_activas(cliente_id: int) -> List[AreaSimpleList]:
+    async def obtener_lista_simple_areas_activas(cliente_id: UUID) -> List[AreaSimpleList]:
         """
         Obtiene una lista simplificada de áreas activas **de un cliente**.
         
@@ -378,7 +405,8 @@ class AreaService(BaseService):
         logger.info(f"Obteniendo lista simple de áreas activas para cliente {cliente_id}")
         
         params = (cliente_id,)
-        rows = execute_query(GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY, params)
+        # ✅ FASE 2: Usar await
+        rows = await execute_query(GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY, params)
         if not rows:
             logger.info(f"No se encontraron áreas activas para el cliente {cliente_id} en la lista simple")
             return []

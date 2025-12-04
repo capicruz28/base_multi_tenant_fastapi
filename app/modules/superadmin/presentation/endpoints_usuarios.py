@@ -12,8 +12,9 @@ Características principales:
 - Incluye información del cliente en respuestas
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Path
 from typing import Optional
+from uuid import UUID
 
 # Importar Schemas
 from app.modules.superadmin.presentation.schemas import (
@@ -147,8 +148,8 @@ async def list_usuarios_global(
 )
 @require_super_admin()
 async def read_usuario_superadmin(
-    usuario_id: int,
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user)
 ):
     """
@@ -212,8 +213,8 @@ async def read_usuario_superadmin(
 )
 @require_super_admin()
 async def read_usuario_actividad(
-    usuario_id: int,
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user),
     limite: int = Query(50, ge=1, le=200, description="Número de eventos a retornar"),
     tipo_evento: Optional[str] = Query(None, description="Filtrar por tipo de evento")
@@ -276,8 +277,8 @@ async def read_usuario_actividad(
 )
 @require_super_admin()
 async def read_usuario_sesiones(
-    usuario_id: int,
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
     current_user = Depends(get_current_active_user),
     solo_activas: bool = Query(True, description="Solo mostrar sesiones activas")
 ):
@@ -344,7 +345,7 @@ async def read_usuario_sesiones(
 )
 @require_super_admin()
 async def list_usuarios_por_cliente(
-    cliente_id: int,
+    cliente_id: UUID = Path(..., description="ID del cliente"),
     current_user = Depends(get_current_active_user),
     page: int = Query(1, ge=1, description="Número de página a mostrar"),
     limit: int = Query(20, ge=1, le=100, description="Número de usuarios por página"),

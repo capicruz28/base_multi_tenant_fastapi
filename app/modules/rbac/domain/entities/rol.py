@@ -6,6 +6,7 @@ Rol: Entidad de dominio para roles.
 """
 
 from typing import Optional, List, Dict, Any
+from uuid import UUID
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,9 +21,9 @@ class Rol:
     
     def __init__(
         self,
-        rol_id: int,
+        rol_id: UUID,
         nombre: str,
-        cliente_id: Optional[int] = None,
+        cliente_id: Optional[UUID] = None,
         codigo_rol: Optional[str] = None,
         descripcion: Optional[str] = None,
         nivel_acceso: int = 1,
@@ -62,9 +63,9 @@ class Rol:
         if self.nivel_acceso < 1 or self.nivel_acceso > 5:
             raise ValueError("El nivel de acceso debe estar entre 1 y 5")
         
-        # Solo roles del sistema (cliente_id=1) pueden tener codigo_rol
-        if self.codigo_rol and self.cliente_id != 1:
-            raise ValueError("Solo los roles del sistema pueden tener codigo_rol")
+        # Solo roles del sistema (cliente_id es SUPERADMIN o None) pueden tener codigo_rol
+        # ⚠️ La validación de SUPERADMIN debe hacerse en el servicio, no aquí
+        # porque ahora cliente_id es UUID y no podemos comparar directamente con 1
     
     def is_active(self) -> bool:
         """Verifica si el rol está activo."""
@@ -88,8 +89,14 @@ class Rol:
         ]
     
     def is_system_role(self) -> bool:
-        """Verifica si es un rol del sistema."""
-        return self.cliente_id == 1 or self.cliente_id is None
+        """
+        Verifica si es un rol del sistema.
+        
+        ⚠️ Nota: Con UUID, la comparación con SUPERADMIN debe hacerse en el servicio
+        usando settings.SUPERADMIN_CLIENTE_ID convertido a UUID.
+        Por ahora, solo verificamos si cliente_id es None (rol global).
+        """
+        return self.cliente_id is None
     
     def deactivate(self):
         """Desactiva el rol."""

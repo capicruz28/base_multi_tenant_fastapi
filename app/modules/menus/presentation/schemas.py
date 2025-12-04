@@ -20,6 +20,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from uuid import UUID
 import re
 
 class MenuBase(BaseModel):
@@ -52,10 +53,10 @@ class MenuBase(BaseModel):
         examples=["/dashboard", "/usuarios", "/reportes/ventas"]
     )
     
-    padre_menu_id: Optional[int] = Field(
+    padre_menu_id: Optional[UUID] = Field(
         None,
-        description="ID del menú padre para crear estructuras jerárquicas",
-        examples=[1, 2, 3]
+        description="ID del menú padre para crear estructuras jerárquicas (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     orden: Optional[int] = Field(
@@ -65,10 +66,10 @@ class MenuBase(BaseModel):
         examples=[1, 2, 3, 10, 20]
     )
     
-    area_id: Optional[int] = Field(
+    area_id: Optional[UUID] = Field(
         None,
-        description="ID del área a la que pertenece el menú",
-        examples=[1, 2, 3]
+        description="ID del área a la que pertenece el menú (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     es_activo: bool = Field(
@@ -76,11 +77,10 @@ class MenuBase(BaseModel):
         description="Indica si el menú está activo y disponible para uso"
     )
 
-    cliente_id: int = Field(
+    cliente_id: UUID = Field(
         ...,
-        ge=1,
-        description="ID del cliente al que pertenece el menú (soporte Multi-Tenant)",
-        examples=[1, 5, 10]
+        description="ID del cliente al que pertenece el menú (soporte Multi-Tenant, UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
 
     @field_validator('nombre')
@@ -244,9 +244,9 @@ class MenuUpdate(BaseModel):
         description="Nueva ruta del menú (opcional)"
     )
     
-    padre_menu_id: Optional[int] = Field(
+    padre_menu_id: Optional[UUID] = Field(
         None,
-        description="Nuevo ID del menú padre (opcional)"
+        description="Nuevo ID del menú padre (opcional, UUID)"
     )
     
     orden: Optional[int] = Field(
@@ -255,9 +255,9 @@ class MenuUpdate(BaseModel):
         description="Nuevo orden de visualización (opcional)"
     )
     
-    area_id: Optional[int] = Field(
+    area_id: Optional[UUID] = Field(
         None,
-        description="Nuevo ID del área (opcional)"
+        description="Nuevo ID del área (opcional, UUID)"
     )
     
     es_activo: Optional[bool] = Field(
@@ -279,10 +279,10 @@ class MenuItem(BaseModel):
     con relaciones padre-hijo para el frontend.
     """
     
-    menu_id: int = Field(
+    menu_id: UUID = Field(
         ...,
-        description="Identificador único del menú en el sistema",
-        examples=[1, 2, 3]
+        description="Identificador único del menú en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     nombre: str = Field(
@@ -315,10 +315,10 @@ class MenuItem(BaseModel):
         examples=[True, False]
     )
     
-    area_id: Optional[int] = Field(
+    area_id: Optional[UUID] = Field(
         None,
-        description="ID del área a la que pertenece el menú",
-        examples=[1, 2, 3]
+        description="ID del área a la que pertenece el menú (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     area_nombre: Optional[str] = Field(
@@ -338,10 +338,10 @@ class MenuItem(BaseModel):
         description="Lista de menús hijos (estructura jerárquica)"
     )
 
-    cliente_id: Optional[int] = Field(
+    cliente_id: Optional[UUID] = Field(
         None,
-        description="ID del cliente al que pertenece el menú (NULL para menús del sistema)",
-        examples=[1, 5, 10, None]
+        description="ID del cliente al que pertenece el menú (NULL para menús del sistema, UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000", None]
     )
 
     class Config:
@@ -373,10 +373,10 @@ class MenuReadSingle(MenuBase):
     y relaciones expandidas para operaciones CRUD.
     """
     
-    menu_id: int = Field(
+    menu_id: UUID = Field(
         ...,
-        description="Identificador único del menú en el sistema",
-        examples=[1, 2, 3]
+        description="Identificador único del menú en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     area_nombre: Optional[str] = Field(
@@ -423,6 +423,7 @@ Características principales:
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 import re
 
 class AreaBase(BaseModel):
@@ -461,11 +462,10 @@ class AreaBase(BaseModel):
         description="Indica si el área está activa y disponible para uso"
     )
 
-    cliente_id: int = Field(
+    cliente_id: UUID = Field(
         ...,
-        ge=1,
-        description="ID del cliente al que pertenece el área (soporte Multi-Tenant)",
-        examples=[1, 5, 10]
+        description="ID del cliente al que pertenece el área (soporte Multi-Tenant, UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
 
     @field_validator('nombre')
@@ -630,10 +630,9 @@ class AreaRead(AreaBase):
     que se generan automáticamente durante la creación del área.
     """
     
-    area_id: int = Field(
+    area_id: UUID = Field(
         ...,
-        ge=1,
-        description="Identificador único del área en el sistema"
+        description="Identificador único del área en el sistema (UUID)"
     )
     
     fecha_creacion: datetime = Field(
@@ -655,9 +654,9 @@ class AreaSimpleList(BaseModel):
     donde solo se necesitan los datos básicos de identificación.
     """
     
-    area_id: int = Field(
+    area_id: UUID = Field(
         ...,
-        description="Identificador único del área"
+        description="Identificador único del área (UUID)"
     )
     
     nombre: str = Field(
@@ -665,9 +664,9 @@ class AreaSimpleList(BaseModel):
         description="Nombre del área para mostrar en interfaces"
     )
 
-    cliente_id: int = Field(
+    cliente_id: UUID = Field(
         ...,
-        description="ID del cliente al que pertenece el área"
+        description="ID del cliente al que pertenece el área (UUID)"
     )
 
     class Config:

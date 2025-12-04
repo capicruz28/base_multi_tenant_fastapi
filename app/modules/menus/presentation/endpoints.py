@@ -16,7 +16,8 @@ Características principales:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Path
-from typing import Dict, Any, List # Mantenemos List por si hay endpoints que devuelven listas simples
+from typing import Dict, Any, List
+from uuid import UUID
 
 # Importar Schemas
 from app.modules.menus.presentation.schemas import (
@@ -239,7 +240,7 @@ async def create_menu_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def get_menu_by_id_endpoint(
-    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a consultar"),
+    menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a consultar"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -306,7 +307,7 @@ async def get_menu_by_id_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def update_menu_endpoint(
-    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a actualizar"),
+    menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a actualizar"),
     menu_in: MenuUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
@@ -382,7 +383,7 @@ async def update_menu_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def deactivate_menu_endpoint(
-    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a desactivar"),
+    menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a desactivar"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -442,7 +443,7 @@ async def deactivate_menu_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def reactivate_menu_endpoint(
-    menu_id: int = Path(..., title="ID del Menú", description="El ID del ítem de menú a reactivar"),
+    menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a reactivar"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """
@@ -502,7 +503,7 @@ async def reactivate_menu_endpoint(
     dependencies=[Depends(require_admin)]
 )
 async def get_menu_tree_by_area_endpoint(
-    area_id: int = Path(..., title="ID del Área", description="El ID del área a la que pertenece el menú"),
+    area_id: UUID = Path(..., title="ID del Área", description="El ID del área a la que pertenece el menú"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """

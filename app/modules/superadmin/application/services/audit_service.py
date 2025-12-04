@@ -1,15 +1,19 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
+from uuid import UUID
 import json
 import logging
 from datetime import datetime
 
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import execute_insert
 from app.infrastructure.database.queries import (
-    execute_insert,
     INSERT_AUTH_AUDIT_LOG,
     INSERT_LOG_SINCRONIZACION_USUARIO,
 )
+from app.infrastructure.database.connection_async import DatabaseConnection
 from app.core.exceptions import DatabaseError
 from app.core.application.base_service import BaseService
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +32,44 @@ class AuditService(BaseService):
     """
 
     @staticmethod
+    def _ensure_uuid(value: Any) -> Optional[UUID]:
+        """
+        Convierte un valor a UUID de forma segura.
+        
+        Args:
+            value: Valor a convertir (puede ser int, str, UUID, o None)
+        
+        Returns:
+            UUID si se puede convertir, None si no
+        """
+        if value is None:
+            return None
+        
+        if isinstance(value, UUID):
+            return value
+        
+        try:
+            if isinstance(value, int):
+                # Si es un entero, intentar convertirlo a UUID
+                # Nota: Esto puede fallar si el entero no es válido para UUID
+                # En ese caso, usamos el contexto actual
+                from app.core.tenant.context import try_get_current_client_id
+                return try_get_current_client_id() or None
+            elif isinstance(value, str):
+                return UUID(value)
+            else:
+                return None
+        except (ValueError, AttributeError, TypeError):
+            return None
+    
+    @staticmethod
     @BaseService.handle_service_errors
     async def registrar_auth_event(
         *,
-        cliente_id: int,
+        cliente_id: Union[UUID, int, str],
         evento: str,
         exito: bool,
-        usuario_id: Optional[int] = None,
+        usuario_id: Optional[Union[UUID, int, str]] = None,
         nombre_usuario_intento: Optional[str] = None,
         descripcion: Optional[str] = None,
         codigo_error: Optional[str] = None,
@@ -48,8 +83,30 @@ class AuditService(BaseService):
         Registra un evento en la tabla auth_audit_log.
 
         Todos los parámetros se basan en las columnas reales del schema.
+        
+        Args:
+            cliente_id: UUID del cliente (puede ser UUID, int, o str - se convierte automáticamente)
+            usuario_id: UUID del usuario (puede ser UUID, int, o str - se convierte automáticamente)
+            ... otros parámetros
         """
         try:
+            # ✅ Convertir cliente_id a UUID
+            cliente_id_uuid = None
+            if cliente_id:
+                cliente_id_uuid = AuditService._ensure_uuid(cliente_id)
+            
+            # ✅ CORRECCIÓN: Si cliente_id es nulo o el UUID nulo, usar el contexto del tenant
+            if not cliente_id_uuid or cliente_id_uuid == UUID('00000000-0000-0000-0000-000000000000'):
+                from app.core.tenant.context import try_get_current_client_id
+                cliente_id_uuid = try_get_current_client_id()
+                if not cliente_id_uuid or cliente_id_uuid == UUID('00000000-0000-0000-0000-000000000000'):
+                    logger.warning(f"[AUDIT] No se pudo obtener cliente_id válido del contexto, usando fallback")
+                    cliente_id_uuid = UUID('00000000-0000-0000-0000-000000000001')
+                else:
+                    logger.debug(f"[AUDIT] cliente_id era nulo, usando cliente_id del contexto: {cliente_id_uuid}")
+            
+            # ✅ Convertir usuario_id a UUID
+            usuario_id_uuid = AuditService._ensure_uuid(usuario_id) if usuario_id else None
             # Serializar metadata a JSON (respetando longitud NVARCHAR(MAX))
             metadata_json = None
             if metadata:
@@ -59,22 +116,68 @@ class AuditService(BaseService):
                     # Nunca romper por error de serialización de metadata
                     metadata_json = None
 
-            params = (
-                cliente_id,
-                usuario_id,
-                evento,
-                nombre_usuario_intento,
-                descripcion,
-                1 if exito else 0,
-                codigo_error,
-                ip_address,
-                user_agent,
-                device_info,
-                geolocation,
-                metadata_json,
-            )
+            # ✅ Convertir query a text().bindparams() para compatibilidad con async
+            # El INSERT tiene OUTPUT, así que necesitamos usar parámetros nombrados
+            query = INSERT_AUTH_AUDIT_LOG.replace("?", ":cliente_id", 1) \
+                                         .replace("?", ":usuario_id", 1) \
+                                         .replace("?", ":evento", 1) \
+                                         .replace("?", ":nombre_usuario_intento", 1) \
+                                         .replace("?", ":descripcion", 1) \
+                                         .replace("?", ":exito", 1) \
+                                         .replace("?", ":codigo_error", 1) \
+                                         .replace("?", ":ip_address", 1) \
+                                         .replace("?", ":user_agent", 1) \
+                                         .replace("?", ":device_info", 1) \
+                                         .replace("?", ":geolocation", 1) \
+                                         .replace("?", ":metadata_json", 1)
 
-            result = execute_insert(INSERT_AUTH_AUDIT_LOG, params)
+            # ✅ FASE 2: Usar await con text().bindparams()
+            # ✅ CORRECCIÓN: auth_audit_log existe tanto en BD central como en BD dedicada
+            # Para clientes dedicated, usar la BD del tenant (donde está el usuario)
+            # Para clientes shared, usar la BD ADMIN (central)
+            try:
+                from app.core.tenant.context import try_get_tenant_context
+                tenant_context = try_get_tenant_context()
+                
+                if tenant_context and tenant_context.database_type == "multi":
+                    # BD dedicada: insertar en la BD del tenant (donde está el usuario)
+                    connection_type = DatabaseConnection.DEFAULT
+                    logger.debug(
+                        f"[AUDIT] Cliente {cliente_id_uuid} es BD dedicada, "
+                        f"insertando auth_audit_log en BD del tenant"
+                    )
+                else:
+                    # BD compartida: insertar en BD ADMIN (central)
+                    connection_type = DatabaseConnection.ADMIN
+                    logger.debug(
+                        f"[AUDIT] Cliente {cliente_id_uuid} es BD compartida, "
+                        f"insertando auth_audit_log en BD ADMIN"
+                    )
+            except Exception:
+                # Si no hay contexto, usar BD ADMIN por defecto
+                connection_type = DatabaseConnection.ADMIN
+                logger.debug(
+                    f"[AUDIT] Sin contexto de tenant, usando BD ADMIN por defecto"
+                )
+            
+            result = await execute_insert(
+                text(query).bindparams(
+                    cliente_id=cliente_id_uuid,
+                    usuario_id=usuario_id_uuid,
+                    evento=evento,
+                    nombre_usuario_intento=nombre_usuario_intento,
+                    descripcion=descripcion,
+                    exito=1 if exito else 0,
+                    codigo_error=codigo_error,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    device_info=device_info,
+                    geolocation=geolocation,
+                    metadata_json=metadata_json,
+                ),
+                connection_type=connection_type,  # BD del tenant para dedicated, BD ADMIN para shared
+                client_id=cliente_id_uuid
+            )
 
             logger.info(
                 "[AUDIT] auth_audit_log registrado: evento=%s, cliente_id=%s, usuario_id=%s, exito=%s",
@@ -98,9 +201,9 @@ class AuditService(BaseService):
     @BaseService.handle_service_errors
     async def registrar_log_sincronizacion_usuario(
         *,
-        cliente_origen_id: Optional[int],
-        cliente_destino_id: Optional[int],
-        usuario_id: int,
+        cliente_origen_id: Optional[UUID],
+        cliente_destino_id: Optional[UUID],
+        usuario_id: UUID,
         tipo_sincronizacion: str,
         direccion: str,
         operacion: str,
@@ -110,7 +213,7 @@ class AuditService(BaseService):
         cambios_detectados: Optional[Dict[str, Any]] = None,
         hash_antes: Optional[str] = None,
         hash_despues: Optional[str] = None,
-        usuario_ejecutor_id: Optional[int] = None,
+        usuario_ejecutor_id: Optional[UUID] = None,
         duracion_ms: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
@@ -155,7 +258,8 @@ class AuditService(BaseService):
                 duracion_ms,
             )
 
-            result = execute_insert(INSERT_LOG_SINCRONIZACION_USUARIO, params)
+            # ✅ FASE 2: Usar await
+            result = await execute_insert(INSERT_LOG_SINCRONIZACION_USUARIO, params)
 
             logger.info(
                 "[AUDIT] log_sincronizacion_usuario registrado: usuario_id=%s, origen=%s, destino=%s, estado=%s",
@@ -179,9 +283,9 @@ class AuditService(BaseService):
     @BaseService.handle_service_errors
     async def registrar_tenant_access(
         *,
-        usuario_id: int,
-        token_cliente_id: Optional[int],
-        request_cliente_id: int,
+        usuario_id: UUID,
+        token_cliente_id: Optional[UUID],
+        request_cliente_id: UUID,
         tipo_acceso: str = "cross_tenant",
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,

@@ -1,6 +1,7 @@
 # app/schemas/cliente.py
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
+from uuid import UUID
 from pydantic import BaseModel, Field, EmailStr, validator, field_validator
 import re
 import json
@@ -43,8 +44,8 @@ class ClienteBase(BaseModel):
     # CONFIGURACIÓN DE INSTALACIÓN
     # ========================================
     tipo_instalacion: str = Field(
-        "cloud", 
-        description="Tipo de instalación: 'cloud', 'onpremise', 'hybrid'."
+        "shared", 
+        description="Tipo de instalación: 'shared' (BD centralizada), 'dedicated' (BD dedicada), 'onpremise' (BD local), 'hybrid' (BD local + sincronización)."
     )
     servidor_api_local: Optional[str] = Field(
         None, 
@@ -186,7 +187,7 @@ class ClienteBase(BaseModel):
     
     @validator('tipo_instalacion')
     def validar_tipo_instalacion(cls, v):
-        tipos_validos = ['cloud', 'onpremise', 'hybrid']
+        tipos_validos = ['shared', 'dedicated', 'onpremise', 'hybrid']
         if v not in tipos_validos:
             raise ValueError(f"tipo_instalacion debe ser uno de: {', '.join(tipos_validos)}")
         return v
@@ -302,7 +303,7 @@ class ClienteUpdate(BaseModel):
     @validator('tipo_instalacion')
     def validar_tipo_instalacion_update(cls, v):
         if v is not None:
-            tipos_validos = ['cloud', 'onpremise', 'hybrid']
+            tipos_validos = ['shared', 'dedicated', 'onpremise', 'hybrid']
             if v not in tipos_validos:
                 raise ValueError(f"tipo_instalacion debe ser uno de: {', '.join(tipos_validos)}")
         return v
@@ -372,7 +373,7 @@ class ClienteRead(ClienteBase):
     Esquema de lectura completo de un cliente.
     Incluye los campos de auditoría generados por el sistema.
     """
-    cliente_id: int = Field(..., description="Identificador único del cliente.")
+    cliente_id: UUID = Field(..., description="Identificador único del cliente (UUID).")
     fecha_creacion: datetime = Field(..., description="Fecha de creación del registro.")
     fecha_actualizacion: Optional[datetime] = Field(None, description="Fecha de última actualización.")
     fecha_ultimo_acceso: Optional[datetime] = Field(None, description="Última vez que un usuario accedió.")
@@ -437,7 +438,7 @@ class ClienteStatsResponse(BaseModel):
     """
     Schema para estadísticas de un cliente.
     """
-    cliente_id: int = Field(..., description="ID del cliente")
+    cliente_id: UUID = Field(..., description="ID del cliente (UUID)")
     razon_social: str = Field(..., description="Razón social del cliente")
     total_usuarios: int = Field(..., ge=0, description="Total de usuarios activos")
     total_usuarios_inactivos: int = Field(..., ge=0, description="Total de usuarios inactivos")
@@ -449,7 +450,7 @@ class ClienteStatsResponse(BaseModel):
     fecha_creacion: datetime = Field(..., description="Fecha de creación del cliente")
     dias_activo: int = Field(..., ge=0, description="Días desde la creación")
     conexiones_bd: int = Field(..., ge=0, description="Número de conexiones de BD configuradas")
-    tipo_instalacion: str = Field(..., description="Tipo de instalación (cloud/onpremise/hybrid)")
+    tipo_instalacion: str = Field(..., description="Tipo de instalación (shared/dedicated/onpremise/hybrid)")
 
     class Config:
         from_attributes = True
@@ -479,7 +480,7 @@ class ClienteDeleteResponse(BaseModel):
     """
     success: bool = Field(True, description="Indica si la eliminación fue exitosa")
     message: str = Field(..., description="Mensaje descriptivo")
-    cliente_id: int = Field(..., description="ID del cliente eliminado")
+    cliente_id: UUID = Field(..., description="ID del cliente eliminado (UUID)")
     
     class Config:
         from_attributes = True
@@ -657,7 +658,7 @@ class ModuloRead(ModuloBase):
     Esquema de lectura completo de un módulo.
     Incluye los campos de identificación y auditoría generados por el sistema.
     """
-    modulo_id: int = Field(..., description="Identificador único del módulo.")
+    modulo_id: UUID = Field(..., description="Identificador único del módulo (UUID).")
     fecha_creacion: datetime = Field(..., description="Fecha de creación del registro.")
 
     class Config:
@@ -670,7 +671,7 @@ class ModuloConInfoActivacion(ModuloRead):
     Útil para endpoints de administración que muestran el estado de módulos por cliente.
     """
     activo_en_cliente: bool = Field(..., description="Indica si el módulo está activo para el cliente.")
-    cliente_modulo_activo_id: Optional[int] = Field(None, description="ID del registro de activación.")
+    cliente_modulo_activo_id: Optional[UUID] = Field(None, description="ID del registro de activación (UUID).")
     fecha_activacion: Optional[datetime] = Field(None, description="Fecha de activación para el cliente.")
     fecha_vencimiento: Optional[datetime] = Field(None, description="Fecha de vencimiento de la licencia (NULL = ilimitado).")
     configuracion_json: Optional[str] = Field(None, description="Configuración específica para el cliente (JSON string).")
@@ -761,7 +762,7 @@ class ModuloDeleteResponse(BaseModel):
     """
     success: bool = Field(True, description="Indica si la operación fue exitosa.")
     message: str = Field(..., description="Mensaje descriptivo de la operación.")
-    modulo_id: int = Field(..., description="ID del módulo eliminado.")
+    modulo_id: UUID = Field(..., description="ID del módulo eliminado (UUID).")
 
     class Config:
         from_attributes = True
@@ -781,6 +782,7 @@ Características clave:
 """
 from typing import Optional, Dict, Any
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel, Field, validator, field_validator
 import re
 
@@ -793,7 +795,7 @@ class ConexionBase(BaseModel):
     # ========================================
     # IDENTIFICACIÓN Y CONTEXTO
     # ========================================
-    cliente_id: int = Field(..., description="ID del cliente al que pertenece la conexión.")
+    cliente_id: UUID = Field(..., description="ID del cliente al que pertenece la conexión (UUID).")
 
     # ========================================
     # CONFIGURACIÓN DE CONEXIÓN
@@ -961,7 +963,7 @@ class ConexionRead(ConexionBase):
     Incluye campos de identificación, auditoría y estado de la conexión.
     Los campos de credenciales muestran versiones encriptadas.
     """
-    conexion_id: int = Field(..., description="Identificador único de la conexión.")
+    conexion_id: UUID = Field(..., description="Identificador único de la conexión (UUID).")
     usuario_encriptado: str = Field(..., description="Usuario de BD encriptado.")
     password_encriptado: str = Field(..., description="Password de BD encriptado.")
     connection_string_encriptado: Optional[str] = Field(
@@ -977,7 +979,7 @@ class ConexionRead(ConexionBase):
     fecha_ultimo_error: Optional[datetime] = Field(None, description="Fecha del último error.")
     fecha_creacion: datetime = Field(..., description="Fecha de creación del registro.")
     fecha_actualizacion: Optional[datetime] = Field(None, description="Fecha de última actualización.")
-    creado_por_usuario_id: Optional[int] = Field(None, description="ID del usuario que creó la conexión.")
+    creado_por_usuario_id: Optional[UUID] = Field(None, description="ID del usuario que creó la conexión (UUID).")
 
     class Config:
         from_attributes = True
@@ -1034,8 +1036,8 @@ class ModuloActivoBase(BaseModel):
     # ========================================
     # IDENTIFICACIÓN Y CONTEXTO
     # ========================================
-    cliente_id: int = Field(..., description="ID del cliente que activa el módulo.")
-    modulo_id: int = Field(..., description="ID del módulo que se activa.")
+    cliente_id: UUID = Field(..., description="ID del cliente que activa el módulo (UUID).")
+    modulo_id: UUID = Field(..., description="ID del módulo que se activa (UUID).")
 
     # ========================================
     # CONFIGURACIÓN Y LÍMITES
@@ -1090,15 +1092,7 @@ class ModuloActivoBase(BaseModel):
                 raise ValueError(f"Configuración JSON inválida: {str(e)}")
         return v
 
-    @field_validator('cliente_id', 'modulo_id')
-    @classmethod
-    def validar_ids_positivos(cls, v: int) -> int:
-        """
-        Valida que los IDs sean números positivos.
-        """
-        if v <= 0:
-            raise ValueError("Los IDs deben ser números positivos.")
-        return v
+    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
 
     class Config:
         from_attributes = True
@@ -1150,7 +1144,7 @@ class ModuloActivoRead(ModuloActivoBase):
     Esquema de lectura completo de un módulo activo.
     Incluye campos de estado, fechas y relación con la información del módulo.
     """
-    cliente_modulo_activo_id: int = Field(..., description="Identificador único del registro de activación.")
+    cliente_modulo_activo_id: UUID = Field(..., description="Identificador único del registro de activación (UUID).")
     esta_activo: bool = Field(..., description="Indica si el módulo está activo para el cliente.")
     fecha_activacion: datetime = Field(..., description="Fecha de activación del módulo.")
     fecha_vencimiento: Optional[datetime] = Field(

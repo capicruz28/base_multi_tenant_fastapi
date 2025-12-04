@@ -1,24 +1,29 @@
 # app/infrastructure/database/queries_async.py
 """
-Versión ASYNC de queries.py para operaciones no bloqueantes.
+Funciones de ejecución de queries ASYNC usando SQLAlchemy Core.
 
-✅ CORRECCIÓN AUDITORÍA: Performance - I/O Síncrono
-- Implementa funciones async usando SQLAlchemy AsyncSession
-- NO bloquea el event loop de FastAPI
-- Coexiste con queries.py (no reemplaza, permite migración gradual)
-- Mantiene todas las validaciones de seguridad (IDOR)
+✅ FASE 2: Reemplazo completo de queries.py síncrono
+- Todas las funciones son async
+- Usa SQLAlchemy AsyncSession
+- Acepta objetos SQLAlchemy Core (Select, Update, Delete, Insert)
+- Aplica filtro de tenant automáticamente
 
 USO:
-    # En funciones async
-    results = await execute_query_async("SELECT * FROM usuario WHERE cliente_id = ?", (client_id,))
+    from app.infrastructure.database.queries_async import execute_query
+    
+    query = select(UsuarioTable).where(UsuarioTable.c.nombre_usuario == username)
+    results = await execute_query(query)
 """
 
-from typing import List, Dict, Any, Optional
-from sqlalchemy import text
+from typing import List, Dict, Any, Optional, Union, Tuple
+from uuid import UUID
+from sqlalchemy import Select, Update, Delete, Insert, text, TextClause
+from sqlalchemy.sql import ClauseElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.database.connection_async import get_db_connection_async
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import get_db_connection, DatabaseConnection
+from app.core.tenant.routing import get_connection_for_tenant
+from app.infrastructure.database.query_helpers import apply_tenant_filter, get_table_name_from_query
 from app.core.exceptions import DatabaseError, ValidationError
 from app.core.config import settings
 import logging
@@ -26,379 +31,641 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-async def execute_query_async(
-    query: str, 
-    params: tuple = (), 
-    connection_type: DatabaseConnection = DatabaseConnection.DEFAULT, 
-    client_id: Optional[int] = None,
+def _get_connection_context(
+    connection_type: DatabaseConnection,
+    client_id: Optional[int] = None
+):
+    """
+    ✅ FASE 5: Helper para obtener el contexto de conexión apropiado.
+    
+    Retorna el context manager correcto según el tipo de conexión:
+    - ADMIN: get_db_connection(ADMIN)
+    - DEFAULT: get_connection_for_tenant() (routing centralizado)
+    """
+    if connection_type == DatabaseConnection.ADMIN:
+        return get_db_connection(connection_type)
+    else:
+        # Convertir client_id a UUID si es necesario
+        from uuid import UUID
+        cliente_id_uuid = None
+        if client_id:
+            if isinstance(client_id, UUID):
+                cliente_id_uuid = client_id
+            elif isinstance(client_id, int):
+                try:
+                    cliente_id_uuid = UUID(int=client_id) if client_id > 0 else None
+                except (ValueError, OverflowError):
+                    cliente_id_uuid = None
+        
+        return get_connection_for_tenant(cliente_id=cliente_id_uuid)
+
+
+async def execute_query(
+    query: Union[str, ClauseElement],
+    params: Optional[Union[Tuple[Any, ...], Dict[str, Any]]] = None,
+    connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
+    client_id: Optional[Union[int, UUID]] = None,
     skip_tenant_validation: bool = False
 ) -> List[Dict[str, Any]]:
     """
-    Ejecuta una consulta SQL de forma async (NO bloquea el event loop).
+    Ejecuta una consulta SQL de forma async.
     
-    ✅ CORRECCIÓN AUDITORÍA: Versión async que NO bloquea el event loop.
-    ✅ SEGURIDAD: Mantiene validación automática de filtro cliente_id.
+    ✅ FASE 2: Versión async que reemplaza execute_query síncrono.
     
     Args:
-        query: Consulta SQL a ejecutar
-        params: Parámetros de la consulta (usar :param_name para named params)
+        query: Consulta SQL (string) o objeto SQLAlchemy Core (Select, Update, Delete, Insert)
+        params: Parámetros opcionales (tupla o dict). Si es tupla y query tiene '?', se convierte a parámetros nombrados.
         connection_type: Tipo de conexión (DEFAULT o ADMIN)
-        client_id: ID del cliente específico (opcional)
-        skip_tenant_validation: Si True, omite la validación de tenant (solo si ALLOW_TENANT_FILTER_BYPASS=True)
+        client_id: ID del cliente específico (opcional, puede ser int o UUID)
+        skip_tenant_validation: Si True, omite la validación de tenant
     
     Returns:
         Lista de diccionarios con los resultados
     
     Raises:
-        ValidationError: Si la query no incluye filtro de tenant y hay contexto de tenant
         DatabaseError: Si hay error en la ejecución
     """
-    # ✅ CORRECCIÓN AUDITORÍA: VALIDACIÓN OBLIGATORIA DE TENANT (misma lógica que versión síncrona)
-    should_validate = (
-        not skip_tenant_validation or 
-        (skip_tenant_validation and not settings.ALLOW_TENANT_FILTER_BYPASS)
-    )
-    
-    if should_validate and client_id is None and connection_type == DatabaseConnection.DEFAULT:
+    # ✅ FASE 2: Si es objeto SQLAlchemy Core, aplicar filtro de tenant programáticamente
+    if isinstance(query, (Select, Update, Delete, Insert)):
+        # Obtener nombre de tabla para verificar si es global
         try:
-            from app.core.tenant.context import get_current_client_id
-            current_cliente_id = get_current_client_id()
-            
-            query_lower = query.lower().strip()
-            
-            # Tablas globales que no requieren filtro
-            global_tables = [
-                'cliente', 'cliente_modulo', 'modulo', 'cliente_modulo_activo', 
-                'cliente_conexion', 'sistema_config'
-            ]
-            
-            is_global_table = any(
-                f" from {table} " in query_lower or 
-                f" from dbo.{table} " in query_lower or
-                f"from {table}" in query_lower.split('where')[0] or
-                f"from dbo.{table}" in query_lower.split('where')[0]
-                for table in global_tables
-            )
-            
-            if is_global_table:
-                logger.debug(f"[SECURITY] Query en tabla global detectada, omitiendo validación de tenant")
-            elif "where" in query_lower:
-                # Verificar filtro de cliente_id (soporta ? y :param_name)
-                has_cliente_id_filter = (
-                    " cliente_id = ?" in query_lower or
-                    " cliente_id=?" in query_lower or
-                    " cliente_id = " in query_lower or
-                    " cliente_id = :" in query_lower or
-                    f" cliente_id = {current_cliente_id}" in query_lower or
-                    "and cliente_id = ?" in query_lower or
-                    "and cliente_id=?" in query_lower or
-                    "and cliente_id = :" in query_lower or
-                    "where cliente_id = ?" in query_lower or
-                    "where cliente_id=?" in query_lower or
-                    "where cliente_id = :" in query_lower or
-                    ("join" in query_lower and "cliente_id" in query_lower and "on" in query_lower) or
-                    ("cliente_id" in query_lower and ("?" in query_lower or ":" in query_lower) and len(params) > 0)
-                )
+            table_name = get_table_name_from_query(query)
+        except Exception:
+            table_name = None
+        
+        # Aplicar filtro de tenant automáticamente (si no se omite)
+        if not skip_tenant_validation:
+            query = apply_tenant_filter(query, client_id=client_id, table_name=table_name)
+        
+        # ✅ FASE 5: Usar routing centralizado
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
                 
-                has_cliente_id_in_params = (
-                    len(params) > 0 and 
-                    "cliente_id" in query_lower and
-                    ("?" in query_lower or ":" in query_lower or str(current_cliente_id) in query_lower)
-                )
-                
-                if not has_cliente_id_filter and not has_cliente_id_in_params:
-                    logger.error(
-                        f"[SECURITY CRITICAL] Query async sin filtro de cliente_id detectada. "
-                        f"Cliente actual: {current_cliente_id}. Query: {query[:200]}..."
-                    )
-                    raise ValidationError(
-                        detail=(
-                            f"Query sin filtro de tenant OBLIGATORIO detectada. "
-                            f"Todas las queries en contexto de tenant DEBEN incluir 'WHERE cliente_id = ?' "
-                            f"o 'WHERE cliente_id = :cliente_id'. "
-                            f"Si es un caso especial, active ALLOW_TENANT_FILTER_BYPASS temporalmente."
-                        ),
-                        internal_code="MISSING_TENANT_FILTER"
-                    )
-        except RuntimeError:
-            if settings.ALLOW_TENANT_FILTER_BYPASS:
-                logger.debug("[SECURITY] Sin contexto de tenant, omitiendo validación (bypass permitido)")
-            else:
-                logger.warning("[SECURITY] Sin contexto de tenant pero bypass no permitido.")
-        except ValidationError:
-            raise
-        except Exception as e:
-            logger.error(f"[SECURITY] Error en validación de tenant (BLOQUEANDO): {str(e)}", exc_info=True)
-            raise ValidationError(
-                detail=f"Error en validación de seguridad de tenant. Error: {str(e)}",
-                internal_code="TENANT_VALIDATION_ERROR"
-            )
-    
-    # Convertir params tuple a dict si la query usa named parameters
-    # SQLAlchemy async usa named parameters con :param_name
-    if params and isinstance(params, tuple) and ":" in query:
-        # Si la query tiene :param_name pero params es tuple, convertir
-        # Por ahora, asumimos que si hay :, se debe pasar como dict
-        # El usuario debe pasar dict si usa named params
-        if not isinstance(params, dict):
-            logger.warning(
-                "[QUERIES_ASYNC] Query con named parameters (:) pero params es tuple. "
-                "Para named params, pasar dict: {'cliente_id': 1, ...}"
-            )
-    
-    # Ejecutar query async
-    try:
-        async with get_db_connection_async(connection_type, client_id) as session:
-            # Convertir params tuple a dict si es necesario
-            if isinstance(params, tuple) and params:
-                # Si la query usa ?, convertir a named params para SQLAlchemy
-                # SQLAlchemy async prefiere named parameters
-                if "?" in query:
-                    # Para queries con ?, necesitamos usar text() con parámetros posicionales
-                    # SQLAlchemy async soporta esto con text()
-                    result = await session.execute(text(query), params)
+                # Si es SELECT, obtener resultados
+                if isinstance(query, Select):
+                    rows = result.fetchall()
+                    columns = result.keys()
+                    return [dict(zip(columns, row)) for row in rows]
                 else:
-                    # Named parameters
-                    if isinstance(params, dict):
-                        result = await session.execute(text(query), params)
-                    else:
-                        # Convertir tuple a dict (asumiendo orden)
-                        # Esto es un fallback, mejor usar dict directamente
-                        result = await session.execute(text(query), params)
-            else:
-                result = await session.execute(text(query), params if isinstance(params, dict) else {})
-            
-            # Obtener resultados
-            rows = result.fetchall()
-            
-            # Convertir a lista de diccionarios
-            if rows:
-                columns = list(result.keys())
+                    # UPDATE/DELETE/INSERT: retornar información de filas afectadas
+                    await session.commit()
+                    return [{"rows_affected": result.rowcount}]
+                    
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_query async: {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la consulta: {str(e)}",
+                    internal_code="DB_QUERY_ERROR"
+                )
+    
+    elif isinstance(query, TextClause):
+        # ✅ Aceptar TextClause (resultado de text().bindparams())
+        # ✅ FASE 5: Usar routing centralizado
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                rows = result.fetchall()
+                columns = result.keys()
                 return [dict(zip(columns, row)) for row in rows]
-            return []
-            
-    except ValidationError:
-        raise
-    except Exception as e:
-        logger.error(f"Error en execute_query_async: {str(e)}", exc_info=True)
-        raise DatabaseError(
-            detail=f"Error en la consulta async: {str(e)}",
-            internal_code="DB_QUERY_ASYNC_ERROR"
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_query async (TextClause): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la consulta: {str(e)}",
+                    internal_code="DB_QUERY_ERROR"
+                )
+    
+    elif isinstance(query, str):
+        # ⚠️ DEPRECATED: Queries string (mantener compatibilidad temporal)
+        logger.warning(
+            "[QUERY] DEPRECATED: execute_query() recibió string SQL. "
+            "Migrar a SQLAlchemy Core."
+        )
+        
+        # String SQL - convertir ? a parámetros nombrados si hay params
+        if params is not None:
+            # Contar cuántos ? hay en la query
+            question_marks = query.count('?')
+            if question_marks > 0:
+                # Convertir tupla o lista a dict con nombres param0, param1, etc.
+                if isinstance(params, (tuple, list)):
+                    if len(params) == 0:
+                        logger.warning("execute_query recibió params vacío, ejecutando query sin parámetros")
+                        query = text(query)
+                    else:
+                        param_names = [f"param{i}" for i in range(len(params))]
+                        query_text = query
+                        for i, name in enumerate(param_names):
+                            query_text = query_text.replace("?", f":{name}", 1)
+                        params_dict = dict(zip(param_names, params))
+                        query = text(query_text).bindparams(**params_dict)
+                elif isinstance(params, dict):
+                    # Si ya es dict, convertir ? a :param_name
+                    if len(params) == 0:
+                        logger.warning("execute_query recibió params dict vacío, ejecutando query sin parámetros")
+                        query = text(query)
+                    else:
+                        query_text = query
+                        for key in params.keys():
+                            query_text = query_text.replace("?", f":{key}", 1)
+                        query = text(query_text).bindparams(**params)
+                else:
+                    logger.warning(f"execute_query recibió params de tipo inesperado: {type(params)}, ejecutando query sin parámetros")
+                    query = text(query)
+            else:
+                query = text(query)
+        else:
+            query = text(query)
+        
+        # ✅ FASE 5: Usar routing centralizado
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                rows = result.fetchall()
+                columns = result.keys()
+                return [dict(zip(columns, row)) for row in rows]
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_query async (string): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la consulta: {str(e)}",
+                    internal_code="DB_QUERY_ERROR"
+                )
+    else:
+        raise ValueError(
+            f"query debe ser string SQL o objeto SQLAlchemy Core, recibido: {type(query)}"
         )
 
 
-async def execute_auth_query_async(
-    query: str, 
-    params: tuple = ()
+async def execute_auth_query(
+    query: Union[str, Select, TextClause],
+    params: Optional[Union[tuple, dict]] = None,
+    connection_type: DatabaseConnection = DatabaseConnection.DEFAULT
 ) -> Optional[Dict[str, Any]]:
     """
-    Ejecuta una consulta específica para autenticación (async).
-    Retorna un único registro.
+    Ejecuta una consulta específica para autenticación y retorna un único registro.
+    
+    ✅ FASE 2: Versión async.
     
     Args:
-        query: Consulta SQL
-        params: Parámetros de la consulta
+        query: Consulta SQL (string), objeto SQLAlchemy Core (Select), o TextClause
+        params: Parámetros opcionales (tupla o dict). Si es tupla y query tiene '?', se convierte a parámetros nombrados.
+        connection_type: Tipo de conexión (DEFAULT o ADMIN)
     
     Returns:
-        Diccionario con el resultado o None si no existe
+        Diccionario con el registro o None si no existe
     """
-    try:
-        async with get_db_connection_async(DatabaseConnection.DEFAULT) as session:
-            result = await session.execute(text(query), params)
-            row = result.fetchone()
-            
-            if row:
-                columns = list(result.keys())
-                return dict(zip(columns, row))
-            return None
-            
-    except Exception as e:
-        logger.error(f"Error en execute_auth_query_async: {str(e)}")
-        raise DatabaseError(
-            detail=f"Error en la autenticación async: {str(e)}",
-            internal_code="DB_AUTH_ASYNC_ERROR"
+    if isinstance(query, Select):
+        # ✅ FASE 5: Usar routing centralizado
+        async with _get_connection_context(connection_type) as session:
+            try:
+                result = await session.execute(query)
+                row = result.fetchone()
+                
+                if row:
+                    columns = result.keys()
+                    return dict(zip(columns, row))
+                return None
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_auth_query async: {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la autenticación: {str(e)}",
+                    internal_code="DB_AUTH_ERROR"
+                )
+    
+    elif isinstance(query, TextClause):
+        # ✅ Aceptar TextClause (resultado de text().bindparams())
+        async with _get_connection_context(connection_type) as session:
+            try:
+                result = await session.execute(query)
+                row = result.fetchone()
+                
+                if row:
+                    columns = result.keys()
+                    return dict(zip(columns, row))
+                return None
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_auth_query async (TextClause): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la autenticación: {str(e)}",
+                    internal_code="DB_AUTH_ERROR"
+                )
+    
+    elif isinstance(query, str):
+        # String SQL - convertir ? a parámetros nombrados si hay params
+        if params is not None:
+            # Contar cuántos ? hay en la query
+            question_marks = query.count('?')
+            if question_marks > 0:
+                # Convertir tupla o lista a dict con nombres param0, param1, etc.
+                if isinstance(params, (tuple, list)):
+                    if len(params) == 0:
+                        logger.warning("execute_auth_query recibió params vacío, ejecutando query sin parámetros")
+                        query = text(query)
+                    else:
+                        param_names = [f"param{i}" for i in range(len(params))]
+                        query_text = query
+                        for i, name in enumerate(param_names):
+                            query_text = query_text.replace("?", f":{name}", 1)
+                        params_dict = dict(zip(param_names, params))
+                        logger.debug(f"execute_auth_query: convirtiendo ? a parámetros nombrados: {params_dict}")
+                        query = text(query_text).bindparams(**params_dict)
+                elif isinstance(params, dict):
+                    # Si ya es dict, convertir ? a :param_name
+                    if len(params) == 0:
+                        logger.warning("execute_auth_query recibió params dict vacío, ejecutando query sin parámetros")
+                        query = text(query)
+                    else:
+                        query_text = query
+                        for key in params.keys():
+                            query_text = query_text.replace("?", f":{key}", 1)
+                        query = text(query_text).bindparams(**params)
+                else:
+                    logger.warning(f"execute_auth_query recibió params de tipo inesperado: {type(params)}, ejecutando query sin parámetros")
+                    query = text(query)
+            else:
+                query = text(query)
+        else:
+            query = text(query)
+        
+        async with _get_connection_context(connection_type) as session:
+            try:
+                result = await session.execute(query)
+                row = result.fetchone()
+                
+                if row:
+                    columns = result.keys()
+                    return dict(zip(columns, row))
+                return None
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_auth_query async (string): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la autenticación: {str(e)}",
+                    internal_code="DB_AUTH_ERROR"
+                )
+    else:
+        raise ValueError(
+            f"query debe ser string SQL, objeto SQLAlchemy Core (Select), o TextClause, recibido: {type(query)}"
         )
 
 
-async def execute_insert_async(
-    query: str,
-    params: tuple = (),
+async def execute_insert(
+    query: Union[str, Insert, TextClause],
+    params: Optional[Union[tuple, dict]] = None,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
-    client_id: Optional[int] = None
+    client_id: Optional[Union[int, UUID]] = None
 ) -> Dict[str, Any]:
     """
-    Ejecuta una sentencia INSERT de forma async.
+    Ejecuta una sentencia INSERT y retorna los datos insertados.
+    
+    ✅ FASE 2: Versión async.
     
     Args:
-        query: Query INSERT con OUTPUT INSERTED.*
-        params: Parámetros de la consulta
-        connection_type: Tipo de conexión
-        client_id: ID del cliente (opcional)
+        query: Consulta SQL (string), objeto SQLAlchemy Core (Insert), o TextClause
+        params: Parámetros opcionales (tupla o dict). Si es tupla y query tiene '?', se convierte a parámetros nombrados.
+        connection_type: Tipo de conexión (DEFAULT o ADMIN)
+        client_id: ID del cliente específico (opcional, puede ser int o UUID)
     
     Returns:
-        Diccionario con los datos insertados y rows_affected
+        Diccionario con los datos insertados (OUTPUT) y rows_affected
     """
-    try:
-        async with get_db_connection_async(connection_type, client_id) as session:
-            result = await session.execute(text(query), params)
-            
-            # Obtener datos de OUTPUT INSERTED
-            output_row = result.fetchone()
-            rows_affected = result.rowcount
-            
-            result_dict = {}
-            if output_row:
-                columns = list(result.keys())
-                result_dict = dict(zip(columns, output_row))
-            
-            result_dict["rows_affected"] = rows_affected
-            
-            await session.commit()
-            logger.info(f"Inserción async exitosa, filas afectadas: {rows_affected}")
-            
-            return result_dict
-            
-    except Exception as e:
-        error_str = str(e)
-        logger.error(f"Error en execute_insert_async: {error_str}")
+    if isinstance(query, Insert):
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                
+                # Obtener datos insertados si hay OUTPUT
+                if result.returns_rows:
+                    row = result.fetchone()
+                    if row:
+                        columns = result.keys()
+                        data = dict(zip(columns, row))
+                        data["rows_affected"] = result.rowcount
+                        return data
+                
+                return {"rows_affected": result.rowcount}
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_insert async: {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la inserción: {str(e)}",
+                    internal_code="DB_INSERT_ERROR"
+                )
+    
+    elif isinstance(query, TextClause):
+        # ✅ Aceptar TextClause (resultado de text().bindparams())
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                
+                if result.returns_rows:
+                    row = result.fetchone()
+                    if row:
+                        columns = result.keys()
+                        data = dict(zip(columns, row))
+                        data["rows_affected"] = result.rowcount
+                        return data
+                
+                return {"rows_affected": result.rowcount}
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_insert async (TextClause): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la inserción: {str(e)}",
+                    internal_code="DB_INSERT_ERROR"
+                )
+    
+    elif isinstance(query, str):
+        # String SQL - convertir ? a parámetros nombrados si hay params
+        if params is not None:
+            # Contar cuántos ? hay en la query
+            question_marks = query.count('?')
+            if question_marks > 0:
+                # Convertir tupla a dict con nombres param0, param1, etc.
+                if isinstance(params, tuple):
+                    param_names = [f"param{i}" for i in range(len(params))]
+                    query_text = query
+                    for i, name in enumerate(param_names):
+                        query_text = query_text.replace("?", f":{name}", 1)
+                    params_dict = dict(zip(param_names, params))
+                    query = text(query_text).bindparams(**params_dict)
+                elif isinstance(params, dict):
+                    # Si ya es dict, convertir ? a :param_name
+                    query_text = query
+                    for key in params.keys():
+                        query_text = query_text.replace("?", f":{key}", 1)
+                    query = text(query_text).bindparams(**params)
+                else:
+                    query = text(query)
+            else:
+                query = text(query)
+        else:
+            query = text(query)
         
-        # Detectar errores de constraint UNIQUE
-        if '23000' in error_str and 'UNIQUE' in error_str.upper():
-            from app.core.exceptions import ConflictError
-            raise ConflictError(
-                detail="Ya existe un registro con estos valores únicos.",
-                internal_code="UNIQUE_CONSTRAINT_VIOLATION"
-            )
-        
-        raise DatabaseError(
-            detail=f"Error en la inserción async: {error_str}",
-            internal_code="DB_INSERT_ASYNC_ERROR"
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                
+                if result.returns_rows:
+                    row = result.fetchone()
+                    if row:
+                        columns = result.keys()
+                        data = dict(zip(columns, row))
+                        data["rows_affected"] = result.rowcount
+                        return data
+                
+                return {"rows_affected": result.rowcount}
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_insert async (string): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la inserción: {str(e)}",
+                    internal_code="DB_INSERT_ERROR"
+                )
+    else:
+        raise ValueError(
+            f"query debe ser string SQL, objeto SQLAlchemy Core (Insert), o TextClause, recibido: {type(query)}"
         )
 
 
-async def execute_update_async(
-    query: str, 
-    params: tuple = (), 
+async def execute_update(
+    query: Union[str, Update, TextClause],
+    params: Optional[Union[tuple, dict]] = None,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
-    client_id: Optional[int] = None
+    client_id: Optional[Union[int, UUID]] = None
 ) -> Dict[str, Any]:
     """
-    Ejecuta una sentencia UPDATE de forma async.
+    Ejecuta una sentencia UPDATE y retorna los datos actualizados.
+    
+    ✅ FASE 2: Versión async.
     
     Args:
-        query: Query UPDATE con OUTPUT INSERTED.*
-        params: Parámetros de la consulta
-        connection_type: Tipo de conexión
-        client_id: ID del cliente (opcional)
+        query: Consulta SQL (string), objeto SQLAlchemy Core (Update), o TextClause
+        params: Parámetros opcionales (tupla o dict). Si es tupla y query tiene '?', se convierte a parámetros nombrados.
+        connection_type: Tipo de conexión (DEFAULT o ADMIN)
+        client_id: ID del cliente específico (opcional, puede ser int o UUID)
     
     Returns:
-        Diccionario con los datos actualizados y rows_affected
+        Diccionario con los datos actualizados (OUTPUT) y rows_affected
     """
-    try:
-        async with get_db_connection_async(connection_type, client_id) as session:
-            result = await session.execute(text(query), params)
-            
-            rows_affected = result.rowcount
-            
-            # Obtener datos de OUTPUT INSERTED si existe
-            output_row = result.fetchone()
-            result_dict = {}
-            
-            if output_row:
-                columns = list(result.keys())
-                result_dict = dict(zip(columns, output_row))
-            
-            result_dict['rows_affected'] = rows_affected
-            
-            await session.commit()
-            logger.info(f"Actualización async exitosa, filas afectadas: {rows_affected}")
-            
-            return result_dict
-            
-    except Exception as e:
-        logger.error(f"Error en execute_update_async: {str(e)}")
-        raise DatabaseError(
-            detail=f"Error en la actualización async: {str(e)}",
-            internal_code="DB_UPDATE_ASYNC_ERROR"
+    if isinstance(query, Update):
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                
+                if result.returns_rows:
+                    row = result.fetchone()
+                    if row:
+                        columns = result.keys()
+                        data = dict(zip(columns, row))
+                        data["rows_affected"] = result.rowcount
+                        return data
+                
+                return {"rows_affected": result.rowcount}
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_update async: {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la actualización: {str(e)}",
+                    internal_code="DB_UPDATE_ERROR"
+                )
+    
+    elif isinstance(query, TextClause):
+        # ✅ Aceptar TextClause (resultado de text().bindparams())
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                
+                if result.returns_rows:
+                    row = result.fetchone()
+                    if row:
+                        columns = result.keys()
+                        data = dict(zip(columns, row))
+                        data["rows_affected"] = result.rowcount
+                        return data
+                
+                return {"rows_affected": result.rowcount}
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_update async (TextClause): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la actualización: {str(e)}",
+                    internal_code="DB_UPDATE_ERROR"
+                )
+    
+    elif isinstance(query, str):
+        # String SQL - convertir ? a parámetros nombrados si hay params
+        if params is not None:
+            # Contar cuántos ? hay en la query
+            question_marks = query.count('?')
+            if question_marks > 0:
+                # Convertir tupla a dict con nombres param0, param1, etc.
+                if isinstance(params, tuple):
+                    param_names = [f"param{i}" for i in range(len(params))]
+                    query_text = query
+                    for i, name in enumerate(param_names):
+                        query_text = query_text.replace("?", f":{name}", 1)
+                    params_dict = dict(zip(param_names, params))
+                    query = text(query_text).bindparams(**params_dict)
+                elif isinstance(params, dict):
+                    # Si ya es dict, convertir ? a :param_name
+                    query_text = query
+                    for key in params.keys():
+                        query_text = query_text.replace("?", f":{key}", 1)
+                    query = text(query_text).bindparams(**params)
+                else:
+                    query = text(query)
+            else:
+                query = text(query)
+        else:
+            query = text(query)
+        
+        async with _get_connection_context(connection_type, client_id) as session:
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                
+                if result.returns_rows:
+                    row = result.fetchone()
+                    if row:
+                        columns = result.keys()
+                        data = dict(zip(columns, row))
+                        data["rows_affected"] = result.rowcount
+                        return data
+                
+                return {"rows_affected": result.rowcount}
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error en execute_update async (string): {str(e)}")
+                raise DatabaseError(
+                    detail=f"Error en la actualización: {str(e)}",
+                    internal_code="DB_UPDATE_ERROR"
+                )
+    else:
+        raise ValueError(
+            f"query debe ser string SQL, objeto SQLAlchemy Core (Update), o TextClause, recibido: {type(query)}"
         )
 
 
-async def execute_procedure_async(
-    procedure_name: str, 
-    connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
-    client_id: Optional[int] = None
-) -> List[Dict[str, Any]]:
-    """
-    Ejecuta un stored procedure de forma async.
-    
-    Args:
-        procedure_name: Nombre del stored procedure
-        connection_type: Tipo de conexión
-        client_id: ID del cliente (opcional)
-    
-    Returns:
-        Lista de diccionarios con los resultados
-    """
-    try:
-        async with get_db_connection_async(connection_type, client_id) as session:
-            result = await session.execute(text(f"EXEC {procedure_name}"))
-            
-            results = []
-            rows = result.fetchall()
-            
-            if rows:
-                columns = list(result.keys())
-                results = [dict(zip(columns, row)) for row in rows]
-            
-            return results
-            
-    except Exception as e:
-        logger.error(f"Error en execute_procedure_async: {str(e)}")
-        raise DatabaseError(
-            detail=f"Error en el procedimiento async: {str(e)}",
-            internal_code="DB_PROCEDURE_ASYNC_ERROR"
-        )
-
-
-async def execute_procedure_params_async(
+async def execute_procedure(
     procedure_name: str,
-    params: dict,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
     client_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """
-    Ejecuta un stored procedure con parámetros de forma async.
+    Ejecuta un stored procedure sin parámetros de forma async.
+    
+    ✅ FASE 2: Versión async.
     
     Args:
         procedure_name: Nombre del stored procedure
-        params: Diccionario con parámetros {nombre: valor}
-        connection_type: Tipo de conexión
-        client_id: ID del cliente (opcional)
+        connection_type: Tipo de conexión (DEFAULT o ADMIN)
+        client_id: ID del cliente específico (opcional)
     
     Returns:
         Lista de diccionarios con los resultados
     """
-    try:
-        # Construir query con parámetros nombrados
-        param_str = ", ".join([f"@{key} = :{key}" for key in params.keys()])
-        query = f"EXEC {procedure_name} {param_str}"
-        
-        async with get_db_connection_async(connection_type, client_id) as session:
-            result = await session.execute(text(query), params)
-            
-            results = []
+    async with _get_connection_context(connection_type, client_id) as session:
+        try:
+            # Ejecutar stored procedure usando text() con formato SQL Server
+            query = text(f"EXEC {procedure_name}")
+            result = await session.execute(query)
             rows = result.fetchall()
-            
-            if rows:
-                columns = list(result.keys())
-                results = [dict(zip(columns, row)) for row in rows]
-            
-            return results
-            
-    except Exception as e:
-        logger.error(f"Error en execute_procedure_params_async: {str(e)}")
-        raise DatabaseError(
-            detail=f"Error en el procedimiento async: {str(e)}",
-            internal_code="DB_PROCEDURE_PARAMS_ASYNC_ERROR"
-        )
+            columns = result.keys()
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error en execute_procedure async: {str(e)}")
+            raise DatabaseError(
+                detail=f"Error ejecutando stored procedure {procedure_name}: {str(e)}",
+                internal_code="DB_PROCEDURE_ERROR"
+            )
 
+
+async def execute_procedure_params(
+    procedure_name: str,
+    params_dict: Dict[str, Any],
+    connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
+    client_id: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Ejecuta un stored procedure con parámetros nombrados de forma async.
+    
+    ✅ FASE 2: Versión async.
+    
+    Args:
+        procedure_name: Nombre del stored procedure
+        params_dict: Diccionario con parámetros nombrados (ej: {'UsuarioID': 123})
+        connection_type: Tipo de conexión (DEFAULT o ADMIN)
+        client_id: ID del cliente específico (opcional)
+    
+    Returns:
+        Lista de diccionarios con los resultados
+    """
+    async with _get_connection_context(connection_type, client_id) as session:
+        try:
+            # Construir lista de parámetros para SQL Server
+            # Formato: @ParamName = :param_name (SQLAlchemy usa :param_name para bindings)
+            param_list = []
+            param_bindings = {}
+            for key, value in params_dict.items():
+                param_name = f"@{key}"
+                # ✅ Convertir UUID a string para stored procedures
+                # SQL Server puede convertir strings a UNIQUEIDENTIFIER automáticamente
+                # cuando el stored procedure espera UNIQUEIDENTIFIER como tipo de parámetro
+                if isinstance(value, UUID):
+                    # Pasar como string - SQL Server lo convertirá automáticamente si el SP espera UNIQUEIDENTIFIER
+                    param_bindings[key] = str(value)
+                    param_list.append(f"{param_name} = :{key}")
+                else:
+                    param_bindings[key] = value
+                    param_list.append(f"{param_name} = :{key}")
+            
+            # Construir query con parámetros
+            params_str = ", ".join(param_list) if param_list else ""
+            query_str = f"EXEC {procedure_name} {params_str}".strip()
+            query = text(query_str)
+            
+            result = await session.execute(query, param_bindings)
+            
+            # Manejar múltiples result sets si existen
+            results = []
+            while True:
+                if result.returns_rows:
+                    rows = result.fetchall()
+                    if rows:
+                        columns = result.keys()
+                        results.extend([dict(zip(columns, row)) for row in rows])
+                
+                # Intentar obtener el siguiente result set
+                try:
+                    # En SQLAlchemy async, necesitamos usar nextset() si está disponible
+                    # Por ahora, solo procesamos el primer result set
+                    break
+                except Exception:
+                    break
+            
+            return results if results else []
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error en execute_procedure_params async: {str(e)}")
+            raise DatabaseError(
+                detail=f"Error ejecutando stored procedure {procedure_name}: {str(e)}",
+                internal_code="DB_PROCEDURE_ERROR"
+            )

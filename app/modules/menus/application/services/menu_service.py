@@ -1,11 +1,14 @@
 # app/services/menu_service.py
 from typing import List, Dict, Optional, Any
+from uuid import UUID
 import logging
 
 # 🗄️ IMPORTACIONES DE BASE DE DATOS
+# ✅ FASE 2: Migrar a queries_async
+from app.infrastructure.database.queries_async import (
+    execute_query, execute_insert, execute_update, execute_procedure, execute_procedure_params
+)
 from app.infrastructure.database.queries import (
-    execute_procedure, execute_procedure_params, execute_query, 
-    execute_insert, execute_update,
     GET_ALL_MENUS_ADMIN, INSERT_MENU, SELECT_MENU_BY_ID, UPDATE_MENU_TEMPLATE,
     DEACTIVATE_MENU, REACTIVATE_MENU, CHECK_MENU_EXISTS, CHECK_AREA_EXISTS,
     GET_MENUS_BY_AREA_FOR_TREE_QUERY, GET_MAX_ORDEN_FOR_SIBLINGS, GET_MAX_ORDEN_FOR_ROOT
@@ -47,7 +50,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_menu_for_user(usuario_id: int) -> MenuResponse:
+    async def get_menu_for_user(usuario_id: UUID) -> MenuResponse:
         """
         Obtiene la estructura de menú filtrada según los roles y permisos del usuario.
         
@@ -72,7 +75,8 @@ class MenuService(BaseService):
         
         try:
             # 🗄️ EJECUTAR STORED PROCEDURE
-            resultado_sp = execute_procedure_params(procedure_name, params_dict)
+            # ✅ FASE 2: Usar await
+            resultado_sp = await execute_procedure_params(procedure_name, params_dict)
 
             if not resultado_sp:
                 logger.info(f"No se encontraron menús permitidos para el usuario ID: {usuario_id}.")
@@ -101,7 +105,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_todos_menus_estructurados_admin(cliente_id: int) -> MenuResponse:
+    async def obtener_todos_menus_estructurados_admin(cliente_id: UUID) -> MenuResponse:
         """
         Obtiene la estructura completa de menús **de un cliente** para administración.
         
@@ -152,7 +156,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_menu_por_id(menu_id: int, cliente_id: Optional[int] = None) -> Optional[MenuReadSingle]:
+    async def obtener_menu_por_id(menu_id: UUID, cliente_id: Optional[UUID] = None) -> Optional[MenuReadSingle]:
         """
         Obtiene los detalles de un menú específico por su ID con validación multi-tenant.
         
@@ -180,7 +184,8 @@ class MenuService(BaseService):
         try:
             # ✅ FILTRAR POR cliente_id SI SE PROPORCIONA
             if cliente_id is not None:
-                resultado = execute_query(SELECT_MENU_BY_ID, (menu_id, cliente_id))
+                # ✅ FASE 2: Usar await
+                resultado = await execute_query(SELECT_MENU_BY_ID, (menu_id, cliente_id))
             else:
                 # Uso interno: obtener cualquier menú sin filtro de cliente
                 query_interno = """
@@ -190,7 +195,8 @@ class MenuService(BaseService):
                 LEFT JOIN area_menu a ON m.area_id = a.area_id
                 WHERE m.menu_id = ?
                 """
-                resultado = execute_query(query_interno, (menu_id,))
+                # ✅ FASE 2: Usar await
+                resultado = await execute_query(query_interno, (menu_id,))
             
             if not resultado:
                 logger.debug(f"Menú con ID {menu_id} no encontrado para cliente {cliente_id}.")
@@ -216,7 +222,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_menu(cliente_id: int, menu_data: MenuCreate) -> MenuReadSingle:
+    async def crear_menu(cliente_id: UUID, menu_data: MenuCreate) -> MenuReadSingle:
         """
         Crea un nuevo menú en el sistema **para un cliente específico** con validaciones completas.
         
@@ -243,7 +249,8 @@ class MenuService(BaseService):
             if menu_data.padre_menu_id:
                 # Verificar que el menú padre exista Y pertenezca al mismo cliente
                 padre_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
-                padre_result = execute_query(padre_query, (menu_data.padre_menu_id,))
+                # ✅ FASE 2: Usar await
+                padre_result = await execute_query(padre_query, (menu_data.padre_menu_id,))
                 if not padre_result:
                     raise ValidationError(
                         detail=f"El menú padre con ID {menu_data.padre_menu_id} no existe.",
@@ -264,7 +271,8 @@ class MenuService(BaseService):
             else:
                 # Verificar que el área exista Y pertenezca al mismo cliente
                 area_query = "SELECT cliente_id FROM area_menu WHERE area_id = ?"
-                area_result = execute_query(area_query, (menu_data.area_id,))
+                # ✅ FASE 2: Usar await
+                area_result = await execute_query(area_query, (menu_data.area_id,))
                 if not area_result:
                     raise ValidationError(
                         detail=f"El área con ID {menu_data.area_id} no existe.",
@@ -280,12 +288,14 @@ class MenuService(BaseService):
             # 🧮 CALCULAR ORDEN AUTOMÁTICAMENTE
             max_orden_result = None
             if menu_data.padre_menu_id:
-                max_orden_result = execute_query(
+                # ✅ FASE 2: Usar await
+                max_orden_result = await execute_query(
                     GET_MAX_ORDEN_FOR_SIBLINGS, 
                     (cliente_id, menu_data.area_id, menu_data.padre_menu_id)
                 )
             else:
-                max_orden_result = execute_query(
+                # ✅ FASE 2: Usar await
+                max_orden_result = await execute_query(
                     GET_MAX_ORDEN_FOR_ROOT, 
                     (cliente_id, menu_data.area_id)
                 )
@@ -309,7 +319,8 @@ class MenuService(BaseService):
                 menu_data.es_activo
             )
 
-            resultado = execute_insert(INSERT_MENU, params)
+            # ✅ FASE 2: Usar await
+            resultado = await execute_insert(INSERT_MENU, params)
             
             if not resultado or 'menu_id' not in resultado:
                 raise ServiceError(
@@ -321,7 +332,8 @@ class MenuService(BaseService):
             # 📍 OBTENER NOMBRE DEL ÁREA PARA LA RESPUESTA
             area_nombre = None
             if resultado.get('area_id'):
-                area_info = execute_query(
+                # ✅ FASE 2: Usar await
+                area_info = await execute_query(
                     "SELECT nombre FROM area_menu WHERE area_id = ?", 
                     (resultado['area_id'],)
                 )
@@ -352,7 +364,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def actualizar_menu(menu_id: int, menu_data: MenuUpdate, cliente_id: Optional[int] = None) -> MenuReadSingle:
+    async def actualizar_menu(menu_id: UUID, menu_data: MenuUpdate, cliente_id: Optional[UUID] = None) -> MenuReadSingle:
         """
         Actualiza un menú existente con validaciones de integridad **por cliente**.
         
@@ -463,7 +475,8 @@ class MenuService(BaseService):
                 menu_id
             )
             
-            resultado = execute_update(UPDATE_MENU_TEMPLATE, params)
+            # ✅ FASE 2: Usar await
+            resultado = await execute_update(UPDATE_MENU_TEMPLATE, params)
             
             if not resultado:
                 raise ServiceError(
@@ -475,7 +488,8 @@ class MenuService(BaseService):
             # 📍 OBTENER NOMBRE DEL ÁREA ACTUALIZADO
             area_nombre = None
             if resultado.get('area_id'):
-                area_info = execute_query(
+                # ✅ FASE 2: Usar await
+                area_info = await execute_query(
                     "SELECT nombre FROM area_menu WHERE area_id = ?", 
                     (resultado['area_id'],)
                 )
@@ -506,7 +520,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def desactivar_menu(menu_id: int) -> Dict[str, Any]:
+    async def desactivar_menu(menu_id: UUID) -> Dict[str, Any]:
         """
         Desactiva un menú (borrado lógico).
         
@@ -528,11 +542,13 @@ class MenuService(BaseService):
         logger.info(f"Intentando desactivar menú ID: {menu_id}")
         
         try:
-            resultado = execute_update(DEACTIVATE_MENU, (menu_id,))
+            # ✅ FASE 2: Usar await
+            resultado = await execute_update(DEACTIVATE_MENU, (menu_id,))
             
             if not resultado:
                 # 🔍 VERIFICAR SI EXISTE O YA ESTÁ INACTIVO
-                menu_existente = execute_query(CHECK_MENU_EXISTS, (menu_id,))
+                # ✅ FASE 2: Usar await
+                menu_existente = await execute_query(CHECK_MENU_EXISTS, (menu_id,))
                 if not menu_existente:
                     raise NotFoundError(
                         detail=f"Menú con ID {menu_id} no encontrado para desactivar.",
@@ -569,7 +585,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def reactivar_menu(menu_id: int) -> Dict[str, Any]:
+    async def reactivar_menu(menu_id: UUID) -> Dict[str, Any]:
         """
         Reactiva un menú previamente desactivado.
         
@@ -591,7 +607,8 @@ class MenuService(BaseService):
         logger.info(f"Intentando reactivar menú ID: {menu_id}")
         
         try:
-            resultado = execute_update(REACTIVATE_MENU, (menu_id,))
+            # ✅ FASE 2: Usar await
+            resultado = await execute_update(REACTIVATE_MENU, (menu_id,))
             
             if not resultado:
                 raise NotFoundError(
@@ -624,7 +641,7 @@ class MenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_arbol_menu_por_area(area_id: int, cliente_id: int) -> MenuResponse:
+    async def obtener_arbol_menu_por_area(area_id: UUID, cliente_id: UUID) -> MenuResponse:
         """
         Obtiene la estructura jerárquica de menús para un área específica **de un cliente**.
         
@@ -647,7 +664,8 @@ class MenuService(BaseService):
         
         try:
             params = (area_id, cliente_id)
-            menu_items_raw_list = execute_query(GET_MENUS_BY_AREA_FOR_TREE_QUERY, params)
+            # ✅ FASE 2: Usar await
+            menu_items_raw_list = await execute_query(GET_MENUS_BY_AREA_FOR_TREE_QUERY, params)
 
             if not menu_items_raw_list:
                 logger.info(f"No se encontraron menús para el cliente {cliente_id}, área ID: {area_id}.")

@@ -15,6 +15,7 @@ Características principales:
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 import re
 
 class RolBase(BaseModel):
@@ -24,9 +25,9 @@ class RolBase(BaseModel):
     """
     
     # === CRÍTICO: MULTI-TENANT AWARENESS ===
-    cliente_id: Optional[int] = Field(
+    cliente_id: Optional[UUID] = Field(
         None,
-        description="Identificador único del cliente/tenant. NULL para roles de sistema globales e inmutables."
+        description="Identificador único del cliente/tenant (UUID). NULL para roles de sistema globales e inmutables."
     )
     
     codigo_rol: Optional[str] = Field(
@@ -144,17 +145,43 @@ class RolBase(BaseModel):
         
         CRÍTICO: Validar que un rol de sistema (con codigo_rol) NO tenga cliente_id asignado, o viceversa.
         """
-        if self.codigo_rol is not None and self.cliente_id is not None:
-             if self.cliente_id != 1: # Permitir codigo_rol para el cliente SUPER ADMIN (ID=1)
-                raise ValueError(
-                    'Un rol con codigo_rol (rol de sistema) solo puede pertenecer al cliente SUPER ADMIN (cliente_id=1). '
-                    'Para otros clientes, cree un rol de cliente (codigo_rol=NULL).'
-                )
-        elif self.codigo_rol is None and self.cliente_id is None:
-            # Si no tiene código de rol y no tiene cliente_id, es un error, debe ser rol de sistema o de cliente.
-            # Asumimos que si no hay cliente_id, es un rol global que *debería* tener un codigo_rol.
-            # Permitimos la creación de roles de cliente sin codigo_rol (cliente_id != NULL).
-            pass
+        # ⚠️ Nota: La validación de cliente_id=1 para SUPER ADMIN debe hacerse en el servicio
+        # ya que ahora cliente_id es UUID y no podemos comparar directamente con 1
+        
+        # ✅ CORRECCIÓN: En BD dedicadas, los roles pueden tener codigo_rol pero cliente_id NULL o UUID nulo
+        # Validar que un rol de sistema (con codigo_rol) NO tenga cliente_id asignado (excepto NULL o UUID nulo)
+        from uuid import UUID
+        
+        cliente_id_valido = self.cliente_id
+        if cliente_id_valido is not None:
+            # Convertir a UUID si es string para comparar
+            if isinstance(cliente_id_valido, str):
+                try:
+                    cliente_id_valido = UUID(cliente_id_valido)
+                except (ValueError, AttributeError):
+                    cliente_id_valido = None
+            elif not isinstance(cliente_id_valido, UUID):
+                cliente_id_valido = None
+            
+            # Verificar si es UUID nulo
+            if isinstance(cliente_id_valido, UUID) and cliente_id_valido == UUID('00000000-0000-0000-0000-000000000000'):
+                cliente_id_valido = None
+        
+        # Solo validar si cliente_id no es None y no es UUID nulo
+        if self.codigo_rol is not None and cliente_id_valido is not None:
+            raise ValueError(
+                'Un rol de sistema (con código de rol) no puede tener cliente_id asignado. '
+                'Los roles de sistema son globales y no pertenecen a un cliente específico.'
+            )
+        
+        # Si no tiene código de rol y no tiene cliente_id, es un error, debe ser rol de sistema o de cliente.
+        # Asumimos que si no hay cliente_id, es un rol global que *debería* tener un codigo_rol.
+        # Permitimos la creación de roles de cliente sin codigo_rol (cliente_id != NULL).
+        if self.codigo_rol is None and self.cliente_id is None:
+            raise ValueError(
+                'El rol debe tener un código de rol (si es rol de sistema) o un cliente_id (si es rol de cliente). '
+                'No puede estar vacío en ambos campos.'
+            )
             
         return self
 
@@ -207,10 +234,10 @@ class RolRead(RolBase):
     multi-tenant.
     """
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        description="Identificador único del rol en el sistema",
-        examples=[1, 2, 3]
+        description="Identificador único del rol en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     fecha_creacion: datetime = Field(
@@ -271,10 +298,10 @@ class PermisoBase(BaseModel):
     Schema base para permisos de roles sobre menús.
     """
     
-    menu_id: int = Field(
+    menu_id: UUID = Field(
         ...,
-        description="ID del menú al que aplican los permisos",
-        examples=[1, 2, 3]
+        description="ID del menú al que aplican los permisos (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     puede_ver: bool = Field(
@@ -294,15 +321,8 @@ class PermisoBase(BaseModel):
         description="Permiso para eliminar contenido asociado al menú",
         examples=[True, False]
     )
-
-    @field_validator('menu_id')
-    @classmethod
-    def validar_menu_id(cls, valor: int) -> int:
-        """Valida que el ID del menú sea un valor positivo."""
-        if valor < 1:
-            raise ValueError('El ID del menú debe ser un número positivo')
-        
-        return valor
+    
+    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -315,16 +335,16 @@ class PermisoRead(PermisoBase):
     Schema para lectura de permisos existentes.
     """
     
-    rol_menu_id: int = Field(
+    rol_menu_id: UUID = Field(
         ...,
-        description="ID único del registro de permiso en la tabla de relación",
-        examples=[1, 2, 3]
+        description="ID único del registro de permiso en la tabla de relación (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        description="ID del rol al que pertenece el permiso",
-        examples=[1, 2, 3]
+        description="ID del rol al que pertenece el permiso (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440001"]
     )
 
 class PermisoUpdatePayload(BaseModel):
@@ -383,18 +403,16 @@ class RolMenuPermisoBase(BaseModel):
     las reglas de validación esenciales para mantener la seguridad del sistema.
     """
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        ge=1,
-        description="ID del rol al que se asignan los permisos",
-        examples=[1, 2, 3]
+        description="ID del rol al que se asignan los permisos (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
-    menu_id: int = Field(
+    menu_id: UUID = Field(
         ...,
-        ge=1,
-        description="ID del menú sobre el que se aplican los permisos",
-        examples=[1, 2, 3]
+        description="ID del menú sobre el que se aplican los permisos (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440001"]
     )
     
     puede_ver: bool = Field(
@@ -414,46 +432,8 @@ class RolMenuPermisoBase(BaseModel):
         description="Permiso para eliminar contenido asociado al menú",
         examples=[True, False]
     )
-
-    @field_validator('rol_id')
-    @classmethod
-    def validar_rol_id(cls, valor: int) -> int:
-        """
-        Valida que el ID del rol sea un valor positivo.
-        
-        Args:
-            valor: ID del rol a validar
-            
-        Returns:
-            int: ID del rol validado
-            
-        Raises:
-            ValueError: Cuando el ID no es positivo
-        """
-        if valor < 1:
-            raise ValueError('El ID del rol debe ser un número positivo mayor a 0')
-        
-        return valor
-
-    @field_validator('menu_id')
-    @classmethod
-    def validar_menu_id(cls, valor: int) -> int:
-        """
-        Valida que el ID del menú sea un valor positivo.
-        
-        Args:
-            valor: ID del menú a validar
-            
-        Returns:
-            int: ID del menú validado
-            
-        Raises:
-            ValueError: Cuando el ID no es positivo
-        """
-        if valor < 1:
-            raise ValueError('El ID del menú debe ser un número positivo mayor a 0')
-        
-        return valor
+    
+    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
 
     @model_validator(mode='after')
     def validar_consistencia_permisos(self) -> 'RolMenuPermisoBase':
@@ -554,10 +534,10 @@ class RolMenuPermisoRead(RolMenuPermisoBase):
     único del registro de permiso en el sistema.
     """
     
-    rol_menu_id: int = Field(
+    rol_menu_id: UUID = Field(
         ...,
-        description="Identificador único del permiso rol-menú en el sistema",
-        examples=[1, 2, 3]
+        description="Identificador único del permiso rol-menú en el sistema (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
 
     class Config:
@@ -616,19 +596,19 @@ class RolMenuPermisoBulkUpdate(BaseModel):
     simultáneamente para un rol específico.
     """
     
-    permisos: dict[int, Dict[str, bool]] = Field(
+    permisos: dict[UUID, Dict[str, bool]] = Field(
         ...,
-        description="Diccionario donde las claves son menu_id y los valores son diccionarios de permisos",
+        description="Diccionario donde las claves son menu_id (UUID) y los valores son diccionarios de permisos",
         examples=[{
-            1: {"puede_ver": True, "puede_editar": False, "puede_eliminar": False},
-            2: {"puede_ver": True, "puede_editar": True, "puede_eliminar": False},
-            3: {"puede_ver": False, "puede_editar": False, "puede_eliminar": False}
+            "550e8400-e29b-41d4-a716-446655440000": {"puede_ver": True, "puede_editar": False, "puede_eliminar": False},
+            "550e8400-e29b-41d4-a716-446655440001": {"puede_ver": True, "puede_editar": True, "puede_eliminar": False},
+            "550e8400-e29b-41d4-a716-446655440002": {"puede_ver": False, "puede_editar": False, "puede_eliminar": False}
         }]
     )
 
     @field_validator('permisos')
     @classmethod
-    def validar_permisos_masivos(cls, valor: dict[int, Dict[str, bool]]) -> dict[int, Dict[str, bool]]:
+    def validar_permisos_masivos(cls, valor: dict[UUID, Dict[str, bool]]) -> dict[UUID, Dict[str, bool]]:
         """
         Valida la estructura y consistencia de los permisos masivos.
         
@@ -645,9 +625,7 @@ class RolMenuPermisoBulkUpdate(BaseModel):
             raise ValueError('El diccionario de permisos no puede estar vacío')
         
         for menu_id, permisos in valor.items():
-            # Validar menu_id positivo
-            if menu_id < 1:
-                raise ValueError(f'El ID del menú {menu_id} debe ser un número positivo')
+            # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
             
             # Validar estructura de permisos
             permisos_requeridos = {'puede_ver', 'puede_editar', 'puede_eliminar'}
@@ -690,10 +668,10 @@ class RolMenuPermisoSummary(BaseModel):
     de un rol específico sin todos los detalles.
     """
     
-    rol_id: int = Field(
+    rol_id: UUID = Field(
         ...,
-        description="ID del rol",
-        examples=[1, 2, 3]
+        description="ID del rol (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
     rol_nombre: str = Field(

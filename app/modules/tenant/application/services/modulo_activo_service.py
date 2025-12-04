@@ -16,7 +16,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 import logging
-from app.infrastructure.database.queries import execute_query, execute_insert, execute_update
+from sqlalchemy import text
+from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.exceptions import (
     ValidationError,
     ConflictError,
@@ -31,7 +32,7 @@ from app.modules.tenant.presentation.schemas import (
     ModuloActivoRead,
     ModuloActivoConEstadisticas,
 )
-from app.infrastructure.database.connection import DatabaseConnection
+from app.infrastructure.database.connection_async import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +82,15 @@ class ModuloActivoService(BaseService):
             cm.descripcion as modulo_descripcion
         FROM cliente_modulo_activo cma
         INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
-        WHERE cma.cliente_id = ? AND cma.esta_activo = 1
+        WHERE cma.cliente_id = :cliente_id AND cma.esta_activo = 1
         ORDER BY cm.orden, cm.nombre
         """
         
-        resultados = execute_query(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        resultados = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         # Deserializar configuracion_json de string a Dict antes de crear objetos
         modulos_deserializados = [ModuloActivoService._deserializar_configuracion_json(dict(modulo)) for modulo in resultados]
         return [ModuloActivoRead(**modulo) for modulo in modulos_deserializados]
@@ -112,10 +117,14 @@ class ModuloActivoService(BaseService):
             cm.descripcion as modulo_descripcion
         FROM cliente_modulo_activo cma
         INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
-        WHERE cma.cliente_modulo_activo_id = ?
+        WHERE cma.cliente_modulo_activo_id = :modulo_activo_id
         """
         
-        resultado = execute_query(query, (modulo_activo_id,), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(modulo_activo_id=modulo_activo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         # Deserializar configuracion_json de string a Dict antes de crear objeto
@@ -147,10 +156,14 @@ class ModuloActivoService(BaseService):
             cm.descripcion as modulo_descripcion
         FROM cliente_modulo_activo cma
         INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
-        WHERE cma.cliente_id = ? AND cma.modulo_id = ? AND cma.esta_activo = 1
+        WHERE cma.cliente_id = :cliente_id AND cma.modulo_id = :modulo_id AND cma.esta_activo = 1
         """
         
-        resultado = execute_query(query, (cliente_id, modulo_id), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id, modulo_id=modulo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             return None
         # Deserializar configuracion_json de string a Dict antes de crear objeto
@@ -169,15 +182,19 @@ class ModuloActivoService(BaseService):
         """
         query = """
         SELECT cliente_modulo_activo_id FROM cliente_modulo_activo 
-        WHERE cliente_id = ? AND modulo_id = ? AND esta_activo = 1
+        WHERE cliente_id = :cliente_id AND modulo_id = :modulo_id AND esta_activo = 1
         """
-        params = [cliente_id, modulo_id]
+        bind_params = {"cliente_id": cliente_id, "modulo_id": modulo_id}
         
         if modulo_activo_id:
-            query += " AND cliente_modulo_activo_id != ?"
-            params.append(modulo_activo_id)
+            query += " AND cliente_modulo_activo_id != :modulo_activo_id"
+            bind_params["modulo_activo_id"] = modulo_activo_id
             
-        resultado = execute_query(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if resultado:
             raise ConflictError(
                 detail="El módulo ya está activado para este cliente.",
@@ -232,9 +249,13 @@ class ModuloActivoService(BaseService):
         query_existe = """
         SELECT cliente_modulo_activo_id, esta_activo
         FROM cliente_modulo_activo
-        WHERE cliente_id = ? AND modulo_id = ?
+        WHERE cliente_id = :cliente_id AND modulo_id = :modulo_id
         """
-        existe_raw = execute_query(query_existe, (modulo_data.cliente_id, modulo_data.modulo_id), connection_type=DatabaseConnection.ADMIN)
+        existe_raw = await execute_query(
+            text(query_existe).bindparams(cliente_id=modulo_data.cliente_id, modulo_id=modulo_data.modulo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         
         # Preparar datos
         configuracion_json = json.dumps(modulo_data.configuracion_json) if modulo_data.configuracion_json else None
@@ -247,23 +268,27 @@ class ModuloActivoService(BaseService):
             query_update = """
             UPDATE cliente_modulo_activo
             SET esta_activo = 1,
-                fecha_vencimiento = ?,
-                configuracion_json = ?,
-                limite_usuarios = ?,
-                limite_registros = ?
-            WHERE cliente_modulo_activo_id = ?
+                fecha_vencimiento = :fecha_vencimiento,
+                configuracion_json = :configuracion_json,
+                limite_usuarios = :limite_usuarios,
+                limite_registros = :limite_registros
+            WHERE cliente_modulo_activo_id = :modulo_activo_id
             """
             
-            params_update = [
-                modulo_data.fecha_vencimiento,
-                configuracion_json,
-                modulo_data.limite_usuarios,
-                modulo_data.limite_registros,
-                modulo_activo_id
-            ]
+            bind_params = {
+                "fecha_vencimiento": modulo_data.fecha_vencimiento,
+                "configuracion_json": configuracion_json,
+                "limite_usuarios": modulo_data.limite_usuarios,
+                "limite_registros": modulo_data.limite_registros,
+                "modulo_activo_id": modulo_activo_id
+            }
             
             # Ejecutar UPDATE
-            resultado_update = execute_update(query_update, tuple(params_update), connection_type=DatabaseConnection.ADMIN)
+            resultado_update = await execute_update(
+                text(query_update).bindparams(**bind_params),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None
+            )
             
             if resultado_update.get('rows_affected', 0) == 0:
                 raise ServiceError(
@@ -305,10 +330,15 @@ class ModuloActivoService(BaseService):
                 INSERTED.configuracion_json,
                 INSERTED.limite_usuarios,
                 INSERTED.limite_registros
-            VALUES ({', '.join(['?'] * len(fields))})
+            VALUES ({', '.join([f':param_{i}' for i in range(len(fields))])})
             """
 
-            resultado = execute_insert(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+            bind_params = {f"param_{i}": value for i, value in enumerate(params)}
+            resultado = await execute_insert(
+                text(query).bindparams(**bind_params),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None
+            )
             if not resultado:
                 raise ServiceError(
                     status_code=500,
@@ -351,16 +381,17 @@ class ModuloActivoService(BaseService):
 
         # Construir query dinámica basada en los campos proporcionados
         update_fields = []
-        params = []
+        bind_params = {}
         
-        for field, value in modulo_data.dict(exclude_unset=True).items():
+        for idx, (field, value) in enumerate(modulo_data.dict(exclude_unset=True).items()):
             if value is not None:
+                param_name = f"param_{idx}"
                 if field == "configuracion_json":
-                    update_fields.append("configuracion_json = ?")
-                    params.append(json.dumps(value))
+                    update_fields.append("configuracion_json = :" + param_name)
+                    bind_params[param_name] = json.dumps(value)
                 else:
-                    update_fields.append(f"{field} = ?")
-                    params.append(value)
+                    update_fields.append(f"{field} = :{param_name}")
+                    bind_params[param_name] = value
                 
         if not update_fields:
             raise ValidationError(
@@ -368,7 +399,7 @@ class ModuloActivoService(BaseService):
                 internal_code="NO_UPDATE_FIELDS"
             )
             
-        params.append(modulo_activo_id)
+        bind_params["modulo_activo_id"] = modulo_activo_id
 
         query = f"""
         UPDATE cliente_modulo_activo
@@ -383,10 +414,14 @@ class ModuloActivoService(BaseService):
             INSERTED.configuracion_json,
             INSERTED.limite_usuarios,
             INSERTED.limite_registros
-        WHERE cliente_modulo_activo_id = ?
+        WHERE cliente_modulo_activo_id = :modulo_activo_id
         """
 
-        resultado = execute_update(query, tuple(params), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_update(
+            text(query).bindparams(**bind_params),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         if not resultado:
             raise ServiceError(
                 status_code=500,
@@ -429,10 +464,14 @@ class ModuloActivoService(BaseService):
         query = """
         UPDATE cliente_modulo_activo
         SET esta_activo = 0
-        WHERE cliente_modulo_activo_id = ?
+        WHERE cliente_modulo_activo_id = :modulo_activo_id
         """
         
-        execute_update(query, (modulo_activo_id,), connection_type=DatabaseConnection.ADMIN)
+        await execute_update(
+            text(query).bindparams(modulo_activo_id=modulo_activo_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
         logger.info(f"Módulo activo ID {modulo_activo_id} desactivado exitosamente.")
         return True
 
