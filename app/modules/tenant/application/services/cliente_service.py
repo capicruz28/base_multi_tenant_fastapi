@@ -753,3 +753,101 @@ class ClienteService(BaseService):
         
         logger.info(f"Branding obtenido exitosamente para cliente_id={cliente_id}")
         return branding
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def get_branding_by_subdomain(subdominio: str) -> BrandingRead:
+        """
+        Obtiene la configuración de branding de un cliente por su subdominio.
+        
+        Este método es utilizado por el endpoint público de branding por subdominio,
+        que permite obtener la configuración visual antes de autenticarse.
+        
+        Args:
+            subdominio: Subdominio del cliente (ej: 'techcorp', 'acme')
+            
+        Returns:
+            BrandingRead con la configuración de branding o valores por defecto
+            
+        Raises:
+            NotFoundError: Si el subdominio no existe o el cliente está inactivo
+            ValidationError: Si el subdominio tiene formato inválido
+            ServiceError: Si hay error en la consulta
+        """
+        logger.info(f"Solicitando branding para subdominio={subdominio}")
+        
+        # Validar formato del subdominio
+        if not subdominio or not isinstance(subdominio, str):
+            raise ValidationError(
+                detail="El subdominio es requerido",
+                internal_code="SUBDOMAIN_REQUIRED"
+            )
+        
+        # Limpiar y normalizar subdominio
+        subdominio = subdominio.strip().lower()
+        
+        # Validar formato (solo letras minúsculas, números y guiones)
+        patron = r'^[a-z0-9-]+$'
+        if not re.match(patron, subdominio):
+            raise ValidationError(
+                detail="Subdominio inválido. Solo se permiten letras minúsculas, números y guiones.",
+                internal_code="INVALID_SUBDOMAIN_FORMAT"
+            )
+        
+        # Query optimizada: buscar cliente por subdominio y obtener branding
+        query = """
+        SELECT 
+            cliente_id,
+            logo_url,
+            favicon_url,
+            color_primario,
+            color_secundario,
+            tema_personalizado,
+            es_activo
+        FROM cliente
+        WHERE LOWER(subdominio) = LOWER(:subdominio)
+        """
+        
+        # ✅ IMPORTANTE: La tabla 'cliente' está en la BD del sistema (ADMIN)
+        resultado = await execute_query(
+            text(query).bindparams(subdominio=subdominio),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None
+        )
+        
+        if not resultado or len(resultado) == 0:
+            raise NotFoundError(
+                detail="No se encontró branding para el subdominio proporcionado",
+                internal_code="SUBDOMAIN_NOT_FOUND"
+            )
+        
+        row = resultado[0]
+        
+        # Validar que el cliente esté activo
+        if not row.get('es_activo', False):
+            raise NotFoundError(
+                detail="No se encontró branding para el subdominio proporcionado",
+                internal_code="CLIENT_INACTIVE"
+            )
+        
+        # Parsear tema_personalizado de JSON string a dict
+        tema_personalizado = None
+        if row.get('tema_personalizado'):
+            try:
+                import json
+                tema_personalizado = json.loads(row['tema_personalizado'])
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Error parseando tema_personalizado para subdominio {subdominio}: {e}")
+                tema_personalizado = None
+        
+        # Construir respuesta con valores por defecto si no hay branding configurado
+        branding = BrandingRead(
+            logo_url=row.get('logo_url'),
+            favicon_url=row.get('favicon_url'),
+            color_primario=row.get('color_primario') or '#1976D2',
+            color_secundario=row.get('color_secundario') or '#424242',
+            tema_personalizado=tema_personalizado
+        )
+        
+        logger.info(f"Branding obtenido exitosamente para subdominio={subdominio}")
+        return branding

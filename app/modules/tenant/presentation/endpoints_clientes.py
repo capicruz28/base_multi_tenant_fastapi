@@ -24,6 +24,7 @@ from app.modules.tenant.presentation.schemas import (
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.core.authorization.lbac import require_super_admin
 from app.api.deps import get_current_active_user
+from app.core.exceptions import ValidationError, NotFoundError
 from math import ceil
 
 logger = logging.getLogger(__name__)
@@ -471,6 +472,72 @@ async def debug_access_levels(current_user = Depends(get_current_active_user)):
         # CORREGIDO: Usar solo campos que existen en RolRead
         "roles_asignados": [{"nombre": r.nombre, "rol_id": r.rol_id} for r in current_user.roles]
     }
+
+
+@router.get(
+    "/branding",
+    response_model=BrandingRead,
+    summary="Obtener branding por subdominio (público)",
+    description="""
+    Obtiene la configuración de branding de un tenant basándose en su subdominio.
+    **Este endpoint es público y no requiere autenticación.**
+    
+    Útil para mostrar el branding personalizado en la página de login antes de que el usuario se autentique.
+    
+    **Características:**
+    - ✅ Público: No requiere autenticación (sin token JWT)
+    - ✅ Sin cookies: No requiere cookies de sesión
+    - ✅ Read-only: Solo lectura, no modifica datos
+    - Retorna valores por defecto si no hay branding configurado (200 OK)
+    - Parsea tema_personalizado de JSON a objeto
+    
+    **Parámetros:**
+    - subdominio (query, requerido): Subdominio del tenant (ej: 'techcorp', 'acme')
+    
+    **Respuestas:**
+    - 200: Branding obtenido exitosamente (o valores por defecto si no hay branding)
+    - 400: Subdominio inválido o vacío
+    - 404: Subdominio no encontrado o cliente inactivo
+    - 500: Error interno del servidor
+    """
+)
+async def obtener_branding_por_subdominio(
+    subdominio: str = Query(..., description="Subdominio del tenant", min_length=1)
+):
+    """
+    Obtiene la configuración de branding por subdominio (endpoint público).
+    
+    Este endpoint permite obtener la configuración de branding de un tenant
+    basándose en su subdominio, sin requerir autenticación.
+    """
+    try:
+        logger.info(f"Solicitud GET /branding recibida para subdominio={subdominio}")
+        
+        # El servicio valida el formato y busca el cliente
+        branding = await ClienteService.get_branding_by_subdomain(subdominio)
+        
+        return branding
+        
+    except ValidationError as e:
+        logger.warning(f"Error de validación en obtener_branding_por_subdominio: {e.detail}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.detail
+        )
+    except NotFoundError as e:
+        logger.warning(f"Subdominio no encontrado: {subdominio}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.detail
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error inesperado en obtener_branding_por_subdominio: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor"
+        )
 
 
 @router.get(
