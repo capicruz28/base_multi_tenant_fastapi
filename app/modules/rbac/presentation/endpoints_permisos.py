@@ -18,26 +18,28 @@ Características principales:
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Path
 from typing import List, Dict, Optional, Any
 from uuid import UUID
-
-# Importar Schemas (Manteniéndolos aquí como se especificó, idealmente en app/schemas/permiso.py)
 from pydantic import BaseModel, Field
 
-class PermisoBase(BaseModel):
+# ✅ Importar Schemas actualizados desde schemas.py
+from app.modules.rbac.presentation.schemas import PermisoRead, PermisoBase, RolMenuPermisoRead, RolMenuPermisoUpdate
+
+# ✅ Schema para crear/actualizar permisos sin menu_id (viene de la URL)
+class PermisoCreateUpdate(BaseModel):
+    """
+    Schema para crear/actualizar permisos en endpoint PUT.
+    No incluye menu_id porque viene de la URL.
+    """
     puede_ver: Optional[bool] = Field(None, description="Permiso para ver el menú")
-    puede_editar: Optional[bool] = Field(None, description="Permiso para editar (ej. contenido asociado al menú)")
-    puede_eliminar: Optional[bool] = Field(None, description="Permiso para eliminar (ej. contenido asociado al menú)")
-
-class PermisoCreateUpdate(PermisoBase):
-    # Al menos uno debe ser proporcionado al crear/actualizar
-    pass
-
-class PermisoRead(PermisoBase):
-    rol_menu_id: UUID
-    rol_id: UUID
-    menu_id: UUID
-
+    puede_crear: Optional[bool] = Field(None, description="Permiso para crear nuevos registros")
+    puede_editar: Optional[bool] = Field(None, description="Permiso para editar contenido")
+    puede_eliminar: Optional[bool] = Field(None, description="Permiso para eliminar contenido")
+    puede_exportar: Optional[bool] = Field(None, description="Permiso para exportar datos")
+    puede_imprimir: Optional[bool] = Field(None, description="Permiso para imprimir datos")
+    puede_aprobar: Optional[bool] = Field(None, description="Permiso para aprobar acciones")
+    permisos_extra: Optional[str] = Field(None, description="JSON con permisos específicos del módulo")
+    
     class Config:
-        from_attributes = True # Compatible con ORM o diccionarios
+        from_attributes = True
 
 class PermisoReadWithMenu(PermisoRead):
     menu_nombre: Optional[str] = None
@@ -113,20 +115,39 @@ async def set_permission(
         HTTPException: En caso de rol/menú no encontrado (404), error de validación (422) o error interno (500).
     """
     logger.info(f"Solicitud PUT /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear/actualizar")
+    
+    # ✅ CORRECCIÓN CRÍTICA: Usar cliente_id del contexto del tenant, no del usuario autenticado
+    # Esto permite que superadmin opere en el contexto del tenant al que accede
+    from app.core.tenant.context import get_current_client_id
     try:
+        tenant_cliente_id = get_current_client_id()
+    except RuntimeError:
+        # Fallback: usar cliente_id del usuario si no hay contexto de tenant
+        tenant_cliente_id = current_user.cliente_id
+        logger.warning(f"No se pudo obtener cliente_id del contexto de tenant, usando cliente_id del usuario: {tenant_cliente_id}")
+    
+    logger.debug(f"[PERMISOS] Usando cliente_id del tenant: {tenant_cliente_id} (usuario autenticado: {current_user.cliente_id})")
+    
+    try:
+        # ✅ Actualizado: Incluir todos los permisos extendidos
         updated_perm = await PermisoService.asignar_o_actualizar_permiso(
-            cliente_id=current_user.cliente_id,
+            cliente_id=tenant_cliente_id,
             rol_id=rol_id,
             menu_id=menu_id,
             puede_ver=permisos_in.puede_ver,
+            puede_crear=permisos_in.puede_crear,
             puede_editar=permisos_in.puede_editar,
-            puede_eliminar=permisos_in.puede_eliminar
+            puede_eliminar=permisos_in.puede_eliminar,
+            puede_exportar=permisos_in.puede_exportar,
+            puede_imprimir=permisos_in.puede_imprimir,
+            puede_aprobar=permisos_in.puede_aprobar,
+            permisos_extra=permisos_in.permisos_extra
         )
-        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} gestionado exitosamente en cliente {current_user.cliente_id}.")
+        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} gestionado exitosamente en cliente {tenant_cliente_id}.")
         return updated_perm
     # MODIFICACIÓN: Capturar CustomException en lugar de ServiceError/ValidationError
     except CustomException as ce:
-        logger.warning(f"Error de negocio al gestionar permiso (Rol: {rol_id}, Menú: {menu_id}) en cliente {current_user.cliente_id}: {ce.detail}")
+        logger.warning(f"Error de negocio al gestionar permiso (Rol: {rol_id}, Menú: {menu_id}) en cliente {tenant_cliente_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception(f"Error inesperado en endpoint PUT /permisos/roles/{rol_id}/menus/{menu_id}/")
@@ -228,15 +249,34 @@ async def get_specific_permission(
     """
     logger.debug(f"Solicitud GET /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
-        permiso = await PermisoService.obtener_permiso_especifico(
+        permiso_dict = await PermisoService.obtener_permiso_especifico(
             cliente_id=current_user.cliente_id,
             rol_id=rol_id,
             menu_id=menu_id
         )
-        if permiso is None:
+        if permiso_dict is None:
             logger.warning(f"Permiso no encontrado para Rol {rol_id} y Menú {menu_id} en cliente {current_user.cliente_id}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Permiso no encontrado para Rol {rol_id} y Menú {menu_id}.")
+        
+        # ✅ Convertir diccionario a PermisoRead para validación correcta
+        # Asegurar que todos los campos requeridos estén presentes con valores por defecto
+        permiso_dict.setdefault('puede_ver', True)
+        permiso_dict.setdefault('puede_crear', False)
+        permiso_dict.setdefault('puede_editar', False)
+        permiso_dict.setdefault('puede_eliminar', False)
+        permiso_dict.setdefault('puede_exportar', False)
+        permiso_dict.setdefault('puede_imprimir', False)
+        permiso_dict.setdefault('puede_aprobar', False)
+        permiso_dict.setdefault('permisos_extra', None)
+        permiso_dict.setdefault('fecha_creacion', None)
+        permiso_dict.setdefault('fecha_actualizacion', None)
+        
+        # ✅ Convertir a PermisoRead (el schema ya maneja permiso_id y tiene alias rol_menu_id)
+        permiso = PermisoRead(**permiso_dict)
         return permiso
+    # ✅ HTTPException debe propagarse sin ser capturado
+    except HTTPException:
+        raise
     # MODIFICACIÓN: Capturar CustomException
     except CustomException as ce:
         logger.error(f"Error de negocio al obtener permiso específico (Rol: {rol_id}, Menú: {menu_id}) en cliente {current_user.cliente_id}: {ce.detail}")

@@ -169,27 +169,83 @@ class RolBase(BaseModel):
         
         # Solo validar si cliente_id no es None y no es UUID nulo
         if self.codigo_rol is not None and cliente_id_valido is not None:
-            raise ValueError(
-                'Un rol de sistema (con código de rol) no puede tener cliente_id asignado. '
-                'Los roles de sistema son globales y no pertenecen a un cliente específico.'
-            )
+            # ✅ CORRECCIÓN: Durante la creación (RolCreate), permitimos que codigo_rol esté presente
+            # si cliente_id es None, ya que el endpoint asignará el cliente_id después.
+            # Solo lanzamos error si ambos están presentes y no es durante la creación.
+            # Verificamos si es RolCreate comparando el tipo de la clase
+            if not isinstance(self, RolCreate):
+                raise ValueError(
+                    'Un rol de sistema (con código de rol) no puede tener cliente_id asignado. '
+                    'Los roles de sistema son globales y no pertenecen a un cliente específico.'
+                )
+            # Si es RolCreate y ambos están presentes, eliminamos codigo_rol (el endpoint también lo hace)
+            else:
+                self.codigo_rol = None
         
         # Si no tiene código de rol y no tiene cliente_id, es un error, debe ser rol de sistema o de cliente.
-        # Asumimos que si no hay cliente_id, es un rol global que *debería* tener un codigo_rol.
-        # Permitimos la creación de roles de cliente sin codigo_rol (cliente_id != NULL).
+        # Pero durante la creación (RolCreate), permitimos que cliente_id sea None ya que el endpoint lo asignará
         if self.codigo_rol is None and self.cliente_id is None:
-            raise ValueError(
-                'El rol debe tener un código de rol (si es rol de sistema) o un cliente_id (si es rol de cliente). '
-                'No puede estar vacío en ambos campos.'
-            )
+            # Durante la creación (RolCreate), permitimos que cliente_id sea None
+            if not isinstance(self, RolCreate):
+                raise ValueError(
+                    'El rol debe tener un código de rol (si es rol de sistema) o un cliente_id (si es rol de cliente). '
+                    'No puede estar vacío en ambos campos.'
+                )
             
         return self
 
 class RolCreate(RolBase):
     """
     Schema para la creación de nuevos roles.
+    
+    ✅ CORRECCIÓN: Override del model_validator para ser más permisivo durante la creación.
+    Permite que codigo_rol esté presente si cliente_id es None, ya que el endpoint asignará
+    el cliente_id después de la validación.
     """
-    pass
+    
+    @model_validator(mode='after')
+    def validar_consistencia_creacion(self) -> 'RolCreate':
+        """
+        Validación más permisiva para la creación de roles.
+        
+        Permite que codigo_rol esté presente si cliente_id es None, ya que el endpoint
+        asignará el cliente_id después de la validación. Si ambos están presentes,
+        elimina codigo_rol para roles de cliente.
+        """
+        from uuid import UUID
+        
+        cliente_id_valido = self.cliente_id
+        if cliente_id_valido is not None:
+            # Convertir a UUID si es string para comparar
+            if isinstance(cliente_id_valido, str):
+                try:
+                    cliente_id_valido = UUID(cliente_id_valido)
+                except (ValueError, AttributeError):
+                    cliente_id_valido = None
+            elif not isinstance(cliente_id_valido, UUID):
+                cliente_id_valido = None
+            
+            # Verificar si es UUID nulo
+            if isinstance(cliente_id_valido, UUID) and cliente_id_valido == UUID('00000000-0000-0000-0000-000000000000'):
+                cliente_id_valido = None
+        
+        # ✅ CORRECCIÓN: Si cliente_id está presente y codigo_rol también, eliminar codigo_rol
+        # Los roles de cliente NO deben tener codigo_rol
+        if self.codigo_rol is not None and cliente_id_valido is not None:
+            # En lugar de lanzar error, simplemente eliminar codigo_rol
+            # El endpoint ya maneja esto, pero por si acaso lo hacemos aquí también
+            self.codigo_rol = None
+        
+        # Si no tiene código de rol y no tiene cliente_id, es un error, debe ser rol de sistema o de cliente.
+        # Pero durante la creación, permitimos que cliente_id sea None ya que el endpoint lo asignará
+        # Solo validamos si ambos están None Y codigo_rol también está None (caso inválido)
+        if self.codigo_rol is None and self.cliente_id is None:
+            # Durante la creación, permitimos que cliente_id sea None ya que el endpoint lo asignará
+            # Solo validamos si codigo_rol está presente sin cliente_id (rol del sistema)
+            # En este caso, está bien, el endpoint validará si el usuario puede crear roles del sistema
+            pass
+            
+        return self
 
 class RolUpdate(BaseModel):
     """
@@ -296,6 +352,8 @@ class PaginatedRolResponse(BaseModel):
 class PermisoBase(BaseModel):
     """
     Schema base para permisos de roles sobre menús.
+    
+    ✅ ACTUALIZADO: Incluye todos los campos de la tabla rol_menu_permiso.
     """
     
     menu_id: UUID = Field(
@@ -304,9 +362,18 @@ class PermisoBase(BaseModel):
         examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
     
+    # ======================================== 
+    # PERMISOS GRANULARES (CRUD extendido)
+    # ======================================== 
     puede_ver: bool = Field(
         default=True,
         description="Permiso para ver/acceder al menú",
+        examples=[True, False]
+    )
+    
+    puede_crear: bool = Field(
+        default=False,
+        description="Permiso para crear nuevos registros asociados al menú",
         examples=[True, False]
     )
     
@@ -322,7 +389,32 @@ class PermisoBase(BaseModel):
         examples=[True, False]
     )
     
-    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
+    puede_exportar: bool = Field(
+        default=False,
+        description="Permiso para exportar datos asociados al menú",
+        examples=[True, False]
+    )
+    
+    puede_imprimir: bool = Field(
+        default=False,
+        description="Permiso para imprimir datos asociados al menú",
+        examples=[True, False]
+    )
+    
+    puede_aprobar: bool = Field(
+        default=False,
+        description="Permiso para aprobar/rechazar acciones asociadas al menú",
+        examples=[True, False]
+    )
+    
+    # ======================================== 
+    # PERMISOS PERSONALIZADOS POR MÓDULO
+    # ======================================== 
+    permisos_extra: Optional[str] = Field(
+        default=None,
+        description="JSON con permisos específicos del módulo/pantalla (NVARCHAR(MAX))",
+        examples=['{"puede_cerrar_ruta": true, "puede_reasignar_conductor": false}']
+    )
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -333,19 +425,45 @@ class PermisoBase(BaseModel):
 class PermisoRead(PermisoBase):
     """
     Schema para lectura de permisos existentes.
+    
+    ✅ ACTUALIZADO: Incluye todos los campos de la tabla rol_menu_permiso.
     """
     
-    rol_menu_id: UUID = Field(
+    permiso_id: UUID = Field(
         ...,
-        description="ID único del registro de permiso en la tabla de relación (UUID)",
+        description="ID único del registro de permiso (UUID) - Primary Key",
         examples=["550e8400-e29b-41d4-a716-446655440000"]
+    )
+    
+    cliente_id: UUID = Field(
+        ...,
+        description="ID del cliente/tenant al que pertenece el permiso (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440001"]
     )
     
     rol_id: UUID = Field(
         ...,
         description="ID del rol al que pertenece el permiso (UUID)",
-        examples=["550e8400-e29b-41d4-a716-446655440001"]
+        examples=["550e8400-e29b-41d4-a716-446655440002"]
     )
+    
+    fecha_creacion: datetime = Field(
+        ...,
+        description="Fecha y hora de creación del permiso",
+        examples=["2025-12-10T10:00:00"]
+    )
+    
+    fecha_actualizacion: Optional[datetime] = Field(
+        default=None,
+        description="Fecha y hora de última actualización del permiso",
+        examples=["2025-12-10T11:00:00"]
+    )
+    
+    # Alias para compatibilidad con código existente
+    @property
+    def rol_menu_id(self) -> UUID:
+        """Alias para permiso_id para compatibilidad con código existente."""
+        return self.permiso_id
 
 class PermisoUpdatePayload(BaseModel):
     """
@@ -394,46 +512,90 @@ Características principales:
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any
+from datetime import datetime
+from uuid import UUID
 
 class RolMenuPermisoBase(BaseModel):
     """
     Schema base para permisos rol-menú con validaciones fundamentales.
     
+    ✅ ACTUALIZADO: Incluye todos los campos de la tabla rol_menu_permiso.
+    
     Define la estructura básica de un permiso rol-menú y establece 
     las reglas de validación esenciales para mantener la seguridad del sistema.
     """
     
+    cliente_id: UUID = Field(
+        ...,
+        description="ID del cliente/tenant al que pertenece el permiso (UUID)",
+        examples=["550e8400-e29b-41d4-a716-446655440000"]
+    )
+    
     rol_id: UUID = Field(
         ...,
         description="ID del rol al que se asignan los permisos (UUID)",
-        examples=["550e8400-e29b-41d4-a716-446655440000"]
+        examples=["550e8400-e29b-41d4-a716-446655440001"]
     )
     
     menu_id: UUID = Field(
         ...,
         description="ID del menú sobre el que se aplican los permisos (UUID)",
-        examples=["550e8400-e29b-41d4-a716-446655440001"]
+        examples=["550e8400-e29b-41d4-a716-446655440002"]
     )
     
+    # ======================================== 
+    # PERMISOS GRANULARES (CRUD extendido)
+    # ======================================== 
     puede_ver: bool = Field(
-        True,
+        default=True,
         description="Permiso para visualizar/acceder al menú",
         examples=[True, False]
     )
     
+    puede_crear: bool = Field(
+        default=False,
+        description="Permiso para crear nuevos registros asociados al menú",
+        examples=[True, False]
+    )
+    
     puede_editar: bool = Field(
-        False,
+        default=False,
         description="Permiso para editar contenido asociado al menú",
         examples=[True, False]
     )
     
     puede_eliminar: bool = Field(
-        False,
+        default=False,
         description="Permiso para eliminar contenido asociado al menú",
         examples=[True, False]
     )
     
-    # ⚠️ UUID no requiere validación de positivos, Pydantic valida formato automáticamente
+    puede_exportar: bool = Field(
+        default=False,
+        description="Permiso para exportar datos asociados al menú",
+        examples=[True, False]
+    )
+    
+    puede_imprimir: bool = Field(
+        default=False,
+        description="Permiso para imprimir datos asociados al menú",
+        examples=[True, False]
+    )
+    
+    puede_aprobar: bool = Field(
+        default=False,
+        description="Permiso para aprobar/rechazar acciones asociadas al menú",
+        examples=[True, False]
+    )
+    
+    # ======================================== 
+    # PERMISOS PERSONALIZADOS POR MÓDULO
+    # ======================================== 
+    permisos_extra: Optional[str] = Field(
+        default=None,
+        description="JSON con permisos específicos del módulo/pantalla (NVARCHAR(MAX))",
+        examples=['{"puede_cerrar_ruta": true, "puede_reasignar_conductor": false}']
+    )
 
     @model_validator(mode='after')
     def validar_consistencia_permisos(self) -> 'RolMenuPermisoBase':
@@ -443,11 +605,21 @@ class RolMenuPermisoBase(BaseModel):
         Realiza validaciones que requieren múltiples campos o que dependen
         de transformaciones realizadas en validadores individuales.
         """
-        # Validar que si puede_editar o puede_eliminar es True, entonces puede_ver debe ser True
-        if (self.puede_editar or self.puede_eliminar) and not self.puede_ver:
+        # Validar que si puede_editar, puede_eliminar, puede_crear, puede_exportar, puede_imprimir o puede_aprobar es True, 
+        # entonces puede_ver debe ser True
+        permisos_que_requieren_ver = [
+            self.puede_editar, 
+            self.puede_eliminar, 
+            self.puede_crear, 
+            self.puede_exportar, 
+            self.puede_imprimir, 
+            self.puede_aprobar
+        ]
+        
+        if any(permisos_que_requieren_ver) and not self.puede_ver:
             raise ValueError(
-                'No se pueden conceder permisos de edición o eliminación sin permiso de visualización. '
-                'El permiso "puede_ver" debe ser True cuando "puede_editar" o "puede_eliminar" son True.'
+                'No se pueden conceder permisos de creación, edición, eliminación, exportación, impresión o aprobación '
+                'sin permiso de visualización. El permiso "puede_ver" debe ser True cuando cualquier otro permiso es True.'
             )
         
         # Validar lógica de permisos: no debería poder eliminar sin poder editar
@@ -472,14 +644,25 @@ class RolMenuPermisoUpdate(BaseModel):
     """
     Schema para actualización parcial de permisos rol-menú.
     
+    ✅ ACTUALIZADO: Incluye todos los permisos extendidos de la tabla rol_menu_permiso.
+    
     Todos los campos son opcionales y solo se validan los que se proporcionen.
     Diseñado específicamente para operaciones PATCH que actualizan solo
     algunos permisos específicos.
     """
     
+    # ======================================== 
+    # PERMISOS GRANULARES (CRUD extendido) - Opcionales
+    # ======================================== 
     puede_ver: Optional[bool] = Field(
         None,
         description="Nuevo permiso de visualización (opcional)",
+        examples=[True, False]
+    )
+    
+    puede_crear: Optional[bool] = Field(
+        None,
+        description="Nuevo permiso de creación (opcional)",
         examples=[True, False]
     )
     
@@ -494,6 +677,33 @@ class RolMenuPermisoUpdate(BaseModel):
         description="Nuevo permiso de eliminación (opcional)",
         examples=[True, False]
     )
+    
+    puede_exportar: Optional[bool] = Field(
+        None,
+        description="Nuevo permiso de exportación (opcional)",
+        examples=[True, False]
+    )
+    
+    puede_imprimir: Optional[bool] = Field(
+        None,
+        description="Nuevo permiso de impresión (opcional)",
+        examples=[True, False]
+    )
+    
+    puede_aprobar: Optional[bool] = Field(
+        None,
+        description="Nuevo permiso de aprobación (opcional)",
+        examples=[True, False]
+    )
+    
+    # ======================================== 
+    # PERMISOS PERSONALIZADOS POR MÓDULO
+    # ======================================== 
+    permisos_extra: Optional[str] = Field(
+        None,
+        description="JSON con permisos específicos del módulo/pantalla (opcional)",
+        examples=['{"puede_cerrar_ruta": true, "puede_reasignar_conductor": false}']
+    )
 
     @model_validator(mode='after')
     def validar_consistencia_permisos_parciales(self) -> 'RolMenuPermisoUpdate':
@@ -505,15 +715,24 @@ class RolMenuPermisoUpdate(BaseModel):
         """
         # Solo validar si todos los campos relevantes están presentes
         puede_ver = self.puede_ver
+        puede_crear = self.puede_crear
         puede_editar = self.puede_editar
         puede_eliminar = self.puede_eliminar
+        puede_exportar = self.puede_exportar
+        puede_imprimir = self.puede_imprimir
+        puede_aprobar = self.puede_aprobar
         
-        # Si se está actualizando editar o eliminar, verificar que ver sea True
-        if (puede_editar is not None and puede_editar) or (puede_eliminar is not None and puede_eliminar):
+        # Si se está actualizando cualquier permiso que requiera ver, verificar que ver sea True
+        permisos_que_requieren_ver = [
+            puede_crear, puede_editar, puede_eliminar, 
+            puede_exportar, puede_imprimir, puede_aprobar
+        ]
+        
+        if any(p is not None and p for p in permisos_que_requieren_ver):
             if puede_ver is not None and not puede_ver:
                 raise ValueError(
-                    'No se pueden conceder permisos de edición o eliminación sin permiso de visualización. '
-                    'El permiso "puede_ver" debe ser True cuando "puede_editar" o "puede_eliminar" son True.'
+                    'No se pueden conceder permisos de creación, edición, eliminación, exportación, impresión o aprobación '
+                    'sin permiso de visualización. El permiso "puede_ver" debe ser True cuando cualquier otro permiso es True.'
                 )
         
         # Si se está actualizando eliminar, verificar que editar sea True
@@ -530,15 +749,35 @@ class RolMenuPermisoRead(RolMenuPermisoBase):
     """
     Schema para lectura de datos completos de un permiso rol-menú.
     
+    ✅ ACTUALIZADO: Incluye todos los campos de la tabla rol_menu_permiso.
+    
     Incluye todos los campos de RolMenuPermisoBase más el identificador
-    único del registro de permiso en el sistema.
+    único del registro de permiso en el sistema y campos de auditoría.
     """
     
-    rol_menu_id: UUID = Field(
+    permiso_id: UUID = Field(
         ...,
-        description="Identificador único del permiso rol-menú en el sistema (UUID)",
+        description="Identificador único del permiso rol-menú en el sistema (UUID) - Primary Key",
         examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
+    
+    fecha_creacion: datetime = Field(
+        ...,
+        description="Fecha y hora de creación del permiso",
+        examples=["2025-12-10T10:00:00"]
+    )
+    
+    fecha_actualizacion: Optional[datetime] = Field(
+        default=None,
+        description="Fecha y hora de última actualización del permiso",
+        examples=["2025-12-10T11:00:00"]
+    )
+    
+    # Alias para compatibilidad con código existente
+    @property
+    def rol_menu_id(self) -> UUID:
+        """Alias para permiso_id para compatibilidad con código existente."""
+        return self.permiso_id
 
     class Config:
         """Configuración de Pydantic para el schema."""

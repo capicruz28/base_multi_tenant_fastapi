@@ -58,7 +58,7 @@ async def build_user_with_roles(
                 )
             )
         elif request_cliente_id:
-            # BD compartida: filtrar por cliente_id
+            # BD compartida: primero intentar con cliente_id del tenant
             user_query = select(UsuarioTable).where(
                 and_(
                     UsuarioTable.c.nombre_usuario == username,
@@ -66,6 +66,19 @@ async def build_user_with_roles(
                     UsuarioTable.c.cliente_id == request_cliente_id
                 )
             )
+            user_result = await execute_auth_query(user_query)
+            
+            # ✅ CORRECCIÓN: Si no se encuentra con cliente_id, intentar sin filtro
+            # (para usuarios del sistema como superadmin que pueden tener cliente_id NULL o diferente)
+            if not user_result:
+                logger.debug(f"Usuario '{username}' no encontrado con cliente_id {request_cliente_id}, intentando sin filtro de cliente")
+                user_query_fallback = select(UsuarioTable).where(
+                    and_(
+                        UsuarioTable.c.nombre_usuario == username,
+                        UsuarioTable.c.es_eliminado == False
+                    )
+                )
+                user_result = await execute_auth_query(user_query_fallback)
         else:
             # Fallback: buscar sin filtro de cliente (para casos edge)
             user_query = select(UsuarioTable).where(
@@ -74,8 +87,7 @@ async def build_user_with_roles(
                     UsuarioTable.c.es_eliminado == False
                 )
             )
-        
-        user_result = await execute_auth_query(user_query)
+            user_result = await execute_auth_query(user_query)
         
         if not user_result:
             return None

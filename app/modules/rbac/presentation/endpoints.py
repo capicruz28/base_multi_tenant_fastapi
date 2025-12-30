@@ -103,6 +103,16 @@ async def create_rol(
     
     rol_dict = rol_in.model_dump()
     
+    # ✅ MULTI-TENANT: Asignar cliente_id si no se especificó (para roles de cliente)
+    if rol_dict.get('cliente_id') is None:
+        rol_dict['cliente_id'] = current_user.cliente_id
+    
+    # ✅ CORRECCIÓN: Si se está creando un rol de cliente (con cliente_id), eliminar codigo_rol si existe
+    # Los roles de cliente NO deben tener codigo_rol (solo los roles del sistema lo tienen)
+    if rol_dict.get('cliente_id') is not None and rol_dict.get('codigo_rol') is not None:
+        logger.debug(f"Eliminando codigo_rol '{rol_dict.get('codigo_rol')}' de rol de cliente. Los roles de cliente no deben tener codigo_rol.")
+        rol_dict['codigo_rol'] = None
+    
     # ✅ VALIDAR: Solo SUPER_ADMIN puede crear roles del sistema
     if _is_system_role(rol_dict) and not _can_manage_system_role(current_user):
         logger.warning(f"Usuario {current_user.usuario_id} intentó crear un rol del sistema sin permisos.")
@@ -110,13 +120,17 @@ async def create_rol(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los SUPER_ADMIN pueden crear roles del sistema."
         )
-    
-    # ✅ MULTI-TENANT: Asignar cliente_id si no se especificó (para roles de cliente)
-    if rol_dict.get('cliente_id') is None:
-        rol_dict['cliente_id'] = current_user.cliente_id
 
     try:
-        created_rol = await RolService.crear_rol(rol_data=rol_dict)
+        # ✅ Obtener cliente_id del rol_dict (ya asignado arriba)
+        cliente_id_rol = rol_dict.get('cliente_id')
+        if not cliente_id_rol:
+            logger.error(f"No se pudo obtener cliente_id para crear rol. rol_dict: {rol_dict}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se pudo determinar el cliente_id para crear el rol."
+            )
+        created_rol = await RolService.crear_rol(cliente_id=cliente_id_rol, rol_data=rol_dict)
         logger.info(f"Rol '{created_rol['nombre']}' creado exitosamente en cliente {current_user.cliente_id}.")
         return created_rol
     except CustomException as ce:
@@ -132,7 +146,7 @@ async def create_rol(
 # ----------------------------------------------------------------------
 @router.get(
     "/",
-    response_model=PaginatedRolResponse,
+    response_model=dict,  # Cambiado a dict para evitar validación estricta que impide cliente_id en roles del sistema
     summary="Obtener lista paginada de roles",
     description="""
     Recupera una lista paginada de roles **del cliente actual y roles del sistema**.

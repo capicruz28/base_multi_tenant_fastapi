@@ -70,12 +70,13 @@ class AuthorizationError(HTTPException):
 
 def get_user_type(user: UserWithRolesAndPermissions) -> str:
     """
-    Detecta automáticamente el tipo de usuario basado en sus roles.
+    Detecta automáticamente el tipo de usuario basado en sus roles o flags.
     
     🎯 ALGORITMO DE DETECCIÓN:
-    1. Si tiene rol 'SuperAdministrador' → SUPER ADMIN
-    2. Si tiene rol 'AdministradorTenant' → TENANT ADMIN  
-    3. Cualquier otro caso → USUARIO NORMAL
+    1. Si tiene is_super_admin=True → SUPER ADMIN
+    2. Si tiene rol 'SuperAdministrador' → SUPER ADMIN
+    3. Si tiene rol 'AdministradorTenant' → TENANT ADMIN  
+    4. Cualquier otro caso → USUARIO NORMAL
     
     Args:
         user: Instancia de UserWithRolesAndPermissions con datos del usuario
@@ -86,10 +87,21 @@ def get_user_type(user: UserWithRolesAndPermissions) -> str:
     Raises:
         ValueError: Si los datos del usuario son inválidos
     """
-    if not user or not hasattr(user, 'roles'):
+    if not user:
         raise ValueError("Usuario inválido para detección de tipo")
     
     logger.debug(f"Detectando tipo de usuario para: {user.nombre_usuario}")
+    
+    # ✅ PRIMERO: Verificar flag is_super_admin (más confiable)
+    if hasattr(user, 'is_super_admin') and user.is_super_admin:
+        logger.info(f"Usuario {user.nombre_usuario} detectado como SUPER ADMIN (flag is_super_admin=True)")
+        return "super_admin"
+    
+    # ✅ SEGUNDO: Verificar si tiene roles cargados
+    if not hasattr(user, 'roles') or not user.roles:
+        logger.debug(f"Usuario {user.nombre_usuario} no tiene roles cargados, asumiendo USUARIO NORMAL")
+        return "usuario_normal"
+    
     logger.debug(f"Roles del usuario: {[rol.nombre for rol in user.roles]}")
     
     # 🔍 BUSCAR ROLES DE ADMINISTRACIÓN
@@ -97,7 +109,7 @@ def get_user_type(user: UserWithRolesAndPermissions) -> str:
     
     if SUPER_ADMIN_ROLE in nombres_roles:
         user_type = "super_admin"
-        logger.info(f"Usuario {user.nombre_usuario} detectado como SUPER ADMIN")
+        logger.info(f"Usuario {user.nombre_usuario} detectado como SUPER ADMIN (rol {SUPER_ADMIN_ROLE})")
         
     elif TENANT_ADMIN_ROLE in nombres_roles:
         user_type = "tenant_admin" 

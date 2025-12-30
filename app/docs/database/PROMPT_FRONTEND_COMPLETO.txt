@@ -1,0 +1,288 @@
+Necesito que analices y refactorices el frontend para alinearlo con la refactorización completa del backend de módulos, secciones, menús y permisos.
+
+## CONTEXTO DE LA REFACTORIZACIÓN
+
+El backend ha sido completamente refactorizado con las siguientes características:
+
+### 1. NUEVA ESTRUCTURA DE DATOS
+- Módulos ERP organizados en catálogo (`modulo`)
+- Secciones dentro de módulos (`modulo_seccion`)
+- Menús jerárquicos dentro de secciones (`modulo_menu`)
+- Plantillas de roles que se aplican automáticamente al activar módulos
+- Activación de módulos por cliente con configuración personalizada
+
+### 2. NUEVOS ENDPOINTS
+El archivo `backend_spec.json` contiene la especificación completa. Principales endpoints:
+- `/modulos-v2/` - Catálogo de módulos (GET, POST, PUT, DELETE, PATCH)
+- `/cliente-modulo/` - Activación de módulos por cliente
+- `/secciones/` - Gestión de secciones de módulos
+- `/modulos-menus/` - Gestión de menús + endpoint crítico: GET `/modulos-menus/usuario/{usuario_id}/`
+- `/plantillas-roles/` - Gestión de plantillas de roles
+
+### 3. CAMBIO CRÍTICO EN STORED PROCEDURE
+**ANTES**: `sp_GetMenuForUser` retornaba estructura plana con `menu` y `area_menu`
+```sql
+-- Estructura antigua: menu + area_menu
+SELECT m.menu_id, m.nombre, m.icono, m.ruta, m.padre_menu_id, m.orden, 
+       m.area_id, am.nombre AS area_nombre
+FROM menu m
+LEFT JOIN area_menu am ON m.area_id = am.area_id
+```
+
+**AHORA**: `sp_obtener_menu_usuario` retorna estructura jerárquica con:
+- Módulos → Secciones → Menús → Submenús
+- Permisos agregados por rol
+- Información de módulos activos del cliente
+```sql
+-- Estructura nueva: modulo → modulo_seccion → modulo_menu
+SELECT mod.modulo_id, mod.codigo AS modulo_codigo, mod.nombre AS modulo_nombre,
+       sec.seccion_id, sec.codigo AS seccion_codigo, sec.nombre AS seccion_nombre,
+       m.menu_id, m.codigo AS menu_codigo, m.nombre AS menu_nombre,
+       m.ruta, m.menu_padre_id, m.nivel, m.orden AS menu_orden,
+       MAX(CAST(p.puede_ver AS INT)) AS puede_ver,
+       MAX(CAST(p.puede_crear AS INT)) AS puede_crear,
+       -- ... más permisos
+FROM modulo_menu m
+INNER JOIN modulo mod ON m.modulo_id = mod.modulo_id
+LEFT JOIN modulo_seccion sec ON m.seccion_id = sec.seccion_id
+-- ... joins con permisos y cliente_modulo
+```
+
+### 4. NUEVA ESTRUCTURA DE RESPUESTA DEL MENÚ
+El endpoint `GET /modulos-menus/usuario/{usuario_id}/` retorna:
+```json
+{
+  "modulos": [
+    {
+      "modulo_id": "uuid",
+      "codigo": "LOGISTICA",
+      "nombre": "Logística y Distribución",
+      "icono": "local_shipping",
+      "color": "#FF9800",
+      "categoria": "operaciones",
+      "orden": 2,
+      "secciones": [
+        {
+          "seccion_id": "uuid",
+          "codigo": "RUTAS",
+          "nombre": "Gestión de Rutas",
+          "icono": "route",
+          "orden": 1,
+          "menus": [
+            {
+              "menu_id": "uuid",
+              "codigo": "LOGISTICA_RUTAS_LISTA",
+              "nombre": "Lista de Rutas",
+              "icono": "route",
+              "ruta": "/logistica/rutas",
+              "nivel": 1,
+              "tipo_menu": "pantalla",
+              "orden": 1,
+              "permisos": {
+                "ver": true,
+                "crear": true,
+                "editar": false,
+                "eliminar": false,
+                "exportar": false,
+                "imprimir": false,
+                "aprobar": false
+              },
+              "submenus": [
+                {
+                  "menu_id": "uuid",
+                  "codigo": "LOGISTICA_RUTAS_DETALLE",
+                  "nombre": "Detalle de Ruta",
+                  "icono": "info",
+                  "ruta": "/logistica/rutas/:id",
+                  "nivel": 2,
+                  "tipo_menu": "pantalla",
+                  "orden": 1,
+                  "permisos": { ... },
+                  "submenus": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## TAREAS REQUERIDAS
+
+### FASE 1: ANÁLISIS COMPLETO DEL PROYECTO
+1. **Analizar estructura actual del frontend**:
+   - Identificar TODOS los archivos relacionados con módulos, menús, áreas y permisos
+   - Revisar cómo se construye actualmente el sidebar/menú dinámico
+   - Identificar servicios/API calls relacionados con módulos y menús
+   - Revisar componentes que usan la estructura antigua de menús
+   - Identificar hooks/custom hooks relacionados
+   - Revisar contextos/estados globales relacionados
+   - Revisar rutas y navegación que usan menús
+
+2. **Mapear cambios necesarios**:
+   - Endpoints antiguos → Endpoints nuevos
+   - Estructura antigua de menú (menu + area_menu) → Nueva estructura jerárquica (modulo → seccion → menu)
+   - Componentes que necesitan actualización
+   - Servicios/helpers que necesitan refactorización
+   - Tipos/interfaces TypeScript que necesitan actualización
+
+3. **Identificar dependencias**:
+   - Componentes que dependen de la estructura antigua
+   - Flujos de datos relacionados
+   - Validaciones de permisos actuales
+   - Navegación basada en menús
+
+### FASE 2: PLAN DE REFACTORIZACIÓN Y MEJORAS UX/UI
+Generar un plan detallado que incluya:
+
+1. **Archivos a modificar** (SOLO relacionados con módulos, menús, permisos):
+   - Lista completa de archivos con ruta exacta
+   - Tipo de cambio requerido (refactor, reemplazo, nuevo, eliminar)
+   - Dependencias entre cambios
+   - Impacto de cada cambio
+
+2. **Nuevos componentes/servicios necesarios**:
+   - Servicios para nuevos endpoints (TypeScript/JavaScript)
+   - Componentes para nueva estructura jerárquica del sidebar
+   - Hooks para gestión de módulos y menús
+   - Tipos/interfaces TypeScript actualizados
+   - Helpers/utilities para transformación de datos
+
+3. **Mejoras de UX/UI propuestas**:
+   - **Sidebar mejorado**: 
+     * Agrupación visual por módulos con colores/iconos
+     * Expansión/colapso de módulos y secciones
+     * Indicadores visuales de módulos activos/inactivos
+     * Badges o indicadores de permisos
+   - **Navegación jerárquica**:
+     * Breadcrumbs mejorados con módulo → sección → menú
+     * Navegación contextual según módulo activo
+   - **Gestión de módulos** (si existe panel de admin):
+     * Vista de catálogo de módulos con filtros
+     * Activación/desactivación visual de módulos
+     * Vista de secciones y menús por módulo
+     * Gestión de plantillas de roles
+   - **Feedback visual**:
+     * Estados de carga durante obtención de menú
+     * Indicadores de módulos en modo prueba
+     * Alertas de vencimiento de módulos
+
+4. **Orden de ejecución**:
+   - Secuencia lógica de cambios (qué primero, qué después)
+   - Puntos de validación intermedios
+   - Riesgos identificados y mitigaciones
+   - Estrategia de migración (big bang vs incremental)
+
+5. **Estimación**:
+   - Complejidad de cada cambio
+   - Tiempo estimado
+   - Prioridades
+
+### FASE 3: IMPLEMENTACIÓN (Solo después de aprobación del plan)
+1. **Actualizar servicios/API**:
+   - Crear servicios para nuevos endpoints
+   - Actualizar llamadas al endpoint del menú del usuario
+   - Migrar de estructura antigua a nueva
+   - Manejar errores y estados de carga
+
+2. **Refactorizar construcción del menú**:
+   - Actualizar componente del sidebar para nueva estructura
+   - Implementar renderizado jerárquico: Módulos → Secciones → Menús → Submenús
+   - Integrar permisos en la visualización (mostrar/ocultar según permisos)
+   - Manejar estados de módulos activos/inactivos
+   - Implementar expansión/colapso inteligente
+
+3. **Actualizar componentes relacionados**:
+   - Componentes que usan información de módulos
+   - Componentes de gestión de permisos (solo referencias a menús)
+   - Componentes de administración de módulos (si existen)
+   - Guards de rutas basados en permisos de menús
+
+4. **Mejorar UX/UI**:
+   - Implementar mejoras propuestas en el plan
+   - Asegurar navegación fluida con nueva estructura
+   - Mejorar feedback visual de permisos y estados
+   - Optimizar rendimiento del sidebar con muchos módulos
+
+## RESTRICCIONES CRÍTICAS
+
+⚠️ **NO MODIFICAR NADA DE ESTO**:
+- Autenticación y login
+- Gestión de usuarios (excepto referencias a módulos/menús en permisos)
+- Roles base del sistema (solo actualizar referencias a menús en permisos)
+- Configuración de cliente/tenant (excepto módulos activos)
+- Conexiones de base de datos
+- Refresh tokens
+- Cualquier funcionalidad NO relacionada con módulos, menús, secciones o permisos de menús
+
+✅ **SÍ MODIFICAR**:
+- Construcción del menú dinámico/sidebar
+- Llamadas a endpoints de módulos y menús
+- Componentes que renderizan menús
+- Servicios relacionados con módulos/menús
+- Tipos/interfaces de módulos, menús, secciones
+- Gestión de permisos en UI (solo referencias a menús)
+- Navegación basada en estructura de menús
+
+## ENTREGABLES
+
+1. **Análisis completo** (Primer entregable):
+   - Mapa completo de archivos actuales relacionados con módulos/menús
+   - Identificación detallada de cambios necesarios
+   - Dependencias identificadas con diagrama
+   - Estructura actual vs estructura nueva (comparación)
+
+2. **Plan de refactorización detallado** (Segundo entregable):
+   - Lista completa de archivos a modificar con cambios específicos
+   - Nuevos componentes/servicios necesarios con especificaciones
+   - Mejoras de UX/UI propuestas con mockups/descripciones detalladas
+   - Orden de ejecución con dependencias
+   - Estimación de complejidad y tiempo
+   - Estrategia de migración recomendada
+
+3. **Implementación** (Tercer entregable, solo después de aprobación):
+   - Código refactorizado paso a paso
+   - Nuevos componentes implementados
+   - Servicios actualizados
+   - Mejoras de UX/UI implementadas
+   - Tests actualizados (si existen)
+
+## INFORMACIÓN ADICIONAL
+
+- **backend_spec.json**: Contiene la especificación completa de los nuevos endpoints (proporcionado por el usuario)
+- **Estructura antigua**: Usaba `menu` y `area_menu` con SP `sp_GetMenuForUser`
+- **Estructura nueva**: Usa `modulo_menu`, `modulo_seccion`, `modulo` con SP `sp_obtener_menu_usuario`
+- **Endpoint crítico**: `GET /modulos-menus/usuario/{usuario_id}/` - Retorna menú completo con nueva estructura jerárquica
+- **Aplicación automática de plantillas**: Al activar un módulo, se crean roles automáticamente (backend, no requiere cambios en frontend)
+
+## FORMATO DE RESPUESTA ESPERADO
+
+Por favor, proporciona en este orden:
+
+1. **Análisis completo del proyecto frontend**:
+   - Estructura de archivos relacionada
+   - Componentes identificados
+   - Servicios/hooks identificados
+   - Flujos de datos actuales
+   - Comparación estructura antigua vs nueva
+
+2. **Plan detallado de refactorización con mejoras UX/UI**:
+   - Lista de archivos con cambios específicos
+   - Nuevos componentes/servicios con especificaciones
+   - Mejoras UX/UI con descripciones detalladas
+   - Orden de ejecución
+   - Estimaciones
+
+3. **Esperar aprobación** antes de implementar
+
+4. **Implementación paso a paso** con validaciones después de aprobación
+
+## PREGUNTA INICIAL
+
+¿Puedes comenzar con el análisis completo del proyecto frontend, revisando todos los archivos relacionados con módulos, menús, áreas y permisos, y luego generar el plan detallado de refactorización incluyendo mejoras de UX/UI?
+
+Por favor, proporciona primero el análisis completo antes de proponer cualquier cambio.
+

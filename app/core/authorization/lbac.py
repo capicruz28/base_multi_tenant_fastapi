@@ -4,7 +4,7 @@ Decoradores para validar permisos basados en niveles LBAC
 """
 
 from functools import wraps
-from typing import Optional
+from typing import Optional, Any
 from fastapi import HTTPException, status, Depends
 
 from app.api.deps import get_current_active_user
@@ -80,7 +80,15 @@ def require_super_admin():
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            # Buscar current_user en kwargs o en args
             current_user = kwargs.get('current_user')
+            
+            # Si no está en kwargs, buscar en args (puede venir como parámetro posicional)
+            if not current_user:
+                for arg in args:
+                    if hasattr(arg, 'is_super_admin') or hasattr(arg, 'nombre_usuario'):
+                        current_user = arg
+                        break
             
             if not current_user:
                 raise HTTPException(
@@ -88,14 +96,26 @@ def require_super_admin():
                     detail="Usuario no autenticado"
                 )
             
-            # Validar si es super admin
+            # Validar si es super admin - verificar tanto is_super_admin como access_level
             is_super_admin = getattr(current_user, 'is_super_admin', False)
-            if not is_super_admin:
+            access_level = getattr(current_user, 'access_level', 0)
+            
+            # También verificar si tiene el rol SuperAdministrador
+            has_super_admin_role = False
+            if hasattr(current_user, 'roles'):
+                from app.core.authorization.rbac import SUPER_ADMIN_ROLE
+                has_super_admin_role = any(
+                    rol.nombre == SUPER_ADMIN_ROLE for rol in current_user.roles
+                )
+            
+            if not (is_super_admin or access_level >= 5 or has_super_admin_role):
                 raise SuperAdminRequiredError()
             
             return await func(*args, **kwargs)
         return wrapper
     return decorator
+
+
 
 
 def require_tenant_admin():

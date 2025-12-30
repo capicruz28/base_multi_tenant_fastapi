@@ -745,7 +745,7 @@ COUNT_ROLES_PAGINATED = """
     SELECT COUNT(rol_id) as total 
     FROM dbo.rol
     WHERE 
-        (cliente_id IS NULL OR cliente_id = ?)
+        cliente_id = ?
         AND (? IS NULL OR (
             LOWER(nombre) LIKE LOWER(?) OR
             LOWER(descripcion) LIKE LOWER(?)
@@ -758,7 +758,7 @@ SELECT_ROLES_PAGINATED = """
     FROM
         dbo.rol
     WHERE 
-        (cliente_id IS NULL OR cliente_id = ?)
+        cliente_id = ?
         AND (? IS NULL OR (
             LOWER(nombre) LIKE LOWER(?) OR
             LOWER(descripcion) LIKE LOWER(?)

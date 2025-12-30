@@ -17,7 +17,8 @@ from app.core.application.base_service import BaseService
 
 # 👥 SERVICIOS RELACIONADOS
 from app.modules.rbac.application.services.rol_service import RolService
-from app.modules.menus.application.services.menu_service import MenuService
+# ✅ REFACTORIZACIÓN: Importación lazy para evitar circular imports
+# from app.modules.modulos.application.services.modulo_menu_service import ModuloMenuService
 
 logger = logging.getLogger(__name__)
 
@@ -60,27 +61,75 @@ class PermisoService(BaseService):
         """
         try:
             # 👤 VALIDAR ROL Y OBTENER SU CLIENTE_ID
-            rol = await RolService.obtener_rol_por_id(rol_id)
+            rol = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
             if not rol:
                 raise NotFoundError(
                     detail=f"Rol con ID {rol_id} no encontrado.",
                     internal_code="ROLE_NOT_FOUND"
                 )
-            rol_cliente_id = rol.get('cliente_id')
-            if rol_cliente_id != cliente_id and rol_cliente_id is not None:
-                raise ValidationError(
-                    detail=f"El rol con ID {rol_id} no pertenece al cliente {cliente_id}.",
-                    internal_code="ROLE_WRONG_CLIENT"
-                )
+            rol_cliente_id_raw = rol.get('cliente_id')
+            codigo_rol = rol.get('codigo_rol')
+            
+            # 🔍 DEBUG: Logging para diagnosticar el problema
+            logger.info(f"[VALIDAR_ROL] Rol ID: {rol_id}, Rol cliente_id (raw): {rol_cliente_id_raw} (tipo: {type(rol_cliente_id_raw)}), Cliente contexto: {cliente_id} (tipo: {type(cliente_id)}), Codigo_rol: {codigo_rol}")
+            
+            # ✅ CORRECCIÓN: Permitir roles del sistema (cliente_id = NULL o con codigo_rol) y roles del cliente actual
+            # Solo rechazar si el rol pertenece a otro cliente diferente Y no es un rol del sistema
+            es_rol_sistema = rol_cliente_id_raw is None or codigo_rol is not None
+            
+            # 🔄 NORMALIZAR UUIDs PARA COMPARACIÓN
+            # Convertir ambos a UUID si son strings o mantener como UUID
+            from uuid import UUID
+            rol_cliente_id = None
+            if rol_cliente_id_raw is not None:
+                if isinstance(rol_cliente_id_raw, str):
+                    try:
+                        rol_cliente_id = UUID(rol_cliente_id_raw)
+                    except (ValueError, AttributeError):
+                        rol_cliente_id = None
+                elif isinstance(rol_cliente_id_raw, UUID):
+                    rol_cliente_id = rol_cliente_id_raw
+                else:
+                    # Intentar convertir desde otros tipos
+                    try:
+                        rol_cliente_id = UUID(str(rol_cliente_id_raw))
+                    except (ValueError, AttributeError):
+                        rol_cliente_id = None
+            
+            cliente_id_normalizado = cliente_id
+            if isinstance(cliente_id, str):
+                try:
+                    cliente_id_normalizado = UUID(cliente_id)
+                except (ValueError, AttributeError):
+                    pass
+            
+            logger.info(f"[VALIDAR_ROL] Después de normalización - Rol cliente_id: {rol_cliente_id}, Cliente contexto: {cliente_id_normalizado}, Es rol sistema: {es_rol_sistema}")
+            
+            # Validar: permitir si es rol del sistema O si pertenece al cliente actual
+            if not es_rol_sistema:
+                if rol_cliente_id is None:
+                    # Si no es rol del sistema pero cliente_id es None, es un error de datos
+                    logger.warning(f"[VALIDAR_ROL] Rol {rol_id} tiene cliente_id=None pero no es rol del sistema (codigo_rol={codigo_rol})")
+                elif rol_cliente_id != cliente_id_normalizado:
+                    logger.warning(f"[VALIDAR_ROL] Rol {rol_id} pertenece a cliente {rol_cliente_id} pero se intenta usar desde cliente {cliente_id_normalizado}")
+                    raise ValidationError(
+                        detail=f"El rol con ID {rol_id} no pertenece al cliente {cliente_id}.",
+                        internal_code="ROLE_WRONG_CLIENT"
+                    )
+            
+            logger.info(f"[VALIDAR_ROL] Validación exitosa - Rol {rol_id} es {'rol del sistema' if es_rol_sistema else f'rol del cliente {rol_cliente_id}'}")
 
             # 📋 VALIDAR MENÚ Y OBTENER SU CLIENTE_ID
-            menu = await MenuService.obtener_menu_por_id(menu_id)
+            # ✅ REFACTORIZACIÓN: Importación lazy para evitar circular imports
+            from app.modules.modulos.application.services.modulo_menu_service import ModuloMenuService
+            menu = await ModuloMenuService.obtener_menu_por_id(menu_id)
             if not menu:
                 raise NotFoundError(
                     detail=f"Menú con ID {menu_id} no encontrado.",
                     internal_code="MENU_NOT_FOUND"
                 )
-            menu_cliente_id = menu.get('cliente_id')
+            # ModuloMenuRead es un objeto Pydantic, acceder directamente al atributo
+            menu_cliente_id = menu.cliente_id
             if menu_cliente_id != cliente_id and menu_cliente_id is not None:
                 raise ValidationError(
                     detail=f"El menú con ID {menu_id} no pertenece al cliente {cliente_id}.",
@@ -118,7 +167,9 @@ class PermisoService(BaseService):
         puede_eliminar: Optional[bool] = None,
         puede_crear: Optional[bool] = None,
         puede_exportar: Optional[bool] = None,
-        puede_imprimir: Optional[bool] = None
+        puede_imprimir: Optional[bool] = None,
+        puede_aprobar: Optional[bool] = None,
+        permisos_extra: Optional[str] = None
     ) -> Dict:
         """
         Asigna o actualiza los permisos de un rol sobre un menú **dentro de un cliente**.
@@ -158,16 +209,20 @@ class PermisoService(BaseService):
             permiso_data = {}
             if puede_ver is not None:
                 permiso_data['puede_ver'] = puede_ver
+            if puede_crear is not None:
+                permiso_data['puede_crear'] = puede_crear
             if puede_editar is not None:
                 permiso_data['puede_editar'] = puede_editar
             if puede_eliminar is not None:
                 permiso_data['puede_eliminar'] = puede_eliminar
-            if puede_crear is not None:
-                permiso_data['puede_crear'] = puede_crear
             if puede_exportar is not None:
                 permiso_data['puede_exportar'] = puede_exportar
             if puede_imprimir is not None:
                 permiso_data['puede_imprimir'] = puede_imprimir
+            if puede_aprobar is not None:
+                permiso_data['puede_aprobar'] = puede_aprobar
+            if permisos_extra is not None:
+                permiso_data['permisos_extra'] = permisos_extra
 
             if not permiso_data:
                 raise ValidationError(
@@ -176,8 +231,10 @@ class PermisoService(BaseService):
                 )
 
             # 3. 🔍 VERIFICAR SI EL PERMISO YA EXISTE
+            # ✅ ACTUALIZADO: Incluir todos los campos de permisos
             check_query = """
-            SELECT permiso_id, puede_ver, puede_crear, puede_editar, puede_eliminar, puede_exportar, puede_imprimir
+            SELECT permiso_id, puede_ver, puede_crear, puede_editar, puede_eliminar, 
+                   puede_exportar, puede_imprimir, puede_aprobar, permisos_extra
             FROM rol_menu_permiso
             WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
             """
@@ -202,10 +259,12 @@ class PermisoService(BaseService):
                 # ✅ VERIFICAR SI HAY CAMBIOS REALES
                 if not update_parts:
                     logger.info(f"No hay cambios en los permisos para ID {perm_id}")
+                    # ✅ ACTUALIZADO: Incluir todos los campos de permisos
                     get_query = """
                     SELECT permiso_id, cliente_id, rol_id, menu_id, 
                            puede_ver, puede_crear, puede_editar, puede_eliminar, 
-                           puede_exportar, puede_imprimir
+                           puede_exportar, puede_imprimir, puede_aprobar, permisos_extra,
+                           fecha_creacion, fecha_actualizacion
                     FROM rol_menu_permiso WHERE permiso_id = ?
                     """
                     # ✅ FASE 2: Usar await
@@ -214,12 +273,17 @@ class PermisoService(BaseService):
 
                 params.append(perm_id)  # Añadir ID para el WHERE
 
+                # ✅ ACTUALIZADO: Incluir fecha_actualizacion en UPDATE
+                update_parts.append('fecha_actualizacion = GETDATE()')
+                
                 update_query = f"""
                 UPDATE rol_menu_permiso
                 SET {', '.join(update_parts)}
                 OUTPUT INSERTED.permiso_id, INSERTED.cliente_id, INSERTED.rol_id, INSERTED.menu_id,
                        INSERTED.puede_ver, INSERTED.puede_crear, INSERTED.puede_editar, 
-                       INSERTED.puede_eliminar, INSERTED.puede_exportar, INSERTED.puede_imprimir
+                       INSERTED.puede_eliminar, INSERTED.puede_exportar, INSERTED.puede_imprimir,
+                       INSERTED.puede_aprobar, INSERTED.permisos_extra,
+                       INSERTED.fecha_creacion, INSERTED.fecha_actualizacion
                 WHERE permiso_id = ?
                 """
                 # ✅ FASE 2: Usar await
@@ -238,28 +302,35 @@ class PermisoService(BaseService):
                 logger.info(f"🟢 Creando nuevo permiso - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
 
                 # 🎯 ESTABLECER VALORES POR DEFECTO
-                final_puede_ver = permiso_data.get('puede_ver', False)
+                # ✅ ACTUALIZADO: Incluir todos los permisos extendidos
+                final_puede_ver = permiso_data.get('puede_ver', True)  # Default True según BD
                 final_puede_crear = permiso_data.get('puede_crear', False)
                 final_puede_editar = permiso_data.get('puede_editar', False)
                 final_puede_eliminar = permiso_data.get('puede_eliminar', False)
                 final_puede_exportar = permiso_data.get('puede_exportar', False)
                 final_puede_imprimir = permiso_data.get('puede_imprimir', False)
+                final_puede_aprobar = permiso_data.get('puede_aprobar', False)
+                final_permisos_extra = permiso_data.get('permisos_extra', None)
 
+                # ✅ ACTUALIZADO: Incluir todos los campos de permisos
                 insert_query = """
                 INSERT INTO rol_menu_permiso (
                     cliente_id, rol_id, menu_id, 
                     puede_ver, puede_crear, puede_editar, puede_eliminar, 
-                    puede_exportar, puede_imprimir
+                    puede_exportar, puede_imprimir, puede_aprobar, permisos_extra
                 )
                 OUTPUT INSERTED.permiso_id, INSERTED.cliente_id, INSERTED.rol_id, INSERTED.menu_id,
                        INSERTED.puede_ver, INSERTED.puede_crear, INSERTED.puede_editar, 
-                       INSERTED.puede_eliminar, INSERTED.puede_exportar, INSERTED.puede_imprimir
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       INSERTED.puede_eliminar, INSERTED.puede_exportar, INSERTED.puede_imprimir,
+                       INSERTED.puede_aprobar, INSERTED.permisos_extra,
+                       INSERTED.fecha_creacion, INSERTED.fecha_actualizacion
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     cliente_id, rol_id, menu_id,
                     final_puede_ver, final_puede_crear, final_puede_editar, 
-                    final_puede_eliminar, final_puede_exportar, final_puede_imprimir
+                    final_puede_eliminar, final_puede_exportar, final_puede_imprimir,
+                    final_puede_aprobar, final_permisos_extra
                 )
                 # ✅ FASE 2: Usar await
                 result = await execute_insert(insert_query, params)
@@ -321,10 +392,11 @@ class PermisoService(BaseService):
             SELECT
                 p.permiso_id, p.cliente_id, p.rol_id, p.menu_id,
                 p.puede_ver, p.puede_crear, p.puede_editar, p.puede_eliminar,
-                p.puede_exportar, p.puede_imprimir,
+                p.puede_exportar, p.puede_imprimir, p.puede_aprobar, p.permisos_extra,
+                p.fecha_creacion, p.fecha_actualizacion,
                 m.nombre AS menu_nombre, m.ruta AS menu_url, m.icono AS menu_icono
             FROM rol_menu_permiso p
-            INNER JOIN menu m ON p.menu_id = m.menu_id
+            INNER JOIN modulo_menu m ON p.menu_id = m.menu_id
             WHERE p.cliente_id = ? AND p.rol_id = ?
             ORDER BY m.orden;
             """
@@ -370,10 +442,12 @@ class PermisoService(BaseService):
             ServiceError: Si hay errores en la consulta
         """
         try:
+            # ✅ ACTUALIZADO: Incluir todos los campos de la tabla rol_menu_permiso
             query = """
             SELECT permiso_id, cliente_id, rol_id, menu_id, 
                    puede_ver, puede_crear, puede_editar, puede_eliminar,
-                   puede_exportar, puede_imprimir
+                   puede_exportar, puede_imprimir, puede_aprobar,
+                   permisos_extra, fecha_creacion, fecha_actualizacion
             FROM rol_menu_permiso
             WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
             """
@@ -382,7 +456,16 @@ class PermisoService(BaseService):
             if not resultados:
                 logger.debug(f"Permiso no encontrado - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
                 return None
-            return resultados[0]
+            
+            # ✅ Normalizar valores booleanos y NULL
+            permiso = resultados[0]
+            # Convertir valores BIT a booleanos explícitos
+            for campo_bool in ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar', 
+                              'puede_exportar', 'puede_imprimir', 'puede_aprobar']:
+                if campo_bool in permiso:
+                    permiso[campo_bool] = bool(permiso[campo_bool]) if permiso[campo_bool] is not None else False
+            
+            return permiso
 
         except DatabaseError as db_err:
             logger.error(f"Error de BD en obtener_permiso_especifico para cliente {cliente_id}: {db_err.detail}")

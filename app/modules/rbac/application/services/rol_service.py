@@ -1,6 +1,7 @@
 # app/services/rol_service.py
 from typing import Dict, List, Optional, Any
 from uuid import UUID
+from datetime import datetime
 import math
 import logging
 import pyodbc
@@ -369,8 +370,9 @@ class RolService(BaseService):
             Optional[Dict]: Datos del rol o None si no existe
         """
         try:
+            # ✅ ACTUALIZADO: Incluir codigo_rol para identificar roles del sistema
             query = """
-            SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion
+            SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion, codigo_rol
             FROM rol
             WHERE rol_id = ?
             """
@@ -478,7 +480,8 @@ class RolService(BaseService):
 
         try:
             # 📊 CONTAR TOTAL DE ROLES
-            # ✅ Para BD dedicadas, no filtrar por cliente_id
+            # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
+            # ✅ Para BD compartidas, filtrar SOLO por cliente_id (NO incluir roles del sistema)
             if database_type == "multi":
                 COUNT_QUERY = """
                 SELECT COUNT(rol_id) as total 
@@ -494,7 +497,7 @@ class RolService(BaseService):
             else:
                 COUNT_QUERY = COUNT_ROLES_PAGINATED
                 count_params = (cliente_id, search_param, search_param, search_param)
-                logger.debug(f"[ROLES-PAGINADOS] BD compartida: Contando roles con cliente_id {cliente_id}")
+                logger.debug(f"[ROLES-PAGINADOS] BD compartida: Contando roles SOLO del cliente_id {cliente_id} (sin roles del sistema)")
             
             logger.info(f"[ROLES-PAGINADOS] Iniciando consulta para cliente_id={cliente_id}, page={page}, limit={limit}, search='{search}'")
             logger.debug(f"[ROLES-PAGINADOS] Parámetros de conteo: {count_params}")
@@ -513,7 +516,8 @@ class RolService(BaseService):
             logger.info(f"[ROLES-PAGINADOS] Total de roles encontrados para cliente {cliente_id}: {total_roles}")
 
             # 📋 OBTENER ROLES PAGINADOS
-            # ✅ Para BD dedicadas, no filtrar por cliente_id
+            # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
+            # ✅ Para BD compartidas, filtrar SOLO por cliente_id (NO incluir roles del sistema)
             if database_type == "multi":
                 SELECT_QUERY = """
                 SELECT
@@ -534,7 +538,7 @@ class RolService(BaseService):
             else:
                 SELECT_QUERY = SELECT_ROLES_PAGINATED
                 select_params = (cliente_id, search_param, search_param, search_param, offset, limit)
-                logger.debug(f"[ROLES-PAGINADOS] BD compartida: Obteniendo roles con cliente_id {cliente_id}")
+                logger.debug(f"[ROLES-PAGINADOS] BD compartida: Obteniendo roles SOLO del cliente_id {cliente_id} (sin roles del sistema)")
             
             lista_roles = []
             if total_roles > 0 and limit > 0:
@@ -546,18 +550,20 @@ class RolService(BaseService):
                 logger.info(f"[ROLES-PAGINADOS] No hay roles para mostrar (total={total_roles}, limit={limit})")
 
             # 🔄 PROCESAR Y CONVERTIR DATOS
+            # ✅ Ahora solo procesamos roles del cliente (ya no incluimos roles del sistema)
             roles_procesados = []
             for rol_dict in lista_roles:
-                # ✅ CORRECCIÓN: Para BD dedicadas, establecer cliente_id desde el contexto si es NULL o UUID nulo
-                if database_type == "multi":
-                    rol_cliente_id = rol_dict.get('cliente_id')
-                    if not rol_cliente_id or (isinstance(rol_cliente_id, UUID) and rol_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
-                        rol_dict['cliente_id'] = cliente_id
-                        logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Rol {rol_dict.get('rol_id')} tenía cliente_id NULL, establecido a {cliente_id}")
-                
                 # ✅ Usar función helper para normalizar
                 rol_normalizado = RolService._normalizar_rol_dict(rol_dict)
-                roles_procesados.append(rol_normalizado)
+                
+                # ✅ Convertir a RolRead (todos los roles ahora son del cliente)
+                try:
+                    rol_read = RolRead(**rol_normalizado)
+                    roles_procesados.append(rol_read.model_dump())
+                except Exception as e:
+                    logger.error(f"[ROLES-PAGINADOS] Error al convertir rol a RolRead: {e}, datos: {rol_normalizado}")
+                    # Si falla la conversión, usar el diccionario normalizado directamente
+                    roles_procesados.append(rol_normalizado)
 
             # 🧮 CALCULAR METADATOS
             total_paginas = math.ceil(total_roles / limit) if limit > 0 else 0
@@ -1028,7 +1034,8 @@ class RolService(BaseService):
         if nuevos_permisos:
             for permiso in nuevos_permisos:
                 menu_id = permiso.menu_id
-                menu_query = "SELECT cliente_id FROM menu WHERE menu_id = ?"
+                # ✅ REFACTORIZACIÓN: Usar nueva tabla modulo_menu
+                menu_query = "SELECT cliente_id FROM modulo_menu WHERE menu_id = ?"
                 menu_result = await execute_query(menu_query, (menu_id,))
                 if not menu_result:
                     raise ServiceError(

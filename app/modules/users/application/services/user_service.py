@@ -557,7 +557,8 @@ class UsuarioService(BaseService):
             WHERE usuario_id = ? AND cliente_id = ? AND es_eliminado = 0
             """
             
-            resultados = execute_query(query, (usuario_id, cliente_id))
+            # ✅ FASE 2: Usar await
+            resultados = await execute_query(query, (usuario_id, cliente_id))
             
             if not resultados:
                 logger.debug(f"Usuario con ID {usuario_id} no encontrado en cliente {cliente_id} o está eliminado")

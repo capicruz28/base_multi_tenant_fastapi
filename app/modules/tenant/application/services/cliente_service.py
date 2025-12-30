@@ -619,11 +619,12 @@ class ClienteService(BaseService):
         usuarios_stats = usuarios_result[0] if usuarios_result else {'total_activos': 0, 'total_inactivos': 0}
         
         # Estadísticas de módulos
+        # ✅ REFACTORIZACIÓN: Usar tabla cliente_modulo en lugar de cliente_modulo_activo
         modulos_query = """
         SELECT 
             COUNT(CASE WHEN esta_activo = 1 THEN 1 END) as modulos_activos,
             COUNT(*) as modulos_contratados
-        FROM cliente_modulo_activo
+        FROM cliente_modulo
         WHERE cliente_id = :cliente_id
         """
         # ✅ FASE 2: Usar await

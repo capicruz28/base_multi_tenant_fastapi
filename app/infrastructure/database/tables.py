@@ -210,58 +210,14 @@ UsuarioRolTable = Table(
 )
 
 # ============================================================================
-# TABLA: area_menu
+# TABLAS DE MÓDULOS Y MENÚS
 # ============================================================================
-AreaMenuTable = Table(
-    'area_menu',
-    metadata,
-    Column('area_id', UNIQUEIDENTIFIER, primary_key=True),
-    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=True),
-    
-    Column('nombre', String(100), nullable=False),
-    Column('descripcion', String(255), nullable=True),
-    Column('icono', String(50), nullable=True),
-    Column('orden', Integer, nullable=True, server_default='0'),
-    Column('es_area_sistema', Boolean, nullable=True, server_default='0'),
-    Column('es_activo', Boolean, nullable=False, server_default='1'),
-    Column('fecha_creacion', DateTime, nullable=False, server_default=func.getdate()),
-    
-    # Índices
-    Index('IDX_area_menu_cliente', 'cliente_id', 'es_activo', 'orden'),
-)
-
-# ============================================================================
-# TABLA: menu
-# ============================================================================
-MenuTable = Table(
-    'menu',
-    metadata,
-    Column('menu_id', UNIQUEIDENTIFIER, primary_key=True),
-    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=True),
-    Column('area_id', UNIQUEIDENTIFIER, ForeignKey('area_menu.area_id', ondelete='SET NULL'), nullable=True),
-    
-    Column('nombre', String(100), nullable=False),
-    Column('descripcion', String(255), nullable=True),
-    Column('icono', String(50), nullable=True),
-    Column('ruta', String(255), nullable=True),
-    
-    # Jerarquía
-    Column('padre_menu_id', UNIQUEIDENTIFIER, ForeignKey('menu.menu_id', ondelete='NO ACTION'), nullable=True),
-    Column('orden', Integer, nullable=True, server_default='0'),
-    
-    # Configuración
-    Column('es_menu_sistema', Boolean, nullable=True, server_default='0'),
-    Column('requiere_autenticacion', Boolean, nullable=True, server_default='1'),
-    Column('es_visible', Boolean, nullable=True, server_default='1'),
-    Column('es_activo', Boolean, nullable=False, server_default='1'),
-    Column('fecha_creacion', DateTime, nullable=False, server_default=func.getdate()),
-    
-    # Índices
-    Index('IDX_menu_cliente', 'cliente_id', 'es_activo', 'orden'),
-    Index('IDX_menu_area', 'area_id', 'orden'),
-    Index('IDX_menu_padre', 'padre_menu_id', 'orden'),
-    Index('IDX_menu_ruta', 'ruta'),
-)
+# Las tablas de módulos y menús han sido movidas a tables_modulos.py
+# Importar desde allí:
+#   from app.infrastructure.database.tables_modulos import (
+#       ModuloTable, ClienteModuloTable, ModuloSeccionTable,
+#       ModuloMenuTable, ModuloRolPlantillaTable
+#   )
 
 # ============================================================================
 # TABLA: rol_menu_permiso
@@ -272,7 +228,7 @@ RolMenuPermisoTable = Table(
     Column('permiso_id', UNIQUEIDENTIFIER, primary_key=True),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
     Column('rol_id', UNIQUEIDENTIFIER, ForeignKey('rol.rol_id', ondelete='CASCADE'), nullable=False),
-    Column('menu_id', UNIQUEIDENTIFIER, ForeignKey('menu.menu_id', ondelete='CASCADE'), nullable=False),
+    Column('menu_id', UNIQUEIDENTIFIER, ForeignKey('modulo_menu.menu_id', ondelete='CASCADE'), nullable=False),
     
     # Permisos granulares
     Column('puede_ver', Boolean, nullable=False, server_default='1'),
@@ -281,6 +237,7 @@ RolMenuPermisoTable = Table(
     Column('puede_eliminar', Boolean, nullable=True, server_default='0'),
     Column('puede_exportar', Boolean, nullable=True, server_default='0'),
     Column('puede_imprimir', Boolean, nullable=True, server_default='0'),
+    Column('puede_aprobar', Boolean, nullable=True, server_default='0'),
     
     # Permisos adicionales extensibles
     Column('permisos_extra', Text, nullable=True),
@@ -288,7 +245,8 @@ RolMenuPermisoTable = Table(
     Column('fecha_creacion', DateTime, nullable=False, server_default=func.getdate()),
     
     # Constraints
-    UniqueConstraint('rol_id', 'menu_id', name='UQ_rol_menu'),
+    # ✅ CORRECCIÓN: Incluir cliente_id en el constraint único según estructura_bd.sql
+    UniqueConstraint('cliente_id', 'rol_id', 'menu_id', name='UQ_rol_menu'),
     
     # Índices
     Index('IDX_permiso_rol', 'rol_id', 'puede_ver'),
@@ -335,27 +293,10 @@ RefreshTokensTable = Table(
 )
 
 # ============================================================================
-# TABLA: cliente_modulo
+# TABLA: cliente_modulo (ACTUALIZADA)
 # ============================================================================
-ClienteModuloTable = Table(
-    'cliente_modulo',
-    metadata,
-    Column('modulo_id', UNIQUEIDENTIFIER, primary_key=True),
-    Column('codigo_modulo', String(30), nullable=False, unique=True),
-    Column('nombre', String(100), nullable=False),
-    Column('descripcion', String(255), nullable=True),
-    Column('icono', String(50), nullable=True),
-    
-    # Configuración
-    Column('es_modulo_core', Boolean, nullable=True, server_default='0'),
-    Column('requiere_licencia', Boolean, nullable=True, server_default='0'),
-    Column('orden', Integer, nullable=True, server_default='0'),
-    Column('es_activo', Boolean, nullable=True, server_default='1'),
-    Column('fecha_creacion', DateTime, nullable=True, server_default=func.getdate()),
-    
-    # Índices
-    Index('IDX_cliente_modulo_codigo', 'codigo_modulo'),
-)
+# La tabla cliente_modulo ha sido actualizada y movida a tables_modulos.py
+# Importar desde allí: ClienteModuloTable
 
 # ============================================================================
 # TABLA: cliente_conexion
@@ -406,33 +347,10 @@ ClienteConexionTable = Table(
 )
 
 # ============================================================================
-# TABLA: cliente_modulo_activo
+# TABLA: cliente_modulo_activo (OBSOLETA)
 # ============================================================================
-ClienteModuloActivoTable = Table(
-    'cliente_modulo_activo',
-    metadata,
-    Column('cliente_modulo_activo_id', UNIQUEIDENTIFIER, primary_key=True),
-    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=False),
-    Column('modulo_id', UNIQUEIDENTIFIER, ForeignKey('cliente_modulo.modulo_id', ondelete='CASCADE'), nullable=False),
-    
-    # Licenciamiento
-    Column('esta_activo', Boolean, nullable=True, server_default='1'),
-    Column('fecha_activacion', DateTime, nullable=True, server_default=func.getdate()),
-    Column('fecha_vencimiento', DateTime, nullable=True),
-    
-    # Configuración específica del módulo
-    Column('configuracion_json', Text, nullable=True),
-    
-    # Límites
-    Column('limite_usuarios', Integer, nullable=True),
-    Column('limite_registros', Integer, nullable=True),
-    
-    # Constraints
-    UniqueConstraint('cliente_id', 'modulo_id', name='UQ_cliente_modulo'),
-    
-    # Índices
-    Index('IDX_modulo_activo_cliente', 'cliente_id', 'esta_activo'),
-)
+# Esta tabla ha sido reemplazada por ClienteModuloTable en tables_modulos.py
+# La tabla cliente_modulo_activo ahora es cliente_modulo con estructura actualizada
 
 # ============================================================================
 # TABLA: cliente_auth_config
@@ -620,16 +538,15 @@ __all__ = [
     'UsuarioTable',
     'RolTable',
     'UsuarioRolTable',
-    'AreaMenuTable',
-    'MenuTable',
     'RolMenuPermisoTable',
     'RefreshTokensTable',
-    'ClienteModuloTable',
     'ClienteConexionTable',
-    'ClienteModuloActivoTable',
     'ClienteAuthConfigTable',
     'FederacionIdentidadTable',
     'LogSincronizacionUsuarioTable',
     'AuthAuditLogTable',
+    # Tablas de módulos y menús están en tables_modulos.py
+    # Importar desde allí: ModuloTable, ClienteModuloTable, ModuloSeccionTable,
+    #                      ModuloMenuTable, ModuloRolPlantillaTable
 ]
 

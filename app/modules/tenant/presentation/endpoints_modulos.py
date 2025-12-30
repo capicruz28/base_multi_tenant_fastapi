@@ -56,7 +56,7 @@ router = APIRouter()
     **Parámetros de query:**
     - skip: Número de registros a saltar (paginación)
     - limit: Límite de registros a retornar (paginación)
-    - solo_activos: Filtrar solo módulos activos
+    - solo_activos: Filtrar solo módulos activos (por defecto: False, devuelve todos)
     
     **Respuestas:**
     - 200: Catálogo de módulos recuperado exitosamente con metadata de paginación
@@ -66,7 +66,7 @@ router = APIRouter()
 async def listar_modulos(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
-    solo_activos: bool = Query(True, description="Filtrar solo módulos activos"),
+    solo_activos: bool = Query(False, description="Filtrar solo módulos activos (False = devuelve todos)"),
     current_user=Depends(get_current_active_user)
 ):
     """
@@ -114,7 +114,7 @@ async def listar_modulos(
     - buscar: Texto a buscar en nombre, código o descripción
     - es_modulo_core: Filtrar por módulos core (true/false)
     - requiere_licencia: Filtrar por módulos que requieren licencia (true/false)
-    - solo_activos: Filtrar solo módulos activos
+    - solo_activos: Filtrar solo módulos activos (por defecto: False, devuelve todos)
     - skip: Número de registros a saltar
     - limit: Límite de registros a retornar
     
@@ -127,7 +127,7 @@ async def buscar_modulos(
     buscar: Optional[str] = Query(None, description="Texto a buscar"),
     es_modulo_core: Optional[bool] = Query(None, description="Filtrar por módulos core"),
     requiere_licencia: Optional[bool] = Query(None, description="Filtrar por módulos que requieren licencia"),
-    solo_activos: bool = Query(True, description="Filtrar solo módulos activos"),
+    solo_activos: bool = Query(False, description="Filtrar solo módulos activos (False = devuelve todos)"),
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     current_user=Depends(get_current_active_user)

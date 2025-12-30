@@ -22,6 +22,14 @@ from app.modules.menus.presentation import endpoints_areas
 from app.modules.tenant.presentation import endpoints_clientes, endpoints_modulos, endpoints_conexiones
 from app.modules.superadmin.presentation import endpoints_usuarios as superadmin_usuarios_endpoints
 from app.modules.superadmin.presentation import endpoints_auditoria as superadmin_auditoria_endpoints
+# Nuevos endpoints del módulo modulos
+from app.modules.modulos.presentation import (
+    endpoints_modulos as modulos_endpoints,
+    endpoints_cliente_modulo,
+    endpoints_secciones,
+    endpoints_menus as modulos_menus_endpoints,
+    endpoints_plantillas
+)
 
 api_router = APIRouter()
 
@@ -55,10 +63,44 @@ api_router.include_router(
     tags=["Clientes (Super Admin)"]
 )
 
+# Endpoints antiguos de módulos (deprecated - mantener por compatibilidad temporal)
 api_router.include_router(
     endpoints_modulos.router,
     prefix="/modulos",
-    tags=["Módulos (Super Admin)"]
+    tags=["Módulos (Super Admin) - Deprecated"]
+)
+
+# ========================================
+# ENDPOINTS NUEVOS DE GESTIÓN DE MÓDULOS
+# ========================================
+api_router.include_router(
+    modulos_endpoints.router,
+    prefix="/modulos-v2",
+    tags=["Módulos (Catálogo)"]
+)
+
+api_router.include_router(
+    endpoints_cliente_modulo.router,
+    prefix="/cliente-modulo",
+    tags=["Activación de Módulos por Cliente"]
+)
+
+api_router.include_router(
+    endpoints_secciones.router,
+    prefix="/secciones",
+    tags=["Secciones de Módulos"]
+)
+
+api_router.include_router(
+    modulos_menus_endpoints.router,
+    prefix="/modulos-menus",
+    tags=["Menús de Módulos"]
+)
+
+api_router.include_router(
+    endpoints_plantillas.router,
+    prefix="/plantillas-roles",
+    tags=["Plantillas de Roles"]
 )
 
 api_router.include_router(
