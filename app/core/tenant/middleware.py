@@ -247,7 +247,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
         subdomain = self._extract_subdomain(host)
         
         # Convertir SUPERADMIN_CLIENTE_ID de string a UUID si es necesario
-        default_client_id_uuid = UUID(settings.SUPERADMIN_CLIENTE_ID) if settings.SUPERADMIN_CLIENTE_ID else None
+        # Si no está configurado y estamos en desarrollo, usar un UUID temporal
+        if settings.SUPERADMIN_CLIENTE_ID:
+            default_client_id_uuid = UUID(settings.SUPERADMIN_CLIENTE_ID)
+        elif settings.ENVIRONMENT == "development":
+            # UUID temporal para desarrollo cuando SUPERADMIN_CLIENTE_ID no está configurado
+            # ⚠️ ADVERTENCIA: Esto es solo para desarrollo. En producción, SUPERADMIN_CLIENTE_ID debe estar configurado.
+            default_client_id_uuid = UUID("00000000-0000-0000-0000-000000000001")
+            logger.warning(
+                "[TENANT] SUPERADMIN_CLIENTE_ID no configurado. "
+                "Usando UUID temporal para desarrollo: 00000000-0000-0000-0000-000000000001. "
+                "Configura SUPERADMIN_CLIENTE_ID en .env.docker para producción."
+            )
+        else:
+            default_client_id_uuid = None
         
         client_id: Optional[UUID] = default_client_id_uuid
         client_data: Dict[str, Any] = {
@@ -386,6 +399,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
         # ============================================
         # FASE 3: ESTABLECER CONTEXTO ENRIQUECIDO
         # ============================================
+        
+        # Validar que client_id no sea None antes de crear TenantContext
+        if client_id is None:
+            logger.error(
+                f"[TENANT] ERROR DE CONFIGURACIÓN: client_id es None. "
+                f"SUPERADMIN_CLIENTE_ID debe estar configurado en .env.docker"
+            )
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "detail": "Error de configuración: SUPERADMIN_CLIENTE_ID no está configurado. "
+                             "Por favor, configura SUPERADMIN_CLIENTE_ID en .env.docker con un UUID válido."
+                }
+            )
         
         tenant_ctx = TenantContext(
             client_id=client_id,

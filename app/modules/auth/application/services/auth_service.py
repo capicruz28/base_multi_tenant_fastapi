@@ -421,6 +421,40 @@ class AuthService:
             if not token_data.sub or token_data.type != "access":
                 raise credentials_exception
 
+            # ✅ REVOCACIÓN: Verificar si el token está en la blacklist
+            jti = payload.get("jti")
+            if jti:
+                try:
+                    from app.infrastructure.redis.client import RedisService
+                    is_blacklisted = await RedisService.is_token_blacklisted(jti)
+                    
+                    if is_blacklisted:
+                        logger.warning(
+                            f"[REVOCACIÓN] Token revocado detectado en AuthService. "
+                            f"jti={jti}, usuario={token_data.sub}"
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Token revocado",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                except HTTPException:
+                    # Re-lanzar HTTPException (token revocado)
+                    raise
+                except Exception as redis_error:
+                    # Fail-soft: Si Redis falla, loguear pero continuar (no bloquear acceso)
+                    logger.error(
+                        f"[REVOCACIÓN] Error verificando blacklist en Redis (fail-soft): {redis_error}. "
+                        f"Continuando sin verificación de revocación. jti={jti}, usuario={token_data.sub}",
+                        exc_info=True
+                    )
+                    # NO bloquear acceso si Redis falla (fail-soft)
+            else:
+                logger.warning(
+                    f"[REVOCACIÓN] Token sin jti en AuthService. "
+                    f"No se puede verificar revocación. usuario={token_data.sub}"
+                )
+
             username = token_data.sub
             es_superadmin = payload.get("es_superadmin", False)
             target_cliente_id = payload.get("cliente_id")  # Cliente al que accede

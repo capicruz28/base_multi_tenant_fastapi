@@ -208,8 +208,9 @@ async def login(
         if es_superadmin:
             token_data["es_superadmin"] = True
         
-        access_token = create_access_token(data=token_data)
-        refresh_token = create_refresh_token(data=token_data)
+        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
+        access_token, access_jti = create_access_token(data=token_data)
+        refresh_token, refresh_jti = create_refresh_token(data=token_data)
 
         # ✅ CORRECCIÓN: Almacenar en el cliente destino
         try:
@@ -422,8 +423,9 @@ async def refresh_access_token(
             "level_info": level_info  # ✅ AGREGAR ESTO
         }
 
-        new_access_token = create_access_token(data=token_data)
-        new_refresh_token = create_refresh_token(data=token_data)    
+        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
+        new_access_token, new_access_jti = create_access_token(data=token_data)
+        new_refresh_token, new_refresh_jti = create_refresh_token(data=token_data)    
 
         # === PASO 2: GENERAR NUEVOS TOKENS ===
         #new_access_token = create_access_token(data={"sub": username})
@@ -627,6 +629,71 @@ async def logout(
         # ✅ REFACTORIZADO: Revocar token en BD con cliente_id y usuario_id
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
+        
+        # ✅ REVOCACIÓN: Agregar Access Token a blacklist de Redis
+        try:
+            # Extraer access token del header Authorization
+            authorization = request.headers.get("Authorization")
+            if authorization and authorization.startswith("Bearer "):
+                access_token = authorization.replace("Bearer ", "").strip()
+                
+                # Decodificar token para obtener jti y exp
+                from jose import jwt
+                from datetime import datetime
+                try:
+                    payload = jwt.decode(
+                        access_token,
+                        settings.SECRET_KEY,
+                        algorithms=[settings.ALGORITHM],
+                        options={"verify_exp": False}  # No verificar exp para poder calcular TTL
+                    )
+                    
+                    jti = payload.get("jti")
+                    exp = payload.get("exp")
+                    
+                    if jti and exp:
+                        # Calcular tiempo restante en segundos
+                        now = datetime.utcnow().timestamp()
+                        expire_seconds = int(exp - now)
+                        
+                        if expire_seconds > 0:
+                            # Agregar a blacklist
+                            from app.infrastructure.redis.client import RedisService
+                            blacklisted = await RedisService.set_token_blacklist(jti, expire_seconds)
+                            
+                            if blacklisted:
+                                logger.info(
+                                    f"[LOGOUT-{client_type.upper()}] Access token agregado a blacklist - "
+                                    f"jti={jti}, TTL={expire_seconds}s ({expire_seconds // 60} min), "
+                                    f"Usuario: {username}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[LOGOUT-{client_type.upper()}] No se pudo agregar access token a blacklist "
+                                    f"(Redis no disponible o error). jti={jti}, Usuario: {username}"
+                                )
+                        else:
+                            logger.debug(
+                                f"[LOGOUT-{client_type.upper()}] Access token ya expirado, no se agrega a blacklist. "
+                                f"jti={jti}, Usuario: {username}"
+                            )
+                    else:
+                        logger.warning(
+                            f"[LOGOUT-{client_type.upper()}] Access token sin jti o exp. "
+                            f"No se puede agregar a blacklist. Usuario: {username}"
+                        )
+                except Exception as decode_error:
+                    logger.warning(
+                        f"[LOGOUT-{client_type.upper()}] Error decodificando access token para blacklist: {decode_error}. "
+                        f"Usuario: {username}"
+                    )
+        except Exception as blacklist_error:
+            # Fail-soft: No bloquear logout si falla la blacklist
+            logger.error(
+                f"[LOGOUT-{client_type.upper()}] Error agregando access token a blacklist (fail-soft): {blacklist_error}. "
+                f"Usuario: {username}",
+                exc_info=True
+            )
         
         if refresh_token:
             try:
@@ -1036,8 +1103,9 @@ async def sso_azure_login(
         user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
         user_full_data = {**user_base_data, "roles": user_role_names}
 
-        access_token = create_access_token(data={"sub": user_full_data['nombre_usuario']})
-        refresh_token = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
+        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
+        access_token, access_jti = create_access_token(data={"sub": user_full_data['nombre_usuario']})
+        refresh_token, refresh_jti = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
 
         # Almacenar refresh token
         ip_address = request.client.host if request.client else None
@@ -1158,8 +1226,9 @@ async def sso_google_login(
         user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
         user_full_data = {**user_base_data, "roles": user_role_names}
 
-        access_token = create_access_token(data={"sub": user_full_data['nombre_usuario']})
-        refresh_token = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
+        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
+        access_token, access_jti = create_access_token(data={"sub": user_full_data['nombre_usuario']})
+        refresh_token, refresh_jti = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
 
         # Almacenar refresh token
         ip_address = request.client.host if request.client else None

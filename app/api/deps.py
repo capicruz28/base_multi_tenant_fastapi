@@ -42,7 +42,9 @@ async def get_current_user_data(token: str = Depends(oauth2_scheme)) -> Dict[str
     """
     Decodifica el token JWT y retorna el payload.
     
-    Función ligera que solo valida el token, sin acceder a la BD.
+    ✅ REVOCACIÓN: Verifica que el token no esté en la blacklist de Redis.
+    
+    Función ligera que valida el token y verifica revocación, sin acceder a la BD.
     """
     try:
         payload = jwt.decode(
@@ -54,7 +56,45 @@ async def get_current_user_data(token: str = Depends(oauth2_scheme)) -> Dict[str
         if username is None:
             logger.warning("Token JWT inválido: falta 'sub'.")
             raise credentials_exception
+        
+        # ✅ REVOCACIÓN: Verificar si el token está en la blacklist
+        jti = payload.get("jti")
+        if jti:
+            try:
+                from app.infrastructure.redis.client import RedisService
+                is_blacklisted = await RedisService.is_token_blacklisted(jti)
+                
+                if is_blacklisted:
+                    logger.warning(
+                        f"[REVOCACIÓN] Token revocado detectado para usuario '{username}'. "
+                        f"jti={jti}"
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Token revocado",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            except HTTPException:
+                # Re-lanzar HTTPException (token revocado)
+                raise
+            except Exception as redis_error:
+                # Fail-soft: Si Redis falla, loguear pero continuar (no bloquear acceso)
+                logger.error(
+                    f"[REVOCACIÓN] Error verificando blacklist en Redis (fail-soft): {redis_error}. "
+                    f"Continuando sin verificación de revocación. jti={jti}",
+                    exc_info=True
+                )
+                # NO bloquear acceso si Redis falla (fail-soft)
+        else:
+            logger.warning(
+                f"[REVOCACIÓN] Token sin jti para usuario '{username}'. "
+                "No se puede verificar revocación."
+            )
+        
         return payload
+    except HTTPException:
+        # Re-lanzar HTTPException (token revocado o inválido)
+        raise
     except JWTError as e:
         logger.warning(f"Error de validación JWT: {e}")
         raise credentials_exception

@@ -1,0 +1,159 @@
+# ============================================
+# .dockerignore - Archivos excluidos del build
+# ============================================
+# Este archivo evita que archivos innecesarios se copien al contexto de Docker
+# Mejora el rendimiento del build y reduce el tamaño de la imagen
+
+# ============================================
+# Entornos Virtuales
+# ============================================
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+**/venv/
+**/env/
+
+# ============================================
+# Archivos Python compilados
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ============================================
+# Archivos de Testing
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+tests/
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+*.log.*
+log/
+
+# ============================================
+# IDEs y Editores
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Git
+# ============================================
+.git/
+.gitignore
+.gitattributes
+
+# ============================================
+# Docker
+# ============================================
+.dockerignore
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+
+# ============================================
+# Variables de Entorno (usar .env.docker)
+# ============================================
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.docker
+
+# ============================================
+# Documentación y Markdown
+# ============================================
+*.md
+!README.md
+docs/
+
+# ============================================
+# Scripts de desarrollo
+# ============================================
+*.bat
+*.sh
+*.ps1
+migrar_*.bat
+migrar_*.ps1
+migrar_*.sh
+start_*.bat
+update_*.bat
+
+# ============================================
+# Archivos temporales
+# ============================================
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+
+# ============================================
+# Archivos de configuración local
+# ============================================
+pytest.ini
+.coveragerc
+setup.cfg
+setup.py
+
+# ============================================
+# Archivos de validación y testing
+# ============================================
+test_*.py
+validacion_*.py
+verificar_*.py
+
+# ============================================
+# Scripts de encriptación y utilidades
+# ============================================
+encrypt_*.py
+generate_*.py
+generar_*.py
+
+# ============================================
+# Archivos de análisis y documentación técnica
+# ============================================
+FASE*.md
+estructura.md
+database.md
+notas.md
+VERIFICACION_*.md
+
+# ============================================
+# Render y otros servicios
+# ============================================
+render.yaml
+.vercel/
+.netlify/
+
+# ============================================
+# Archivos de base de datos locales
+# ============================================
+*.db
+*.sqlite
+*.sqlite3

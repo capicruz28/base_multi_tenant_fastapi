@@ -93,8 +93,9 @@ class RefreshTokenUseCase:
         }
         
         # 4. Generar nuevos tokens
-        new_access_token = create_access_token(data=token_data)
-        new_refresh_token = create_refresh_token(data=token_data)
+        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
+        new_access_token, new_access_jti = create_access_token(data=token_data)
+        new_refresh_token, new_refresh_jti = create_refresh_token(data=token_data)
         
         # 5. Almacenar nuevo refresh token con rotación
         try:

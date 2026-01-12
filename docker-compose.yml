@@ -1,0 +1,89 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.docker
+    environment:
+      # Asegurar que use los nombres de servicio de Docker para Redis
+      - REDIS_HOST=redis
+      # NOTA: DB_SERVER se lee desde .env.docker (host.docker.internal para conectar al HOST)
+    volumes:
+      # Montar código fuente para hot-reload en desarrollo
+      - .:/app
+      # Excluir venv y otros directorios innecesarios del volumen
+      - /app/venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+      - /app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      # NOTA: db_dev no es necesario si se conecta al SQL Server del HOST
+      # db_dev:
+      #   condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info
+
+  redis:
+    image: redis:alpine
+    container_name: fastapi_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  db_dev:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: fastapi_db_dev
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong@Passw0rd
+      - MSSQL_PID=Developer
+      - MSSQL_COLLATION=SQL_Latin1_General_CP1_CI_AS
+    ports:
+      - "1433:1433"
+    volumes:
+      - db_data:/var/opt/mssql
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong@Passw0rd' -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  redis_data:
+    driver: local
+  db_data:
+    driver: local
+
+networks:
+  app_network:
+    driver: bridge
+
