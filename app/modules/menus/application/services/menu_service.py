@@ -8,7 +8,7 @@ import logging
 from app.infrastructure.database.queries_async import (
     execute_query, execute_insert, execute_update, execute_procedure, execute_procedure_params
 )
-from app.infrastructure.database.queries import (
+from app.infrastructure.database.sql_constants import (
     GET_ALL_MENUS_ADMIN, INSERT_MENU, SELECT_MENU_BY_ID, UPDATE_MENU_TEMPLATE,
     DEACTIVATE_MENU, REACTIVATE_MENU, CHECK_MENU_EXISTS, CHECK_AREA_EXISTS,
     GET_MENUS_BY_AREA_FOR_TREE_QUERY, GET_MAX_ORDEN_FOR_SIBLINGS, GET_MAX_ORDEN_FOR_ROOT

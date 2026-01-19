@@ -1,13 +1,25 @@
-# app/db/queries.py
+# app/infrastructure/database/queries.py
 """
-⚠️ DEPRECATED: Este archivo será eliminado en FASE 2 completa.
+⚠️⚠️⚠️ DEPRECATED - NO USAR ⚠️⚠️⚠️
 
-✅ FASE 2: Migrar a app/infrastructure/database/queries_async.py
+Este archivo está COMPLETAMENTE DEPRECATED y será eliminado.
+
+✅ FASE 2 COMPLETA: Migrar a app/infrastructure/database/queries_async.py
 - Todas las funciones ahora son async
 - Usa SQLAlchemy AsyncSession
 - Reemplaza completamente este archivo
 
-Este archivo se mantiene temporalmente para compatibilidad durante la migración.
+🚨 ADVERTENCIA CRÍTICA:
+- Este archivo NO debe usarse en código nuevo
+- Todas las funciones lanzan NotImplementedError
+- Migrar inmediatamente a queries_async.py
+
+📋 Para migrar:
+1. Cambiar import: from queries import → from queries_async import
+2. Agregar await a todas las llamadas
+3. Convertir funciones a async
+
+Ver: docs/MIGRACION_LEGACY_CODE.md
 """
 
 from typing import List, Dict, Any, Callable, Optional, Union

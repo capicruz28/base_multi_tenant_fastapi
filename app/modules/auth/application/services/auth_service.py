@@ -48,13 +48,54 @@ class RefreshTokenBody(BaseModel):
 
 class AuthService:
     """
-    Servicio de autenticación.
+    Servicio de autenticación y autorización.
     
-    Maneja toda la lógica de autenticación de usuarios, incluyendo:
-    - Autenticación con credenciales
-    - Autenticación SSO
-    - Validación de tokens
-    - Gestión de sesiones
+    ✅ FASE 4A: Documentación mejorada.
+    
+    Este servicio maneja toda la lógica de autenticación y autorización en un contexto
+    multi-tenant, garantizando seguridad y aislamiento entre diferentes clientes.
+    
+    Características Principales:
+    - Autenticación con credenciales (usuario/contraseña)
+    - Autenticación SSO (Single Sign-On)
+    - Validación de tokens JWT (access y refresh)
+    - Gestión de sesiones y refresh tokens
+    - Validación de niveles de acceso (RBAC/LBAC)
+    - Aislamiento automático por tenant
+    
+    Operaciones Críticas:
+    - Login y logout de usuarios
+    - Generación y validación de tokens JWT
+    - Refresh de tokens expirados
+    - Validación de permisos y niveles de acceso
+    - Gestión de sesiones multi-tenant
+    
+    Seguridad Multi-Tenant:
+    - Tokens incluyen información de tenant
+    - Validación de que tokens solo funcionen en su tenant
+    - Prevención de acceso cross-tenant
+    
+    Example:
+        ```python
+        auth_service = AuthService()
+        
+        # Autenticar usuario
+        tokens = await auth_service.login(
+            username="usuario",
+            password="password",
+            cliente_id=current_client_id
+        )
+        
+        # Validar token
+        user_info = await auth_service.validate_token(
+            token=tokens["access_token"]
+        )
+        ```
+    
+    Note:
+        - Todos los tokens incluyen información de tenant
+        - Los tokens de un tenant no funcionan en otro tenant
+        - El servicio valida automáticamente el contexto de tenant
     """
     
     @staticmethod
@@ -65,7 +106,9 @@ class AuthService:
         ✅ FASE 2: Refactorizado para usar async.
         """
         try:
-            from app.infrastructure.database.queries import GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+            from app.infrastructure.database.sql_constants import GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+            from app.infrastructure.database.queries_async import execute_query
+            from app.infrastructure.database.connection_async import DatabaseConnection
             from sqlalchemy import text
             from app.core.tenant.context import try_get_tenant_context
             
@@ -94,12 +137,12 @@ class AuthService:
                 )
             else:
                 # BD compartida: filtrar por cliente_id
-                query = GET_USER_ACCESS_LEVEL_INFO_COMPLETE.replace("?", ":usuario_id", 1) \
-                                                           .replace("?", ":cliente_id", 1)
-                
-                # ✅ FASE 2: Usar execute_query async con text().bindparams()
+                # ✅ FASE 4B: Usar constante desde sql_constants con parámetros nombrados
                 result = await execute_query(
-                    text(query).bindparams(usuario_id=usuario_id, cliente_id=cliente_id),
+                    text(GET_USER_ACCESS_LEVEL_INFO_COMPLETE).bindparams(
+                        usuario_id=usuario_id,
+                        cliente_id=cliente_id
+                    ),
                     connection_type=DatabaseConnection.DEFAULT,
                     client_id=cliente_id
                 )

@@ -203,7 +203,11 @@ async def get_user_auth_context(
             )
         
         # execute_query retorna lista, execute_auth_query retorna un solo registro
-        roles_result = await execute_query(roles_query, skip_tenant_validation=True)
+        # ✅ CORRECCIÓN SEGURIDAD: Eliminado skip_tenant_validation=True
+        # - Para BD dedicadas (multi): La query no filtra por cliente_id (correcto, todos los roles son del mismo tenant)
+        # - Para BD compartidas (single): La query YA filtra por cliente_id (líneas 198-200)
+        # El sistema de validación automática detectará que las queries son seguras
+        roles_result = await execute_query(roles_query, client_id=cliente_id or request_cliente_id)
         
         # 3. Calcular niveles y roles
         roles_list: List[str] = []

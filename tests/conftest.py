@@ -1,58 +1,55 @@
-# tests/conftest.py
 """
-Configuración compartida para tests (pytest fixtures).
+Configuración global de pytest.
 
-✅ NUEVO: Fixtures comunes para todos los tests
+✅ FASE 3: MANTENIBILIDAD - Configuración de tests
 """
 
 import pytest
-from typing import Generator
-from unittest.mock import Mock, MagicMock
+import asyncio
+from uuid import uuid4
+from unittest.mock import patch
 
-# Configuración de pytest
-pytest_plugins = []
-
-
-@pytest.fixture
-def mock_db_connection():
-    """Mock de conexión a base de datos."""
-    mock_conn = MagicMock()
-    mock_cursor = MagicMock()
-    mock_conn.cursor.return_value = mock_cursor
-    mock_cursor.fetchall.return_value = []
-    mock_cursor.fetchone.return_value = None
-    return mock_conn
+from app.core.tenant.context import TenantContext, set_tenant_context, reset_tenant_context
 
 
 @pytest.fixture
-def mock_tenant_context():
-    """Mock de contexto de tenant."""
-    from unittest.mock import patch
-    with patch('app.core.tenant.context.get_current_client_id', return_value=1):
-        yield
+def event_loop():
+    """Crear event loop para tests async."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture
-def sample_usuario_data():
-    """Datos de ejemplo para usuario."""
-    return {
-        'usuario_id': 1,
-        'nombre_usuario': 'test_user',
-        'email': 'test@example.com',
-        'cliente_id': 1,
-        'es_activo': True,
-        'es_superadmin': False,
-        'roles': []
-    }
+def sample_tenant_context():
+    """Contexto de tenant de ejemplo para tests."""
+    return TenantContext(
+        client_id=uuid4(),
+        subdominio="test",
+        codigo_cliente="TEST",
+        database_type="single",
+        nombre_bd="test_db",
+        servidor="localhost",
+        puerto=1433
+    )
 
 
 @pytest.fixture
-def sample_cliente_data():
-    """Datos de ejemplo para cliente."""
-    return {
-        'cliente_id': 1,
-        'nombre': 'Cliente Test',
-        'subdominio': 'test',
-        'es_activo': True
-    }
+def mock_tenant_context(sample_tenant_context):
+    """Fixture que establece contexto de tenant para tests."""
+    tokens = set_tenant_context(sample_tenant_context)
+    yield sample_tenant_context
+    reset_tenant_context(tokens)
 
+
+@pytest.fixture
+def mock_settings():
+    """Fixture para mockear settings."""
+    with patch('app.core.config.settings') as mock:
+        # Valores por defecto seguros
+        mock.ENABLE_QUERY_TENANT_VALIDATION = True
+        mock.ALLOW_TENANT_FILTER_BYPASS = False
+        mock.ENVIRONMENT = "test"
+        mock.ENABLE_CONNECTION_POOLING = False
+        mock.ENABLE_REDIS_CACHE = False
+        yield mock

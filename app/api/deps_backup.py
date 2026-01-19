@@ -66,10 +66,17 @@ async def get_user_access_level(usuario_id: int, cliente_id: int) -> int:
     Obtiene el nivel de acceso máximo del usuario basado en sus roles activos
     """
     try:
-        from app.infrastructure.database.queries import GET_USER_MAX_ACCESS_LEVEL
+        from app.infrastructure.database.sql_constants import GET_USER_MAX_ACCESS_LEVEL
+        from sqlalchemy import text
         
-        # ✅ FASE 2: Usar execute_query async
-        result = await execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
+        # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+        result = await execute_query(
+            text(GET_USER_MAX_ACCESS_LEVEL).bindparams(
+                usuario_id=usuario_id,
+                cliente_id=cliente_id
+            ),
+            client_id=cliente_id
+        )
         
         if result and len(result) > 0:
             max_level = result[0].get('max_level', 1)
@@ -89,10 +96,17 @@ async def debug_user_access_levels(usuario_id: int, cliente_id: int) -> Dict[str
     Función de diagnóstico para verificar niveles de acceso
     """
     try:
-        from app.infrastructure.database.queries import GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+        from app.infrastructure.database.sql_constants import GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+        from sqlalchemy import text
         
-        # ✅ FASE 2: Usar execute_query async
-        result = await execute_query(GET_USER_ACCESS_LEVEL_INFO_COMPLETE, (usuario_id, cliente_id))
+        # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+        result = await execute_query(
+            text(GET_USER_ACCESS_LEVEL_INFO_COMPLETE).bindparams(
+                usuario_id=usuario_id,
+                cliente_id=cliente_id
+            ),
+            client_id=cliente_id
+        )
         
         if result and len(result) > 0:
             level_info = result[0]
@@ -111,10 +125,15 @@ async def check_is_super_admin(usuario_id: int) -> bool:
     Verifica si el usuario tiene rol de SUPER_ADMIN (nivel 5)
     """
     try:
-        from app.infrastructure.database.queries import IS_USER_SUPER_ADMIN
+        from app.infrastructure.database.sql_constants import IS_USER_SUPER_ADMIN
+        from sqlalchemy import text
         
-        # ✅ FASE 2: Usar execute_query async
-        result = await execute_query(IS_USER_SUPER_ADMIN, (usuario_id,))
+        # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+        result = await execute_query(
+            text(IS_USER_SUPER_ADMIN).bindparams(
+                usuario_id=usuario_id
+            )
+        )
         
         if result and len(result) > 0:
             is_super_admin = result[0].get('is_super_admin', 0) > 0
@@ -167,7 +186,7 @@ async def get_current_active_user(
         # Esta query obtiene TODO (usuario, roles, niveles) en un solo roundtrip
         # Mejora: 4 queries → 1 query = 100% reducción en roundtrips
         # Compatible con SQL Server 2005+ (detecta versión automáticamente)
-        from app.infrastructure.database.queries import get_user_complete_data_query
+        from app.infrastructure.database.query_helpers import get_user_complete_data_query
         import json
         
         # Obtener cliente_id del contexto para la query optimizada

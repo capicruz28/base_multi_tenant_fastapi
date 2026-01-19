@@ -9,7 +9,7 @@ import logging
 from app.infrastructure.database.queries_async import (
     execute_query, execute_insert, execute_update
 )
-from app.infrastructure.database.queries import (
+from app.infrastructure.database.sql_constants import (
     GET_AREAS_PAGINATED_QUERY, COUNT_AREAS_QUERY, GET_AREA_BY_ID_QUERY,
     CHECK_AREA_EXISTS_BY_NAME_QUERY, CREATE_AREA_QUERY,
     UPDATE_AREA_BASE_QUERY_TEMPLATE, TOGGLE_AREA_STATUS_QUERY, 

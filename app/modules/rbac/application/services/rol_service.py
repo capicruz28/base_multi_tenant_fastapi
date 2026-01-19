@@ -11,7 +11,7 @@ import pyodbc
 from app.infrastructure.database.queries_async import (
     execute_query, execute_insert, execute_update
 )
-from app.infrastructure.database.queries import (
+from app.infrastructure.database.sql_constants import (
     COUNT_ROLES_PAGINATED, SELECT_ROLES_PAGINATED,
     DEACTIVATE_ROL, REACTIVATE_ROL,
     SELECT_PERMISOS_POR_ROL, DELETE_PERMISOS_POR_ROL, INSERT_PERMISO_ROL
@@ -36,17 +36,57 @@ class RolService(BaseService):
     """
     Servicio para gestión completa de roles del sistema en arquitectura multi-tenant.
     
-    ⚠️ IMPORTANTE: Este servicio maneja operaciones críticas relacionadas con:
-    - Creación, actualización y desactivación de roles **por cliente**
-    - Gestión de permisos de roles sobre menús
-    - Asignación de roles a usuarios **dentro de un cliente**
+    ✅ FASE 4A: Documentación mejorada.
+    ✅ FASE 2: Queries N+1 corregidas.
     
-    CARACTERÍSTICAS PRINCIPALES:
+    Este servicio maneja todas las operaciones relacionadas con roles y permisos en un
+    contexto multi-tenant, garantizando aislamiento de datos entre diferentes clientes.
+    
+    Características Principales:
     - Herencia de BaseService para manejo automático de errores
-    - Validaciones robustas de nombres únicos **por cliente**
+    - Validaciones robustas de nombres únicos por cliente
     - Manejo de transacciones para operaciones críticas
     - Logging detallado para auditoría de seguridad
-    - Aislamiento total de datos por cliente_id
+    - Aislamiento automático de datos por tenant
+    - Optimización de queries (batch loading para prevenir N+1)
+    
+    Operaciones Críticas:
+    - Creación, actualización y desactivación de roles por cliente
+    - Gestión de permisos de roles sobre menús
+    - Asignación de roles a usuarios dentro de un cliente
+    - Validación de permisos para autorización
+    
+    Seguridad Multi-Tenant:
+    - Todas las queries incluyen filtro automático de cliente_id
+    - Validación de que roles solo pertenezcan a su tenant
+    - Prevención de fuga de datos entre tenants
+    
+    Optimizaciones:
+    - Batch loading de permisos para prevenir queries N+1
+    - Carga eficiente de menús relacionados
+    
+    Example:
+        ```python
+        rol_service = RolService()
+        
+        # Crear nuevo rol
+        nuevo_rol = await rol_service.crear_rol(
+            cliente_id=current_client_id,
+            rol_data=rol_data
+        )
+        
+        # Actualizar permisos de rol
+        await rol_service.actualizar_permisos_rol(
+            cliente_id=current_client_id,
+            rol_id=rol_id,
+            permisos=permisos_data
+        )
+        ```
+    
+    Note:
+        - Todas las operaciones requieren cliente_id para garantizar aislamiento
+        - El servicio valida automáticamente que los datos pertenezcan al tenant correcto
+        - Los permisos se cargan en batch para optimizar performance
     """
 
     @staticmethod
@@ -197,9 +237,16 @@ class RolService(BaseService):
                 result = await execute_query(query, (usuario_id,))
             else:
                 # BD compartida: usar la query que filtra por cliente_id
-                from app.infrastructure.database.queries import GET_USER_MAX_ACCESS_LEVEL
-                # ✅ FASE 2: Usar await
-                result = await execute_query(GET_USER_MAX_ACCESS_LEVEL, (usuario_id, cliente_id))
+                from app.infrastructure.database.sql_constants import GET_USER_MAX_ACCESS_LEVEL
+                from sqlalchemy import text
+                # ✅ FASE 4B: Usar text().bindparams() con parámetros nombrados
+                result = await execute_query(
+                    text(GET_USER_MAX_ACCESS_LEVEL).bindparams(
+                        usuario_id=usuario_id,
+                        cliente_id=cliente_id
+                    ),
+                    client_id=cliente_id
+                )
             
             if result and result[0]['max_level'] is not None:
                 # El valor de max_level no es NULL
@@ -495,14 +542,18 @@ class RolService(BaseService):
                 count_params = (search_param, search_param, search_param)
                 logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Contando roles sin filtrar por cliente_id")
             else:
-                COUNT_QUERY = COUNT_ROLES_PAGINATED
-                count_params = (cliente_id, search_param, search_param, search_param)
+                # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+                from sqlalchemy import text
+                COUNT_QUERY = text(COUNT_ROLES_PAGINATED).bindparams(
+                    cliente_id=cliente_id,
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None
+                )
                 logger.debug(f"[ROLES-PAGINADOS] BD compartida: Contando roles SOLO del cliente_id {cliente_id} (sin roles del sistema)")
             
             logger.info(f"[ROLES-PAGINADOS] Iniciando consulta para cliente_id={cliente_id}, page={page}, limit={limit}, search='{search}'")
-            logger.debug(f"[ROLES-PAGINADOS] Parámetros de conteo: {count_params}")
-            # ✅ FASE 2: Usar await
-            count_result = await execute_query(COUNT_QUERY, count_params)
+            # ✅ FASE 4B: Usar await con query con parámetros nombrados
+            count_result = await execute_query(COUNT_QUERY, client_id=cliente_id)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
                 logger.error(f"[ROLES-PAGINADOS] Error al contar roles para cliente {cliente_id}: resultado inesperado: {count_result}")
@@ -536,15 +587,22 @@ class RolService(BaseService):
                 select_params = (search_param, search_param, search_param, offset, limit)
                 logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Obteniendo roles sin filtrar por cliente_id")
             else:
-                SELECT_QUERY = SELECT_ROLES_PAGINATED
-                select_params = (cliente_id, search_param, search_param, search_param, offset, limit)
+                # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+                from sqlalchemy import text
+                SELECT_QUERY = text(SELECT_ROLES_PAGINATED).bindparams(
+                    cliente_id=cliente_id,
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    offset=offset,
+                    limit=limit
+                )
                 logger.debug(f"[ROLES-PAGINADOS] BD compartida: Obteniendo roles SOLO del cliente_id {cliente_id} (sin roles del sistema)")
             
             lista_roles = []
             if total_roles > 0 and limit > 0:
-                logger.debug(f"[ROLES-PAGINADOS] Obteniendo roles con parámetros: {select_params}")
-                # ✅ FASE 2: Usar await
-                lista_roles = await execute_query(SELECT_QUERY, select_params)
+                logger.debug(f"[ROLES-PAGINADOS] Usando query con parámetros nombrados")
+                # ✅ FASE 4B: Usar await con query con parámetros nombrados
+                lista_roles = await execute_query(SELECT_QUERY, client_id=cliente_id)
                 logger.info(f"[ROLES-PAGINADOS] Obtenidos {len(lista_roles)} roles para la página {page} de {total_roles} totales")
             else:
                 logger.info(f"[ROLES-PAGINADOS] No hay roles para mostrar (total={total_roles}, limit={limit})")
@@ -749,8 +807,18 @@ class RolService(BaseService):
                 return rol_actual
 
             # 💾 EJECUTAR DESACTIVACIÓN
-            # ✅ FASE 2: Usar await
-            result = await execute_update(DEACTIVATE_ROL, (rol_id,))
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            from sqlalchemy import text
+            from app.core.tenant.context import get_current_client_id
+            current_client_id = get_current_client_id()
+            
+            result = await execute_update(
+                text(DEACTIVATE_ROL).bindparams(
+                    rol_id=rol_id,
+                    cliente_id=current_client_id
+                ),
+                client_id=current_client_id
+            )
 
             if not result:
                 logger.warning(f"No se pudo desactivar el rol ID {rol_id}")
@@ -826,8 +894,18 @@ class RolService(BaseService):
                 return rol_actual
 
             # 💾 EJECUTAR REACTIVACIÓN
-            # ✅ FASE 2: Usar await
-            result = await execute_update(REACTIVATE_ROL, (rol_id,))
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            from sqlalchemy import text
+            from app.core.tenant.context import get_current_client_id
+            current_client_id = get_current_client_id()
+            
+            result = await execute_update(
+                text(REACTIVATE_ROL).bindparams(
+                    rol_id=rol_id,
+                    cliente_id=current_client_id
+                ),
+                client_id=current_client_id
+            )
 
             if not result:
                 logger.warning(f"No se pudo reactivar el rol ID {rol_id}")
@@ -970,7 +1048,18 @@ class RolService(BaseService):
 
         try:
             # ✅ FASE 2: Usar await
-            resultados = await execute_query(SELECT_PERMISOS_POR_ROL, (rol_id,))
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            from sqlalchemy import text
+            from app.core.tenant.context import get_current_client_id
+            current_client_id = get_current_client_id()
+            
+            resultados = await execute_query(
+                text(SELECT_PERMISOS_POR_ROL).bindparams(
+                    rol_id=rol_id,
+                    cliente_id=current_client_id
+                ),
+                client_id=current_client_id
+            )
             
             if not resultados:
                 logger.info(f"El rol ID {rol_id} no tiene permisos asignados")
@@ -1032,18 +1121,29 @@ class RolService(BaseService):
         # Primero validar todos los menús ANTES de la transacción
         menu_validations = {}
         if nuevos_permisos:
+            # ✅ FASE 2 PERFORMANCE: Cargar todos los menús en batch para prevenir N+1
+            menu_ids = [permiso.menu_id for permiso in nuevos_permisos]
+            from app.infrastructure.database.tables import ModuloMenuTable
+            from sqlalchemy import select
+            
+            menus_query = select(ModuloMenuTable.c.menu_id, ModuloMenuTable.c.cliente_id).where(
+                ModuloMenuTable.c.menu_id.in_(menu_ids)
+            )
+            menus_result = await execute_query(menus_query, client_id=cliente_id)
+            
+            # Crear mapa de menu_id -> cliente_id
+            menus_map = {row['menu_id']: row.get('cliente_id') for row in menus_result}
+            
             for permiso in nuevos_permisos:
                 menu_id = permiso.menu_id
-                # ✅ REFACTORIZACIÓN: Usar nueva tabla modulo_menu
-                menu_query = "SELECT cliente_id FROM modulo_menu WHERE menu_id = ?"
-                menu_result = await execute_query(menu_query, (menu_id,))
-                if not menu_result:
+                # ✅ FASE 2: Usar mapa en lugar de query individual
+                menu_cliente_id = menus_map.get(menu_id)
+                if not menu_cliente_id:
                     raise ServiceError(
                         status_code=404,
                         detail=f"Menú con ID {menu_id} no encontrado.",
                         internal_code="MENU_NOT_FOUND_FOR_PERM"
                     )
-                menu_cliente_id = menu_result[0]['cliente_id']
                 
                 # Validar que el menú pertenezca al mismo cliente que el rol
                 if menu_cliente_id != rol_existente['cliente_id']:

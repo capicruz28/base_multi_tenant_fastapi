@@ -6,7 +6,7 @@ from datetime import datetime
 
 # ✅ FASE 2: Migrar a queries_async
 from app.infrastructure.database.queries_async import execute_insert
-from app.infrastructure.database.queries import (
+from app.infrastructure.database.sql_constants import (
     INSERT_AUTH_AUDIT_LOG,
     INSERT_LOG_SINCRONIZACION_USUARIO,
 )
@@ -116,20 +116,8 @@ class AuditService(BaseService):
                     # Nunca romper por error de serialización de metadata
                     metadata_json = None
 
-            # ✅ Convertir query a text().bindparams() para compatibilidad con async
-            # El INSERT tiene OUTPUT, así que necesitamos usar parámetros nombrados
-            query = INSERT_AUTH_AUDIT_LOG.replace("?", ":cliente_id", 1) \
-                                         .replace("?", ":usuario_id", 1) \
-                                         .replace("?", ":evento", 1) \
-                                         .replace("?", ":nombre_usuario_intento", 1) \
-                                         .replace("?", ":descripcion", 1) \
-                                         .replace("?", ":exito", 1) \
-                                         .replace("?", ":codigo_error", 1) \
-                                         .replace("?", ":ip_address", 1) \
-                                         .replace("?", ":user_agent", 1) \
-                                         .replace("?", ":device_info", 1) \
-                                         .replace("?", ":geolocation", 1) \
-                                         .replace("?", ":metadata_json", 1)
+            # ✅ FASE 4B: Usar parámetros nombrados directamente (ya están en la constante)
+            query = INSERT_AUTH_AUDIT_LOG
 
             # ✅ FASE 2: Usar await con text().bindparams()
             # ✅ CORRECCIÓN: auth_audit_log existe tanto en BD central como en BD dedicada
@@ -241,25 +229,25 @@ class AuditService(BaseService):
                 except Exception:
                     cambios_detectados_json = None
 
-            params = (
-                cliente_origen_id,
-                cliente_destino_id,
-                usuario_id,
-                tipo_sincronizacion,
-                direccion,
-                operacion,
-                estado,
-                mensaje_error,
-                campos_sincronizados_json,
-                cambios_detectados_json,
-                hash_antes,
-                hash_despues,
-                usuario_ejecutor_id,
-                duracion_ms,
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            result = await execute_insert(
+                text(INSERT_LOG_SINCRONIZACION_USUARIO).bindparams(
+                    cliente_origen_id=cliente_origen_id,
+                    cliente_destino_id=cliente_destino_id,
+                    usuario_id=usuario_id,
+                    tipo_sincronizacion=tipo_sincronizacion,
+                    direccion=direccion,
+                    operacion=operacion,
+                    estado=estado,
+                    mensaje_error=mensaje_error,
+                    campos_sincronizados=campos_sincronizados_json,
+                    cambios_detectados=cambios_detectados_json,
+                    hash_antes=hash_antes,
+                    hash_despues=hash_despues,
+                    usuario_ejecutor_id=usuario_ejecutor_id,
+                    duracion_ms=duracion_ms
+                )
             )
-
-            # ✅ FASE 2: Usar await
-            result = await execute_insert(INSERT_LOG_SINCRONIZACION_USUARIO, params)
 
             logger.info(
                 "[AUDIT] log_sincronizacion_usuario registrado: usuario_id=%s, origen=%s, destino=%s, estado=%s",

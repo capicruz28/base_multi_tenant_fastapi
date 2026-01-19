@@ -26,6 +26,7 @@ from app.core.tenant.routing import get_connection_for_tenant
 from app.infrastructure.database.query_helpers import apply_tenant_filter, get_table_name_from_query
 from app.core.exceptions import DatabaseError, ValidationError
 from app.core.config import settings
+from app.core.security.query_auditor import QueryAuditor
 import logging
 
 logger = logging.getLogger(__name__)
@@ -68,23 +69,88 @@ async def execute_query(
     skip_tenant_validation: bool = False
 ) -> List[Dict[str, Any]]:
     """
-    Ejecuta una consulta SQL de forma async.
+    Ejecuta una consulta SQL de forma async con validación automática de tenant.
     
     ✅ FASE 2: Versión async que reemplaza execute_query síncrono.
+    ✅ FASE 1 SEGURIDAD: Validación de tenant obligatoria por defecto.
+    
+    Esta función es el punto central de acceso a la base de datos. Aplica automáticamente
+    filtros de tenant para garantizar aislamiento multi-tenant y valida queries para
+    prevenir fuga de datos.
     
     Args:
-        query: Consulta SQL (string) o objeto SQLAlchemy Core (Select, Update, Delete, Insert)
-        params: Parámetros opcionales (tupla o dict). Si es tupla y query tiene '?', se convierte a parámetros nombrados.
-        connection_type: Tipo de conexión (DEFAULT o ADMIN)
-        client_id: ID del cliente específico (opcional, puede ser int o UUID)
-        skip_tenant_validation: Si True, omite la validación de tenant
+        query: Consulta SQL. Puede ser:
+            - String SQL (deprecated, migrar a SQLAlchemy Core)
+            - Objeto SQLAlchemy Core (Select, Update, Delete, Insert)
+            - TextClause (resultado de text().bindparams())
+        params: Parámetros opcionales (tupla o dict). 
+            Si es tupla y query tiene '?', se convierte a parámetros nombrados.
+        connection_type: Tipo de conexión:
+            - DEFAULT: Conexión tenant-aware (usa routing automático)
+            - ADMIN: Conexión administrativa (BD central)
+        client_id: ID del cliente específico (opcional, puede ser int o UUID).
+            Si no se proporciona, se obtiene del contexto de tenant actual.
+        skip_tenant_validation: Si True, omite la validación de tenant.
+            ⚠️ SOLO funciona si ALLOW_TENANT_FILTER_BYPASS=True en configuración.
+            Uso restringido a scripts de migración o mantenimiento.
     
     Returns:
-        Lista de diccionarios con los resultados
+        Lista de diccionarios con los resultados de la query.
+        Cada diccionario representa una fila con columnas como claves.
     
     Raises:
-        DatabaseError: Si hay error en la ejecución
+        DatabaseError: Si hay error en la ejecución de la query.
+        ValidationError: Si skip_tenant_validation=True pero ALLOW_TENANT_FILTER_BYPASS=False.
+        SecurityError: Si la query no tiene filtro de tenant y está en producción.
+    
+    Example:
+        ```python
+        from sqlalchemy import select
+        from app.infrastructure.database.tables import UsuarioTable
+        
+        # Query con SQLAlchemy Core (recomendado)
+        query = select(UsuarioTable).where(UsuarioTable.c.es_activo == True)
+        results = await execute_query(query, client_id=current_client_id)
+        
+        # Query con text() para casos complejos
+        from sqlalchemy import text
+        query = text("SELECT * FROM usuario WHERE cliente_id = :cliente_id").bindparams(
+            cliente_id=current_client_id
+        )
+        results = await execute_query(query, client_id=current_client_id)
+        ```
+    
+    Note:
+        - Para queries string (deprecated), se aplica análisis estático para detectar
+          filtros de tenant, pero es menos seguro que SQLAlchemy Core.
+        - Se recomienda migrar todas las queries a SQLAlchemy Core para mejor seguridad
+          y mantenibilidad.
     """
+    # ✅ FASE 1 SEGURIDAD: Validar que skip_tenant_validation solo se use si está permitido
+    if skip_tenant_validation:
+        if not settings.ALLOW_TENANT_FILTER_BYPASS:
+            logger.error(
+                f"[SECURITY CRITICAL] Intento de bypass de validación de tenant rechazado. "
+                f"skip_tenant_validation=True pero ALLOW_TENANT_FILTER_BYPASS=False. "
+                f"Query: {str(query)[:200]}..."
+            )
+            from app.core.exceptions import ValidationError
+            raise ValidationError(
+                detail=(
+                    "Bypass de validación de tenant no permitido. "
+                    "Para usar skip_tenant_validation=True, debe activar ALLOW_TENANT_FILTER_BYPASS en configuración. "
+                    "⚠️ ADVERTENCIA: Esto solo debe usarse en scripts de migración o mantenimiento."
+                ),
+                internal_code="TENANT_VALIDATION_BYPASS_DISABLED"
+            )
+        else:
+            # ⚠️ BYPASS PERMITIDO: Log de seguridad
+            logger.warning(
+                f"[SECURITY WARNING] Bypass de validación de tenant permitido para query. "
+                f"Esto solo debería usarse en scripts de migración o mantenimiento. "
+                f"Query: {str(query)[:200]}..."
+            )
+    
     # ✅ FASE 2: Si es objeto SQLAlchemy Core, aplicar filtro de tenant programáticamente
     if isinstance(query, (Select, Update, Delete, Insert)):
         # Obtener nombre de tabla para verificar si es global
@@ -92,6 +158,24 @@ async def execute_query(
             table_name = get_table_name_from_query(query)
         except Exception:
             table_name = None
+        
+        # ✅ FASE 1 SEGURIDAD: Auditoría automática de queries
+        if not skip_tenant_validation and settings.ENABLE_QUERY_TENANT_VALIDATION:
+            try:
+                QueryAuditor.validate_tenant_filter(
+                    query=query,
+                    table_name=table_name,
+                    client_id=client_id,
+                    skip_validation=False
+                )
+            except Exception as audit_error:
+                # Si la auditoría falla, loggear pero continuar (fail-soft en desarrollo)
+                logger.warning(
+                    f"[QUERY_AUDITOR] Error en auditoría (no bloqueante): {audit_error}"
+                )
+                if settings.ENVIRONMENT == "production":
+                    # En producción, re-lanzar el error
+                    raise
         
         # Aplicar filtro de tenant automáticamente (si no se omite)
         if not skip_tenant_validation:
@@ -143,6 +227,36 @@ async def execute_query(
             "[QUERY] DEPRECATED: execute_query() recibió string SQL. "
             "Migrar a SQLAlchemy Core."
         )
+        
+        # ✅ FASE 1 SEGURIDAD: Auditoría automática de queries string
+        if not skip_tenant_validation and settings.ENABLE_QUERY_TENANT_VALIDATION:
+            try:
+                # Intentar extraer nombre de tabla de la query string
+                table_name = None
+                query_lower = query.lower()
+                # Buscar patrones comunes: "FROM tabla", "UPDATE tabla", etc.
+                for keyword in ["from", "update", "delete from", "insert into"]:
+                    if keyword in query_lower:
+                        parts = query_lower.split(keyword, 1)
+                        if len(parts) > 1:
+                            table_part = parts[1].strip().split()[0].strip(";").strip("(")
+                            table_name = table_part
+                            break
+                
+                QueryAuditor.validate_tenant_filter(
+                    query=query,
+                    table_name=table_name,
+                    client_id=client_id,
+                    skip_validation=False
+                )
+            except Exception as audit_error:
+                # Si la auditoría falla, loggear pero continuar (fail-soft en desarrollo)
+                logger.warning(
+                    f"[QUERY_AUDITOR] Error en auditoría de query string (no bloqueante): {audit_error}"
+                )
+                if settings.ENVIRONMENT == "production":
+                    # En producción, re-lanzar el error
+                    raise
         
         # String SQL - convertir ? a parámetros nombrados si hay params
         if params is not None:

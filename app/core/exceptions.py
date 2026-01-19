@@ -99,6 +99,16 @@ class ConflictError(CustomException):
     def __init__(self, detail: str, internal_code: str = "CONFLICT_ERROR"):
         super().__init__(status_code=409, detail=detail, internal_code=internal_code)
 
+class SecurityError(CustomException):
+    """
+    Errores de seguridad (ej: queries sin filtro de tenant).
+    
+    USO: Cuando se detecta un problema de seguridad en el código.
+    Ej: query sin filtro de tenant, bypass de validación no permitido.
+    """
+    def __init__(self, detail: str, internal_code: str = "SECURITY_ERROR"):
+        super().__init__(status_code=403, detail=detail, internal_code=internal_code)
+
 def configure_exception_handlers(app: FastAPI):
     """
     Configura los manejadores de excepciones globales para FastAPI.

@@ -10,7 +10,7 @@ import logging
 from app.infrastructure.database.queries_async import (
     execute_query, execute_insert, execute_update, execute_auth_query
 )
-from app.infrastructure.database.queries import (
+from app.infrastructure.database.sql_constants import (
     SELECT_USUARIOS_PAGINATED, COUNT_USUARIOS_PAGINATED
 )
 
@@ -38,16 +38,50 @@ class UsuarioService(BaseService):
     """
     Servicio para gestión completa de usuarios del sistema en arquitectura multi-tenant.
     
-    ⚠️ IMPORTANTE: Este servicio maneja operaciones críticas relacionadas con:
+    ✅ FASE 4A: Documentación mejorada.
+    
+    Este servicio maneja todas las operaciones relacionadas con usuarios en un contexto
+    multi-tenant, garantizando aislamiento de datos entre diferentes clientes.
+    
+    Características Principales:
+    - Herencia de BaseService para manejo automático de errores
+    - Validaciones robustas de seguridad e integridad de datos por cliente
+    - Manejo seguro de contraseñas con hash bcrypt
+    - Logging detallado para auditoría de seguridad
+    - Aislamiento automático de datos por tenant
+    
+    Operaciones Críticas:
     - Creación, actualización y eliminación de usuarios **por cliente**
     - Gestión de roles y permisos de usuarios
     - Autenticación y gestión de sesiones
+    - Validación de acceso cross-tenant
     
-    CARACTERÍSTICAS PRINCIPALES:
-    - Herencia de BaseService para manejo automático de errores
-    - Validaciones robustas de seguridad e integridad de datos **por cliente**
-    - Manejo seguro de contraseñas con hash bcrypt
-    - Logging detallado para auditoría de seguridad
+    Seguridad Multi-Tenant:
+    - Todas las queries incluyen filtro automático de cliente_id
+    - Validación de que usuarios solo accedan a datos de su tenant
+    - Prevención de fuga de datos entre tenants
+    
+    Example:
+        ```python
+        user_service = UsuarioService()
+        
+        # Obtener usuario completo con roles
+        usuario = await user_service.obtener_usuario_completo_por_id(
+            cliente_id=current_client_id,
+            usuario_id=user_id
+        )
+        
+        # Crear nuevo usuario
+        nuevo_usuario = await user_service.crear_usuario(
+            cliente_id=current_client_id,
+            usuario_data=usuario_data
+        )
+        ```
+    
+    Note:
+        - Todas las operaciones requieren cliente_id para garantizar aislamiento
+        - El servicio valida automáticamente que los datos pertenezcan al tenant correcto
+        - Los errores se manejan de forma consistente a través de BaseService
     - Aislamiento total de datos por cliente_id
     """
 
@@ -1312,27 +1346,26 @@ class UsuarioService(BaseService):
             # 📊 CONTAR TOTAL DE USUARIOS
             # ✅ Para BD dedicadas, no filtrar por cliente_id
             if database_type == "multi":
-                COUNT_QUERY = """
-                SELECT COUNT(DISTINCT u.usuario_id)
-                FROM usuario u
-                WHERE
-                    u.es_eliminado = 0
-                    AND (? IS NULL OR (
-                        u.nombre_usuario LIKE ? OR
-                        u.correo LIKE ? OR
-                        u.nombre LIKE ? OR
-                        u.apellido LIKE ?
-                    ));
-                """
-                count_params = (search_param, search_param, search_param, search_param, search_param)
+                # ✅ FASE 4B: Usar constante desde sql_constants con parámetros nombrados
+                from app.infrastructure.database.sql_constants import COUNT_USUARIOS_PAGINATED_MULTI_DB
+                from sqlalchemy import text
+                COUNT_QUERY = text(COUNT_USUARIOS_PAGINATED_MULTI_DB).bindparams(
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None
+                )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Contando usuarios sin filtrar por cliente_id")
             else:
-                COUNT_QUERY = COUNT_USUARIOS_PAGINATED
-                count_params = (cliente_id, search_param, search_param, search_param, search_param, search_param)
+                # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+                from sqlalchemy import text
+                COUNT_QUERY = text(COUNT_USUARIOS_PAGINATED).bindparams(
+                    cliente_id=cliente_id,
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None
+                )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD compartida: Contando usuarios con cliente_id {cliente_id}")
             
-            # ✅ FASE 2: Usar await
-            count_result = await execute_query(COUNT_QUERY, count_params)
+            # ✅ FASE 4B: Usar await con query con parámetros nombrados
+            count_result = await execute_query(COUNT_QUERY, client_id=cliente_id)
 
             if not count_result or not isinstance(count_result, list) or len(count_result) == 0:
                 logger.error("Error al contar usuarios: resultado inesperado")
@@ -1360,79 +1393,32 @@ class UsuarioService(BaseService):
             # 📋 OBTENER DATOS PAGINADOS CON ROLES
             # ✅ Para BD dedicadas, no filtrar por cliente_id en la query
             if database_type == "multi":
-                SELECT_QUERY = """
-                WITH UserRoles AS (
-                    SELECT
-                        u.usuario_id,
-                        u.nombre_usuario,
-                        u.correo,
-                        u.contrasena, 
-                        u.nombre,
-                        u.apellido,
-                        u.es_activo,
-                        u.correo_confirmado,
-                        u.fecha_creacion,
-                        u.fecha_ultimo_acceso,
-                        u.fecha_actualizacion,
-                        u.cliente_id,
-                        -- ✅ CAMPOS DE SEGURIDAD (según schema SQL)
-                        u.proveedor_autenticacion,
-                        u.fecha_ultimo_cambio_contrasena,
-                        u.requiere_cambio_contrasena,
-                        u.intentos_fallidos,
-                        u.fecha_bloqueo,
-                        -- ✅ CAMPOS DE SINCRONIZACIÓN (según schema SQL)
-                        u.sincronizado_desde,
-                        u.fecha_ultima_sincronizacion,
-                        -- ✅ CAMPOS ADICIONALES (según schema SQL)
-                        u.dni,
-                        u.telefono,
-                        u.referencia_externa_id,
-                        u.referencia_externa_email,
-                        -- ✅ CAMPO DE ELIMINACIÓN LÓGICA
-                        u.es_eliminado,
-                        -- ✅ CAMPOS DE ROLES
-                        r.rol_id,
-                        r.nombre AS nombre_rol,
-                        r.descripcion AS descripcion_rol,
-                        r.es_activo AS rol_es_activo,
-                        r.fecha_creacion AS rol_fecha_creacion,
-                        r.cliente_id AS rol_cliente_id,
-                        r.codigo_rol AS rol_codigo_rol
-                    FROM usuario u
-                    LEFT JOIN usuario_rol ur ON u.usuario_id = ur.usuario_id AND ur.es_activo = 1
-                    LEFT JOIN rol r ON ur.rol_id = r.rol_id AND r.es_activo = 1
-                    WHERE
-                        u.es_eliminado = 0
-                        AND (? IS NULL OR (
-                            u.nombre_usuario LIKE ? OR
-                            u.correo LIKE ? OR
-                            u.nombre LIKE ? OR
-                            u.apellido LIKE ?
-                        ))
+                # ✅ FASE 4B: Usar constante desde sql_constants con parámetros nombrados
+                from app.infrastructure.database.sql_constants import SELECT_USUARIOS_PAGINATED_MULTI_DB
+                from sqlalchemy import text
+                SELECT_QUERY = text(SELECT_USUARIOS_PAGINATED_MULTI_DB).bindparams(
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    offset=offset,
+                    limit=limit
                 )
-                SELECT * FROM UserRoles
-                ORDER BY usuario_id 
-                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;
-                """
-                # Parámetros: search_param (5 veces), offset, limit
-                data_params = (search_param, search_param, search_param, search_param, search_param, offset, limit)
                 logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Obteniendo usuarios sin filtrar por cliente_id")
             else:
-                SELECT_QUERY = SELECT_USUARIOS_PAGINATED
-                # ✅ ORDEN CORRECTO DE PARÁMETROS según SELECT_USUARIOS_PAGINATED:
-                # 1. cliente_id (WHERE u.cliente_id = ?)
-                # 2. search_param (AND (? IS NULL OR ...))
-                # 3-6. search_param (4 veces para los LIKE)
-                # 7. offset (OFFSET ? ROWS)
-                # 8. limit (FETCH NEXT ? ROWS ONLY)
-                data_params = (cliente_id, search_param, search_param, search_param, search_param, search_param, offset, limit)
+                # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+                from sqlalchemy import text
+                SELECT_QUERY = text(SELECT_USUARIOS_PAGINATED).bindparams(
+                    cliente_id=cliente_id,
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    offset=offset,
+                    limit=limit
+                )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD compartida: Obteniendo usuarios con cliente_id {cliente_id}")
             
-            # ✅ FASE 2: Usar await
-            raw_results = await execute_query(SELECT_QUERY, data_params)
+            # ✅ FASE 4B: Usar await con query con parámetros nombrados
+            raw_results = await execute_query(SELECT_QUERY, client_id=cliente_id)
             
-            logger.debug(f"[USUARIOS-PAGINADOS] Query ejecutada con {len(data_params)} parámetros: cliente_id={cliente_id}, search='{search}', offset={offset}, limit={limit}")
+            logger.debug(f"[USUARIOS-PAGINADOS] Query ejecutada: cliente_id={cliente_id}, search='{search}', offset={offset}, limit={limit}")
             logger.debug(f"[USUARIOS-PAGINADOS] Resultados crudos obtenidos: {len(raw_results) if raw_results else 0} filas")
 
             # 🎯 PROCESAR RESULTADOS - AGRUPAR ROLES POR USUARIO

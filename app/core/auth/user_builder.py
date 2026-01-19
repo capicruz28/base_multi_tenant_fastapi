@@ -187,7 +187,11 @@ async def build_user_with_roles(
             )
         
         from app.infrastructure.database.queries_async import execute_query
-        roles_result = await execute_query(roles_query, skip_tenant_validation=True)
+        # ✅ CORRECCIÓN SEGURIDAD: Eliminado skip_tenant_validation=True
+        # - Para BD dedicadas (multi): La query no filtra por cliente_id (correcto, todos los roles son del mismo tenant)
+        # - Para BD compartidas (single): La query YA filtra por cliente_id (líneas 182-185)
+        # El sistema de validación automática detectará que las queries son seguras
+        roles_result = await execute_query(roles_query, client_id=cliente_id or request_cliente_id)
         
         # 3. Construir lista de RolRead
         roles_list: List[RolRead] = []

@@ -160,3 +160,13 @@ api_router.include_router(
     prefix="/superadmin/auditoria",
     tags=["Auditoría (Super Admin)"]
 )
+
+# ========================================
+# ENDPOINTS DE MÉTRICAS Y MONITOREO
+# ========================================
+from app.api import metrics_endpoint
+
+api_router.include_router(
+    metrics_endpoint.router,
+    tags=["Métricas y Monitoreo"]
+)

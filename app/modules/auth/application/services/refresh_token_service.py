@@ -16,7 +16,7 @@ from app.infrastructure.database.queries_async import (
     execute_insert, execute_query, execute_update
 )
 from app.infrastructure.database.connection_async import DatabaseConnection
-from app.infrastructure.database.queries import (
+from app.infrastructure.database.sql_constants import (
     INSERT_REFRESH_TOKEN, GET_REFRESH_TOKEN_BY_HASH,
     REVOKE_REFRESH_TOKEN, REVOKE_REFRESH_TOKEN_BY_USER, REVOKE_ALL_USER_TOKENS,
     DELETE_EXPIRED_TOKENS, GET_ACTIVE_SESSIONS_BY_USER,
@@ -83,7 +83,7 @@ class RefreshTokenService(BaseService):
                 try:
                     # Verificar si este token exacto ya está en BD
                     existing = await execute_query(
-                        text(GET_REFRESH_TOKEN_BY_HASH.replace("?", ":token_hash", 1).replace("?", ":cliente_id", 1)).bindparams(
+                        text(GET_REFRESH_TOKEN_BY_HASH).bindparams(
                             token_hash=token_hash, cliente_id=cliente_id
                         )
                     )
@@ -103,22 +103,18 @@ class RefreshTokenService(BaseService):
                     logger.warning(f"[STORE-TOKEN-ROTATION] Error verificando existencia: {check_err}")
                     # Continuar con la inserción si falla la verificación
             
-            # Preparar parámetros para inserción
-            params = (                
-                usuario_id,
-                token_hash,
-                expires_at,
-                client_type,
-                ip_address,
-                user_agent[:500] if user_agent else None, 
-                cliente_id,
-            )
-            
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
             # Intentar insertar
-            # ✅ FASE 2: Usar await - execute_insert ahora acepta params como segundo argumento
             result = await execute_insert(
-                INSERT_REFRESH_TOKEN, 
-                params,
+                text(INSERT_REFRESH_TOKEN).bindparams(
+                    usuario_id=usuario_id,
+                    token_hash=token_hash,
+                    expires_at=expires_at,
+                    client_type=client_type,
+                    ip_address=ip_address,
+                    user_agent=user_agent[:500] if user_agent else None,
+                    cliente_id=cliente_id
+                ),
                 connection_type=DatabaseConnection.DEFAULT,
                 client_id=cliente_id
             )
@@ -222,7 +218,7 @@ class RefreshTokenService(BaseService):
             token_hash = RefreshTokenService.hash_token(token)
             # ✅ FASE 2: Usar await
             result = await execute_query(
-                text(GET_REFRESH_TOKEN_BY_HASH.replace("?", ":token_hash", 1).replace("?", ":cliente_id", 1)).bindparams(
+                text(GET_REFRESH_TOKEN_BY_HASH).bindparams(
                     token_hash=token_hash, cliente_id=cliente_id
                 )
             )
@@ -258,8 +254,14 @@ class RefreshTokenService(BaseService):
         """
         try:
             token_hash = RefreshTokenService.hash_token(token)
-            # ✅ FASE 2: Usar await
-            result = await execute_update(REVOKE_REFRESH_TOKEN_BY_USER, (token_hash, usuario_id, cliente_id))
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            result = await execute_update(
+                text(REVOKE_REFRESH_TOKEN_BY_USER).bindparams(
+                    usuario_id=usuario_id,
+                    cliente_id=cliente_id
+                ),
+                client_id=cliente_id
+            )
             
             rows_affected = result.get('rows_affected', 0)
             
@@ -292,8 +294,14 @@ class RefreshTokenService(BaseService):
         Revoca todos los tokens activos de un usuario (logout global).
         """
         try:
-            # ✅ FASE 2: Usar await
-            result = await execute_update(REVOKE_ALL_USER_TOKENS, (cliente_id, usuario_id))
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            result = await execute_update(
+                text(REVOKE_ALL_USER_TOKENS).bindparams(
+                    usuario_id=usuario_id,
+                    cliente_id=cliente_id
+                ),
+                client_id=cliente_id
+            )
             rows_affected = result.get('rows_affected', 0)
             
             logger.info(
@@ -323,7 +331,7 @@ class RefreshTokenService(BaseService):
             # ✅ FASE 2: Usar await
             # La query espera: WHERE usuario_id = ? AND cliente_id = ?
             sessions = await execute_query(
-                text(GET_ACTIVE_SESSIONS_BY_USER.replace("?", ":usuario_id", 1).replace("?", ":cliente_id", 1)).bindparams(
+                text(GET_ACTIVE_SESSIONS_BY_USER).bindparams(
                     usuario_id=usuario_id, cliente_id=cliente_id
                 )
             )
@@ -352,8 +360,8 @@ class RefreshTokenService(BaseService):
         Limpia tokens expirados y revocados de la base de datos.
         """
         try:
-            # ✅ FASE 2: Usar await
-            result = await execute_update(DELETE_EXPIRED_TOKENS, ())
+            # ✅ FASE 4B: Usar parámetros nombrados (no requiere parámetros)
+            result = await execute_update(text(DELETE_EXPIRED_TOKENS))
             rows_affected = result.get('rows_affected', 0)
             
             logger.info(f"[CLEANUP] {rows_affected} tokens expirados/revocados eliminados")
@@ -378,7 +386,7 @@ class RefreshTokenService(BaseService):
         try:
             # ✅ FASE 2: Usar await
             sessions = await execute_query(
-                text(GET_ALL_ACTIVE_SESSIONS.replace("?", ":cliente_id", 1)).bindparams(
+                text(GET_ALL_ACTIVE_SESSIONS).bindparams(
                     cliente_id=cliente_id
                 )
             )
@@ -405,8 +413,12 @@ class RefreshTokenService(BaseService):
         [ADMIN] Revoca un refresh token específico utilizando su ID (PK).
         """
         try:
-            # ✅ FASE 2: Usar await
-            result = await execute_update(REVOKE_REFRESH_TOKEN_BY_ID, (token_id,))
+            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            result = await execute_update(
+                text(REVOKE_REFRESH_TOKEN_BY_ID).bindparams(
+                    token_id=token_id
+                )
+            )
             
             if result and result.get('token_id'):
                 logger.info(
