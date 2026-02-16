@@ -43,11 +43,12 @@ _pools: Dict[str, Any] = {}
 _pool_access_times: OrderedDict[str, datetime] = OrderedDict()  # LRU tracking
 _pool_enabled = False
 
-# ✅ CORRECCIÓN: Configuración de límites para evitar colapso
-MAX_TENANT_POOLS = int(os.getenv("MAX_TENANT_POOLS", "50"))  # Máximo 50 pools de tenants
-POOL_INACTIVITY_TIMEOUT = int(os.getenv("POOL_INACTIVITY_TIMEOUT", "3600"))  # 1 hora sin uso
-TENANT_POOL_SIZE = int(os.getenv("TENANT_POOL_SIZE", "3"))  # Pool size reducido para tenants
-TENANT_POOL_MAX_OVERFLOW = int(os.getenv("TENANT_POOL_MAX_OVERFLOW", "2"))  # Overflow reducido
+# ✅ FASE 0: Aumentar límites para soportar 100+ tenants dedicados
+# ✅ CORRECCIÓN: Configuración de límites optimizada para escalabilidad
+MAX_TENANT_POOLS = int(os.getenv("MAX_TENANT_POOLS", "200"))  # Máximo 200 pools de tenants (aumentado de 50)
+POOL_INACTIVITY_TIMEOUT = int(os.getenv("POOL_INACTIVITY_TIMEOUT", "1800"))  # 30 minutos sin uso (reducido de 1 hora)
+TENANT_POOL_SIZE = int(os.getenv("TENANT_POOL_SIZE", "5"))  # Pool size aumentado para tenants (de 3 a 5)
+TENANT_POOL_MAX_OVERFLOW = int(os.getenv("TENANT_POOL_MAX_OVERFLOW", "3"))  # Overflow aumentado (de 2 a 3)
 
 def _initialize_pools():
     """Inicializa pools de conexión si está habilitado."""
@@ -237,7 +238,8 @@ def _get_pool_for_tenant(client_id: int, connection_string: str) -> Any:
     """
     Obtiene o crea un pool para un tenant específico.
     
-    ✅ CORRECCIÓN: Implementa límites y limpieza automática.
+    ✅ FASE 0: Límites aumentados para soportar 100+ tenants dedicados.
+    ✅ FASE 3: Optimizado con estructura modular y mejor gestión de recursos.
     
     Los pools se crean dinámicamente porque cada tenant puede tener su propia BD.
     Estrategia:
@@ -245,6 +247,11 @@ def _get_pool_for_tenant(client_id: int, connection_string: str) -> Any:
     2. Si no existe y hay espacio, crear nuevo pool
     3. Si no hay espacio, evictar pool más antiguo (LRU)
     4. Limpiar pools inactivos periódicamente
+    
+    Optimizaciones FASE 3:
+    - Límites aumentados (200 pools máximo)
+    - Timeout reducido para limpieza más agresiva (30 min)
+    - Pool size optimizado (5 conexiones base + 3 overflow)
     """
     global _pools, _pool_access_times
     
@@ -311,13 +318,14 @@ def _get_pool_for_tenant(client_id: int, connection_string: str) -> Any:
             f"TrustServerCertificate=yes"
         )
         
-        # ✅ CORRECCIÓN: Crear pool con tamaño reducido para tenants
+        # ✅ FASE 0: Pool size optimizado para escalabilidad (5 base + 3 overflow)
+        # ✅ FASE 3: Configuración balanceada para soportar 100+ tenants
         pool_engine = create_engine(
             sqlalchemy_conn_str,
             poolclass=QueuePool,
-            pool_size=TENANT_POOL_SIZE,  # Reducido: 3 en lugar de 10
-            max_overflow=TENANT_POOL_MAX_OVERFLOW,  # Reducido: 2 en lugar de 5
-            pool_pre_ping=True,
+            pool_size=TENANT_POOL_SIZE,  # Optimizado: 5 conexiones base
+            max_overflow=TENANT_POOL_MAX_OVERFLOW,  # Optimizado: 3 conexiones overflow
+            pool_pre_ping=True,  # Verificar conexiones antes de usar
             pool_recycle=settings.DB_POOL_RECYCLE,
             pool_timeout=settings.DB_POOL_TIMEOUT,
             echo=False
@@ -326,9 +334,11 @@ def _get_pool_for_tenant(client_id: int, connection_string: str) -> Any:
         _pools[pool_key] = pool_engine
         _pool_access_times[pool_key] = datetime.now()
         
+        tenant_pools_count = len([k for k in _pools.keys() if k.startswith('tenant_')])
         logger.info(
             f"[CONNECTION_POOL] Pool creado para tenant {client_id}. "
-            f"BD: {database}, Pools activos: {len([k for k in _pools.keys() if k.startswith('tenant_')])}/{MAX_TENANT_POOLS}"
+            f"BD: {database}, Pools activos: {tenant_pools_count}/{MAX_TENANT_POOLS}, "
+            f"Pool size: {TENANT_POOL_SIZE}+{TENANT_POOL_MAX_OVERFLOW}"
         )
         
         return pool_engine

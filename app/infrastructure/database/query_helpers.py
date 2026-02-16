@@ -57,7 +57,17 @@ def apply_tenant_filter(
     Raises:
         ValidationError: Si no hay contexto ni client_id y bypass no está permitido
     """
-    # Obtener client_id
+    # ✅ CORRECCIÓN: Obtener nombre de tabla PRIMERO para verificar si es global
+    # Si es tabla global, no necesita client_id ni filtro de tenant
+    if table_name is None:
+        table_name = get_table_name_from_query(query)
+    
+    # Si es tabla global, no aplicar filtro (no requiere client_id)
+    if table_name and table_name.lower() in GLOBAL_TABLES:
+        logger.debug(f"[TENANT_FILTER] Tabla global '{table_name}' detectada, omitiendo filtro")
+        return query
+    
+    # Obtener client_id solo si NO es tabla global
     if client_id is None:
         client_id = try_get_current_client_id()
     
@@ -69,15 +79,6 @@ def apply_tenant_filter(
                 internal_code="MISSING_TENANT_CONTEXT"
             )
         logger.warning("[TENANT_FILTER] Ejecutando query sin filtro de tenant (bypass permitido)")
-        return query
-    
-    # Obtener nombre de tabla si no se proporciona
-    if table_name is None:
-        table_name = get_table_name_from_query(query)
-    
-    # Si es tabla global, no aplicar filtro
-    if table_name and table_name.lower() in GLOBAL_TABLES:
-        logger.debug(f"[TENANT_FILTER] Tabla global '{table_name}' detectada, omitiendo filtro")
         return query
     
     # Aplicar filtro según tipo de query

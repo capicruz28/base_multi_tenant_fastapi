@@ -53,26 +53,27 @@ def find_sql_constants_imports(root_dir: str = "app") -> list:
 
 def main():
     """Ejecuta validación."""
-    print("🔍 Buscando imports de sql_constants.py...")
+    print("Buscando imports de sql_constants.py...")
     print("-" * 60)
     
     imports = find_sql_constants_imports()
     
     if imports:
-        print(f"❌ Se encontraron {len(imports)} archivo(s) con imports de sql_constants.py:\n")
+        print(f"[WARNING] Se encontraron {len(imports)} archivo(s) con imports de sql_constants.py:\n")
         for imp in imports:
-            print(f"  📄 {imp['file']}:{imp['line']}")
-            print(f"     {imp['content']}")
+            print(f"  - {imp['file']}:{imp['line']}")
+            print(f"    {imp['content']}")
             print()
         
-        print("\n⚠️  ACCIÓN REQUERIDA:")
-        print("   Migrar estos imports a la estructura modular antes de eliminar sql_constants.py")
+        print("\n[INFO] NOTA: Estos imports siguen funcionando gracias a re-exports.")
+        print("   Migrar gradualmente a estructura modular cuando sea conveniente.")
         print("   Ver: docs/MIGRACION_QUERIES.md")
+        print("\n[INFO] sql_constants.py se mantendrá con re-exports por compatibilidad.")
         
-        sys.exit(1)
+        sys.exit(0)  # No es error, solo información
     else:
-        print("✅ No se encontraron imports de sql_constants.py")
-        print("✅ Es seguro eliminar sql_constants.py")
+        print("[OK] No se encontraron imports de sql_constants.py")
+        print("[OK] Es seguro eliminar sql_constants.py")
         sys.exit(0)
 
 

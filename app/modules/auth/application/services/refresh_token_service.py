@@ -18,9 +18,13 @@ from app.infrastructure.database.queries_async import (
 from app.infrastructure.database.connection_async import DatabaseConnection
 from app.infrastructure.database.sql_constants import (
     INSERT_REFRESH_TOKEN, GET_REFRESH_TOKEN_BY_HASH,
-    REVOKE_REFRESH_TOKEN, REVOKE_REFRESH_TOKEN_BY_USER, REVOKE_ALL_USER_TOKENS,
+    REVOKE_REFRESH_TOKEN_BY_USER, REVOKE_ALL_USER_TOKENS,
     DELETE_EXPIRED_TOKENS, GET_ACTIVE_SESSIONS_BY_USER,
     GET_ALL_ACTIVE_SESSIONS, REVOKE_REFRESH_TOKEN_BY_ID
+)
+# ✅ Importar REVOKE_REFRESH_TOKEN desde queries modulares (revoca token específico por hash)
+from app.infrastructure.database.queries.auth.auth_queries import (
+    REVOKE_REFRESH_TOKEN
 )
 from sqlalchemy import text
 from app.core.config import settings
@@ -250,14 +254,18 @@ class RefreshTokenService(BaseService):
     @BaseService.handle_service_errors
     async def revoke_token(cliente_id: UUID, usuario_id: UUID, token: str) -> bool:
         """
-        Revoca un refresh token específico.
+        Revoca un refresh token específico por su hash.
+        
+        ✅ CORRECCIÓN CRÍTICA: Usa REVOKE_REFRESH_TOKEN (por hash) en lugar de 
+        REVOKE_REFRESH_TOKEN_BY_USER (que revoca todos los tokens del usuario).
         """
         try:
             token_hash = RefreshTokenService.hash_token(token)
-            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            # ✅ CORRECCIÓN: Usar REVOKE_REFRESH_TOKEN para revocar solo el token específico
+            # NO usar REVOKE_REFRESH_TOKEN_BY_USER que revoca TODOS los tokens del usuario
             result = await execute_update(
-                text(REVOKE_REFRESH_TOKEN_BY_USER).bindparams(
-                    usuario_id=usuario_id,
+                text(REVOKE_REFRESH_TOKEN).bindparams(
+                    token_hash=token_hash,
                     cliente_id=cliente_id
                 ),
                 client_id=cliente_id
@@ -267,12 +275,14 @@ class RefreshTokenService(BaseService):
             
             if rows_affected > 0:
                 logger.info(
-                    f"[REVOKE-TOKEN] Token revocado exitosamente - Cliente {cliente_id}, Usuario {usuario_id}"
+                    f"[REVOKE-TOKEN] Token específico revocado exitosamente - "
+                    f"Cliente {cliente_id}, Usuario {usuario_id}, Hash: {token_hash[:16]}..."
                 )
                 return True
             
             logger.warning(
-                f"[REVOKE-TOKEN] Token no encontrado o ya revocado - Cliente {cliente_id}, Usuario {usuario_id}"
+                f"[REVOKE-TOKEN] Token no encontrado o ya revocado - "
+                f"Cliente {cliente_id}, Usuario {usuario_id}, Hash: {token_hash[:16]}..."
             )
             return False
         

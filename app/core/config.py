@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     ENABLE_CONNECTION_POOLING: bool = os.getenv("ENABLE_CONNECTION_POOLING", "true").lower() == "true"
     ENABLE_REDIS_CACHE: bool = os.getenv("ENABLE_REDIS_CACHE", "true").lower() == "true"
     
+    # ✅ FASE 1: Unit of Work Pattern (ACTIVADO POR DEFECTO)
+    # Para desactivar temporalmente, establecer ENABLE_UNIT_OF_WORK=false
+    ENABLE_UNIT_OF_WORK: bool = os.getenv("ENABLE_UNIT_OF_WORK", "true").lower() == "true"
+    
     # ✅ CORRECCIÓN AUDITORÍA: Conexiones async (desactivado por defecto hasta migración completa)
     # Para activar, instalar dependencias: pip install 'sqlalchemy[asyncio]' aioodbc
     # Luego establecer: ENABLE_ASYNC_CONNECTIONS=true

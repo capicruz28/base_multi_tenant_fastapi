@@ -1,0 +1,332 @@
+-- ============================================================================
+-- SCRIPT: SEED DATA PARA BD DEDICADA - TECHCORP
+-- DESCRIPCIÓN: Datos iniciales para poblar la BD dedicada de TechCorp
+-- USO: Ejecutar en la BD dedicada de TechCorp (bd_cliente_techcorp)
+-- NOTA: Cliente con tipo_instalacion = 'dedicated'
+-- ============================================================================
+
+-- ⚠️ IMPORTANTE: Cambiar el nombre de la BD según tu configuración
+-- USE bd_cliente_techcorp;
+-- GO
+
+-- ============================================================================
+-- SECCIÓN 1: USUARIOS Y ROLES
+-- ============================================================================
+
+-- Cliente ID de TechCorp (debe coincidir con BD central)
+DECLARE @cliente_id UNIQUEIDENTIFIER = '33333333-3333-3333-3333-333333333333';
+
+-- Rol ADMIN
+INSERT INTO rol (
+    rol_id,
+    cliente_id,
+    codigo_rol,
+    nombre,
+    descripcion,
+    es_rol_sistema,
+    nivel_acceso,
+    es_activo
+) VALUES (
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)
+    @cliente_id,
+    'ADMIN',
+    'Administrador',
+    'Rol de administrador con acceso completo',
+    1,
+    5,
+    1
+);
+
+-- Rol USER
+INSERT INTO rol (
+    rol_id,
+    cliente_id,
+    codigo_rol,
+    nombre,
+    descripcion,
+    es_rol_sistema,
+    nivel_acceso,
+    es_activo
+) VALUES (
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)
+    @cliente_id,
+    'USER',
+    'Usuario',
+    'Rol de usuario estándar',
+    1,
+    1,
+    1
+);
+
+-- Usuario admin
+-- Password: admin123
+INSERT INTO usuario (
+    usuario_id,
+    cliente_id,
+    nombre_usuario,
+    contrasena,
+    nombre,
+    apellido,
+    correo,
+    es_activo,
+    correo_confirmado
+) VALUES (
+    '33333333-3333-3333-3333-333333333100',  -- admin (UUID válido)
+    @cliente_id,
+    'admin',
+    '$2b$12$6J/bWiSYNFHFblxoVot4Je2HyWGU.QyFxtPdpsAMP2hz4fGid5WQu',  -- admin123
+    'Administrador',
+    'TechCorp',
+    'admin@techcorp.com',
+    1,
+    1
+);
+
+-- Usuario user
+-- Password: user123
+INSERT INTO usuario (
+    usuario_id,
+    cliente_id,
+    nombre_usuario,
+    contrasena,
+    nombre,
+    apellido,
+    correo,
+    es_activo,
+    correo_confirmado
+) VALUES (
+    '33333333-3333-3333-3333-333333333200',  -- user (UUID válido)
+    @cliente_id,
+    'user',
+    '$2b$12$ZvpoS9E0eMe6pbxGNoho1eN8hMbeTCkAE5Fyztm1N.51jxcqVYW86',  -- user123
+    'Usuario',
+    'TechCorp',
+    'user@techcorp.com',
+    1,
+    1
+);
+
+-- Asignar roles a usuarios
+INSERT INTO usuario_rol (
+    usuario_rol_id,
+    usuario_id,
+    rol_id,
+    cliente_id,
+    es_activo
+) VALUES
+(
+    NEWID(),
+    '33333333-3333-3333-3333-333333333100',  -- admin (UUID válido)  -- admin
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    @cliente_id,
+    1
+),
+(
+    NEWID(),
+    '33333333-3333-3333-3333-333333333200',  -- user (UUID válido)  -- user
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    @cliente_id,
+    1
+);
+
+-- ============================================================================
+-- SECCIÓN 2: PERMISOS (Referencias a menús en BD CENTRAL)
+-- ============================================================================
+
+-- ⚠️ NOTA: Los menu_id deben coincidir con los creados en BD CENTRAL
+-- Estos UUIDs deben ser los mismos que en SEED_BD_CENTRAL.sql
+
+-- Permisos para ADMIN (acceso completo a todos los menús de módulos activos)
+-- Módulos activos: ALMACEN, LOGISTICA, PLANILLAS
+
+-- Menús de ALMACEN
+INSERT INTO rol_menu_permiso (
+    permiso_id,
+    cliente_id,
+    rol_id,
+    menu_id,
+    puede_ver,
+    puede_crear,
+    puede_editar,
+    puede_eliminar,
+    puede_exportar,
+    puede_imprimir
+) VALUES
+-- Listar Productos
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'AA11AA11-AA11-AA11-AA11-AA11AA11AA11',  -- ALMACEN_PRODUCTOS_LISTAR
+    1, 1, 1, 1, 1, 1
+),
+-- Crear Producto
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'AA12AA12-AA12-AA12-AA12-AA12AA12AA12',  -- ALMACEN_PRODUCTOS_CREAR
+    1, 1, 1, 1, 1, 1
+),
+-- Categorías
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'AA13AA13-AA13-AA13-AA13-AA13AA13AA13',  -- ALMACEN_PRODUCTOS_CATEGORIAS
+    1, 1, 1, 1, 1, 1
+),
+-- Movimientos
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'AA21AA21-AA21-AA21-AA21-AA21AA21AA21',  -- ALMACEN_MOVIMIENTOS_LISTAR
+    1, 1, 1, 1, 1, 1
+),
+-- Entrada
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'AA22AA22-AA22-AA22-AA22-AA22AA22AA22',  -- ALMACEN_MOVIMIENTOS_ENTRADA
+    1, 1, 1, 1, 1, 1
+),
+-- Salida
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'AA23AA23-AA23-AA23-AA23-AA23AA23AA23',  -- ALMACEN_MOVIMIENTOS_SALIDA
+    1, 1, 1, 1, 1, 1
+),
+-- Menús de LOGISTICA
+-- Rutas
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'BB11BB11-BB11-BB11-BB11-BB11BB11BB11',  -- LOGISTICA_RUTAS_LISTAR
+    1, 1, 1, 1, 1, 1
+),
+-- Nueva Ruta
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'BB12BB12-BB12-BB12-BB12-BB12BB12BB12',  -- LOGISTICA_RUTAS_CREAR
+    1, 1, 1, 1, 1, 1
+),
+-- Vehículos
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'BB21BB21-BB21-BB21-BB21-BB21BB21BB21',  -- LOGISTICA_VEHICULOS_LISTAR
+    1, 1, 1, 1, 1, 1
+),
+-- Nuevo Vehículo
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'BB22BB22-BB22-BB22-BB22-BB22BB22BB22',  -- LOGISTICA_VEHICULOS_CREAR
+    1, 1, 1, 1, 1, 1
+),
+-- Menús de PLANILLAS
+-- Empleados
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'CC11CC11-CC11-CC11-CC11-CC11CC11CC11',  -- PLANILLAS_EMPLEADOS_LISTAR
+    1, 1, 1, 1, 1, 1
+),
+-- Nuevo Empleado
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'CC12CC12-CC12-CC12-CC12-CC12CC12CC12',  -- PLANILLAS_EMPLEADOS_CREAR
+    1, 1, 1, 1, 1, 1
+),
+-- Planillas
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'CC21CC21-CC21-CC21-CC21-CC21CC21CC21',  -- PLANILLAS_PLANILLAS_LISTAR
+    1, 1, 1, 1, 1, 1
+),
+-- Procesar Planilla
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333310',  -- ADMIN (UUID válido)  -- ADMIN
+    'CC22CC22-CC22-CC22-CC22-CC22CC22CC22',  -- PLANILLAS_PLANILLAS_PROCESAR
+    1, 1, 1, 1, 1, 1
+);
+
+-- Permisos para USER (solo lectura)
+INSERT INTO rol_menu_permiso (
+    permiso_id,
+    cliente_id,
+    rol_id,
+    menu_id,
+    puede_ver,
+    puede_crear,
+    puede_editar,
+    puede_eliminar,
+    puede_exportar,
+    puede_imprimir
+) VALUES
+-- Menús de ALMACEN
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    'AA11AA11-AA11-AA11-AA11-AA11AA11AA11',  -- ALMACEN_PRODUCTOS_LISTAR
+    1, 0, 0, 0, 0, 0
+),
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    'AA21AA21-AA21-AA21-AA21-AA21AA21AA21',  -- ALMACEN_MOVIMIENTOS_LISTAR
+    1, 0, 0, 0, 0, 0
+),
+-- Menús de LOGISTICA
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    'BB11BB11-BB11-BB11-BB11-BB11BB11BB11',  -- LOGISTICA_RUTAS_LISTAR
+    1, 0, 0, 0, 0, 0
+),
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    'BB21BB21-BB21-BB21-BB21-BB21BB21BB21',  -- LOGISTICA_VEHICULOS_LISTAR
+    1, 0, 0, 0, 0, 0
+),
+-- Menús de PLANILLAS
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    'CC11CC11-CC11-CC11-CC11-CC11CC11CC11',  -- PLANILLAS_EMPLEADOS_LISTAR
+    1, 0, 0, 0, 0, 0
+),
+(
+    NEWID(),
+    @cliente_id,
+    '33333333-3333-3333-3333-333333333320',  -- USER (UUID válido)  -- USER
+    'CC21CC21-CC21-CC21-CC21-CC21CC21CC21',  -- PLANILLAS_PLANILLAS_LISTAR
+    1, 0, 0, 0, 0, 0
+);
+
+PRINT 'Seed de BD dedicada TechCorp completado exitosamente';
+PRINT 'Usuarios creados: admin (ADMIN), user (USER)';
+PRINT 'Permisos configurados para módulos: ALMACEN, LOGISTICA, PLANILLAS';
+GO

@@ -167,20 +167,25 @@ class RolBase(BaseModel):
             if isinstance(cliente_id_valido, UUID) and cliente_id_valido == UUID('00000000-0000-0000-0000-000000000000'):
                 cliente_id_valido = None
         
-        # Solo validar si cliente_id no es None y no es UUID nulo
+        # ✅ CORRECCIÓN: Permitir roles con codigo_rol Y cliente_id si son roles estándar por cliente
+        # Los roles como 'ADMIN', 'USER' son roles estándar del sistema pero cada cliente tiene su instancia
+        # Solo los roles GLOBALES del sistema (como 'SUPER_ADMIN') no deben tener cliente_id
         if self.codigo_rol is not None and cliente_id_valido is not None:
-            # ✅ CORRECCIÓN: Durante la creación (RolCreate), permitimos que codigo_rol esté presente
-            # si cliente_id es None, ya que el endpoint asignará el cliente_id después.
-            # Solo lanzamos error si ambos están presentes y no es durante la creación.
-            # Verificamos si es RolCreate comparando el tipo de la clase
-            if not isinstance(self, RolCreate):
-                raise ValueError(
-                    'Un rol de sistema (con código de rol) no puede tener cliente_id asignado. '
-                    'Los roles de sistema son globales y no pertenecen a un cliente específico.'
-                )
-            # Si es RolCreate y ambos están presentes, eliminamos codigo_rol (el endpoint también lo hace)
-            else:
-                self.codigo_rol = None
+            # Roles globales del sistema que NO deben tener cliente_id
+            roles_globales_sistema = {'SUPER_ADMIN', 'SUPERADMIN', 'SYSTEM_ADMIN'}
+            
+            # Si es un rol global del sistema, no puede tener cliente_id
+            if self.codigo_rol.upper() in roles_globales_sistema:
+                if not isinstance(self, RolCreate):
+                    raise ValueError(
+                        f'Un rol global del sistema ({self.codigo_rol}) no puede tener cliente_id asignado. '
+                        'Los roles globales del sistema son únicos y no pertenecen a un cliente específico.'
+                    )
+                # Si es RolCreate y es rol global, eliminar cliente_id
+                else:
+                    self.cliente_id = None
+            # Si es un rol estándar (ADMIN, USER, etc.), permitir que tenga cliente_id
+            # Estos roles son estándar pero cada cliente tiene su propia instancia
         
         # Si no tiene código de rol y no tiene cliente_id, es un error, debe ser rol de sistema o de cliente.
         # Pero durante la creación (RolCreate), permitimos que cliente_id sea None ya que el endpoint lo asignará

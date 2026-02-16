@@ -1,0 +1,141 @@
+"""
+Módulo de queries SQL organizadas por dominio.
+
+✅ FASE 2: Queries migradas desde sql_constants.py (monolítico)
+
+ESTRUCTURA:
+- queries/auth/     → Queries de autenticación y usuarios
+- queries/users/    → Queries de gestión de usuarios
+- queries/rbac/     → Queries de roles y permisos
+- queries/menus/    → Queries de menús y áreas
+- queries/audit/    → Queries de auditoría
+
+USO:
+    # Importar desde módulo específico (recomendado)
+    from app.infrastructure.database.queries.auth.auth_queries import (
+        GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+    )
+    
+    # O usar re-exports desde aquí (compatibilidad)
+    from app.infrastructure.database.queries import (
+        GET_USER_ACCESS_LEVEL_INFO_COMPLETE
+    )
+"""
+
+# ✅ FASE 2: Re-exports para compatibilidad
+# Re-exportar todas las queries desde módulos específicos
+
+from .auth import (
+    GET_USER_MAX_ACCESS_LEVEL,
+    IS_USER_SUPER_ADMIN,
+    GET_USER_ACCESS_LEVEL_INFO_COMPLETE,
+    INSERT_REFRESH_TOKEN,
+    GET_REFRESH_TOKEN_BY_HASH,
+    REVOKE_REFRESH_TOKEN,
+    REVOKE_REFRESH_TOKEN_BY_USER,
+    REVOKE_ALL_USER_TOKENS,
+    DELETE_EXPIRED_TOKENS,
+    GET_ACTIVE_SESSIONS_BY_USER,
+    GET_ALL_ACTIVE_SESSIONS,
+    REVOKE_REFRESH_TOKEN_BY_ID,
+)
+
+from .users import (
+    SELECT_USUARIOS_PAGINATED,
+    COUNT_USUARIOS_PAGINATED,
+    SELECT_USUARIOS_PAGINATED_MULTI_DB,
+    COUNT_USUARIOS_PAGINATED_MULTI_DB,
+    GET_USER_COMPLETE_OPTIMIZED_JSON,
+    GET_USER_COMPLETE_OPTIMIZED_XML,
+)
+
+from .rbac import (
+    SELECT_ROLES_PAGINATED,
+    COUNT_ROLES_PAGINATED,
+    SELECT_PERMISOS_POR_ROL,
+    DEACTIVATE_ROL,
+    REACTIVATE_ROL,
+    DELETE_PERMISOS_POR_ROL,
+    INSERT_PERMISO_ROL,
+)
+
+from .menus import (
+    GET_AREAS_PAGINATED_QUERY,
+    COUNT_AREAS_QUERY,
+    GET_AREA_BY_ID_QUERY,
+    CHECK_AREA_EXISTS_BY_NAME_QUERY,
+    CREATE_AREA_QUERY,
+    UPDATE_AREA_BASE_QUERY_TEMPLATE,
+    TOGGLE_AREA_STATUS_QUERY,
+    GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY,
+    INSERT_MENU,
+    SELECT_MENU_BY_ID,
+    UPDATE_MENU_TEMPLATE,
+    DEACTIVATE_MENU,
+    REACTIVATE_MENU,
+    CHECK_MENU_EXISTS,
+    CHECK_AREA_EXISTS,
+    GET_MENUS_BY_AREA_FOR_TREE_QUERY,
+    GET_MAX_ORDEN_FOR_SIBLINGS,
+    GET_MAX_ORDEN_FOR_ROOT,
+    GET_ALL_MENUS_ADMIN,
+)
+
+from .audit import (
+    INSERT_AUTH_AUDIT_LOG,
+    INSERT_LOG_SINCRONIZACION_USUARIO,
+)
+
+__all__ = [
+    # Auth
+    "GET_USER_MAX_ACCESS_LEVEL",
+    "IS_USER_SUPER_ADMIN",
+    "GET_USER_ACCESS_LEVEL_INFO_COMPLETE",
+    "INSERT_REFRESH_TOKEN",
+    "GET_REFRESH_TOKEN_BY_HASH",
+    "REVOKE_REFRESH_TOKEN",
+    "REVOKE_REFRESH_TOKEN_BY_USER",
+    "REVOKE_ALL_USER_TOKENS",
+    "DELETE_EXPIRED_TOKENS",
+    "GET_ACTIVE_SESSIONS_BY_USER",
+    "GET_ALL_ACTIVE_SESSIONS",
+    "REVOKE_REFRESH_TOKEN_BY_ID",
+    # Users
+    "SELECT_USUARIOS_PAGINATED",
+    "COUNT_USUARIOS_PAGINATED",
+    "SELECT_USUARIOS_PAGINATED_MULTI_DB",
+    "COUNT_USUARIOS_PAGINATED_MULTI_DB",
+    "GET_USER_COMPLETE_OPTIMIZED_JSON",
+    "GET_USER_COMPLETE_OPTIMIZED_XML",
+    # RBAC
+    "SELECT_ROLES_PAGINATED",
+    "COUNT_ROLES_PAGINATED",
+    "SELECT_PERMISOS_POR_ROL",
+    "DEACTIVATE_ROL",
+    "REACTIVATE_ROL",
+    "DELETE_PERMISOS_POR_ROL",
+    "INSERT_PERMISO_ROL",
+    # Menus
+    "GET_AREAS_PAGINATED_QUERY",
+    "COUNT_AREAS_QUERY",
+    "GET_AREA_BY_ID_QUERY",
+    "CHECK_AREA_EXISTS_BY_NAME_QUERY",
+    "CREATE_AREA_QUERY",
+    "UPDATE_AREA_BASE_QUERY_TEMPLATE",
+    "TOGGLE_AREA_STATUS_QUERY",
+    "GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY",
+    "INSERT_MENU",
+    "SELECT_MENU_BY_ID",
+    "UPDATE_MENU_TEMPLATE",
+    "DEACTIVATE_MENU",
+    "REACTIVATE_MENU",
+    "CHECK_MENU_EXISTS",
+    "CHECK_AREA_EXISTS",
+    "GET_MENUS_BY_AREA_FOR_TREE_QUERY",
+    "GET_MAX_ORDEN_FOR_SIBLINGS",
+    "GET_MAX_ORDEN_FOR_ROOT",
+    "GET_ALL_MENUS_ADMIN",
+    # Audit
+    "INSERT_AUTH_AUDIT_LOG",
+    "INSERT_LOG_SINCRONIZACION_USUARIO",
+]

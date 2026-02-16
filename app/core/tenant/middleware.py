@@ -537,9 +537,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
             logger.debug(f"[DB] Consultando subdominio: '{subdomain}'")
             
             # CRÍTICO: Usar conexión ADMIN async para evitar recursión
+            # ✅ CORRECCIÓN: La tabla 'cliente' es global, no requiere filtro de tenant
+            # apply_tenant_filter ahora detecta tablas globales antes de validar client_id
             results = await execute_query(
                 query,
                 connection_type=DatabaseConnection.ADMIN
+                # No pasar client_id: la tabla 'cliente' es global y será detectada automáticamente
             )
             
             if results:
