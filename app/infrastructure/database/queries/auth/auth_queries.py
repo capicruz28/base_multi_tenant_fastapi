@@ -111,7 +111,8 @@ WHERE usuario_id = :usuario_id
 DELETE_EXPIRED_TOKENS = """
 DELETE FROM refresh_tokens
 WHERE expires_at < GETDATE()
-  AND is_revoked = 1;
+  AND is_revoked = 1
+  AND cliente_id = :cliente_id;
 """
 
 GET_ACTIVE_SESSIONS_BY_USER = """
@@ -141,7 +142,8 @@ REVOKE_REFRESH_TOKEN_BY_ID = """
 UPDATE refresh_tokens
 SET is_revoked = 1, revoked_at = GETDATE()
 OUTPUT INSERTED.token_id, INSERTED.is_revoked, INSERTED.usuario_id, INSERTED.cliente_id
-WHERE token_id = :token_id;
+WHERE token_id = :token_id
+  AND cliente_id = :cliente_id;
 """
 
 __all__ = [

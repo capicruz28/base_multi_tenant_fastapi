@@ -229,13 +229,26 @@ async def build_user_with_roles(
                         if isinstance(rol_cliente_id, UUID) and rol_cliente_id == UUID('00000000-0000-0000-0000-000000000000'):
                             rol_cliente_id = None
                     
+                    # ✅ CORRECCIÓN CRÍTICA: Roles globales del sistema no deben tener cliente_id
+                    # Los roles como SUPER_ADMIN son globales y no pertenecen a un cliente específico
+                    # Esto previene errores de validación de Pydantic en RolRead
+                    codigo_rol = role_data.get('codigo_rol')
+                    roles_globales_sistema = {'SUPER_ADMIN', 'SUPERADMIN', 'SYSTEM_ADMIN'}
+                    if codigo_rol and codigo_rol.upper() in roles_globales_sistema:
+                        # Si es un rol global del sistema, forzar cliente_id=None
+                        rol_cliente_id = None
+                        logger.debug(
+                            f"[USER_BUILDER] Rol global del sistema '{codigo_rol}' detectado, "
+                            f"estableciendo cliente_id=None para cumplir con validación de Pydantic"
+                        )
+                    
                     # Crear RolRead
                     rol_read = RolRead(
                         rol_id=role_data.get('rol_id'),
                         nombre=role_data.get('nombre'),
                         descripcion=role_data.get('descripcion'),
                         nivel_acceso=role_data.get('nivel_acceso', 1),
-                        codigo_rol=role_data.get('codigo_rol'),
+                        codigo_rol=codigo_rol,
                         es_activo=bool(role_data.get('es_activo', True)),
                         fecha_creacion=fecha_creacion,
                         cliente_id=rol_cliente_id

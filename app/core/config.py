@@ -1,5 +1,6 @@
 # app/core/config.py (MODIFICADO)
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from typing import List, Literal
 import os
 from dotenv import load_dotenv
@@ -77,7 +78,44 @@ class Settings(BaseSettings):
     # ✅ ACTIVADO: Las funcionalidades de seguridad están activas por defecto
     # Para desactivar, establecer variable de entorno a "false"
     # Ejemplo: ENABLE_TENANT_TOKEN_VALIDATION=false
-    ENABLE_TENANT_TOKEN_VALIDATION: bool = os.getenv("ENABLE_TENANT_TOKEN_VALIDATION", "true").lower() == "true"
+    # ⚠️ CORRECCIÓN RIESGO #2: En producción, ENABLE_TENANT_TOKEN_VALIDATION siempre es True
+    # Leer valor raw desde variable de entorno
+    _enable_tenant_token_validation_raw: str = os.getenv("ENABLE_TENANT_TOKEN_VALIDATION", "true")
+    
+    @model_validator(mode='after')
+    def _validate_tenant_token_validation(self):
+        """
+        Valida y fuerza ENABLE_TENANT_TOKEN_VALIDATION en producción.
+        
+        ✅ CORRECCIÓN RIESGO #2: En producción, siempre fuerza validación de tenant en tokens.
+        """
+        # ✅ CORRECCIÓN RIESGO #2: En producción, forzar validación de tenant en tokens
+        if self.ENVIRONMENT == "production":
+            if self._enable_tenant_token_validation_raw.lower() == "false":
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "[SECURITY] ENABLE_TENANT_TOKEN_VALIDATION=false ignorado en producción. "
+                    "La validación de tenant en tokens es obligatoria en producción por seguridad."
+                )
+            # Forzar a True en producción
+            self._enable_tenant_token_validation_raw = "true"
+        return self
+    
+    @property
+    def ENABLE_TENANT_TOKEN_VALIDATION(self) -> bool:
+        """
+        Validación de tenant en tokens.
+        
+        ✅ CORRECCIÓN RIESGO #2: En producción, siempre es True (no puede desactivarse).
+        En desarrollo, puede desactivarse estableciendo ENABLE_TENANT_TOKEN_VALIDATION=false.
+        """
+        # En producción, siempre True (ya fue forzado en model_validator)
+        if self.ENVIRONMENT == "production":
+            return True
+        # En desarrollo, permitir desactivar para testing
+        return self._enable_tenant_token_validation_raw.lower() == "true"
+    
     ENABLE_QUERY_TENANT_VALIDATION: bool = os.getenv("ENABLE_QUERY_TENANT_VALIDATION", "true").lower() == "true"
     ENABLE_RATE_LIMITING: bool = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
     

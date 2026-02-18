@@ -1,22 +1,16 @@
-# app/infrastructure/database/query_helpers.py
 """
-Helpers para queries SQL.
+EJEMPLO PRÁCTICO: Corrección de Queries TextClause Sin Filtro Automático
 
-✅ FASE 1: Funciones programáticas para aplicar filtros de tenant.
-✅ FASE 4C: Migrado get_user_complete_data_query desde queries.py.
+Este archivo muestra cómo implementar la solución para aplicar filtro automático
+a queries TextClause, protegiendo contra fuga de datos entre tenants.
 """
 
-import logging
-import re
-from typing import Optional, Any, Union
+from sqlalchemy import text, TextClause
+from typing import Optional, Union
 from uuid import UUID
-from sqlalchemy import Select, Update, Delete, and_, text, TextClause
-from sqlalchemy.sql import ClauseElement
+import re
+import logging
 
-from app.infrastructure.database.sql_constants import (
-    GET_USER_COMPLETE_OPTIMIZED_JSON,
-    GET_USER_COMPLETE_OPTIMIZED_XML
-)
 from app.core.tenant.context import try_get_current_client_id
 from app.core.exceptions import ValidationError
 from app.core.config import settings
@@ -30,139 +24,8 @@ GLOBAL_TABLES = {
     'cliente_conexion',
     'sistema_config',
     'modulo',  # Catálogo global
-    'modulo_seccion',  # Catálogo global
-    'modulo_menu'  # Catálogo global (aunque puede tener cliente_id para personalización)
+    'modulo_seccion'  # Catálogo global
 }
-
-# Cache de versión de SQL Server (se detecta una vez)
-_sql_server_version_cache: Optional[int] = None
-
-
-def apply_tenant_filter(
-    query: ClauseElement,
-    client_id: Optional[Union[int, UUID]] = None,
-    table_name: Optional[str] = None,
-    tenant_column: str = "cliente_id"
-) -> ClauseElement:
-    """
-    Aplica filtro de tenant automáticamente a queries SQLAlchemy Core.
-    
-    ✅ FASE 1: Función programática que reemplaza análisis de strings SQL.
-    
-    Args:
-        query: Query SQLAlchemy Core (Select, Update, Delete)
-        client_id: ID del cliente (opcional, usa contexto si no se proporciona)
-        table_name: Nombre de la tabla (opcional, se infiere si es posible)
-        tenant_column: Nombre de la columna de tenant (default: "cliente_id")
-    
-    Returns:
-        Query con filtro de tenant aplicado
-    
-    Raises:
-        ValidationError: Si no hay contexto ni client_id y bypass no está permitido
-    """
-    # ✅ CORRECCIÓN: Obtener nombre de tabla PRIMERO para verificar si es global
-    # Si es tabla global, no necesita client_id ni filtro de tenant
-    if table_name is None:
-        table_name = get_table_name_from_query(query)
-    
-    # Si es tabla global, no aplicar filtro (no requiere client_id)
-    if table_name and table_name.lower() in GLOBAL_TABLES:
-        logger.debug(f"[TENANT_FILTER] Tabla global '{table_name}' detectada, omitiendo filtro")
-        return query
-    
-    # Obtener client_id solo si NO es tabla global
-    if client_id is None:
-        client_id = try_get_current_client_id()
-    
-    # Si no hay client_id y no está permitido el bypass, error
-    if client_id is None:
-        if not settings.ALLOW_TENANT_FILTER_BYPASS:
-            raise ValidationError(
-                detail="No se puede aplicar filtro de tenant: falta client_id y contexto",
-                internal_code="MISSING_TENANT_CONTEXT"
-            )
-        logger.warning("[TENANT_FILTER] Ejecutando query sin filtro de tenant (bypass permitido)")
-        return query
-    
-    # Aplicar filtro según tipo de query
-    if isinstance(query, Select):
-        # Obtener tabla de la query
-        from_clause = query.froms[0] if query.froms else None
-        if from_clause is None:
-            return query
-        
-        # Verificar si ya tiene filtro de tenant
-        # (simplificado: asumimos que no lo tiene y lo agregamos)
-        tenant_col = getattr(from_clause.c, tenant_column, None)
-        if tenant_col is not None:
-            # Agregar condición WHERE
-            if query.whereclause is None:
-                query = query.where(tenant_col == client_id)
-            else:
-                query = query.where(and_(query.whereclause, tenant_col == client_id))
-    
-    elif isinstance(query, (Update, Delete)):
-        # Para Update/Delete, agregar condición WHERE
-        from_clause = query.table if hasattr(query, 'table') else None
-        if from_clause is None:
-            return query
-        
-        tenant_col = getattr(from_clause.c, tenant_column, None)
-        if tenant_col is not None:
-            if query.whereclause is None:
-                query = query.where(tenant_col == client_id)
-            else:
-                query = query.where(and_(query.whereclause, tenant_col == client_id))
-    
-    return query
-
-
-def get_table_name_from_query(query: ClauseElement) -> Optional[str]:
-    """
-    Extrae el nombre de la tabla de una query SQLAlchemy Core.
-    
-    ✅ FASE 1: Helper para determinar si es tabla global.
-    
-    Args:
-        query: Query SQLAlchemy Core
-    
-    Returns:
-        Nombre de la tabla o None si no se puede determinar
-    """
-    try:
-        if isinstance(query, Select):
-            if query.froms:
-                table = query.froms[0]
-                return getattr(table, 'name', None) or str(table)
-        elif isinstance(query, (Update, Delete)):
-            if hasattr(query, 'table'):
-                table = query.table
-                return getattr(table, 'name', None) or str(table)
-    except Exception as e:
-        logger.debug(f"[TABLE_NAME] Error extrayendo nombre de tabla: {e}")
-    
-    return None
-
-
-def get_user_complete_data_query(use_json: bool = True) -> str:
-    """
-    Retorna la query apropiada según la versión de SQL Server.
-    
-    ✅ FASE 4C: Migrado desde queries.py para eliminar dependencias deprecated.
-    
-    Args:
-        use_json: Si True, usa query JSON (SQL Server 2016+). Si False, usa XML (compatible).
-    
-    Returns:
-        str: Query SQL apropiada
-    """
-    if use_json:
-        logger.debug("[QUERY_HELPER] Usando query JSON (SQL Server 2016+)")
-        return GET_USER_COMPLETE_OPTIMIZED_JSON
-    else:
-        logger.debug("[QUERY_HELPER] Usando query XML (compatible con SQL Server 2005+)")
-        return GET_USER_COMPLETE_OPTIMIZED_XML
 
 
 def apply_tenant_filter_to_text_clause(
@@ -174,11 +37,7 @@ def apply_tenant_filter_to_text_clause(
     """
     Aplica filtro de tenant automáticamente a TextClause.
     
-    ✅ FASE 1 SEGURIDAD: Protege queries TextClause contra fuga de datos entre tenants.
-    
-    Intenta parsear el SQL y agregar filtro de cliente_id si no existe.
-    Si la query ya tiene filtro de tenant, no la modifica.
-    Si es una tabla global, no aplica filtro.
+    ✅ SOLUCIÓN: Intenta parsear el SQL y agregar filtro de cliente_id si no existe.
     
     Args:
         query: TextClause a modificar
@@ -187,10 +46,7 @@ def apply_tenant_filter_to_text_clause(
         tenant_column: Nombre de la columna de tenant (default: "cliente_id")
     
     Returns:
-        TextClause modificado con filtro de tenant (o original si no se puede modificar)
-    
-    Raises:
-        ValidationError: Si no hay contexto ni client_id y bypass no está permitido
+        TextClause modificado con filtro de tenant
     
     Example:
         ```python
@@ -218,8 +74,9 @@ def apply_tenant_filter_to_text_clause(
         return query
     
     # Obtener SQL string del TextClause
+    # Intentar obtener el texto SQL original
     try:
-        # TextClause tiene un atributo text que contiene el SQL original
+        # TextClause tiene un atributo _text que contiene el SQL original
         query_str = query.text if hasattr(query, 'text') else str(query)
     except Exception:
         query_str = str(query)
@@ -241,39 +98,31 @@ def apply_tenant_filter_to_text_clause(
         return query
     
     # Agregar filtro de tenant
-    try:
-        modified_query_str = _add_tenant_filter_to_sql(
-            query_str, 
-            tenant_column, 
-            client_id
-        )
-        
-        # Obtener parámetros existentes y agregar cliente_id
-        existing_params = {}
-        if hasattr(query, 'bindparams'):
-            # Extraer parámetros del TextClause
-            for key in query.bindparams.keys():
-                existing_params[key] = query.bindparams[key].value
-        
-        # Agregar cliente_id a los parámetros
-        existing_params[tenant_column] = client_id
-        
-        # Crear nuevo TextClause con filtro agregado
-        new_query = text(modified_query_str).bindparams(**existing_params)
-        
-        logger.debug(
-            f"[TENANT_FILTER] Filtro de tenant agregado automáticamente a TextClause. "
-            f"Tabla: {table_name}"
-        )
-        
-        return new_query
-    except Exception as e:
-        # Si falla la modificación, retornar original con advertencia
-        logger.warning(
-            f"[TENANT_FILTER] No se pudo aplicar filtro automático a TextClause: {e}. "
-            f"Query: {query_str[:200]}..."
-        )
-        return query
+    modified_query_str = _add_tenant_filter_to_sql(
+        query_str, 
+        tenant_column, 
+        client_id
+    )
+    
+    # Obtener parámetros existentes y agregar cliente_id
+    existing_params = {}
+    if hasattr(query, 'bindparams'):
+        # Extraer parámetros del TextClause
+        for key in query.bindparams.keys():
+            existing_params[key] = query.bindparams[key].value
+    
+    # Agregar cliente_id a los parámetros
+    existing_params[tenant_column] = client_id
+    
+    # Crear nuevo TextClause con filtro agregado
+    new_query = text(modified_query_str).bindparams(**existing_params)
+    
+    logger.debug(
+        f"[TENANT_FILTER] Filtro de tenant agregado automáticamente a TextClause. "
+        f"Tabla: {table_name}"
+    )
+    
+    return new_query
 
 
 def _extract_table_name_from_sql(query_str: str, query_lower: str) -> Optional[str]:
@@ -398,3 +247,76 @@ def _add_tenant_filter_to_sql(
         f"Query: {query_str[:200]}..."
     )
     return query_str
+
+
+# ============================================
+# EJEMPLO DE USO
+# ============================================
+
+def ejemplo_uso():
+    """
+    Ejemplo de cómo usar apply_tenant_filter_to_text_clause()
+    """
+    from uuid import UUID
+    
+    cliente_id = UUID("123e4567-e89b-12d3-a456-426614174000")
+    
+    # Ejemplo 1: Query sin filtro de tenant (VULNERABLE)
+    query_vulnerable = text("""
+        SELECT usuario_id, nombre_usuario, correo
+        FROM usuario
+        WHERE es_activo = 1
+          AND correo = :correo
+    """).bindparams(correo="usuario@example.com")
+    
+    # Aplicar filtro automático
+    query_protegida = apply_tenant_filter_to_text_clause(
+        query_vulnerable, 
+        client_id=cliente_id
+    )
+    
+    print("Query original:")
+    print(query_vulnerable.text)
+    print("\nQuery protegida:")
+    print(query_protegida.text)
+    print("\nParámetros:")
+    print(query_protegida.bindparams)
+    
+    # Resultado esperado:
+    # Query protegida: "SELECT ... WHERE es_activo = 1 AND correo = :correo AND cliente_id = :cliente_id"
+    # Parámetros: {'correo': 'usuario@example.com', 'cliente_id': <UUID>}
+    
+    # Ejemplo 2: Query que ya tiene filtro de tenant (no se modifica)
+    query_con_filtro = text("""
+        SELECT usuario_id, nombre_usuario
+        FROM usuario
+        WHERE es_activo = 1
+          AND cliente_id = :cliente_id
+    """).bindparams(cliente_id=cliente_id)
+    
+    query_sin_cambios = apply_tenant_filter_to_text_clause(
+        query_con_filtro,
+        client_id=cliente_id
+    )
+    
+    print("\n\nQuery con filtro existente (no se modifica):")
+    print(query_sin_cambios.text)
+    
+    # Ejemplo 3: Query sobre tabla global (no se aplica filtro)
+    query_global = text("""
+        SELECT cliente_id, codigo_cliente, razon_social
+        FROM cliente
+        WHERE es_activo = 1
+    """)
+    
+    query_global_protegida = apply_tenant_filter_to_text_clause(
+        query_global,
+        client_id=cliente_id
+    )
+    
+    print("\n\nQuery sobre tabla global (no se aplica filtro):")
+    print(query_global_protegida.text)
+
+
+if __name__ == "__main__":
+    ejemplo_uso()

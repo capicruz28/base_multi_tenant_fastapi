@@ -246,6 +246,24 @@ class TenantMiddleware(BaseHTTPMiddleware):
         
         subdomain = self._extract_subdomain(host)
         
+        # ✅ CORRECCIÓN RIESGO #1: En producción, rechazar requests sin subdominio válido
+        # Esto previene asignación automática a SUPERADMIN por requests sin subdominio
+        if not subdomain and settings.ENVIRONMENT == "production":
+            logger.error(
+                f"[SECURITY] Request sin subdominio válido rechazado en producción. "
+                f"Host: {host}"
+            )
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": (
+                        "Request sin subdominio válido rechazado por seguridad. "
+                        "En producción, todos los requests deben incluir un subdominio válido en el Host header. "
+                        "Ejemplo: cliente1.midominio.com"
+                    )
+                }
+            )
+        
         # Convertir SUPERADMIN_CLIENTE_ID de string a UUID si es necesario
         # Si no está configurado y estamos en desarrollo, usar un UUID temporal
         if settings.SUPERADMIN_CLIENTE_ID:
@@ -321,9 +339,23 @@ class TenantMiddleware(BaseHTTPMiddleware):
                         }
                     )
         else:
-            # Caso 3: Sin subdominio
+            # Caso 3: Sin subdominio (solo permitido en desarrollo)
+            # ✅ CORRECCIÓN RIESGO #1: En producción, esto ya fue rechazado arriba
+            # En desarrollo, permitir fallback a SUPERADMIN para facilitar testing
+            if settings.ENVIRONMENT == "production":
+                # Esto no debería ejecutarse porque ya fue rechazado arriba, pero por seguridad:
+                logger.error(
+                    f"[SECURITY] Lógica de fallback ejecutada en producción (no debería ocurrir). "
+                    f"Host: {host}"
+                )
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "detail": "Request sin subdominio válido rechazado por seguridad."
+                    }
+                )
             logger.warning(
-                f"[TENANT] Sin subdominio en Host: {host}. "
+                f"[TENANT] Sin subdominio en Host: {host} (DESARROLLO). "
                 f"Usando Cliente ID por defecto: {client_id} (SYSTEM)"
             )
         

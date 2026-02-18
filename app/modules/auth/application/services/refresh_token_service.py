@@ -26,9 +26,18 @@ from app.infrastructure.database.sql_constants import (
 from app.infrastructure.database.queries.auth.auth_queries import (
     REVOKE_REFRESH_TOKEN
 )
+# ✅ FASE 1 SEGURIDAD: Importar funciones SQLAlchemy Core para queries críticas
+from app.infrastructure.database.queries.auth.refresh_token_queries_core import (
+    get_refresh_token_by_hash_core,
+    insert_refresh_token_core,
+    revoke_refresh_token_core,
+    revoke_all_user_tokens_core,
+    get_active_sessions_by_user_core,
+    delete_expired_tokens_core
+)
 from sqlalchemy import text
 from app.core.config import settings
-from app.core.exceptions import DatabaseError, AuthenticationError, CustomException 
+from app.core.exceptions import DatabaseError, AuthenticationError, CustomException, ValidationError 
 from app.core.application.base_service import BaseService
 from app.core.tenant.context import get_current_client_id
 from app.modules.superadmin.application.services.audit_service import AuditService
@@ -82,24 +91,19 @@ class RefreshTokenService(BaseService):
             expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
             
             # ✅ CORRECCIÓN: Si es rotación, verificar si el token ya existe (doble refresh)
-            # ✅ FASE 2: Usar await
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
             if is_rotation:
                 try:
-                    # Verificar si este token exacto ya está en BD
-                    existing = await execute_query(
-                        text(GET_REFRESH_TOKEN_BY_HASH).bindparams(
-                            token_hash=token_hash, cliente_id=cliente_id
-                        )
-                    )
-                    if existing and len(existing) > 0:
-                        token_data = existing[0]
+                    # Verificar si este token exacto ya está en BD usando SQLAlchemy Core
+                    existing = await get_refresh_token_by_hash_core(token_hash, cliente_id)
+                    if existing:
                         logger.info(
                             f"[STORE-TOKEN-ROTATION] Token ya existe en BD (doble refresh detectado) - "
-                            f"Cliente {cliente_id}, Usuario {usuario_id}, Token ID: {token_data.get('token_id')}"
+                            f"Cliente {cliente_id}, Usuario {usuario_id}, Token ID: {existing.get('token_id')}"
                         )
                         # Retornar el existente sin hacer nada
                         return {
-                            "token_id": token_data.get("token_id"),
+                            "token_id": existing.get("token_id"),
                             "duplicate_ignored": True,
                             "exists": True
                         }
@@ -107,20 +111,15 @@ class RefreshTokenService(BaseService):
                     logger.warning(f"[STORE-TOKEN-ROTATION] Error verificando existencia: {check_err}")
                     # Continuar con la inserción si falla la verificación
             
-            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
-            # Intentar insertar
-            result = await execute_insert(
-                text(INSERT_REFRESH_TOKEN).bindparams(
-                    usuario_id=usuario_id,
-                    token_hash=token_hash,
-                    expires_at=expires_at,
-                    client_type=client_type,
-                    ip_address=ip_address,
-                    user_agent=user_agent[:500] if user_agent else None,
-                    cliente_id=cliente_id
-                ),
-                connection_type=DatabaseConnection.DEFAULT,
-                client_id=cliente_id
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para inserción segura
+            result = await insert_refresh_token_core(
+                usuario_id=usuario_id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+                cliente_id=cliente_id,
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent
             )
             
             logger.info(
@@ -220,20 +219,15 @@ class RefreshTokenService(BaseService):
         try:
             cliente_id = get_current_client_id()
             token_hash = RefreshTokenService.hash_token(token)
-            # ✅ FASE 2: Usar await
-            result = await execute_query(
-                text(GET_REFRESH_TOKEN_BY_HASH).bindparams(
-                    token_hash=token_hash, cliente_id=cliente_id
-                )
-            )
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
+            token_data = await get_refresh_token_by_hash_core(token_hash, cliente_id)
             
-            if not result or len(result) == 0:
+            if not token_data:
                 logger.warning(
                     f"[VALIDATE-TOKEN] Token no encontrado, revocado o expirado - Cliente {cliente_id}"
                 )
                 return None
             
-            token_data = result[0]
             logger.info(
                 f"[VALIDATE-TOKEN] Token válido - Cliente {token_data['cliente_id']}, "
                 f"Usuario {token_data['usuario_id']}, Tipo: {token_data.get('client_type', 'unknown')}"
@@ -261,22 +255,13 @@ class RefreshTokenService(BaseService):
         """
         try:
             token_hash = RefreshTokenService.hash_token(token)
-            # ✅ CORRECCIÓN: Usar REVOKE_REFRESH_TOKEN para revocar solo el token específico
-            # NO usar REVOKE_REFRESH_TOKEN_BY_USER que revoca TODOS los tokens del usuario
-            result = await execute_update(
-                text(REVOKE_REFRESH_TOKEN).bindparams(
-                    token_hash=token_hash,
-                    cliente_id=cliente_id
-                ),
-                client_id=cliente_id
-            )
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
+            result = await revoke_refresh_token_core(token_hash, cliente_id)
             
-            rows_affected = result.get('rows_affected', 0)
-            
-            if rows_affected > 0:
+            if result and result.get('is_revoked'):
                 logger.info(
                     f"[REVOKE-TOKEN] Token específico revocado exitosamente - "
-                    f"Cliente {cliente_id}, Usuario {usuario_id}, Hash: {token_hash[:16]}..."
+                    f"Cliente {cliente_id}, Usuario {usuario_id}, Token ID: {result.get('token_id')}, Hash: {token_hash[:16]}..."
                 )
                 return True
             
@@ -304,15 +289,8 @@ class RefreshTokenService(BaseService):
         Revoca todos los tokens activos de un usuario (logout global).
         """
         try:
-            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
-            result = await execute_update(
-                text(REVOKE_ALL_USER_TOKENS).bindparams(
-                    usuario_id=usuario_id,
-                    cliente_id=cliente_id
-                ),
-                client_id=cliente_id
-            )
-            rows_affected = result.get('rows_affected', 0)
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
+            rows_affected = await revoke_all_user_tokens_core(usuario_id, cliente_id)
             
             logger.info(
                 f"[REVOKE-ALL] {rows_affected} tokens revocados - Cliente {cliente_id}, Usuario {usuario_id}"
@@ -338,13 +316,8 @@ class RefreshTokenService(BaseService):
         Obtiene todas las sesiones activas de un usuario.
         """
         try:
-            # ✅ FASE 2: Usar await
-            # La query espera: WHERE usuario_id = ? AND cliente_id = ?
-            sessions = await execute_query(
-                text(GET_ACTIVE_SESSIONS_BY_USER).bindparams(
-                    usuario_id=usuario_id, cliente_id=cliente_id
-                )
-            )
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
+            sessions = await get_active_sessions_by_user_core(usuario_id, cliente_id)
             
             logger.info(
                 f"[SESSIONS] Cliente {cliente_id}, Usuario {usuario_id} tiene {len(sessions)} sesiones activas"
@@ -368,16 +341,35 @@ class RefreshTokenService(BaseService):
     async def cleanup_expired_tokens() -> int:
         """
         Limpia tokens expirados y revocados de la base de datos.
+        
+        ✅ FASE 2: Requiere contexto de tenant para funcionar correctamente.
+        ✅ FASE 4: Para limpiar todos los tenants, usar RefreshTokenCleanupJob.cleanup_all_tenants()
+        
+        Funciona tanto para Single-DB como Multi-DB:
+        - Single-DB: Limpia tokens del cliente_id en bd_sistema
+        - Multi-DB: Limpia tokens del cliente_id en su BD dedicada
         """
         try:
-            # ✅ FASE 4B: Usar parámetros nombrados (no requiere parámetros)
-            result = await execute_update(text(DELETE_EXPIRED_TOKENS))
-            rows_affected = result.get('rows_affected', 0)
+            # ✅ FASE 2: Obtener cliente_id del contexto
+            cliente_id = get_current_client_id()
             
-            logger.info(f"[CLEANUP] {rows_affected} tokens expirados/revocados eliminados")
+            # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
+            rows_affected = await delete_expired_tokens_core(cliente_id)
+            
+            logger.info(
+                f"[CLEANUP] {rows_affected} tokens expirados/revocados eliminados "
+                f"para cliente {cliente_id}"
+            )
             
             return rows_affected
         
+        except RuntimeError:
+            # Sin contexto de tenant
+            raise ValidationError(
+                detail="cleanup_expired_tokens requiere contexto de tenant. "
+                       "Use RefreshTokenCleanupJob.cleanup_all_tenants() para limpiar todos los tenants.",
+                internal_code="TENANT_CONTEXT_REQUIRED"
+            )
         except CustomException:
             raise
         except Exception as e:
@@ -421,13 +413,22 @@ class RefreshTokenService(BaseService):
     async def revoke_refresh_token_by_id(token_id: UUID) -> bool:
         """
         [ADMIN] Revoca un refresh token específico utilizando su ID (PK).
+        
+        ✅ FASE 2: Requiere contexto de tenant para asegurar que solo se revoquen
+        tokens del tenant actual.
         """
         try:
-            # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
+            # ✅ FASE 2: Obtener cliente_id del contexto
+            cliente_id = get_current_client_id()
+            
+            # ✅ FASE 2: Usar parámetros nombrados con cliente_id
             result = await execute_update(
                 text(REVOKE_REFRESH_TOKEN_BY_ID).bindparams(
-                    token_id=token_id
-                )
+                    token_id=token_id,
+                    cliente_id=cliente_id
+                ),
+                connection_type=DatabaseConnection.DEFAULT,
+                client_id=cliente_id
             )
             
             if result and result.get('token_id'):

@@ -23,8 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.connection_async import get_db_connection, DatabaseConnection
 from app.core.tenant.routing import get_connection_for_tenant
-from app.infrastructure.database.query_helpers import apply_tenant_filter, get_table_name_from_query
-from app.core.exceptions import DatabaseError, ValidationError
+from app.infrastructure.database.query_helpers import (
+    apply_tenant_filter, 
+    get_table_name_from_query,
+    apply_tenant_filter_to_text_clause
+)
+from app.core.exceptions import DatabaseError, ValidationError, SecurityError
 from app.core.config import settings
 from app.core.security.query_auditor import QueryAuditor
 import logging
@@ -206,6 +210,56 @@ async def execute_query(
     
     elif isinstance(query, TextClause):
         # ✅ Aceptar TextClause (resultado de text().bindparams())
+        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant a TextClause
+        # Obtener nombre de tabla para verificar si es global
+        try:
+            # Intentar extraer nombre de tabla del SQL string
+            query_str = query.text if hasattr(query, 'text') else str(query)
+            query_lower = query_str.lower()
+            table_name = None
+            
+            # Buscar patrones comunes: "FROM tabla", "UPDATE tabla", etc.
+            for keyword in ["from", "update", "delete from", "insert into"]:
+                if keyword in query_lower:
+                    parts = query_lower.split(keyword, 1)
+                    if len(parts) > 1:
+                        table_part = parts[1].strip().split()[0].strip(";").strip("(")
+                        table_name = table_part
+                        break
+        except Exception:
+            table_name = None
+        
+        # ✅ FASE 1 SEGURIDAD: Auditoría automática de queries TextClause
+        if not skip_tenant_validation and settings.ENABLE_QUERY_TENANT_VALIDATION:
+            try:
+                QueryAuditor.validate_tenant_filter(
+                    query=query,
+                    table_name=table_name,
+                    client_id=client_id,
+                    skip_validation=False
+                )
+            except Exception as audit_error:
+                # Si la auditoría falla, loggear pero continuar (fail-soft en desarrollo)
+                logger.warning(
+                    f"[QUERY_AUDITOR] Error en auditoría TextClause (no bloqueante): {audit_error}"
+                )
+                if settings.ENVIRONMENT == "production":
+                    # En producción, re-lanzar el error
+                    raise
+        
+        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant
+        # Obtener client_id del contexto si no se proporciona
+        if client_id is None:
+            from app.core.tenant.context import try_get_current_client_id
+            client_id = try_get_current_client_id()
+        
+        if not skip_tenant_validation and client_id:
+            query = apply_tenant_filter_to_text_clause(
+                query, 
+                client_id=client_id, 
+                table_name=table_name
+            )
+        
         # ✅ FASE 5: Usar routing centralizado
         async with _get_connection_context(connection_type, client_id) as session:
             try:
@@ -352,6 +406,35 @@ async def execute_auth_query(
     
     elif isinstance(query, TextClause):
         # ✅ Aceptar TextClause (resultado de text().bindparams())
+        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant a TextClause
+        # Obtener client_id del contexto si está disponible
+        from app.core.tenant.context import try_get_current_client_id
+        auth_client_id = try_get_current_client_id()
+        
+        # Intentar extraer nombre de tabla
+        try:
+            query_str = query.text if hasattr(query, 'text') else str(query)
+            query_lower = query_str.lower()
+            table_name = None
+            
+            for keyword in ["from", "update", "delete from", "insert into"]:
+                if keyword in query_lower:
+                    parts = query_lower.split(keyword, 1)
+                    if len(parts) > 1:
+                        table_part = parts[1].strip().split()[0].strip(";").strip("(")
+                        table_name = table_part
+                        break
+        except Exception:
+            table_name = None
+        
+        # Aplicar filtro automático si hay contexto de tenant
+        if auth_client_id:
+            query = apply_tenant_filter_to_text_clause(
+                query, 
+                client_id=auth_client_id, 
+                table_name=table_name
+            )
+        
         async with _get_connection_context(connection_type) as session:
             try:
                 result = await session.execute(query)
@@ -475,6 +558,31 @@ async def execute_insert(
     
     elif isinstance(query, TextClause):
         # ✅ Aceptar TextClause (resultado de text().bindparams())
+        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant a TextClause
+        # Intentar extraer nombre de tabla
+        try:
+            query_str = query.text if hasattr(query, 'text') else str(query)
+            query_lower = query_str.lower()
+            table_name = None
+            
+            for keyword in ["from", "update", "delete from", "insert into"]:
+                if keyword in query_lower:
+                    parts = query_lower.split(keyword, 1)
+                    if len(parts) > 1:
+                        table_part = parts[1].strip().split()[0].strip(";").strip("(")
+                        table_name = table_part
+                        break
+        except Exception:
+            table_name = None
+        
+        # Aplicar filtro automático si hay client_id
+        if client_id:
+            query = apply_tenant_filter_to_text_clause(
+                query, 
+                client_id=client_id, 
+                table_name=table_name
+            )
+        
         async with _get_connection_context(connection_type, client_id) as session:
             try:
                 result = await session.execute(query)
@@ -599,6 +707,31 @@ async def execute_update(
     
     elif isinstance(query, TextClause):
         # ✅ Aceptar TextClause (resultado de text().bindparams())
+        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant a TextClause
+        # Intentar extraer nombre de tabla
+        try:
+            query_str = query.text if hasattr(query, 'text') else str(query)
+            query_lower = query_str.lower()
+            table_name = None
+            
+            for keyword in ["from", "update", "delete from", "insert into"]:
+                if keyword in query_lower:
+                    parts = query_lower.split(keyword, 1)
+                    if len(parts) > 1:
+                        table_part = parts[1].strip().split()[0].strip(";").strip("(")
+                        table_name = table_part
+                        break
+        except Exception:
+            table_name = None
+        
+        # Aplicar filtro automático si hay client_id
+        if client_id:
+            query = apply_tenant_filter_to_text_clause(
+                query, 
+                client_id=client_id, 
+                table_name=table_name
+            )
+        
         async with _get_connection_context(connection_type, client_id) as session:
             try:
                 result = await session.execute(query)
@@ -680,21 +813,63 @@ async def execute_update(
 async def execute_procedure(
     procedure_name: str,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
-    client_id: Optional[int] = None
+    client_id: Optional[Union[int, UUID]] = None
 ) -> List[Dict[str, Any]]:
     """
     Ejecuta un stored procedure sin parámetros de forma async.
     
     ✅ FASE 2: Versión async.
+    ✅ FASE 1 SEGURIDAD: Validación de cliente_id contra contexto actual.
     
     Args:
         procedure_name: Nombre del stored procedure
         connection_type: Tipo de conexión (DEFAULT o ADMIN)
-        client_id: ID del cliente específico (opcional)
+        client_id: ID del cliente específico (opcional, puede ser int o UUID).
+            Si no se proporciona, se obtiene del contexto de tenant actual.
+            Si se proporciona, se valida contra el contexto actual.
     
     Returns:
         Lista de diccionarios con los resultados
+    
+    Raises:
+        SecurityError: Si client_id proporcionado no coincide con contexto actual
     """
+    from app.core.tenant.context import try_get_current_client_id
+    
+    # Obtener client_id del contexto si no se proporciona
+    context_client_id = try_get_current_client_id()
+    
+    if client_id is None:
+        client_id = context_client_id
+    else:
+        # ✅ FASE 1 SEGURIDAD: Validar que client_id proporcionado coincida con contexto
+        if context_client_id is not None:
+            # Convertir ambos a UUID para comparación
+            if isinstance(client_id, int):
+                try:
+                    client_id_uuid = UUID(int=client_id) if client_id > 0 else None
+                except (ValueError, OverflowError):
+                    client_id_uuid = None
+            elif isinstance(client_id, UUID):
+                client_id_uuid = client_id
+            else:
+                client_id_uuid = None
+            
+            if client_id_uuid and client_id_uuid != context_client_id:
+                logger.error(
+                    f"[SECURITY] Intento de ejecutar SP '{procedure_name}' con client_id diferente al contexto. "
+                    f"Contexto: {context_client_id}, Proporcionado: {client_id_uuid}"
+                )
+                raise SecurityError(
+                    detail=(
+                        f"No se puede ejecutar stored procedure '{procedure_name}' con un cliente_id diferente "
+                        f"al contexto actual del tenant. Esto previene acceso cross-tenant."
+                    ),
+                    internal_code="SP_CLIENT_ID_MISMATCH"
+                )
+            # Usar el del contexto (más seguro)
+            client_id = context_client_id
+    
     async with _get_connection_context(connection_type, client_id) as session:
         try:
             # Ejecutar stored procedure usando text() con formato SQL Server
@@ -716,22 +891,109 @@ async def execute_procedure_params(
     procedure_name: str,
     params_dict: Dict[str, Any],
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
-    client_id: Optional[int] = None
+    client_id: Optional[Union[int, UUID]] = None
 ) -> List[Dict[str, Any]]:
     """
     Ejecuta un stored procedure con parámetros nombrados de forma async.
     
     ✅ FASE 2: Versión async.
+    ✅ FASE 1 SEGURIDAD: Validación de cliente_id contra contexto actual y parámetros.
     
     Args:
         procedure_name: Nombre del stored procedure
-        params_dict: Diccionario con parámetros nombrados (ej: {'UsuarioID': 123})
+        params_dict: Diccionario con parámetros nombrados (ej: {'UsuarioID': 123, 'ClienteID': uuid})
         connection_type: Tipo de conexión (DEFAULT o ADMIN)
-        client_id: ID del cliente específico (opcional)
+        client_id: ID del cliente específico (opcional, puede ser int o UUID).
+            Si no se proporciona, se obtiene del contexto de tenant actual.
+            Si se proporciona, se valida contra el contexto actual.
+            También se valida que params_dict['ClienteID'] o params_dict['cliente_id'] coincida.
     
     Returns:
         Lista de diccionarios con los resultados
+    
+    Raises:
+        SecurityError: Si client_id proporcionado o en params_dict no coincide con contexto actual
     """
+    from app.core.tenant.context import try_get_current_client_id
+    
+    # Obtener client_id del contexto si no se proporciona
+    context_client_id = try_get_current_client_id()
+    
+    if client_id is None:
+        client_id = context_client_id
+    else:
+        # ✅ FASE 1 SEGURIDAD: Validar que client_id proporcionado coincida con contexto
+        if context_client_id is not None:
+            # Convertir ambos a UUID para comparación
+            if isinstance(client_id, int):
+                try:
+                    client_id_uuid = UUID(int=client_id) if client_id > 0 else None
+                except (ValueError, OverflowError):
+                    client_id_uuid = None
+            elif isinstance(client_id, UUID):
+                client_id_uuid = client_id
+            else:
+                client_id_uuid = None
+            
+            if client_id_uuid and client_id_uuid != context_client_id:
+                logger.error(
+                    f"[SECURITY] Intento de ejecutar SP '{procedure_name}' con client_id diferente al contexto. "
+                    f"Contexto: {context_client_id}, Proporcionado: {client_id_uuid}"
+                )
+                raise SecurityError(
+                    detail=(
+                        f"No se puede ejecutar stored procedure '{procedure_name}' con un cliente_id diferente "
+                        f"al contexto actual del tenant. Esto previene acceso cross-tenant."
+                    ),
+                    internal_code="SP_CLIENT_ID_MISMATCH"
+                )
+            # Usar el del contexto (más seguro)
+            client_id = context_client_id
+    
+    # ✅ FASE 1 SEGURIDAD: Validar que params_dict no contenga cliente_id diferente al contexto
+    if context_client_id is not None:
+        # Buscar cliente_id en params_dict (puede estar como 'ClienteID', 'cliente_id', etc.)
+        param_client_id = None
+        for key in ['ClienteID', 'cliente_id', 'Cliente_Id', 'CLIENTE_ID']:
+            if key in params_dict:
+                param_value = params_dict[key]
+                # Convertir a UUID si es necesario
+                if isinstance(param_value, UUID):
+                    param_client_id = param_value
+                elif isinstance(param_value, str):
+                    try:
+                        param_client_id = UUID(param_value)
+                    except ValueError:
+                        pass
+                elif isinstance(param_value, int):
+                    try:
+                        param_client_id = UUID(int=param_value) if param_value > 0 else None
+                    except (ValueError, OverflowError):
+                        pass
+                break
+        
+        if param_client_id and param_client_id != context_client_id:
+            logger.error(
+                f"[SECURITY] Intento de ejecutar SP '{procedure_name}' con cliente_id en params_dict diferente al contexto. "
+                f"Contexto: {context_client_id}, En params: {param_client_id}"
+            )
+            raise SecurityError(
+                detail=(
+                    f"No se puede ejecutar stored procedure '{procedure_name}' con un cliente_id en los parámetros "
+                    f"diferente al contexto actual del tenant. Esto previene acceso cross-tenant."
+                ),
+                internal_code="SP_PARAMS_CLIENT_ID_MISMATCH"
+            )
+        
+        # ✅ FASE 1 SEGURIDAD: Forzar cliente_id correcto en params_dict si existe la clave
+        for key in ['ClienteID', 'cliente_id', 'Cliente_Id', 'CLIENTE_ID']:
+            if key in params_dict:
+                params_dict[key] = context_client_id
+                logger.debug(
+                    f"[SECURITY] ClienteID en params_dict forzado a contexto actual: {context_client_id}"
+                )
+                break
+    
     async with _get_connection_context(connection_type, client_id) as session:
         try:
             # Construir lista de parámetros para SQL Server

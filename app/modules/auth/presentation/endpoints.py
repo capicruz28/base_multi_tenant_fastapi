@@ -1031,6 +1031,67 @@ async def admin_revoke_session_by_id(
             detail="Error interno del servidor al revocar la sesión."
         )
 
+
+@router.post(
+    "/admin/cleanup-expired-tokens/",
+    summary="[ADMIN] Limpiar tokens expirados en todos los tenants",
+    description="""
+    Ejecuta cleanup de tokens expirados y revocados en todos los tenants activos del sistema.
+    
+    **✅ FASE 4: Endpoint administrativo para cleanup global de tokens.**
+    
+    Este endpoint:
+    - Itera todos los tenants activos
+    - Ejecuta cleanup para cada tenant (Single-DB y Multi-DB)
+    - Retorna estadísticas detalladas del proceso
+    
+    **Permisos requeridos:**
+    - Rol 'Administrador'
+    
+    **Respuestas:**
+    - 200: Cleanup completado con estadísticas.
+    - 403: Permiso denegado.
+    - 500: Error interno del servidor.
+    """,
+    dependencies=[Depends(require_admin)]
+)
+async def admin_cleanup_expired_tokens_all_tenants(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Endpoint administrativo para limpiar tokens expirados en todos los tenants.
+    Solo accesible para administradores.
+    
+    ✅ FASE 4: Ejecuta RefreshTokenCleanupJob.cleanup_all_tenants()
+    """
+    username = current_user.get('nombre_usuario', 'N/A')
+    logger.info(f"[ADMIN] Solicitud /admin/cleanup-expired-tokens/ por usuario: {username}")
+    
+    try:
+        from app.modules.auth.application.services.refresh_token_cleanup_job import RefreshTokenCleanupJob
+        
+        stats = await RefreshTokenCleanupJob.cleanup_all_tenants()
+        
+        logger.info(
+            f"[ADMIN-CLEANUP] Completado por {username}: "
+            f"{stats['tenants_processed']} tenants, {stats['tokens_deleted']} tokens eliminados"
+        )
+        
+        return {
+            "status": "completed",
+            "message": f"Cleanup completado: {stats['tenants_processed']} tenants procesados, "
+                      f"{stats['tokens_deleted']} tokens eliminados",
+            "stats": stats
+        }
+    
+    except Exception as e:
+        logger.exception(f"[ADMIN-CLEANUP] Error en cleanup: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al ejecutar cleanup de tokens: {str(e)}"
+        )
+
+
 # === ENDPOINTS PARA SSO (NUEVOS) ===
 
 @router.post(
@@ -1103,9 +1164,17 @@ async def sso_azure_login(
         user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
         user_full_data = {**user_base_data, "roles": user_role_names}
 
+        # ✅ FASE 1: Construir payload completo con cliente_id y level_info (igual que login password)
+        from app.core.security.jwt import build_token_payload_for_sso
+        token_payload = await build_token_payload_for_sso(
+            user_full_data=user_full_data,
+            cliente_id=cliente_id,
+            user_role_names=user_role_names
+        )
+        
         # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        access_token, access_jti = create_access_token(data={"sub": user_full_data['nombre_usuario']})
-        refresh_token, refresh_jti = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
+        access_token, access_jti = create_access_token(data=token_payload)
+        refresh_token, refresh_jti = create_refresh_token(data=token_payload)
 
         # Almacenar refresh token
         ip_address = request.client.host if request.client else None
@@ -1226,9 +1295,17 @@ async def sso_google_login(
         user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
         user_full_data = {**user_base_data, "roles": user_role_names}
 
+        # ✅ FASE 1: Construir payload completo con cliente_id y level_info (igual que login password)
+        from app.core.security.jwt import build_token_payload_for_sso
+        token_payload = await build_token_payload_for_sso(
+            user_full_data=user_full_data,
+            cliente_id=cliente_id,
+            user_role_names=user_role_names
+        )
+        
         # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        access_token, access_jti = create_access_token(data={"sub": user_full_data['nombre_usuario']})
-        refresh_token, refresh_jti = create_refresh_token(data={"sub": user_full_data['nombre_usuario']})
+        access_token, access_jti = create_access_token(data=token_payload)
+        refresh_token, refresh_jti = create_refresh_token(data=token_payload)
 
         # Almacenar refresh token
         ip_address = request.client.host if request.client else None

@@ -6,9 +6,9 @@ Utilidades para creación y decodificación de tokens JWT.
 ✅ REVOCACIÓN: Incluye jti (JWT ID) para revocación de tokens con Redis.
 """
 from datetime import datetime, timedelta
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 import logging
-from uuid import uuid4
+from uuid import uuid4, UUID
 from jose import JWTError, jwt
 from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -99,6 +99,70 @@ def create_refresh_token(data: dict) -> Tuple[str, str]:
     token = jwt.encode(to_encode, settings.REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
     
     return (token, jti)
+
+
+async def build_token_payload_for_sso(
+    user_full_data: Dict[str, Any],
+    cliente_id: UUID,
+    user_role_names: List[str]
+) -> Dict[str, Any]:
+    """
+    Construye el payload del token JWT para flujos SSO.
+    
+    ✅ FASE 1: Incluye cliente_id y level_info igual que login password.
+    Esto asegura que la validación de tenant funcione correctamente para SSO.
+    
+    Args:
+        user_full_data: Datos completos del usuario (debe incluir 'usuario_id' y 'nombre_usuario')
+        cliente_id: ID del cliente/tenant (UUID)
+        user_role_names: Lista de nombres de roles del usuario
+    
+    Returns:
+        Dict con payload completo para JWT, incluyendo:
+        - sub: nombre de usuario
+        - cliente_id: ID del cliente (string)
+        - level_info: Dict con access_level, is_super_admin, user_type
+        - es_superadmin: bool (si aplica)
+    
+    Example:
+        ```python
+        payload = await build_token_payload_for_sso(
+            user_full_data={"usuario_id": uuid, "nombre_usuario": "user"},
+            cliente_id=cliente_uuid,
+            user_role_names=["Administrador"]
+        )
+        access_token, jti = create_access_token(data=payload)
+        ```
+    """
+    from app.modules.auth.application.services.auth_service import AuthService
+    
+    user_id = user_full_data.get('usuario_id')
+    if not user_id:
+        raise ValueError("user_full_data debe incluir 'usuario_id'")
+    
+    nombre_usuario = user_full_data.get('nombre_usuario')
+    if not nombre_usuario:
+        raise ValueError("user_full_data debe incluir 'nombre_usuario'")
+    
+    # Obtener access_level (igual que en login password)
+    level_info = await AuthService.get_user_access_level_info(user_id, cliente_id)
+    
+    # Determinar si es super admin
+    is_super_admin = level_info.get('is_super_admin', False)
+    user_type = level_info.get('user_type', 'user')
+    
+    # Construir payload igual que en login password
+    payload = {
+        "sub": nombre_usuario,
+        "cliente_id": str(cliente_id),  # Convertir UUID a string para JSON serialization
+        "level_info": level_info
+    }
+    
+    # Añadir flag de superadmin si aplica
+    if is_super_admin:
+        payload["es_superadmin"] = True
+    
+    return payload
 
 
 def decode_refresh_token(token: str) -> dict:

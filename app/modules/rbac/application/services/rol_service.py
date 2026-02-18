@@ -96,8 +96,8 @@ class RolService(BaseService):
         
         ✅ REGLAS DE NORMALIZACIÓN:
         - Convierte es_activo de int a bool
-        - Si un rol tiene codigo_rol pero cliente_id != 1, establece codigo_rol = None
-          (roles con codigo_rol solo pueden pertenecer al cliente SUPER ADMIN)
+        - Roles globales del sistema (SUPER_ADMIN, etc.) no deben tener cliente_id asignado
+          (establece cliente_id=None para cumplir con validación de Pydantic)
         
         Args:
             rol_dict: Diccionario con datos del rol desde la BD
@@ -109,14 +109,14 @@ class RolService(BaseService):
         if 'es_activo' in rol_dict and isinstance(rol_dict['es_activo'], int):
             rol_dict['es_activo'] = bool(rol_dict['es_activo'])
         
-        # ✅ CRÍTICO: Normalizar codigo_rol según regla de negocio
-        # Si un rol tiene codigo_rol pero cliente_id no es SUPERADMIN, es un rol de cliente mal configurado
-        # ⚠️ Con UUID, la validación de SUPERADMIN debe hacerse en el servicio usando settings
-        # Para evitar errores de validación, establecer codigo_rol = None si cliente_id no es None
-        if rol_dict.get('codigo_rol') is not None and rol_dict.get('cliente_id') is not None:
-            # ⚠️ Nota: La validación de SUPERADMIN debe hacerse en el servicio, no aquí
-            # Por ahora, si tiene cliente_id y codigo_rol, mantenerlo (el servicio validará)
-            pass
+        # ✅ CORRECCIÓN CRÍTICA: Roles globales del sistema no deben tener cliente_id
+        # Los roles como SUPER_ADMIN son globales y no pertenecen a un cliente específico
+        # Esto previene errores de validación de Pydantic en RolRead
+        codigo_rol = rol_dict.get('codigo_rol')
+        roles_globales_sistema = {'SUPER_ADMIN', 'SUPERADMIN', 'SYSTEM_ADMIN'}
+        if codigo_rol and codigo_rol.upper() in roles_globales_sistema:
+            # Si es un rol global del sistema, forzar cliente_id=None
+            rol_dict['cliente_id'] = None
         
         return rol_dict
 
@@ -1118,41 +1118,76 @@ class RolService(BaseService):
         logger.debug(f"Se actualizarán {len(nuevos_permisos)} permisos para el rol {rol_id}")
 
         # ✅ FASE 2: Refactorizar para usar transacciones async
+        # ✅ FASE 3: Validación mejorada para BD dedicadas
         # Primero validar todos los menús ANTES de la transacción
         menu_validations = {}
         if nuevos_permisos:
-            # ✅ FASE 2 PERFORMANCE: Cargar todos los menús en batch para prevenir N+1
             menu_ids = [permiso.menu_id for permiso in nuevos_permisos]
-            from app.infrastructure.database.tables import ModuloMenuTable
-            from sqlalchemy import select
             
-            menus_query = select(ModuloMenuTable.c.menu_id, ModuloMenuTable.c.cliente_id).where(
-                ModuloMenuTable.c.menu_id.in_(menu_ids)
-            )
-            menus_result = await execute_query(menus_query, client_id=cliente_id)
+            # ✅ FASE 3: Detectar tipo de BD y usar validación apropiada
+            from app.core.tenant.context import get_tenant_context
+            from app.modules.rbac.application.services.menu_validation_service import MenuValidationService
             
-            # Crear mapa de menu_id -> cliente_id
-            menus_map = {row['menu_id']: row.get('cliente_id') for row in menus_result}
+            tenant_context = get_tenant_context()
             
-            for permiso in nuevos_permisos:
-                menu_id = permiso.menu_id
-                # ✅ FASE 2: Usar mapa en lugar de query individual
-                menu_cliente_id = menus_map.get(menu_id)
-                if not menu_cliente_id:
-                    raise ServiceError(
-                        status_code=404,
-                        detail=f"Menú con ID {menu_id} no encontrado.",
-                        internal_code="MENU_NOT_FOUND_FOR_PERM"
-                    )
+            if tenant_context.is_multi_db():
+                # BD dedicada: menu_id debe existir en BD central
+                # ✅ FASE 3: Validar en batch en BD central usando MenuValidationService
+                logger.debug(
+                    f"[ACTUALIZAR_PERMISOS] Validando {len(menu_ids)} menús en BD central "
+                    f"para BD dedicada (cliente {cliente_id})"
+                )
+                valid_menus = await MenuValidationService.validate_multiple_menus(
+                    menu_ids=menu_ids,
+                    cliente_id=cliente_id,
+                    allow_global=True  # Permitir menús globales
+                )
+                # Crear mapa de validación (todos los menús son válidos si llegamos aquí)
+                menu_validations = {menu_id: True for menu_id in valid_menus.keys()}
+                logger.debug(
+                    f"[ACTUALIZAR_PERMISOS] {len(menu_validations)} menús validados exitosamente"
+                )
+            else:
+                # BD central: validación local
+                # ✅ FASE 2 PERFORMANCE: Cargar todos los menús en batch para prevenir N+1
+                from app.infrastructure.database.tables_modulos import ModuloMenuTable
+                from sqlalchemy import select
                 
-                # Validar que el menú pertenezca al mismo cliente que el rol
-                if menu_cliente_id != rol_existente['cliente_id']:
-                    raise ServiceError(
-                        status_code=400,
-                        detail="El menú y el rol deben pertenecer al mismo cliente.",
-                        internal_code="MENU_ROLE_CLIENT_MISMATCH"
-                    )
-                menu_validations[menu_id] = menu_cliente_id
+                menus_query = select(ModuloMenuTable.c.menu_id, ModuloMenuTable.c.cliente_id).where(
+                    ModuloMenuTable.c.menu_id.in_(menu_ids)
+                )
+                # ✅ FASE 3: Usar conexión ADMIN para BD central
+                from app.infrastructure.database.connection_async import DatabaseConnection
+                menus_result = await execute_query(
+                    menus_query, 
+                    connection_type=DatabaseConnection.ADMIN,
+                    client_id=None
+                )
+                
+                # Crear mapa de menu_id -> cliente_id
+                menus_map = {row['menu_id']: row.get('cliente_id') for row in menus_result}
+                
+                for permiso in nuevos_permisos:
+                    menu_id = permiso.menu_id
+                    # ✅ FASE 2: Usar mapa en lugar de query individual
+                    menu_cliente_id = menus_map.get(menu_id)
+                    if menu_id not in menus_map:
+                        raise NotFoundError(
+                            detail=f"Menú con ID {menu_id} no encontrado.",
+                            internal_code="MENU_NOT_FOUND_FOR_PERM"
+                        )
+                    
+                    # Validar que el menú pertenezca al mismo cliente que el rol
+                    # Permitir menús globales (cliente_id=None) y menús del cliente
+                    if menu_cliente_id is not None and menu_cliente_id != rol_existente['cliente_id']:
+                        raise ValidationError(
+                            detail=f"El menú {menu_id} no pertenece al cliente {cliente_id}.",
+                            internal_code="MENU_ROLE_CLIENT_MISMATCH"
+                        )
+                    menu_validations[menu_id] = menu_cliente_id
+                logger.debug(
+                    f"[ACTUALIZAR_PERMISOS] {len(menu_validations)} menús validados localmente"
+                )
 
         try:
             # ✅ FASE 2: Usar transacción async con SQLAlchemy

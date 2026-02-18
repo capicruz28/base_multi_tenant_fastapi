@@ -120,21 +120,39 @@ class PermisoService(BaseService):
             logger.info(f"[VALIDAR_ROL] Validación exitosa - Rol {rol_id} es {'rol del sistema' if es_rol_sistema else f'rol del cliente {rol_cliente_id}'}")
 
             # 📋 VALIDAR MENÚ Y OBTENER SU CLIENTE_ID
-            # ✅ REFACTORIZACIÓN: Importación lazy para evitar circular imports
-            from app.modules.modulos.application.services.modulo_menu_service import ModuloMenuService
-            menu = await ModuloMenuService.obtener_menu_por_id(menu_id)
-            if not menu:
-                raise NotFoundError(
-                    detail=f"Menú con ID {menu_id} no encontrado.",
-                    internal_code="MENU_NOT_FOUND"
+            # ✅ FASE 3: Validación mejorada para BD dedicadas
+            from app.core.tenant.context import get_tenant_context
+            from app.modules.rbac.application.services.menu_validation_service import MenuValidationService
+            
+            tenant_context = get_tenant_context()
+            
+            if tenant_context.is_multi_db():
+                # BD dedicada: menu_id debe existir en BD central
+                # ✅ FASE 3: Validar en BD central usando MenuValidationService
+                await MenuValidationService.validate_menu_exists_in_central(
+                    menu_id=menu_id,
+                    cliente_id=cliente_id,
+                    allow_global=True  # Permitir menús globales
                 )
-            # ModuloMenuRead es un objeto Pydantic, acceder directamente al atributo
-            menu_cliente_id = menu.cliente_id
-            if menu_cliente_id != cliente_id and menu_cliente_id is not None:
-                raise ValidationError(
-                    detail=f"El menú con ID {menu_id} no pertenece al cliente {cliente_id}.",
-                    internal_code="MENU_WRONG_CLIENT"
-                )
+                logger.debug(f"[VALIDAR_MENU] Menú {menu_id} validado en BD central para BD dedicada")
+            else:
+                # BD central: validación local usando ModuloMenuService
+                # ✅ REFACTORIZACIÓN: Importación lazy para evitar circular imports
+                from app.modules.modulos.application.services.modulo_menu_service import ModuloMenuService
+                menu = await ModuloMenuService.obtener_menu_por_id(menu_id)
+                if not menu:
+                    raise NotFoundError(
+                        detail=f"Menú con ID {menu_id} no encontrado.",
+                        internal_code="MENU_NOT_FOUND"
+                    )
+                # ModuloMenuRead es un objeto Pydantic, acceder directamente al atributo
+                menu_cliente_id = menu.cliente_id
+                if menu_cliente_id != cliente_id and menu_cliente_id is not None:
+                    raise ValidationError(
+                        detail=f"El menú con ID {menu_id} no pertenece al cliente {cliente_id}.",
+                        internal_code="MENU_WRONG_CLIENT"
+                    )
+                logger.debug(f"[VALIDAR_MENU] Menú {menu_id} validado localmente para BD central")
 
             logger.debug(f"Validación exitosa - Cliente: {cliente_id}, Rol ID: {rol_id}, Menú ID: {menu_id}")
 
