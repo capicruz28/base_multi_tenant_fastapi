@@ -31,7 +31,8 @@ GLOBAL_TABLES = {
     'sistema_config',
     'modulo',  # Catálogo global
     'modulo_seccion',  # Catálogo global
-    'modulo_menu'  # Catálogo global (aunque puede tener cliente_id para personalización)
+    'modulo_menu',  # Catálogo global (aunque puede tener cliente_id para personalización)
+    'permiso',  # Catálogo global RBAC (solo en BD central)
 }
 
 # Cache de versión de SQL Server (se detecta una vez)
@@ -226,6 +227,11 @@ def apply_tenant_filter_to_text_clause(
     
     query_lower = query_str.lower()
     
+    # INSERT no lleva WHERE; el cliente_id ya va en VALUES. No aplicar filtro automático.
+    if query_lower.strip().startswith("insert"):
+        logger.debug("[TENANT_FILTER] INSERT detectado, omitiendo filtro (valores explícitos)")
+        return query
+    
     # Extraer nombre de tabla si no se proporciona
     if table_name is None:
         table_name = _extract_table_name_from_sql(query_str, query_lower)
@@ -248,12 +254,16 @@ def apply_tenant_filter_to_text_clause(
             client_id
         )
         
-        # Obtener parámetros existentes y agregar cliente_id
+        # Obtener parámetros existentes y agregar cliente_id (bindparams puede ser dict-like o método)
         existing_params = {}
-        if hasattr(query, 'bindparams'):
-            # Extraer parámetros del TextClause
-            for key in query.bindparams.keys():
-                existing_params[key] = query.bindparams[key].value
+        bp = getattr(query, "bindparams", None)
+        if bp is not None and not callable(bp) and hasattr(bp, "keys"):
+            try:
+                for key in bp.keys():
+                    val = bp[key]
+                    existing_params[key] = getattr(val, "value", val)
+            except Exception:
+                pass
         
         # Agregar cliente_id a los parámetros
         existing_params[tenant_column] = client_id

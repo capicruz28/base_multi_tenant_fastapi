@@ -8,9 +8,11 @@ import pyodbc
 
 # 🗄️ IMPORTACIONES DE BASE DE DATOS
 # ✅ FASE 2: Migrar a queries_async
+from sqlalchemy import select
 from app.infrastructure.database.queries_async import (
     execute_query, execute_insert, execute_update
 )
+from app.infrastructure.database.tables import RolTable
 from app.infrastructure.database.sql_constants import (
     COUNT_ROLES_PAGINATED, SELECT_ROLES_PAGINATED,
     DEACTIVATE_ROL, REACTIVATE_ROL,
@@ -417,19 +419,20 @@ class RolService(BaseService):
             Optional[Dict]: Datos del rol o None si no existe
         """
         try:
-            # ✅ ACTUALIZADO: Incluir codigo_rol para identificar roles del sistema
-            query = """
-            SELECT rol_id, cliente_id, nombre, descripcion, es_activo, fecha_creacion, codigo_rol
-            FROM rol
-            WHERE rol_id = ?
-            """
-            params = [rol_id]
-            
+            # ✅ SQLAlchemy Core: consulta por PK; autorización (tenant o sistema) en capa de aplicación
+            query = select(
+                RolTable.c.rol_id,
+                RolTable.c.cliente_id,
+                RolTable.c.nombre,
+                RolTable.c.descripcion,
+                RolTable.c.es_activo,
+                RolTable.c.fecha_creacion,
+                RolTable.c.codigo_rol,
+            ).where(RolTable.c.rol_id == rol_id)
             if not incluir_inactivos:
-                query += " AND es_activo = 1"
+                query = query.where(RolTable.c.es_activo == True)
 
-            # ✅ FASE 2: Usar await
-            resultados = await execute_query(query, tuple(params))
+            resultados = await execute_query(query)
 
             if not resultados:
                 logger.debug(f"Rol con ID {rol_id} no encontrado")

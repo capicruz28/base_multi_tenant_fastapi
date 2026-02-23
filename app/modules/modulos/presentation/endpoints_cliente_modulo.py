@@ -27,6 +27,7 @@ from app.modules.modulos.application.services.cliente_modulo_service import Clie
 from app.core.exceptions import CustomException
 from app.api.deps import get_current_active_user
 from app.core.authorization.lbac import require_super_admin
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,8 @@ router = APIRouter()
     "/cliente/{cliente_id}/",
     response_model=dict,
     summary="Listar módulos activos de un cliente",
-    description="Obtiene todos los módulos activos para un cliente específico."
+    description="Obtiene todos los módulos activos para un cliente específico.",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def listar_modulos_activos_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
@@ -60,7 +62,8 @@ async def listar_modulos_activos_cliente(
     "/{cliente_modulo_id}/",
     response_model=dict,
     summary="Obtener detalle de módulo activo",
-    description="Obtiene los detalles completos de un módulo activo específico."
+    description="Obtiene los detalles completos de un módulo activo específico.",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_modulo_activo(
     cliente_modulo_id: UUID = Path(..., description="ID del módulo activo"),
@@ -112,7 +115,8 @@ async def obtener_modulo_activo(
     - 409: Módulo ya está activado
     - 403: Sin permisos suficientes
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def activar_modulo_cliente(
@@ -167,7 +171,8 @@ async def activar_modulo_cliente(
     - 404: Módulo activo no encontrado
     - 403: Sin permisos suficientes
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def desactivar_modulo_cliente(
@@ -204,7 +209,8 @@ async def desactivar_modulo_cliente(
     "/cliente/{cliente_id}/modulo/{modulo_id}/configuracion/",
     response_model=dict,
     summary="Actualizar configuración de módulo activo",
-    description="Actualiza la configuración personalizada de un módulo activo."
+    description="Actualiza la configuración personalizada de un módulo activo.",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def actualizar_configuracion(
@@ -229,7 +235,8 @@ async def actualizar_configuracion(
     "/cliente/{cliente_id}/modulo/{modulo_id}/limites/",
     response_model=dict,
     summary="Actualizar límites de módulo activo",
-    description="Actualiza los límites de uso de un módulo activo."
+    description="Actualiza los límites de uso de un módulo activo.",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def actualizar_limites(
@@ -258,7 +265,8 @@ async def actualizar_limites(
     "/cliente/{cliente_id}/modulo/{modulo_id}/extender-vencimiento/",
     response_model=dict,
     summary="Extender vencimiento de módulo activo",
-    description="Extiende el vencimiento de un módulo activo agregando días."
+    description="Extiende el vencimiento de un módulo activo agregando días.",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def extender_vencimiento(
@@ -283,7 +291,8 @@ async def extender_vencimiento(
     "/cliente/{cliente_id}/modulo/{modulo_id}/validar-licencia/",
     response_model=dict,
     summary="Validar licencia de módulo activo",
-    description="Valida la licencia de un módulo (está activo + no vencido)."
+    description="Valida la licencia de un módulo (está activo + no vencido).",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def validar_licencia(
     cliente_id: UUID = Path(..., description="ID del cliente"),

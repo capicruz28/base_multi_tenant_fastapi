@@ -41,6 +41,7 @@ from app.core.exceptions import CustomException
 
 # Importar Dependencias de Autorización
 from app.api.deps import get_current_active_user, RoleChecker
+from app.core.authorization.rbac import require_permission
 
 # Logging
 from app.core.logging_config import get_logger
@@ -73,7 +74,7 @@ require_admin = RoleChecker(["Administrador"])
     - 422: Parámetros de consulta inválidos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.usuario.leer"))]
 )
 async def list_usuarios(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
@@ -155,7 +156,7 @@ async def list_usuarios(
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.usuario.crear"))]
 )
 async def crear_usuario(
     usuario_in: UsuarioCreate,
@@ -303,7 +304,7 @@ async def read_usuario(
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.usuario.actualizar"))]
 )
 async def actualizar_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
@@ -383,7 +384,7 @@ async def actualizar_usuario(
     - 404: Usuario no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.usuario.eliminar"))]
 )
 async def eliminar_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
@@ -454,7 +455,7 @@ async def eliminar_usuario(
     - 409: El rol ya está asignado y activo
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.asignar"))]
 )
 async def assign_rol_to_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
@@ -525,7 +526,7 @@ async def assign_rol_to_usuario(
     - 404: Asignación no encontrada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.asignar"))]
 )
 async def revoke_rol_from_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),

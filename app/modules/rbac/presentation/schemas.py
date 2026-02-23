@@ -497,7 +497,47 @@ class PermisoUpdatePayload(BaseModel):
         from_attributes=True,
         str_strip_whitespace=True,
         validate_assignment=True
-    )# app/schemas/rol_menu_permiso.py
+    )
+
+
+# --- Permisos de negocio (RBAC: catálogo permiso + rol_permiso) ---
+class PermisoCatalogoRead(BaseModel):
+    """Schema para un ítem del catálogo de permisos de negocio (tabla permiso)."""
+    permiso_id: UUID = Field(..., description="ID único del permiso")
+    codigo: str = Field(..., description="Código único del permiso (ej. admin.usuario.leer)")
+    nombre: Optional[str] = Field(None, description="Nombre legible del permiso")
+    descripcion: Optional[str] = Field(None, description="Descripción del permiso")
+    recurso: Optional[str] = Field(None, description="Recurso asociado")
+    accion: Optional[str] = Field(None, description="Acción asociada")
+    modulo_id: Optional[UUID] = Field(None, description="ID del módulo si aplica")
+    es_activo: bool = Field(True, description="Si el permiso está activo en el catálogo")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PermisoNegocioItem(BaseModel):
+    """Schema para un permiso de negocio asignado a un rol (respuesta GET permisos-negocio)."""
+    permiso_id: UUID = Field(..., description="ID del permiso")
+    codigo: str = Field(..., description="Código del permiso")
+    nombre: Optional[str] = Field(None, description="Nombre legible")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PermisosNegocioResponse(BaseModel):
+    """Respuesta de GET /roles/{rol_id}/permisos-negocio/."""
+    rol_id: UUID = Field(..., description="ID del rol")
+    permisos: List[PermisoNegocioItem] = Field(default_factory=list, description="Permisos de negocio asignados")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PermisosNegocioUpdatePayload(BaseModel):
+    """Body para PUT /roles/{rol_id}/permisos-negocio/."""
+    permiso_ids: List[UUID] = Field(..., description="Lista de IDs de permisos a asignar al rol (reemplaza la asignación actual)")
+
+
+# app/schemas/rol_menu_permiso.py
 """
 Esquemas Pydantic para la gestión de permisos de roles sobre menús en el sistema.
 

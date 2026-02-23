@@ -1,0 +1,68 @@
+"""Endpoints mnt_plan_mantenimiento."""
+from typing import List, Optional
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from app.api.deps import get_current_active_user
+from app.modules.users.presentation.schemas import UsuarioReadWithRoles
+from app.modules.mnt.application.services import (
+    list_plan_mantenimiento,
+    get_plan_mantenimiento_by_id,
+    create_plan_mantenimiento,
+    update_plan_mantenimiento,
+)
+from app.modules.mnt.presentation.schemas import (
+    PlanMantenimientoCreate,
+    PlanMantenimientoUpdate,
+    PlanMantenimientoRead,
+)
+from app.core.exceptions import NotFoundError
+
+router = APIRouter()
+
+
+@router.get("", response_model=List[PlanMantenimientoRead], tags=["MNT - Planes Mantenimiento"])
+async def get_planes_mantenimiento(
+    activo_id: Optional[UUID] = Query(None),
+    tipo_mantenimiento: Optional[str] = Query(None),
+    es_activo: Optional[bool] = Query(None),
+    buscar: Optional[str] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    return await list_plan_mantenimiento(
+        current_user.cliente_id,
+        activo_id=activo_id,
+        tipo_mantenimiento=tipo_mantenimiento,
+        es_activo=es_activo,
+        buscar=buscar,
+    )
+
+
+@router.get("/{plan_mantenimiento_id}", response_model=PlanMantenimientoRead, tags=["MNT - Planes Mantenimiento"])
+async def get_plan_mantenimiento(
+    plan_mantenimiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await get_plan_mantenimiento_by_id(current_user.cliente_id, plan_mantenimiento_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("", response_model=PlanMantenimientoRead, status_code=status.HTTP_201_CREATED, tags=["MNT - Planes Mantenimiento"])
+async def post_plan_mantenimiento(
+    data: PlanMantenimientoCreate,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    return await create_plan_mantenimiento(current_user.cliente_id, data)
+
+
+@router.put("/{plan_mantenimiento_id}", response_model=PlanMantenimientoRead, tags=["MNT - Planes Mantenimiento"])
+async def put_plan_mantenimiento(
+    plan_mantenimiento_id: UUID,
+    data: PlanMantenimientoUpdate,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await update_plan_mantenimiento(current_user.cliente_id, plan_mantenimiento_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

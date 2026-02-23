@@ -12,6 +12,7 @@ from app.modules.modulos.application.services.modulo_seccion_service import Modu
 from app.core.exceptions import CustomException
 from app.api.deps import get_current_active_user
 from app.core.authorization.lbac import require_super_admin
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ router = APIRouter()
 @router.get(
     "/modulo/{modulo_id}/",
     response_model=dict,
-    summary="Listar secciones de un módulo"
+    summary="Listar secciones de un módulo",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def listar_secciones_modulo(
     modulo_id: UUID = Path(..., description="ID del módulo"),
@@ -44,7 +46,8 @@ async def listar_secciones_modulo(
 @router.get(
     "/{seccion_id}/",
     response_model=dict,
-    summary="Obtener detalle de sección"
+    summary="Obtener detalle de sección",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_seccion(
     seccion_id: UUID = Path(..., description="ID de la sección"),
@@ -70,7 +73,8 @@ async def obtener_seccion(
     "/",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear nueva sección"
+    summary="Crear nueva sección",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def crear_seccion(
@@ -92,7 +96,8 @@ async def crear_seccion(
 @router.put(
     "/{seccion_id}/",
     response_model=dict,
-    summary="Actualizar sección"
+    summary="Actualizar sección",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def actualizar_seccion(
@@ -115,7 +120,8 @@ async def actualizar_seccion(
 @router.delete(
     "/{seccion_id}/",
     status_code=status.HTTP_200_OK,
-    summary="Eliminar sección"
+    summary="Eliminar sección",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def eliminar_seccion(
@@ -136,7 +142,8 @@ async def eliminar_seccion(
 @router.patch(
     "/{seccion_id}/activar/",
     response_model=dict,
-    summary="Activar sección"
+    summary="Activar sección",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def activar_seccion(
@@ -158,7 +165,8 @@ async def activar_seccion(
 @router.patch(
     "/{seccion_id}/desactivar/",
     response_model=dict,
-    summary="Desactivar sección"
+    summary="Desactivar sección",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def desactivar_seccion(
@@ -180,7 +188,8 @@ async def desactivar_seccion(
 @router.post(
     "/modulo/{modulo_id}/reordenar/",
     response_model=dict,
-    summary="Reordenar secciones"
+    summary="Reordenar secciones",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def reordenar_secciones(

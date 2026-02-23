@@ -14,6 +14,7 @@ from app.modules.modulos.application.services.modulo_rol_plantilla_service impor
 from app.core.exceptions import CustomException
 from app.api.deps import get_current_active_user
 from app.core.authorization.lbac import require_super_admin
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,8 @@ router = APIRouter()
 @router.get(
     "/modulo/{modulo_id}/",
     response_model=dict,
-    summary="Listar plantillas de un módulo"
+    summary="Listar plantillas de un módulo",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def listar_plantillas_modulo(
     modulo_id: UUID = Path(..., description="ID del módulo"),
@@ -46,7 +48,8 @@ async def listar_plantillas_modulo(
 @router.get(
     "/{plantilla_id}/",
     response_model=dict,
-    summary="Obtener detalle de plantilla"
+    summary="Obtener detalle de plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_plantilla(
     plantilla_id: UUID = Path(..., description="ID de la plantilla"),
@@ -72,7 +75,8 @@ async def obtener_plantilla(
     "/",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,
-    summary="Crear nueva plantilla"
+    summary="Crear nueva plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def crear_plantilla(
@@ -94,7 +98,8 @@ async def crear_plantilla(
 @router.put(
     "/{plantilla_id}/",
     response_model=dict,
-    summary="Actualizar plantilla"
+    summary="Actualizar plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def actualizar_plantilla(
@@ -117,7 +122,8 @@ async def actualizar_plantilla(
 @router.delete(
     "/{plantilla_id}/",
     status_code=status.HTTP_200_OK,
-    summary="Eliminar plantilla"
+    summary="Eliminar plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def eliminar_plantilla(
@@ -138,7 +144,8 @@ async def eliminar_plantilla(
 @router.patch(
     "/{plantilla_id}/activar/",
     response_model=dict,
-    summary="Activar plantilla"
+    summary="Activar plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def activar_plantilla(
@@ -160,7 +167,8 @@ async def activar_plantilla(
 @router.patch(
     "/{plantilla_id}/desactivar/",
     response_model=dict,
-    summary="Desactivar plantilla"
+    summary="Desactivar plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def desactivar_plantilla(
@@ -182,7 +190,8 @@ async def desactivar_plantilla(
 @router.post(
     "/modulo/{modulo_id}/reordenar/",
     response_model=dict,
-    summary="Reordenar plantillas"
+    summary="Reordenar plantillas",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def reordenar_plantillas(
@@ -205,7 +214,8 @@ async def reordenar_plantillas(
 @router.post(
     "/{plantilla_id}/validar-json/",
     response_model=dict,
-    summary="Validar JSON de permisos"
+    summary="Validar JSON de permisos",
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def validar_json_permisos(
@@ -232,7 +242,8 @@ async def validar_json_permisos(
 @router.get(
     "/{plantilla_id}/preview-aplicacion/{cliente_id}/",
     response_model=dict,
-    summary="Preview de aplicación de plantilla"
+    summary="Preview de aplicación de plantilla",
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 @require_super_admin()
 async def preview_aplicacion(

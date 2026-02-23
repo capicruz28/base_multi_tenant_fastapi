@@ -792,7 +792,12 @@ class ModuloMenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_menu_usuario(usuario_id: UUID, cliente_id: UUID) -> MenuUsuarioResponse:
+    async def obtener_menu_usuario(
+        usuario_id: UUID,
+        cliente_id: UUID,
+        is_super_admin: bool = False,
+        as_tenant_admin: bool = False,
+    ) -> MenuUsuarioResponse:
         """
         Obtiene el menú completo del usuario combinando datos de BD central y BD del cliente.
         
@@ -801,9 +806,15 @@ class ModuloMenuService(BaseService):
         - Permisos: BD del CLIENTE (DatabaseConnection.DEFAULT)
         - El backend combina ambos resultados
         
-        CRÍTICO: Este método hace queries separadas y combina resultados en el backend.
+        ATAJO (1 query, permisos completos):
+        - is_super_admin=True: todos los menús de módulos contratados del tenant.
+        - as_tenant_admin=True: igual, para admin del tenant (no depende de rol_menu_permiso).
         """
-        logger.info(f"Obteniendo menú para usuario {usuario_id} del cliente {cliente_id}")
+        use_elevated_menu = is_super_admin or as_tenant_admin
+        logger.info(
+            f"Obteniendo menú para usuario {usuario_id} del cliente {cliente_id} "
+            f"(is_super_admin={is_super_admin}, as_tenant_admin={as_tenant_admin})"
+        )
 
         try:
             # ============================================================
@@ -896,6 +907,31 @@ class ModuloMenuService(BaseService):
             if not menus_central:
                 logger.info(f"No se encontraron menús activos para el cliente {cliente_id}")
                 return MenuUsuarioResponse(modulos=[])
+            
+            # ============================================================
+            # SUPERADMIN / TENANT ADMIN: Devolver todos los menús con permisos completos (1 query)
+            # ============================================================
+            if use_elevated_menu:
+                logger.info(
+                    f"[MENU_USUARIO] Elevado (super_admin o tenant_admin): omitiendo query de permisos, "
+                    f"asignando permisos completos a {len(menus_central)} ítems"
+                )
+                resultado_combinado = []
+                for menu_row in menus_central:
+                    resultado_combinado.append({
+                        **menu_row,
+                        'puede_ver': True,
+                        'puede_crear': True,
+                        'puede_editar': True,
+                        'puede_eliminar': True,
+                        'puede_exportar': True,
+                        'puede_imprimir': True,
+                        'puede_aprobar': True,
+                        'permisos_extra': None,
+                    })
+                menu_response = transformar_sp_menu_usuario(resultado_combinado)
+                logger.info(f"[MENU_USUARIO] Menú elevado: {len(menu_response.modulos)} módulos")
+                return menu_response
             
             # Obtener IDs de menús para filtrar permisos
             menu_ids = [row['menu_id'] for row in menus_central if row.get('menu_id')]

@@ -24,6 +24,7 @@ from app.modules.modulos.application.services.modulo_service import ModuloServic
 from app.core.exceptions import CustomException
 from app.api.deps import get_current_active_user
 from app.core.authorization.lbac import require_super_admin
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,8 @@ router = APIRouter()
     **Respuestas:**
     - 200: Catálogo de módulos recuperado exitosamente con metadata de paginación
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def listar_modulos(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
@@ -121,7 +123,8 @@ async def listar_modulos(
     - 200: Módulo encontrado y devuelto
     - 404: Módulo no encontrado
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_modulo(
     modulo_id: UUID = Path(..., description="ID del módulo"),
@@ -175,7 +178,8 @@ async def obtener_modulo(
     - 200: Módulo encontrado y devuelto
     - 404: Módulo no encontrado
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_modulo_por_codigo(
     codigo: str = Path(..., description="Código del módulo"),
@@ -232,7 +236,8 @@ async def obtener_modulo_por_codigo(
     - 409: Código de módulo ya existe
     - 403: Sin permisos suficientes
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def crear_modulo(
@@ -285,7 +290,8 @@ async def crear_modulo(
     - 409: Código de módulo ya existe
     - 403: Sin permisos suficientes
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def actualizar_modulo(
@@ -339,7 +345,8 @@ async def actualizar_modulo(
     - 404: Módulo no encontrado
     - 403: Sin permisos suficientes
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("modulos.menu.administrar"))],
 )
 @require_super_admin()
 async def eliminar_modulo(

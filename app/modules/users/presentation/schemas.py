@@ -441,6 +441,12 @@ class UsuarioReadWithRoles(UsuarioRead):
         description="Tipo de usuario: 'super_admin', 'tenant_admin', 'user'"
     )
 
+    # RBAC: códigos de permiso de negocio (modulo.recurso.accion) desde rol_permiso + permiso
+    permisos: List[str] = Field(
+        default_factory=list,
+        description="Lista de códigos de permiso del usuario (ej. admin.usuario.leer, mfg.orden_produccion.crear)"
+    )
+
     class Config:
         """Configuración de Pydantic para el schema extendido."""
         from_attributes = True

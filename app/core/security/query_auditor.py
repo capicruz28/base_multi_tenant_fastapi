@@ -58,8 +58,13 @@ class QueryAuditor:
         'cliente',
         'cliente_modulo',
         'cliente_conexion',
-        'sistema_config'
+        'sistema_config',
+        'permiso',  # Catálogo global RBAC (solo en BD central)
     }
+
+    # Tablas donde la consulta por PK (ej. WHERE rol_id = ?) es segura:
+    # la autorización (que el rol pertenezca al tenant o sea de sistema) se hace en capa de aplicación.
+    PK_LOOKUP_TABLES = {'rol': 'rol_id'}
     
     @staticmethod
     def validate_tenant_filter(
@@ -156,13 +161,21 @@ class QueryAuditor:
             
             if table_name and table_name.lower() in QueryAuditor.GLOBAL_TABLES:
                 return True
-            
+
             # Verificar WHERE clause
             if hasattr(query, 'whereclause') and query.whereclause is not None:
-                # Buscar filtro de cliente_id en el WHERE clause
                 where_str = str(query.whereclause)
-                
-                # Buscar patrones comunes de filtro de tenant
+                table_lower = (table_name or "").lower()
+                # Consulta por PK permitida (ej. rol por rol_id); autorización en capa de aplicación
+                if table_lower in QueryAuditor.PK_LOOKUP_TABLES:
+                    pk_column = QueryAuditor.PK_LOOKUP_TABLES[table_lower]
+                    if pk_column.lower() in where_str.lower():
+                        logger.debug(
+                            f"[QUERY_AUDITOR] Query Core por PK permitida: tabla {table_name}, columna {pk_column}"
+                        )
+                        return True
+
+                # Buscar filtro de cliente_id en el WHERE clause
                 has_tenant_filter = (
                     f"cliente_id = {client_id}" in where_str or
                     f"cliente_id == {client_id}" in where_str or
@@ -262,6 +275,17 @@ class QueryAuditor:
         # Si es tabla global, no requiere validación
         if table_name and table_name.lower() in QueryAuditor.GLOBAL_TABLES:
             return True
+
+        # Consulta por PK: tabla rol (y otras) se pueden consultar por rol_id; la autorización es en capa de aplicación
+        if table_name:
+            table_lower = table_name.lower()
+            if table_lower in QueryAuditor.PK_LOOKUP_TABLES:
+                pk_column = QueryAuditor.PK_LOOKUP_TABLES[table_lower]
+                if "where" in query_lower and pk_column.lower() in query_lower:
+                    logger.debug(
+                        f"[QUERY_AUDITOR] Query por PK permitida: tabla {table_name}, columna {pk_column}"
+                    )
+                    return True
         
         # Buscar WHERE en la query
         if "where" in query_lower:

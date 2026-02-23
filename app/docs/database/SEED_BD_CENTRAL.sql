@@ -19,11 +19,17 @@ INSERT INTO cliente (
     subdominio,
     razon_social,
     nombre_comercial,
+    ruc,
     tipo_instalacion,
     modo_autenticacion,
+    color_primario,
+    color_secundario,
+    tema_personalizado,
     plan_suscripcion,
     estado_suscripcion,
     contacto_email,
+    contacto_nombre,
+    contacto_telefono,
     es_activo,
     es_demo
 ) VALUES (
@@ -32,11 +38,17 @@ INSERT INTO cliente (
     'platform',
     'Sistema ERP Multi-Tenant',
     'Plataforma Admin',
+    '10415728811',
     'shared',
     'local',
+    '#1E56A0',
+    '#0A1628',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'enterprise',
     'activo',
-    'admin@plataforma.local',
+    'admin@platform.com',
+    'Carlos Piñas',
+    '994989748',
     1,
     0
 );
@@ -51,6 +63,9 @@ INSERT INTO cliente (
     ruc,
     tipo_instalacion,
     modo_autenticacion,
+    color_primario,
+    color_secundario,
+    tema_personalizado,
     plan_suscripcion,
     estado_suscripcion,
     contacto_email,
@@ -67,6 +82,9 @@ INSERT INTO cliente (
     '20123456789',
     'shared',
     'local',
+    '#19d29a',  
+    '#424242',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'profesional',
     'activo',
     'admin@acme.com',
@@ -86,6 +104,9 @@ INSERT INTO cliente (
     ruc,
     tipo_instalacion,
     modo_autenticacion,
+    color_primario,
+    color_secundario,
+    tema_personalizado,
     plan_suscripcion,
     estado_suscripcion,
     contacto_email,
@@ -102,6 +123,9 @@ INSERT INTO cliente (
     '20234567890',
     'shared',
     'local',
+    '#a119d2',
+    '#424242',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'basico',
     'activo',
     'admin@innova.com',
@@ -121,6 +145,9 @@ INSERT INTO cliente (
     ruc,
     tipo_instalacion,
     modo_autenticacion,
+    color_primario,
+    color_secundario,
+    tema_personalizado,
     plan_suscripcion,
     estado_suscripcion,
     contacto_email,
@@ -137,6 +164,9 @@ INSERT INTO cliente (
     '20345678901',
     'dedicated',
     'local',
+    '#d21950',
+    '#424242',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'enterprise',
     'activo',
     'admin@techcorp.com',
@@ -156,6 +186,9 @@ INSERT INTO cliente (
     ruc,
     tipo_instalacion,
     modo_autenticacion,
+    color_primario,
+    color_secundario,
+    tema_personalizado,
     plan_suscripcion,
     estado_suscripcion,
     contacto_email,
@@ -172,6 +205,9 @@ INSERT INTO cliente (
     '20456789012',
     'dedicated',
     'local',
+    '#1976D2',
+    '#424242',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'enterprise',
     'activo',
     'admin@globallog.com',
@@ -976,9 +1012,9 @@ INSERT INTO rol (
 ) VALUES (
     '00000000-0000-0000-0000-000000000020',  -- USER (UUID válido)
     '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
-    'SUPER_ADMIN',
-    'Usuario',
-    'Rol de usuario estándar',
+    'SUPPORT',
+    'Soporte',
+    'Rol de soporte',
     1,
     1,
     1
@@ -1073,7 +1109,28 @@ INSERT INTO rol (
     'Administrador',
     'Rol de administrador',
     1,
-    4,
+    5,
+    1
+);
+
+-- Rol MANAGER
+INSERT INTO rol (
+    rol_id,
+    cliente_id,
+    codigo_rol,
+    nombre,
+    descripcion,
+    es_rol_sistema,
+    nivel_acceso,
+    es_activo
+) VALUES (
+    '11111111-1111-1111-1111-111111111120',  -- MANAGER (UUID válido)
+    '11111111-1111-1111-1111-111111111111',  -- ACME
+    'MANAGER',
+    'Supervisor',
+    'Rol de supervisor',
+    1,
+    3,
     1
 );
 
@@ -1088,7 +1145,7 @@ INSERT INTO rol (
     nivel_acceso,
     es_activo
 ) VALUES (
-    '11111111-1111-1111-1111-111111111120',  -- USER (UUID válido)
+    '11111111-1111-1111-1111-111111111130',  -- USER (UUID válido)
     '11111111-1111-1111-1111-111111111111',  -- ACME
     'USER',
     'Usuario',
@@ -1121,6 +1178,29 @@ INSERT INTO usuario (
     1
 );
 
+-- Usuario manager
+INSERT INTO usuario (
+    usuario_id,
+    cliente_id,
+    nombre_usuario,
+    contrasena,
+    nombre,
+    apellido,
+    correo,
+    es_activo,
+    correo_confirmado
+) VALUES (
+    '11111111-1111-1111-1111-111111111200',  -- manager (UUID válido)
+    '11111111-1111-1111-1111-111111111111',  -- ACME
+    'manager',
+    '$2a$12$UzTkjrvhIstikV3c1EsBVOM.AavjsMSV.toCbf1ny5KE.wb1EcfVG',  -- manager123
+    'Manager',
+    'ACME',
+    'manager@acme.com',
+    1,
+    1
+);
+
 -- Usuario user
 INSERT INTO usuario (
     usuario_id,
@@ -1133,7 +1213,7 @@ INSERT INTO usuario (
     es_activo,
     correo_confirmado
 ) VALUES (
-    '11111111-1111-1111-1111-111111111200',  -- user (UUID válido)
+    '11111111-1111-1111-1111-111111111300',  -- user (UUID válido)
     '11111111-1111-1111-1111-111111111111',  -- ACME
     'user',
     '$2b$12$ZvpoS9E0eMe6pbxGNoho1eN8hMbeTCkAE5Fyztm1N.51jxcqVYW86',  -- user123
@@ -1161,8 +1241,15 @@ INSERT INTO usuario_rol (
 ),
 (
     NEWID(),
-    '11111111-1111-1111-1111-111111111200',  -- user (UUID válido)  -- user
-    '11111111-1111-1111-1111-111111111120',  -- USER
+    '11111111-1111-1111-1111-111111111200',  -- manager (UUID válido)  -- manager
+    '11111111-1111-1111-1111-111111111120',  -- MANAGER
+    '11111111-1111-1111-1111-111111111111',  -- ACME
+    1
+);
+(
+    NEWID(),
+    '11111111-1111-1111-1111-111111111300',  -- user (UUID válido)  -- user
+    '11111111-1111-1111-1111-111111111130',  -- USER
     '11111111-1111-1111-1111-111111111111',  -- ACME
     1
 );
@@ -1189,6 +1276,27 @@ INSERT INTO rol (
     1
 );
 
+-- Rol MANAGER
+INSERT INTO rol (
+    rol_id,
+    cliente_id,
+    codigo_rol,
+    nombre,
+    descripcion,
+    es_rol_sistema,
+    nivel_acceso,
+    es_activo
+) VALUES (
+    '22222222-2222-2222-2222-222222222220',  -- MANAGER (UUID válido)
+    '22222222-2222-2222-2222-222222222222',  -- INNOVA
+    'MANAGER',
+    'Supervisor',
+    'Rol de supervisor',
+    1,
+    1,
+    1
+);
+
 -- Rol USER
 INSERT INTO rol (
     rol_id,
@@ -1200,7 +1308,7 @@ INSERT INTO rol (
     nivel_acceso,
     es_activo
 ) VALUES (
-    '22222222-2222-2222-2222-222222222220',  -- USER (UUID válido)
+    '22222222-2222-2222-2222-222222222230',  -- USER (UUID válido)
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
     'USER',
     'Usuario',
@@ -1233,6 +1341,29 @@ INSERT INTO usuario (
     1
 );
 
+-- Usuario manager
+INSERT INTO usuario (
+    usuario_id,
+    cliente_id,
+    nombre_usuario,
+    contrasena,
+    nombre,
+    apellido,
+    correo,
+    es_activo,
+    correo_confirmado
+) VALUES (
+    '22222222-2222-2222-2222-222222222200',  -- manager (UUID válido)
+    '22222222-2222-2222-2222-222222222222',  -- INNOVA
+    'manager',
+    '$2a$12$UzTkjrvhIstikV3c1EsBVOM.AavjsMSV.toCbf1ny5KE.wb1EcfVG',  -- manager123
+    'Manager',
+    'INNOVA',
+    'manager@innova.com',
+    1,
+    1
+);
+
 -- Usuario user
 INSERT INTO usuario (
     usuario_id,
@@ -1245,7 +1376,7 @@ INSERT INTO usuario (
     es_activo,
     correo_confirmado
 ) VALUES (
-    '22222222-2222-2222-2222-222222222200',  -- user (UUID válido)
+    '22222222-2222-2222-2222-222222222300',  -- user (UUID válido)
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
     'user',
     '$2b$12$ZvpoS9E0eMe6pbxGNoho1eN8hMbeTCkAE5Fyztm1N.51jxcqVYW86',  -- user123
@@ -1273,8 +1404,15 @@ INSERT INTO usuario_rol (
 ),
 (
     NEWID(),
-    '22222222-2222-2222-2222-222222222200',  -- user (UUID válido)  -- user
-    '22222222-2222-2222-2222-222222222220',  -- USER
+    '22222222-2222-2222-2222-222222222200',  -- manager (UUID válido)  -- manager
+    '22222222-2222-2222-2222-222222222220',  -- MANAGER
+    '22222222-2222-2222-2222-222222222222',  -- INNOVA
+    1
+);
+(
+    NEWID(),
+    '22222222-2222-2222-2222-222222222300',  -- user (UUID válido)  -- user
+    '22222222-2222-2222-2222-222222222230',  -- USER
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
     1
 );

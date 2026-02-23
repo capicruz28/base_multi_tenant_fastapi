@@ -21,16 +21,25 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 # Importar Schemas
-from app.modules.rbac.presentation.schemas import RolCreate, RolUpdate, RolRead, PaginatedRolResponse, PermisoRead, PermisoUpdatePayload
+from app.modules.rbac.presentation.schemas import (
+    RolCreate, RolUpdate, RolRead, PaginatedRolResponse,
+    PermisoRead, PermisoUpdatePayload,
+    PermisosNegocioResponse, PermisoNegocioItem, PermisosNegocioUpdatePayload,
+)
 
-# Importar Servicio
+# Importar Servicios
 from app.modules.rbac.application.services.rol_service import RolService
+from app.modules.rbac.application.services.permisos_negocio_service import (
+    get_permisos_negocio_by_rol,
+    set_permisos_negocio_rol,
+)
 
 # Importar Excepciones personalizadas
 from app.core.exceptions import CustomException
 
 # Importar Dependencias de Autorización
 from app.api.deps import get_current_active_user, RoleChecker
+from app.core.authorization.rbac import require_permission
 
 # Logging
 from app.core.logging_config import get_logger
@@ -80,7 +89,7 @@ def _can_manage_system_role(current_user: Any) -> bool:
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.crear"))]
 )
 async def create_rol(
     rol_in: RolCreate = Body(...),
@@ -164,7 +173,7 @@ async def create_rol(
     - 422: Parámetros de consulta inválidos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def read_roles_paginated(
     current_user: Any = Depends(get_current_active_user),
@@ -242,7 +251,7 @@ async def read_roles_paginated(
     - 200: Lista simple recuperada exitosamente
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def read_all_active_roles(
     current_user: Any = Depends(get_current_active_user)
@@ -300,7 +309,7 @@ async def read_all_active_roles(
     - 404: Rol no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def read_rol(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -372,7 +381,7 @@ async def read_rol(
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.actualizar"))]
 )
 async def update_rol(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -452,7 +461,7 @@ async def update_rol(
     - 400: Rol ya está desactivado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.eliminar"))]
 )
 async def deactivate_rol(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -517,7 +526,7 @@ async def deactivate_rol(
     - 400: Rol ya está activo
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.actualizar"))]
 )
 async def reactivate_rol(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -580,7 +589,7 @@ async def reactivate_rol(
     - 404: Rol no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def get_permisos_por_rol(
     rol_id: UUID = Path(..., title="ID del Rol", description="El ID del rol para consultar sus permisos"),
@@ -648,7 +657,7 @@ async def get_permisos_por_rol(
     - 422: Error de validación en la lista de permisos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.actualizar"))]
 )
 async def update_permisos_rol(
     rol_id: UUID = Path(..., title="ID del Rol", description="El ID del rol cuyos permisos se actualizarán"),
@@ -694,4 +703,93 @@ async def update_permisos_rol(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al actualizar los permisos del rol."
+        )
+
+
+# ----------------------------------------------------------------------
+# --- Permisos de negocio (RBAC: rol_permiso) ---
+# ----------------------------------------------------------------------
+@router.get(
+    "/{rol_id}/permisos-negocio/",
+    response_model=PermisosNegocioResponse,
+    summary="Obtener permisos de negocio de un rol",
+    description="""
+    Devuelve los permisos de negocio (RBAC) asignados al rol (`rol_permiso`).
+    No confundir con permisos de menú: `GET /roles/{rol_id}/permisos/` es para menú.
+
+    **Permisos requeridos:** `admin.rol.leer` (quien tenga este permiso de negocio puede acceder; no se exige rol por nombre).
+    **Validación:** El rol debe pertenecer al tenant del usuario. Los roles de sistema (ej. Administrador) pueden ser consultados por el admin tenant para asignar permisos de negocio en su cliente.
+    """,
+    dependencies=[Depends(require_permission("admin.rol.leer"))],
+)
+async def get_permisos_negocio_rol(
+    rol_id: UUID = Path(..., title="ID del Rol"),
+    current_user: Any = Depends(get_current_active_user),
+):
+    logger.info(f"Solicitud GET /roles/{rol_id}/permisos-negocio/ por usuario {current_user.usuario_id}")
+    try:
+        rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        rol_cliente_id = rol.get("cliente_id")
+        # Permitir: rol del mismo tenant o rol de sistema (cliente_id NULL). Comparación con str() para evitar UUID vs string.
+        mismo_tenant = rol_cliente_id is not None and str(rol_cliente_id) == str(current_user.cliente_id)
+        rol_sistema = rol_cliente_id is None
+        if not (mismo_tenant or rol_sistema):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        permisos = await get_permisos_negocio_by_rol(rol_id=rol_id, cliente_id=current_user.cliente_id)
+        return PermisosNegocioResponse(rol_id=rol_id, permisos=[PermisoNegocioItem(**p) for p in permisos])
+    except HTTPException:
+        raise
+    except CustomException as ce:
+        logger.error(f"Error obteniendo permisos de negocio para rol {rol_id}: {ce.detail}")
+        raise HTTPException(status_code=ce.status_code, detail=ce.detail)
+    except Exception as e:
+        logger.exception(f"Error inesperado al obtener permisos de negocio del rol {rol_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al obtener los permisos de negocio del rol.",
+        )
+
+
+@router.put(
+    "/{rol_id}/permisos-negocio/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Actualizar permisos de negocio de un rol",
+    description="""
+    Reemplaza la asignación de permisos de negocio del rol (borra todas las asignaciones actuales e inserta las indicadas).
+
+    **Permisos requeridos:** `admin.rol.actualizar` (quien tenga este permiso de negocio puede acceder; no se exige rol por nombre).
+    **Validación:** El rol debe pertenecer al tenant del usuario. Los roles de sistema (ej. Administrador) pueden ser editados por el admin tenant para asignar permisos de negocio en su cliente.
+    **Body:** `{ "permiso_ids": ["uuid1", "uuid2", ...] }`. Lista vacía para quitar todos.
+    """,
+    dependencies=[Depends(require_permission("admin.rol.actualizar"))],
+)
+async def update_permisos_negocio_rol(
+    rol_id: UUID = Path(..., title="ID del Rol"),
+    payload: PermisosNegocioUpdatePayload = Body(..., description="Lista de IDs de permisos a asignar"),
+    current_user: Any = Depends(get_current_active_user),
+):
+    logger.info(f"Solicitud PUT /roles/{rol_id}/permisos-negocio/ por usuario {current_user.usuario_id}")
+    try:
+        rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        if rol is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
+        rol_cliente_id = rol.get("cliente_id")
+        mismo_tenant = rol_cliente_id is not None and str(rol_cliente_id) == str(current_user.cliente_id)
+        rol_sistema = rol_cliente_id is None
+        if not (mismo_tenant or rol_sistema):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El rol no pertenece a su cliente.")
+        await set_permisos_negocio_rol(rol_id=rol_id, cliente_id=current_user.cliente_id, permiso_ids=payload.permiso_ids)
+        return None
+    except HTTPException:
+        raise
+    except CustomException as ce:
+        logger.error(f"Error actualizando permisos de negocio para rol {rol_id}: {ce.detail}")
+        raise HTTPException(status_code=ce.status_code, detail=ce.detail)
+    except Exception as e:
+        logger.exception(f"Error inesperado al actualizar permisos de negocio del rol {rol_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno al actualizar los permisos de negocio del rol.",
         )

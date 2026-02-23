@@ -273,19 +273,39 @@ async def build_user_with_roles(
         
         # 4. Determinar tipo de usuario
         user_type = determine_user_type(nivel_acceso, is_superadmin)
-        
-        # 5. Construir UsuarioReadWithRoles
+
+        # 5. Cargar códigos de permiso RBAC (tablas permiso + rol_permiso). No rompe si no existen.
+        permisos_codigos: List[str] = []
+        try:
+            from app.modules.rbac.application.services.permisos_usuario_service import (
+                obtener_codigos_permiso_usuario,
+            )
+            permisos_codigos = await obtener_codigos_permiso_usuario(
+                usuario_id=usuario_id,
+                cliente_id=cliente_id,
+                database_type=database_type,
+            )
+        except Exception as perm_err:
+            logger.debug(
+                f"[USER_BUILDER] Permisos RBAC no cargados para {username}: {perm_err}. "
+                "Usando lista vacía (comportamiento previo)."
+            )
+
+        # 6. Construir UsuarioReadWithRoles
         # ✅ Asegurar que cliente_id corregido se establezca explícitamente
         usuario_dict = {
             **user_result,
             'cliente_id': cliente_id,  # ✅ Establecer explícitamente el cliente_id corregido
             'access_level': nivel_acceso,
             'is_super_admin': is_superadmin,
-            'user_type': user_type
+            'user_type': user_type,
         }
-        
-        usuario_pydantic = UsuarioReadWithRoles(**usuario_dict, roles=roles_list)
-        
+        usuario_pydantic = UsuarioReadWithRoles(
+            **usuario_dict,
+            roles=roles_list,
+            permisos=permisos_codigos,
+        )
+
         return usuario_pydantic
         
     except Exception as e:

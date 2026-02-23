@@ -35,6 +35,8 @@ from app.api.deps import get_current_active_user
 # 🔐 CONSTANTES DE ROLES Y PERMISOS
 SUPER_ADMIN_ROLE = "SuperAdministrador"
 TENANT_ADMIN_ROLE = "AdministradorTenant"
+# Rol "Administrador" (catálogo/seed/UI) también cuenta como tenant admin para permisos implícitos
+TENANT_ADMIN_ROLE_ALIASES = ("AdministradorTenant", "Administrador")
 
 # Permisos del sistema organizados por módulo
 PERMISOS_SISTEMA = {
@@ -110,11 +112,9 @@ def get_user_type(user: UserWithRolesAndPermissions) -> str:
     if SUPER_ADMIN_ROLE in nombres_roles:
         user_type = "super_admin"
         logger.info(f"Usuario {user.nombre_usuario} detectado como SUPER ADMIN (rol {SUPER_ADMIN_ROLE})")
-        
-    elif TENANT_ADMIN_ROLE in nombres_roles:
-        user_type = "tenant_admin" 
+    elif any(rol in nombres_roles for rol in TENANT_ADMIN_ROLE_ALIASES):
+        user_type = "tenant_admin"
         logger.info(f"Usuario {user.nombre_usuario} detectado como TENANT ADMIN")
-        
     else:
         user_type = "usuario_normal"
         logger.info(f"Usuario {user.nombre_usuario} detectado como USUARIO NORMAL")
@@ -180,24 +180,20 @@ def has_permission(user: UserWithRolesAndPermissions, permission: str) -> bool:
         logger.debug(f"Super Admin {user.nombre_usuario} tiene acceso completo al permiso: {permission}")
         return True
     
-    # 🔍 VERIFICAR EN PERMISOS EXPLÍCITOS
-    permisos_usuario = [permiso.nombre for permiso in user.permisos]
-    
+    # 🔍 VERIFICAR EN PERMISOS EXPLÍCITOS (lista de códigos str o lista de objetos con .nombre)
+    permisos_list = getattr(user, "permisos", None) or []
+    if all(isinstance(p, str) for p in permisos_list):
+        permisos_usuario = permisos_list
+    else:
+        permisos_usuario = [getattr(p, "nombre", str(p)) for p in permisos_list]
+
     if permission in permisos_usuario:
         logger.debug(f"Usuario {user.nombre_usuario} tiene permiso explícito: {permission}")
         return True
-    
-    # 🎯 VERIFICAR PERMISOS IMPLÍCITOS POR ROLES DE ADMIN
-    if get_user_type(user) == "tenant_admin":
-        # Tenant Admin tiene acceso completo dentro de su tenant
-        # Excepto para operaciones de sistema global
-        permisos_restringidos_tenant_admin = [
-            "clientes.crear", "clientes.eliminar", "system.configurar"
-        ]
-        
-        if permission not in permisos_restringidos_tenant_admin:
-            logger.debug(f"Tenant Admin {user.nombre_usuario} tiene acceso implícito: {permission}")
-            return True
+
+    # Tenant Admin y resto de usuarios: solo permisos explícitos (rol_permiso).
+    # No se concede acceso implícito por rol Administrador; los permisos de negocio
+    # se respetan según lo asignado en el catálogo de permisos del rol.
     
     logger.warning(f"Usuario {user.nombre_usuario} NO tiene permiso: {permission}")
     return False
