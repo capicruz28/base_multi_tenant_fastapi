@@ -25,7 +25,7 @@ TktTicketTable = Table(
     metadata_erp,
     Column("ticket_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_ticket", String(20), nullable=False),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
     Column("solicitante_usuario_id", UNIQUEIDENTIFIER, nullable=True),

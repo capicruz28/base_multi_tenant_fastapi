@@ -139,6 +139,18 @@ async def create_despacho_guia(client_id: UUID, data: Dict[str, Any]) -> Dict[st
     payload = {k: v for k, v in data.items() if k in _COLUMNS_DESPACHO_GUIA}
     payload["cliente_id"] = client_id
     payload.setdefault("despacho_guia_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde el despacho (cabecera)
+    despacho_id = payload.get("despacho_id")
+    if despacho_id:
+        q = select(LogDespachoTable.c.empresa_id).where(
+            and_(
+                LogDespachoTable.c.cliente_id == client_id,
+                LogDespachoTable.c.despacho_id == despacho_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     stmt = insert(LogDespachoGuiaTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
     return await get_despacho_guia_by_id(client_id, payload["despacho_guia_id"])

@@ -59,6 +59,7 @@ from app.core.exceptions import CustomException
 
 # Importar Dependencias de Autorización
 from app.api.deps import get_current_active_user, RoleChecker
+from app.core.authorization.rbac import require_permission
 
 # Logging
 from app.core.logging_config import get_logger
@@ -90,7 +91,7 @@ require_admin = RoleChecker(["Administrador"])
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.actualizar"))]
 )
 async def set_permission(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -172,7 +173,7 @@ async def set_permission(
     - 404: Rol no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def get_permissions_for_role(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -226,7 +227,7 @@ async def get_permissions_for_role(
     - 404: Permiso (asignación Rol-Menú) no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def get_specific_permission(
     rol_id: UUID = Path(..., description="ID del rol"),
@@ -305,7 +306,7 @@ async def get_specific_permission(
     - 404: Permiso no encontrado (no se puede eliminar lo que no existe)
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.actualizar"))]
 )
 async def revoke_permission(
     rol_id: UUID = Path(..., description="ID del rol"),

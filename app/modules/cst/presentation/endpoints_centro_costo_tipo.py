@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.cst.application.services import (
     list_centro_costo_tipo,
@@ -17,6 +18,9 @@ from app.modules.cst.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "cst"
+RESOURCE_CODE = "centro_costo_tipo"
+
 router = APIRouter()
 
 
@@ -27,6 +31,7 @@ async def get_tipos_centro_costo(
     es_activo: Optional[bool] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_centro_costo_tipo(
         current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_tipos_centro_costo(
 async def get_tipo_centro_costo(
     cc_tipo_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_centro_costo_tipo_by_id(current_user.cliente_id, cc_tipo_id)
@@ -52,6 +58,7 @@ async def get_tipo_centro_costo(
 async def post_tipo_centro_costo(
     data: CentroCostoTipoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_centro_costo_tipo(current_user.cliente_id, data)
 
@@ -61,6 +68,7 @@ async def put_tipo_centro_costo(
     cc_tipo_id: UUID,
     data: CentroCostoTipoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_centro_costo_tipo(current_user.cliente_id, cc_tipo_id, data)

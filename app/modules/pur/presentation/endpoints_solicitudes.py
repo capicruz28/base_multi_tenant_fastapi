@@ -6,10 +6,14 @@ from typing import Optional
 from datetime import date
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pur.presentation.schemas import SolicitudCompraCreate, SolicitudCompraUpdate, SolicitudCompraRead
 from app.modules.pur.application.services import solicitud_service
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "pur"
+RESOURCE_CODE = "solicitud"
 
 router = APIRouter()
 
@@ -21,6 +25,7 @@ async def listar_solicitudes(
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista solicitudes de compra del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -37,6 +42,7 @@ async def listar_solicitudes(
 async def detalle_solicitud(
     solicitud_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de una solicitud. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -53,6 +59,7 @@ async def detalle_solicitud(
 async def crear_solicitud(
     data: SolicitudCompraCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una solicitud de compra. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -64,6 +71,7 @@ async def actualizar_solicitud(
     solicitud_id: UUID,
     data: SolicitudCompraUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una solicitud. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

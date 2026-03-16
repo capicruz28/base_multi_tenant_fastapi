@@ -172,7 +172,6 @@ ModuloMenuTable = Table(
     Column('es_activo', Boolean, nullable=True, server_default='1'),
     Column('fecha_creacion', DateTime, nullable=True, server_default=func.getdate()),
     Column('fecha_actualizacion', DateTime, nullable=True),
-    
     # Metadata
     Column('configuracion_json', Text, nullable=True),  # JSON
     

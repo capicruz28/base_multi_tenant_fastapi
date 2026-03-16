@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.bdg.application.services import (
     list_presupuesto_detalle,
@@ -17,6 +18,9 @@ from app.modules.bdg.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "bdg"
+RESOURCE_CODE = "presupuesto_detalle"
+
 router = APIRouter()
 
 
@@ -27,6 +31,7 @@ async def get_presupuestos_detalle(
     centro_costo_id: Optional[UUID] = Query(None),
     mes: Optional[int] = Query(None, ge=1, le=12),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_presupuesto_detalle(
         current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_presupuestos_detalle(
 async def get_presupuesto_detalle(
     presupuesto_detalle_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_presupuesto_detalle_by_id(
@@ -54,6 +60,7 @@ async def get_presupuesto_detalle(
 async def post_presupuesto_detalle(
     data: PresupuestoDetalleCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_presupuesto_detalle(current_user.cliente_id, data)
 
@@ -63,6 +70,7 @@ async def put_presupuesto_detalle(
     presupuesto_detalle_id: UUID,
     data: PresupuestoDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_presupuesto_detalle(

@@ -24,7 +24,7 @@ HcmEmpleadoTable = Table(
     metadata_erp,
     Column("empleado_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_empleado", String(20), nullable=False),
     Column("tipo_documento", String(10), nullable=True, server_default="DNI"),
     Column("numero_documento", String(20), nullable=False),
@@ -102,8 +102,8 @@ HcmContratoTable = Table(
     metadata_erp,
     Column("contrato_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
-    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_contrato", String(20), nullable=False),
     Column("tipo_contrato", String(30), nullable=False),
     Column("modalidad_contrato", String(50), nullable=True),
@@ -151,7 +151,7 @@ HcmConceptoPlanillaTable = Table(
     metadata_erp,
     Column("concepto_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_concepto", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -186,7 +186,7 @@ HcmPlanillaTable = Table(
     metadata_erp,
     Column("planilla_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_planilla", String(20), nullable=False),
     Column("año", Integer, nullable=False),
     Column("mes", Integer, nullable=False),
@@ -220,15 +220,16 @@ Index("IDX_planilla_empresa", HcmPlanillaTable.c.empresa_id, HcmPlanillaTable.c.
 Index("IDX_planilla_estado", HcmPlanillaTable.c.estado, HcmPlanillaTable.c.fecha_pago)
 
 # ============================================================================
-# TABLA: hcm_planilla_empleado
+# TABLA: hcm_planilla_empleado (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 HcmPlanillaEmpleadoTable = Table(
     "hcm_planilla_empleado",
     metadata_erp,
     Column("planilla_empleado_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("planilla_id", UNIQUEIDENTIFIER, ForeignKey("hcm_planilla.planilla_id", ondelete="CASCADE"), nullable=False),
-    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("planilla_id", UNIQUEIDENTIFIER, ForeignKey("hcm_planilla.planilla_id", ondelete="NO ACTION"), nullable=False),
+    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="NO ACTION"), nullable=False),
     Column("cargo_descripcion", String(150), nullable=True),
     Column("departamento_nombre", String(100), nullable=True),
     Column("dias_laborados", Integer, nullable=True, server_default="30"),
@@ -252,19 +253,21 @@ HcmPlanillaEmpleadoTable = Table(
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
     UniqueConstraint("cliente_id", "planilla_id", "empleado_id", name="UQ_planemp"),
 )
+Index("IDX_planemp_empresa", HcmPlanillaEmpleadoTable.c.empresa_id)
 Index("IDX_planemp_planilla", HcmPlanillaEmpleadoTable.c.planilla_id)
 Index("IDX_planemp_empleado", HcmPlanillaEmpleadoTable.c.empleado_id)
 
 # ============================================================================
-# TABLA: hcm_planilla_detalle
+# TABLA: hcm_planilla_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 HcmPlanillaDetalleTable = Table(
     "hcm_planilla_detalle",
     metadata_erp,
     Column("planilla_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("planilla_empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_planilla_empleado.planilla_empleado_id", ondelete="CASCADE"), nullable=False),
-    Column("concepto_id", UNIQUEIDENTIFIER, ForeignKey("hcm_concepto_planilla.concepto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("planilla_empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_planilla_empleado.planilla_empleado_id", ondelete="NO ACTION"), nullable=False),
+    Column("concepto_id", UNIQUEIDENTIFIER, ForeignKey("hcm_concepto_planilla.concepto_id", ondelete="NO ACTION"), nullable=False),
     Column("tipo_concepto", String(20), nullable=False),
     Column("base_calculo", Numeric(12, 2), nullable=True),
     Column("cantidad", Numeric(10, 2), nullable=True, server_default="1"),
@@ -273,6 +276,7 @@ HcmPlanillaDetalleTable = Table(
     Column("observaciones", String(255), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_plandet_empresa", HcmPlanillaDetalleTable.c.empresa_id)
 Index("IDX_plandet_planemp", HcmPlanillaDetalleTable.c.planilla_empleado_id, HcmPlanillaDetalleTable.c.tipo_concepto)
 Index("IDX_plandet_concepto", HcmPlanillaDetalleTable.c.concepto_id)
 
@@ -284,8 +288,8 @@ HcmAsistenciaTable = Table(
     metadata_erp,
     Column("asistencia_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
-    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="NO ACTION"), nullable=False),
     Column("fecha", Date, nullable=False),
     Column("hora_entrada", Time, nullable=True),
     Column("hora_salida", Time, nullable=True),
@@ -318,8 +322,8 @@ HcmVacacionesTable = Table(
     metadata_erp,
     Column("vacaciones_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
-    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="NO ACTION"), nullable=False),
     Column("año_periodo", Integer, nullable=False),
     Column("fecha_inicio_periodo", Date, nullable=False),
     Column("fecha_fin_periodo", Date, nullable=False),
@@ -347,8 +351,8 @@ HcmPrestamoTable = Table(
     metadata_erp,
     Column("prestamo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
-    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("empleado_id", UNIQUEIDENTIFIER, ForeignKey("hcm_empleado.empleado_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_prestamo", String(20), nullable=False),
     Column("tipo_prestamo", String(30), nullable=False),
     Column("monto_prestamo", Numeric(12, 2), nullable=False),

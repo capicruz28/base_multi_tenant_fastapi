@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_departamentos.py
 """Endpoints ORG - Departamentos. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -21,20 +21,22 @@ router = APIRouter()
 async def listar_departamentos(
     empresa_id: Optional[UUID] = Query(None),
     solo_activos: bool = True,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    buscar: Optional[str] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.leer")),
 ):
     client_id = current_user.cliente_id
     return await departamento_service.list_departamentos_servicio(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
 
 
 @router.get("/{departamento_id}", response_model=DepartamentoRead, summary="Detalle departamento")
 async def detalle_departamento(
     departamento_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.leer")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -49,7 +51,7 @@ async def detalle_departamento(
 @router.post("", response_model=DepartamentoRead, status_code=201, summary="Crear departamento")
 async def crear_departamento(
     data: DepartamentoCreate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.crear")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.crear")),
 ):
     client_id = current_user.cliente_id
     return await departamento_service.create_departamento_servicio(
@@ -62,7 +64,7 @@ async def crear_departamento(
 async def actualizar_departamento(
     departamento_id: UUID,
     data: DepartamentoUpdate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.actualizar")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.actualizar")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -70,6 +72,26 @@ async def actualizar_departamento(
             client_id=client_id,
             departamento_id=departamento_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{departamento_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) departamento",
+)
+async def eliminar_departamento(
+    departamento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.eliminar")),
+):
+    """Marca un departamento como inactivo (baja lógica) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await departamento_service.delete_departamento_servicio(
+            client_id=client_id,
+            departamento_id=departamento_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

@@ -22,7 +22,7 @@ from app.core.auth import get_user_access_level_info
 # Importar la función que lee el ContextVar del cliente (¡Asume que está definida!)
 from app.core.tenant.context import get_current_client_id 
 
-from app.modules.auth.presentation.schemas import Token, UserDataWithRoles, LoginData
+from app.modules.auth.presentation.schemas import Token, UserDataWithRoles, LoginData, PermissionsMeResponse
 from app.core.auth import (
     authenticate_user,
     get_current_user,
@@ -30,6 +30,8 @@ from app.core.auth import (
     authenticate_user_sso_azure_ad,
     authenticate_user_sso_google
 )
+from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import has_permission
 from app.core.security.jwt import create_access_token, create_refresh_token
 from app.core.config import settings
 from app.core.logging_config import get_logger
@@ -37,7 +39,7 @@ from app.modules.users.application.services.user_service import UsuarioService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.modules.superadmin.application.services.audit_service import AuditService
-from app.api.deps import RoleChecker
+from app.api.deps import RoleChecker, get_current_active_user
 from app.core.exceptions import AuthenticationError
 from app.infrastructure.database.connection import DatabaseConnection, get_db_connection
 
@@ -302,64 +304,89 @@ async def login(
     response_model=UserDataWithRoles,
     summary="Obtener usuario actual"
 )
-async def get_me(current_user: dict = Depends(get_current_user)):
+async def get_me(current_user=Depends(get_current_active_user)):
     """
     Recupera los datos del usuario identificado por el Access Token.
-    ✅ CORRECCIÓN CRÍTICA: Usar niveles del TOKEN, no recalcularlos
+    ✅ CORRECCIÓN CRÍTICA: Usar niveles del TOKEN, no recalcularlos.
     """
-    logger.info(f"Solicitud /me/ recibida para usuario: {current_user.get('nombre_usuario')}")
+    logger.info(f"Solicitud /me/ recibida para usuario: {current_user.nombre_usuario}")
     try:
         usuario_service = UsuarioService()
-        user_id = current_user.get('usuario_id')
-        cliente_id = current_user.get('cliente_id')
-        
-        # ✅ CRÍTICO: Leer niveles DESDE EL TOKEN (ya vienen correctos)
-        access_level_from_token = current_user.get('access_level', 1)
-        is_super_admin_from_token = current_user.get('is_super_admin', False)
-        user_type_from_token = current_user.get('user_type', 'user')
-        
+        user_id = current_user.usuario_id
+        cliente_id = current_user.cliente_id
+
+        access_level_from_token = getattr(current_user, "access_level", 1)
+
+        # Extraer codigo_rol de los roles del usuario (fuente de verdad para identidad)
+        codigos_rol = []
+        if hasattr(current_user, "roles") and current_user.roles:
+            for rol in current_user.roles:
+                cod = getattr(rol, "codigo_rol", None) or (rol.get("codigo_rol") if isinstance(rol, dict) else None)
+                if cod:
+                    codigos_rol.append(str(cod).strip().upper())
+
+        # Identidad por codigo_rol: ADMIN_PLATFORM/SUPER_ADMIN → platform_admin, ADMIN_TENANT → tenant_admin
+        if "ADMIN_PLATFORM" in codigos_rol or "SUPER_ADMIN" in codigos_rol:
+            user_type_me = "platform_admin"
+            is_super_admin_me = True
+        elif "ADMIN_TENANT" in codigos_rol:
+            user_type_me = "tenant_admin"
+            is_super_admin_me = False
+        else:
+            user_type_me = getattr(current_user, "user_type", "user")
+            is_super_admin_me = getattr(current_user, "is_super_admin", False)
+
         logger.info(
-            f"[ME] Niveles desde token - Level: {access_level_from_token}, "
-            f"Super Admin: {is_super_admin_from_token}, Type: {user_type_from_token}"
+            f"[ME] Identidad por codigo_rol - codigos={codigos_rol}, "
+            f"user_type={user_type_me}, is_super_admin={is_super_admin_me}"
         )
-        
+
         usuario_completo = await usuario_service.obtener_usuario_completo_por_id(cliente_id, user_id)
-        
+
         if not usuario_completo:
             logger.error(f"Usuario {user_id} no encontrado en cliente {cliente_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Usuario no encontrado"
             )
-        
-        # Extraer nombres de roles
+
+        # Extraer nombres de roles (desde modelo o desde usuario_completo)
         role_names = []
-        for rol in usuario_completo.get("roles", []):
-            if rol.get("nombre"):
-                role_names.append(rol["nombre"])
-        
-        # ✅ CORRECCIÓN CRÍTICA: Usar valores del TOKEN, NO recalcular
+        if hasattr(current_user, "roles") and current_user.roles:
+            for rol in current_user.roles:
+                name = getattr(rol, "nombre", None) or (rol.get("nombre") if isinstance(rol, dict) else None)
+                if name:
+                    role_names.append(name)
+        if not role_names:
+            for rol in usuario_completo.get("roles", []):
+                if rol.get("nombre"):
+                    role_names.append(rol["nombre"])
+
         user_full_data = {
-            **current_user,  # Incluye los datos básicos del token
+            "usuario_id": str(current_user.usuario_id),
+            "cliente_id": str(current_user.cliente_id),
+            "nombre_usuario": current_user.nombre_usuario,
+            "correo": getattr(current_user, "correo", None) or "",
+            "nombre": getattr(current_user, "nombre", None),
+            "apellido": getattr(current_user, "apellido", None),
+            "es_activo": getattr(current_user, "es_activo", True),
             "roles": role_names,
-            "tipo_usuario": user_type_from_token,  # ✅ DEL TOKEN
-            "es_super_admin": is_super_admin_from_token,  # ✅ DEL TOKEN
-            "es_tenant_admin": access_level_from_token >= 4 and not is_super_admin_from_token,
+            "tipo_usuario": user_type_me,
+            "es_super_admin": is_super_admin_me,
+            "es_tenant_admin": user_type_me == "tenant_admin",
             "cliente": usuario_completo.get("cliente_info"),
             "modulos_activos": usuario_completo.get("modulos_activos", []),
-            # ✅ CRÍTICO: Estos campos deben venir del TOKEN
-            "access_level": access_level_from_token,  # ✅ DEL TOKEN
-            "is_super_admin": is_super_admin_from_token,  # ✅ DEL TOKEN
-            "user_type": user_type_from_token  # ✅ DEL TOKEN
+            "access_level": access_level_from_token,
+            "is_super_admin": is_super_admin_me,
+            "user_type": user_type_me,
         }
-        
+
         logger.info(
-            f"[ME] Datos completos enviados - Usuario: {current_user.get('nombre_usuario')}, "
-            f"Type: {user_type_from_token}, Level: {access_level_from_token}, "
-            f"Super Admin: {is_super_admin_from_token}, Roles: {len(role_names)}"
+            f"[ME] Datos completos enviados - Usuario: {current_user.nombre_usuario}, "
+            f"user_type: {user_type_me}, is_super_admin: {is_super_admin_me}, Roles: {len(role_names)}"
         )
         return user_full_data
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -367,6 +394,143 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error obteniendo datos del usuario"
+        )
+
+
+# ----
+# --- GET /auth/permissions/me - Permisos resueltos (Permission Resolver)
+# ----
+@router.get(
+    "/permissions/me",
+    response_model=PermissionsMeResponse,
+    summary="Obtener permisos del usuario actual",
+    description="""
+    Devuelve la lista plana de códigos de permiso del usuario autenticado en el tenant actual.
+    
+    **Fuente de verdad:** Permission Resolver centralizado (con cache Redis/memoria según configuración).
+    **Multi-tenant:** Usa el tenant del token/contexto; no se pasan parámetros de tenant en la URL.
+    **Uso frontend:** Consumir este endpoint para ocultar/mostrar acciones según permisos.
+    
+    **Formato:** `{"permissions": ["billing.read", "crm.access", ...]}`
+    """,
+)
+async def get_permissions_me(
+    current_user = Depends(get_current_active_user),
+):
+    """
+    Lista de permisos efectivos del usuario actual desde el Permission Resolver.
+    Incluye cache (cuando PERMISSION_RESOLVER_CACHE_ENABLED=true) y es tenant-aware.
+    """
+    try:
+        from app.core.authorization.permission_resolver import get_permission_resolver
+        from app.core.tenant.context import try_get_tenant_context
+
+        cliente_id = getattr(current_user, "cliente_id", None)
+        if not cliente_id:
+            request_cliente_id = get_current_client_id()
+            if not request_cliente_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Contexto de tenant no disponible",
+                )
+            cliente_id = request_cliente_id
+
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
+        is_super_admin = getattr(current_user, "is_super_admin", False)
+
+        if is_super_admin:
+            from sqlalchemy import text
+            from app.infrastructure.database.connection_async import DatabaseConnection
+            from app.infrastructure.database.queries_async import execute_query
+
+            rows = await execute_query(
+                text("SELECT codigo FROM permiso WHERE es_activo = 1"),
+                connection_type=DatabaseConnection.ADMIN,
+            )
+            return PermissionsMeResponse(permissions=[r["codigo"] for r in rows if r.get("codigo")])
+
+        resolver = get_permission_resolver()
+        effective = await resolver.get_effective_permissions(
+            usuario_id=current_user.usuario_id,
+            cliente_id=cliente_id,
+            database_type=database_type,
+            is_super_admin=is_super_admin,
+            filter_by_subscription=getattr(
+                settings, "PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION", False
+            ),
+        )
+        return PermissionsMeResponse(permissions=list(effective.codes))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /auth/permissions/me: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener permisos del usuario",
+        )
+
+
+# ----
+# --- GET /auth/menu - Menú resuelto (Menu Resolver)
+# ----
+@router.get(
+    "/menu",
+    response_model=None,
+    summary="Obtener menú del usuario actual",
+    description="""
+    Devuelve el menú de navegación del usuario autenticado ya filtrado por:
+    - **Tenant:** módulos contratados (cliente_modulo).
+    - **Permissions:** permisos efectivos del Permission Resolver.
+    - **Configuración:** modulo_menu + rol_menu_permiso.
+    
+    Flujo: Tenant → Modules → Permissions → Menu.
+    Misma estructura que GET /modulos-menus/me/; no reemplaza ese endpoint.
+    """,
+)
+async def get_menu(
+    current_user=Depends(get_current_active_user),
+):
+    """
+    Menú centralizado vía Menu Resolver (Permission Resolver + ModuloMenuService).
+    Reutiliza cache del Permission Resolver.
+    """
+    try:
+        from app.core.authorization.menu_resolver import get_menu_resolver
+        from app.core.tenant.context import try_get_tenant_context
+
+        cliente_id = getattr(current_user, "cliente_id", None)
+        if not cliente_id:
+            request_cliente_id = get_current_client_id()
+            if not request_cliente_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Contexto de tenant no disponible",
+                )
+            cliente_id = request_cliente_id
+
+        tenant_context = try_get_tenant_context()
+        database_type = tenant_context.database_type if tenant_context else "single"
+        is_super_admin = getattr(current_user, "is_super_admin", False)
+        access_level = getattr(current_user, "access_level", 1)
+        as_tenant_admin = access_level >= 4 and not is_super_admin
+
+        menu_resolver = get_menu_resolver()
+        menu = await menu_resolver.get_menu_for_user(
+            usuario_id=current_user.usuario_id,
+            cliente_id=cliente_id,
+            database_type=database_type,
+            is_super_admin=is_super_admin,
+            as_tenant_admin=as_tenant_admin,
+        )
+        return menu
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en GET /auth/menu: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener menú del usuario",
         )
 
 
@@ -559,249 +723,45 @@ async def refresh_access_token(
 # ----
 # --- Endpoint para Cerrar Sesión (Logout) ---
 # ----
+@router.post("/logout", include_in_schema=False)
 @router.post(
     "/logout/",
     summary="Cerrar sesión",
     description="""
-    Cierra la sesión del usuario revocando el **Refresh Token** en BD.
-    
-    **✅ NUEVO - Estrategia según cliente:**
-    - **Web (X-Client-Type: web):** Elimina cookie y revoca token en BD
-    - **Móvil (X-Client-Type: mobile):** Revoca token en BD
+    Cierra sesión de forma **stateless** e **idempotente**.
+
+    - No requiere `Authorization` header.
+    - No depende de datos del usuario ni consulta tablas de usuario.
+    - Limpia cookies/tokens si existen y retorna **200 siempre**.
 
     **Respuestas:**
     - 200: Sesión cerrada exitosamente.
     """
 )
-async def logout(
-    request: Request,
-    response: Response,
-    current_user: dict = Depends(get_current_user)
-):
+async def logout(response: Response):
     """
-    Cierra sesión revocando el refresh token en BD.
-
-    Args:
-        request: Objeto Request para detectar tipo de cliente
-        response: Objeto Response de FastAPI para manipular cookies.
-        current_user: Diccionario con datos del usuario autenticado (proporciona cliente_id y usuario_id)
-
-    Returns:
-        Dict[str, str]: Mensaje de éxito.
-
-    Raises:
-        HTTPException: En caso de error al cerrar sesión
+    Logout stateless:
+    - No requiere usuario autenticado.
+    - No ejecuta queries.
+    - Limpia cookies si existen.
+    - Siempre retorna 200 (idempotente).
     """
     try:
-        # ✅ NUEVO: Detectar tipo de cliente
-        client_type = get_client_type(request)
-        
-        # ✅ INYECCIÓN: Obtener cliente_id y usuario_id del contexto actual
-        cliente_id = current_user.get("cliente_id")
-        usuario_id = current_user.get("usuario_id")
-        username = current_user.get("nombre_usuario")
-        
-        if not cliente_id or not usuario_id:
-            logger.warning(f"[LOGOUT] Datos de cliente/usuario inválidos para {username}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Contexto de usuario inválido"
-            )
-        
-        # Obtener refresh token
-        refresh_token = None
-        if client_type == "web":
-            refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
-            # Eliminar cookie
-            response.delete_cookie(
-                key=settings.REFRESH_COOKIE_NAME,
-                path="/",
-                samesite=settings.COOKIE_SAMESITE,
-                domain=settings.COOKIE_DOMAIN,
-            )
-        else:  # mobile
-            try:
-                body = await request.json()
-                refresh_token = body.get("refresh_token")
-            except:
-                pass
-        
-        # ✅ REFACTORIZADO: Revocar token en BD con cliente_id y usuario_id
-        ip_address = request.client.host if request.client else None
-        user_agent = request.headers.get("user-agent")
-        
-        # ✅ REVOCACIÓN: Agregar Access Token a blacklist de Redis
-        try:
-            # Extraer access token del header Authorization
-            authorization = request.headers.get("Authorization")
-            if authorization and authorization.startswith("Bearer "):
-                access_token = authorization.replace("Bearer ", "").strip()
-                
-                # Decodificar token para obtener jti y exp
-                from jose import jwt
-                from datetime import datetime
-                try:
-                    payload = jwt.decode(
-                        access_token,
-                        settings.SECRET_KEY,
-                        algorithms=[settings.ALGORITHM],
-                        options={"verify_exp": False}  # No verificar exp para poder calcular TTL
-                    )
-                    
-                    jti = payload.get("jti")
-                    exp = payload.get("exp")
-                    
-                    if jti and exp:
-                        # Calcular tiempo restante en segundos
-                        now = datetime.utcnow().timestamp()
-                        expire_seconds = int(exp - now)
-                        
-                        if expire_seconds > 0:
-                            # Agregar a blacklist
-                            from app.infrastructure.redis.client import RedisService
-                            blacklisted = await RedisService.set_token_blacklist(jti, expire_seconds)
-                            
-                            if blacklisted:
-                                logger.info(
-                                    f"[LOGOUT-{client_type.upper()}] Access token agregado a blacklist - "
-                                    f"jti={jti}, TTL={expire_seconds}s ({expire_seconds // 60} min), "
-                                    f"Usuario: {username}"
-                                )
-                            else:
-                                logger.warning(
-                                    f"[LOGOUT-{client_type.upper()}] No se pudo agregar access token a blacklist "
-                                    f"(Redis no disponible o error). jti={jti}, Usuario: {username}"
-                                )
-                        else:
-                            logger.debug(
-                                f"[LOGOUT-{client_type.upper()}] Access token ya expirado, no se agrega a blacklist. "
-                                f"jti={jti}, Usuario: {username}"
-                            )
-                    else:
-                        logger.warning(
-                            f"[LOGOUT-{client_type.upper()}] Access token sin jti o exp. "
-                            f"No se puede agregar a blacklist. Usuario: {username}"
-                        )
-                except Exception as decode_error:
-                    logger.warning(
-                        f"[LOGOUT-{client_type.upper()}] Error decodificando access token para blacklist: {decode_error}. "
-                        f"Usuario: {username}"
-                    )
-        except Exception as blacklist_error:
-            # Fail-soft: No bloquear logout si falla la blacklist
-            logger.error(
-                f"[LOGOUT-{client_type.upper()}] Error agregando access token a blacklist (fail-soft): {blacklist_error}. "
-                f"Usuario: {username}",
-                exc_info=True
-            )
-        
-        if refresh_token:
-            try:
-                revoked = await RefreshTokenService.revoke_token(
-                    cliente_id=cliente_id,
-                    usuario_id=usuario_id,
-                    token=refresh_token
-                )
-                if revoked:
-                    logger.info(
-                        f"[LOGOUT-{client_type.upper()}] Token revocado exitosamente - "
-                        f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
-                    )
-                else:
-                    # Token no encontrado (ya expirado/revocado) - NO es error, sesión ya cerrada
-                    logger.info(
-                        f"[LOGOUT-{client_type.upper()}] Token no encontrado en BD (ya expirado/revocado) - "
-                        f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
-                    )
-                
-                # Registrar logout como EXITO siempre (token encontrado o no, la sesión está cerrada)
-                # Solo será error si hay una excepción real al revocar (capturada abajo)
-                try:
-                    await AuditService.registrar_auth_event(
-                        cliente_id=cliente_id,
-                        usuario_id=usuario_id,
-                        evento="logout",
-                        nombre_usuario_intento=username,
-                        descripcion="Logout de sesión",
-                        exito=True,  # ✅ SIEMPRE éxito: token revocado o ya no existe
-                        codigo_error=None,  # ✅ NUNCA error para token no encontrado
-                        ip_address=ip_address,
-                        user_agent=user_agent,
-                        metadata={
-                            "client_type": client_type,
-                            "token_revoked": revoked,  # Info adicional: si se revocó o ya no existía
-                        },
-                    )
-                except Exception:
-                    logger.exception(
-                        "[AUDIT] Error registrando evento logout (no crítico)"
-                    )
-            except Exception as revoke_error:
-                # ✅ SOLO AQUÍ es un error real: excepción al intentar revocar
-                logger.error(
-                    f"[LOGOUT-{client_type.upper()}] Error al revocar token - "
-                    f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username}): {str(revoke_error)}"
-                )
-                # Registrar como error solo si hay excepción real
-                try:
-                    await AuditService.registrar_auth_event(
-                        cliente_id=cliente_id,
-                        usuario_id=usuario_id,
-                        evento="logout",
-                        nombre_usuario_intento=username,
-                        descripcion="Error al revocar token durante logout",
-                        exito=False,
-                        codigo_error=f"REVOKE_ERROR: {str(revoke_error)[:100]}",  # Limitar longitud
-                        ip_address=ip_address,
-                        user_agent=user_agent,
-                        metadata={
-                            "client_type": client_type,
-                            "error_type": type(revoke_error).__name__,
-                        },
-                    )
-                except Exception:
-                    logger.exception(
-                        "[AUDIT] Error registrando evento logout con error (no crítico)"
-                    )
-                # No propagar el error, el logout sigue siendo exitoso desde el punto de vista del usuario
-        else:
-            # No se proporcionó refresh token (None) - NO es error, logout válido
-            logger.info(
-                f"[LOGOUT-{client_type.upper()}] Logout sin refresh token proporcionado - "
-                f"Cliente: {cliente_id}, Usuario: {usuario_id} ({username})"
-            )
-            # Registrar logout exitoso sin token
-            try:
-                await AuditService.registrar_auth_event(
-                    cliente_id=cliente_id,
-                    usuario_id=usuario_id,
-                    evento="logout",
-                    nombre_usuario_intento=username,
-                    descripcion="Logout de sesión (sin refresh token)",
-                    exito=True,  # ✅ Éxito: logout válido sin token
-                    codigo_error=None,  # ✅ NO es error
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    metadata={
-                        "client_type": client_type,
-                        "no_token_provided": True,
-                    },
-                )
-            except Exception:
-                logger.exception(
-                    "[AUDIT] Error registrando evento logout sin token (no crítico)"
-                )
-        
-        return {"message": f"Sesión cerrada exitosamente ({client_type})"}
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error en logout: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al cerrar sesión"
+        # Cookie estándar solicitada (aunque el backend use header para access token)
+        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN)
+
+        # Cookie refresh (web) si existe
+        response.delete_cookie(
+            key=settings.REFRESH_COOKIE_NAME,
+            path="/",
+            samesite=settings.COOKIE_SAMESITE,
+            domain=settings.COOKIE_DOMAIN,
         )
+    except Exception:
+        # Fail-soft: logout nunca debe fallar por limpieza de cookies
+        pass
+
+    return {"message": "Logout successful"}
 
 # ----
 # --- NUEVOS Endpoints para Gestión de Sesiones ---

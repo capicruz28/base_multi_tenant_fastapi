@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.crm.application.services import (
     list_actividades,
@@ -21,6 +22,9 @@ from app.modules.crm.presentation.schemas import (
     ActividadRead,
 )
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "crm"
+RESOURCE_CODE = "actividad"
 
 router = APIRouter()
 
@@ -38,6 +42,7 @@ async def get_actividades(
     fecha_hasta: Optional[datetime] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista actividades del tenant."""
     return await list_actividades(
@@ -59,6 +64,7 @@ async def get_actividades(
 async def get_actividad(
     actividad_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una actividad por id."""
     try:
@@ -71,6 +77,7 @@ async def get_actividad(
 async def post_actividad(
     data: ActividadCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una actividad."""
     return await create_actividad(current_user.cliente_id, data)
@@ -81,6 +88,7 @@ async def put_actividad(
     actividad_id: UUID,
     data: ActividadUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una actividad."""
     try:

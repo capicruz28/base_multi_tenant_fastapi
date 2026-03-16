@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mps.application.services import (
     list_plan_produccion,
@@ -13,6 +14,9 @@ from app.modules.mps.application.services import (
 from app.modules.mps.presentation.schemas import PlanProduccionCreate, PlanProduccionUpdate, PlanProduccionRead
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "mps"
+RESOURCE_CODE = "plan_produccion"
+
 router = APIRouter()
 
 
@@ -22,6 +26,7 @@ async def get_planes_produccion(
     estado: Optional[str] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_plan_produccion(
         current_user.cliente_id,
@@ -35,6 +40,7 @@ async def get_planes_produccion(
 async def get_plan_produccion(
     plan_produccion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_plan_produccion_by_id(current_user.cliente_id, plan_produccion_id)
@@ -55,6 +61,7 @@ async def put_plan_produccion(
     plan_produccion_id: UUID,
     data: PlanProduccionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_plan_produccion(current_user.cliente_id, plan_produccion_id, data)

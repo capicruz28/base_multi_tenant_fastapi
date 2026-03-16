@@ -25,7 +25,7 @@ InvbillSerieComprobanteTable = Table(
     metadata_erp,
     Column("serie_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("tipo_comprobante", String(2), nullable=False),
     Column("serie", String(4), nullable=False),
     Column("numero_actual", Integer, nullable=True, server_default="0"),
@@ -54,7 +54,7 @@ InvbillComprobanteTable = Table(
     metadata_erp,
     Column("comprobante_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("tipo_comprobante", String(2), nullable=False),
     Column("serie", String(4), nullable=False),
     Column("numero", String(10), nullable=False),
@@ -118,14 +118,15 @@ Index("IDX_comp_estado_sunat", InvbillComprobanteTable.c.estado_sunat)
 Index("IDX_comp_fecha", InvbillComprobanteTable.c.fecha_emision)
 
 # ============================================================================
-# TABLA: invbill_comprobante_detalle
+# TABLA: invbill_comprobante_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 InvbillComprobanteDetalleTable = Table(
     "invbill_comprobante_detalle",
     metadata_erp,
     Column("comprobante_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("comprobante_id", UNIQUEIDENTIFIER, ForeignKey("invbill_comprobante.comprobante_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("comprobante_id", UNIQUEIDENTIFIER, ForeignKey("invbill_comprobante.comprobante_id", ondelete="NO ACTION"), nullable=False),
     Column("item", Integer, nullable=False),
     Column("producto_id", UNIQUEIDENTIFIER, nullable=True),
     Column("codigo_producto", String(50), nullable=True),
@@ -141,5 +142,6 @@ InvbillComprobanteDetalleTable = Table(
     Column("lote", String(50), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_compdet_empresa", InvbillComprobanteDetalleTable.c.empresa_id)
 Index("IDX_compdet_comprobante", InvbillComprobanteDetalleTable.c.comprobante_id, InvbillComprobanteDetalleTable.c.item)
 Index("IDX_compdet_producto", InvbillComprobanteDetalleTable.c.producto_id)

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.log.application.services import (
     list_transportistas,
@@ -23,6 +24,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "log"
+RESOURCE_CODE = "transportista"
+
 
 @router.get("", response_model=List[TransportistaRead], tags=["LOG - Transportistas"])
 async def get_transportistas(
@@ -30,6 +34,7 @@ async def get_transportistas(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista transportistas del tenant."""
     return await list_transportistas(
@@ -44,6 +49,7 @@ async def get_transportistas(
 async def get_transportista(
     transportista_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un transportista por id."""
     try:
@@ -56,6 +62,7 @@ async def get_transportista(
 async def post_transportista(
     data: TransportistaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un transportista."""
     return await create_transportista(current_user.cliente_id, data)
@@ -66,6 +73,7 @@ async def put_transportista(
     transportista_id: UUID,
     data: TransportistaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un transportista."""
     try:

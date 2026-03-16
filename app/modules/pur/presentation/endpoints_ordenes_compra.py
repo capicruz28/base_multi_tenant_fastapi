@@ -6,10 +6,14 @@ from typing import Optional
 from datetime import date
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pur.presentation.schemas import OrdenCompraCreate, OrdenCompraUpdate, OrdenCompraRead
 from app.modules.pur.application.services import orden_compra_service
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "pur"
+RESOURCE_CODE = "orden_compra"
 
 router = APIRouter()
 
@@ -23,6 +27,7 @@ async def listar_ordenes_compra(
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista órdenes de compra del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -41,6 +46,7 @@ async def listar_ordenes_compra(
 async def detalle_orden_compra(
     orden_compra_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de una orden de compra. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -57,6 +63,7 @@ async def detalle_orden_compra(
 async def crear_orden_compra(
     data: OrdenCompraCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una orden de compra. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -68,6 +75,7 @@ async def actualizar_orden_compra(
     orden_compra_id: UUID,
     data: OrdenCompraUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una orden de compra. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

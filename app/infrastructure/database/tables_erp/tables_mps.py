@@ -25,7 +25,7 @@ MpsPronosticoDemandaTable = Table(
     metadata_erp,
     Column("pronostico_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("año", Integer, nullable=False),
     Column("mes", Integer, nullable=False),
@@ -52,7 +52,7 @@ MpsPlanProduccionTable = Table(
     metadata_erp,
     Column("plan_produccion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_plan", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("fecha_inicio", Date, nullable=False),
@@ -69,7 +69,7 @@ Index("IDX_planprod_empresa", MpsPlanProduccionTable.c.empresa_id, MpsPlanProduc
 Index("IDX_planprod_estado", MpsPlanProduccionTable.c.estado)
 
 # ============================================================================
-# TABLA: mps_plan_produccion_detalle
+# TABLA: mps_plan_produccion_detalle (Fase 4: empresa_id + FK + índice)
 # Nota: porcentaje_uso_capacidad es calculado en BD; se puede devolver en servicio.
 # ============================================================================
 MpsPlanProduccionDetalleTable = Table(
@@ -77,7 +77,8 @@ MpsPlanProduccionDetalleTable = Table(
     metadata_erp,
     Column("plan_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("plan_produccion_id", UNIQUEIDENTIFIER, ForeignKey("mps_plan_produccion.plan_produccion_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("plan_produccion_id", UNIQUEIDENTIFIER, ForeignKey("mps_plan_produccion.plan_produccion_id", ondelete="NO ACTION"), nullable=False),
     Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("fecha_inicio", Date, nullable=False),
     Column("fecha_fin", Date, nullable=False),
@@ -92,5 +93,6 @@ MpsPlanProduccionDetalleTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_planproddet_empresa", MpsPlanProduccionDetalleTable.c.empresa_id)
 Index("IDX_planproddet_plan", MpsPlanProduccionDetalleTable.c.plan_produccion_id, MpsPlanProduccionDetalleTable.c.fecha_inicio)
 Index("IDX_planproddet_producto", MpsPlanProduccionDetalleTable.c.producto_id, MpsPlanProduccionDetalleTable.c.fecha_inicio)

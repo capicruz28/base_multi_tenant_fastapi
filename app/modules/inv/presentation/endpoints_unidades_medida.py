@@ -5,6 +5,7 @@ from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import UnidadMedidaCreate, UnidadMedidaUpdate, UnidadMedidaRead
 from app.modules.inv.application.services import unidad_medida_service
@@ -12,12 +13,16 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "inv"
+RESOURCE_CODE = "unidad_medida"
+
 
 @router.get("", response_model=list[UnidadMedidaRead], summary="Listar unidades de medida")
 async def listar_unidades_medida(
     empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     solo_activos: bool = Query(True, description="Solo unidades activas"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista unidades de medida del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -32,6 +37,7 @@ async def listar_unidades_medida(
 async def detalle_unidad_medida(
     unidad_medida_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de una unidad de medida. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -48,6 +54,7 @@ async def detalle_unidad_medida(
 async def crear_unidad_medida(
     data: UnidadMedidaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una unidad de medida. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -59,6 +66,7 @@ async def actualizar_unidad_medida(
     unidad_medida_id: UUID,
     data: UnidadMedidaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una unidad de medida. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

@@ -449,7 +449,7 @@ class ModuloRolPlantillaRead(ModuloRolPlantillaBase):
 # ============================================================================
 
 class PermisosMenu(BaseModel):
-    """Schema para permisos de un menú."""
+    """Permisos de un menú (rol_menu_permiso). Solo experiencia UI (acciones)."""
     ver: bool = True
     crear: bool = False
     editar: bool = False
@@ -466,10 +466,28 @@ class MenuItem(BaseModel):
     nombre: str
     icono: Optional[str] = None
     ruta: Optional[str] = None
-    nivel: int
     tipo_menu: str
     orden: int
+
+    # Metadata de visibilidad SaaS
+    is_visible: bool = Field(
+        default=True,
+        description="Indica si el menú debe mostrarse (derivado de permisos.ver).",
+    )
+    is_enabled: bool = Field(
+        default=True,
+        description="Indica si el menú está disponible aunque pueda aparecer bloqueado.",
+    )
+
+    # Backend RBAC: permiso requerido (ej. org.area.leer)
+    required_permission: Optional[str] = Field(
+        default=None,
+        description="Código de permiso de negocio (tabla permiso) requerido por este menú.",
+    )
+
+    # UI actions: representación directa de rol_menu_permiso
     permisos: PermisosMenu
+
     submenus: List['MenuItem'] = Field(default_factory=list)
 
     class Config:

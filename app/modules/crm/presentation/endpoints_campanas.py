@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.crm.application.services import (
     list_campanas,
@@ -22,6 +23,9 @@ from app.modules.crm.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "crm"
+RESOURCE_CODE = "campana"
+
 router = APIRouter()
 
 
@@ -34,6 +38,7 @@ async def get_campanas(
     fecha_hasta: Optional[date] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista campañas del tenant."""
     return await list_campanas(
@@ -51,6 +56,7 @@ async def get_campanas(
 async def get_campana(
     campana_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una campaña por id."""
     try:
@@ -63,6 +69,7 @@ async def get_campana(
 async def post_campana(
     data: CampanaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una campaña."""
     return await create_campana(current_user.cliente_id, data)
@@ -73,6 +80,7 @@ async def put_campana(
     campana_id: UUID,
     data: CampanaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una campaña."""
     try:

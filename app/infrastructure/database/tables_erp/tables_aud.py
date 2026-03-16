@@ -21,7 +21,7 @@ AudLogAuditoriaTable = Table(
     metadata_erp,
     Column("log_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("fecha_evento", DateTime, nullable=False, server_default=func.getdate()),
     Column("usuario_id", UNIQUEIDENTIFIER, nullable=True),
     Column("usuario_nombre", String(150), nullable=True),

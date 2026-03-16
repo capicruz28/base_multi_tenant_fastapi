@@ -18,14 +18,15 @@ from sqlalchemy.sql import func
 from app.infrastructure.database.tables_erp.tables_org import metadata_erp
 
 # ============================================================================
-# TABLA: wms_zona_almacen
+# TABLA: wms_zona_almacen (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 WmsZonaAlmacenTable = Table(
     "wms_zona_almacen",
     metadata_erp,
     Column("zona_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -40,19 +41,21 @@ WmsZonaAlmacenTable = Table(
     Column("usuario_creacion_id", UNIQUEIDENTIFIER, nullable=True),
     UniqueConstraint("cliente_id", "almacen_id", "codigo", name="UQ_zona_codigo"),
 )
+Index("IDX_zona_empresa", WmsZonaAlmacenTable.c.empresa_id, WmsZonaAlmacenTable.c.es_activo)
 Index("IDX_zona_almacen", WmsZonaAlmacenTable.c.almacen_id, WmsZonaAlmacenTable.c.es_activo)
 Index("IDX_zona_tipo", WmsZonaAlmacenTable.c.tipo_zona)
 
 # ============================================================================
-# TABLA: wms_ubicacion
+# TABLA: wms_ubicacion (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 WmsUbicacionTable = Table(
     "wms_ubicacion",
     metadata_erp,
     Column("ubicacion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="CASCADE"), nullable=False),
-    Column("zona_id", UNIQUEIDENTIFIER, ForeignKey("wms_zona_almacen.zona_id", ondelete="SET NULL"), nullable=True),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="NO ACTION"), nullable=False),
+    Column("zona_id", UNIQUEIDENTIFIER, ForeignKey("wms_zona_almacen.zona_id", ondelete="NO ACTION"), nullable=True),
     Column("codigo_ubicacion", String(30), nullable=False),
     Column("pasillo", String(10), nullable=True),
     Column("rack", String(10), nullable=True),
@@ -75,22 +78,24 @@ WmsUbicacionTable = Table(
     Column("usuario_creacion_id", UNIQUEIDENTIFIER, nullable=True),
     UniqueConstraint("cliente_id", "almacen_id", "codigo_ubicacion", name="UQ_ubic_codigo"),
 )
+Index("IDX_ubic_empresa", WmsUbicacionTable.c.empresa_id, WmsUbicacionTable.c.es_activo)
 Index("IDX_ubic_almacen", WmsUbicacionTable.c.almacen_id, WmsUbicacionTable.c.es_activo)
 Index("IDX_ubic_zona", WmsUbicacionTable.c.zona_id)
 Index("IDX_ubic_estado", WmsUbicacionTable.c.estado_ubicacion)
 Index("IDX_ubic_pasillo_rack", WmsUbicacionTable.c.almacen_id, WmsUbicacionTable.c.pasillo, WmsUbicacionTable.c.rack, WmsUbicacionTable.c.nivel)
 
 # ============================================================================
-# TABLA: wms_stock_ubicacion
+# TABLA: wms_stock_ubicacion (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 WmsStockUbicacionTable = Table(
     "wms_stock_ubicacion",
     metadata_erp,
     Column("stock_ubicacion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="CASCADE"), nullable=False),
-    Column("ubicacion_id", UNIQUEIDENTIFIER, ForeignKey("wms_ubicacion.ubicacion_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="NO ACTION"), nullable=False),
+    Column("ubicacion_id", UNIQUEIDENTIFIER, ForeignKey("wms_ubicacion.ubicacion_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id"), nullable=False),
     Column("lote", String(50), nullable=True),
@@ -101,26 +106,28 @@ WmsStockUbicacionTable = Table(
     Column("fecha_ingreso", DateTime, nullable=False, server_default=func.getdate()),
     Column("fecha_actualizacion", DateTime, nullable=True),
 )
+Index("IDX_stockubic_empresa", WmsStockUbicacionTable.c.empresa_id)
 Index("IDX_stockubic_ubicacion", WmsStockUbicacionTable.c.ubicacion_id)
 Index("IDX_stockubic_producto", WmsStockUbicacionTable.c.producto_id, WmsStockUbicacionTable.c.almacen_id)
 Index("IDX_stockubic_lote", WmsStockUbicacionTable.c.lote)
 Index("IDX_stockubic_disponible", WmsStockUbicacionTable.c.estado_stock)
 
 # ============================================================================
-# TABLA: wms_tarea
+# TABLA: wms_tarea (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 WmsTareaTable = Table(
     "wms_tarea",
     metadata_erp,
     Column("tarea_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_tarea", String(20), nullable=False),
     Column("tipo_tarea", String(30), nullable=False),
     Column("prioridad", Integer, nullable=True, server_default="3"),
-    Column("ubicacion_origen_id", UNIQUEIDENTIFIER, ForeignKey("wms_ubicacion.ubicacion_id"), nullable=True),
-    Column("ubicacion_destino_id", UNIQUEIDENTIFIER, ForeignKey("wms_ubicacion.ubicacion_id"), nullable=True),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=True),
+    Column("ubicacion_origen_id", UNIQUEIDENTIFIER, ForeignKey("wms_ubicacion.ubicacion_id", ondelete="NO ACTION"), nullable=True),
+    Column("ubicacion_destino_id", UNIQUEIDENTIFIER, ForeignKey("wms_ubicacion.ubicacion_id", ondelete="NO ACTION"), nullable=True),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=True),
     Column("cantidad_planeada", Numeric(18, 4), nullable=True),
     Column("cantidad_completada", Numeric(18, 4), nullable=True, server_default="0"),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=True),
@@ -138,6 +145,7 @@ WmsTareaTable = Table(
     Column("usuario_creacion_id", UNIQUEIDENTIFIER, nullable=True),
     UniqueConstraint("cliente_id", "almacen_id", "numero_tarea", name="UQ_tarea_numero"),
 )
+Index("IDX_tarea_empresa", WmsTareaTable.c.empresa_id, WmsTareaTable.c.estado)
 Index("IDX_tarea_almacen", WmsTareaTable.c.almacen_id, WmsTareaTable.c.estado, WmsTareaTable.c.prioridad)
 Index("IDX_tarea_asignado", WmsTareaTable.c.asignado_usuario_id, WmsTareaTable.c.estado)
 Index("IDX_tarea_estado", WmsTareaTable.c.estado, WmsTareaTable.c.fecha_creacion.desc())

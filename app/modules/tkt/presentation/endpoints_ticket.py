@@ -59,6 +59,7 @@ async def get_ticket(
 async def post_ticket(
     data: TicketCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("tkt.ticket.crear")),
 ):
     return await create_ticket(current_user.cliente_id, data)
 

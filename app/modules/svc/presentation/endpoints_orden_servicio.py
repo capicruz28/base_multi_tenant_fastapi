@@ -57,6 +57,7 @@ async def get_orden_servicio(
 async def post_orden_servicio(
     data: OrdenServicioCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("svc.orden_servicio.crear")),
 ):
     return await create_orden_servicio(current_user.cliente_id, data)
 

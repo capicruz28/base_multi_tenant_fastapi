@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.qms.application.services import (
     list_planes_inspeccion,
@@ -28,6 +29,9 @@ from app.modules.qms.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "qms"
+RESOURCE_CODE = "plan_inspeccion"
+
 router = APIRouter()
 
 
@@ -40,6 +44,7 @@ async def get_planes_inspeccion(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista planes de inspección del tenant."""
     return await list_planes_inspeccion(
@@ -57,6 +62,7 @@ async def get_planes_inspeccion(
 async def get_plan_inspeccion(
     plan_inspeccion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un plan de inspección por id."""
     try:
@@ -69,6 +75,7 @@ async def get_plan_inspeccion(
 async def post_plan_inspeccion(
     data: PlanInspeccionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un plan de inspección."""
     return await create_plan_inspeccion(current_user.cliente_id, data)
@@ -79,6 +86,7 @@ async def put_plan_inspeccion(
     plan_inspeccion_id: UUID,
     data: PlanInspeccionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un plan de inspección."""
     try:
@@ -92,6 +100,7 @@ async def put_plan_inspeccion(
 async def get_plan_inspeccion_detalles(
     plan_inspeccion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista detalles de un plan de inspección."""
     return await list_plan_inspeccion_detalles(current_user.cliente_id, plan_inspeccion_id)
@@ -102,6 +111,7 @@ async def post_plan_inspeccion_detalle(
     plan_inspeccion_id: UUID,
     data: PlanInspeccionDetalleCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un detalle de plan de inspección."""
     data.plan_inspeccion_id = plan_inspeccion_id
@@ -112,6 +122,7 @@ async def post_plan_inspeccion_detalle(
 async def get_plan_inspeccion_detalle(
     plan_detalle_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un detalle de plan por id."""
     try:
@@ -125,6 +136,7 @@ async def put_plan_inspeccion_detalle(
     plan_detalle_id: UUID,
     data: PlanInspeccionDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un detalle de plan."""
     try:

@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.hcm.application.services import (
     list_contratos,
@@ -15,6 +16,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "hcm"
+RESOURCE_CODE = "contrato"
+
 
 @router.get("", response_model=List[ContratoRead], tags=["HCM - Contratos"])
 async def get_contratos(
@@ -23,6 +27,7 @@ async def get_contratos(
     estado_contrato: Optional[str] = Query(None),
     es_contrato_vigente: Optional[bool] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_contratos(
         client_id=current_user.cliente_id,
@@ -37,6 +42,7 @@ async def get_contratos(
 async def get_contrato(
     contrato_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_contrato_by_id(current_user.cliente_id, contrato_id)
@@ -48,6 +54,7 @@ async def get_contrato(
 async def post_contrato(
     data: ContratoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_contrato(current_user.cliente_id, data)
 
@@ -57,6 +64,7 @@ async def put_contrato(
     contrato_id: UUID,
     data: ContratoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_contrato(current_user.cliente_id, contrato_id, data)

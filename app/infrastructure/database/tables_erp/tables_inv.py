@@ -25,7 +25,7 @@ InvCategoriaProductoTable = Table(
     metadata_erp,
     Column("categoria_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -52,7 +52,7 @@ InvUnidadMedidaTable = Table(
     metadata_erp,
     Column("unidad_medida_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(10), nullable=False),
     Column("nombre", String(50), nullable=False),
     Column("simbolo", String(10), nullable=True),
@@ -77,7 +77,7 @@ InvProductoTable = Table(
     metadata_erp,
     Column("producto_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_sku", String(50), nullable=False),
     Column("codigo_barra", String(50), nullable=True),
     Column("codigo_interno", String(30), nullable=True),
@@ -163,7 +163,7 @@ InvAlmacenTable = Table(
     metadata_erp,
     Column("almacen_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("sucursal_id", UNIQUEIDENTIFIER, nullable=True),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
@@ -199,8 +199,8 @@ InvStockTable = Table(
     Column("stock_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
     Column("empresa_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="CASCADE"), nullable=False),
-    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="CASCADE"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
+    Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad_actual", Numeric(18, 4), nullable=False, server_default="0"),
     Column("cantidad_reservada", Numeric(18, 4), nullable=True, server_default="0"),
     Column("cantidad_transito", Numeric(18, 4), nullable=True, server_default="0"),
@@ -227,7 +227,7 @@ InvTipoMovimientoTable = Table(
     metadata_erp,
     Column("tipo_movimiento_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -257,7 +257,7 @@ InvMovimientoTable = Table(
     metadata_erp,
     Column("movimiento_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_movimiento", String(20), nullable=False),
     Column("tipo_movimiento_id", UNIQUEIDENTIFIER, ForeignKey("inv_tipo_movimiento.tipo_movimiento_id"), nullable=False),
     Column("fecha_movimiento", DateTime, nullable=False, server_default=func.getdate()),
@@ -294,15 +294,16 @@ Index("IDX_mov_tipo", InvMovimientoTable.c.tipo_movimiento_id)
 Index("IDX_mov_fecha", InvMovimientoTable.c.fecha_movimiento)
 
 # ============================================================================
-# TABLA: inv_movimiento_detalle
+# TABLA: inv_movimiento_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 InvMovimientoDetalleTable = Table(
     "inv_movimiento_detalle",
     metadata_erp,
     Column("movimiento_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("movimiento_id", UNIQUEIDENTIFIER, ForeignKey("inv_movimiento.movimiento_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("movimiento_id", UNIQUEIDENTIFIER, ForeignKey("inv_movimiento.movimiento_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
     Column("cantidad_base", Numeric(18, 4), nullable=False),
@@ -315,6 +316,7 @@ InvMovimientoDetalleTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_movdet_empresa", InvMovimientoDetalleTable.c.empresa_id)
 Index("IDX_movdet_movimiento", InvMovimientoDetalleTable.c.movimiento_id)
 Index("IDX_movdet_producto", InvMovimientoDetalleTable.c.producto_id)
 Index("IDX_movdet_lote", InvMovimientoDetalleTable.c.lote)
@@ -327,7 +329,7 @@ InvInventarioFisicoTable = Table(
     metadata_erp,
     Column("inventario_fisico_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_inventario", String(20), nullable=False),
     Column("fecha_inventario", Date, nullable=False),
     Column("almacen_id", UNIQUEIDENTIFIER, ForeignKey("inv_almacen.almacen_id"), nullable=False),
@@ -354,15 +356,16 @@ Index("IDX_invfis_almacen", InvInventarioFisicoTable.c.almacen_id, InvInventario
 Index("IDX_invfis_estado", InvInventarioFisicoTable.c.estado)
 
 # ============================================================================
-# TABLA: inv_inventario_fisico_detalle
+# TABLA: inv_inventario_fisico_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 InvInventarioFisicoDetalleTable = Table(
     "inv_inventario_fisico_detalle",
     metadata_erp,
     Column("inventario_fisico_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("inventario_fisico_id", UNIQUEIDENTIFIER, ForeignKey("inv_inventario_fisico.inventario_fisico_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("inventario_fisico_id", UNIQUEIDENTIFIER, ForeignKey("inv_inventario_fisico.inventario_fisico_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad_sistema", Numeric(18, 4), nullable=False),
     Column("cantidad_contada", Numeric(18, 4), nullable=True),
     Column("lote", String(50), nullable=True),
@@ -377,5 +380,7 @@ InvInventarioFisicoDetalleTable = Table(
     Column("motivo_diferencia", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_invfisdet_empresa", InvInventarioFisicoDetalleTable.c.empresa_id)
 Index("IDX_invfisdet_invfis", InvInventarioFisicoDetalleTable.c.inventario_fisico_id)
 Index("IDX_invfisdet_producto", InvInventarioFisicoDetalleTable.c.producto_id)
+Index("IDX_invfisdet_diferencias", InvInventarioFisicoDetalleTable.c.inventario_fisico_id, InvInventarioFisicoDetalleTable.c.cantidad_contada, InvInventarioFisicoDetalleTable.c.cantidad_sistema)

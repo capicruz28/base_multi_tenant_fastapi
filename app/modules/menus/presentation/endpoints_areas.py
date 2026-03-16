@@ -30,6 +30,7 @@ from app.core.exceptions import CustomException  # Importar CustomException
 
 # Dependencias de autorización
 from app.api.deps import get_current_active_user, RoleChecker
+from app.core.authorization.rbac import require_permission
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,7 +64,7 @@ require_admin = RoleChecker(["Administrador"])
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def crear_area_endpoint(
     area_in: AreaCreate = Body(...),
@@ -118,6 +119,7 @@ async def crear_area_endpoint(
     "/",
     response_model=PaginatedAreaResponse,
     summary="Obtener lista paginada de áreas",
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.leer"))],
     description="""
     Recupera una lista paginada de áreas **del cliente actual** con capacidad de búsqueda y filtrado.
     
@@ -134,7 +136,6 @@ async def crear_area_endpoint(
     - 422: Parámetros de consulta inválidos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
 )
 async def obtener_areas_paginadas_endpoint(
     current_user: Any = Depends(get_current_active_user),
@@ -219,7 +220,7 @@ async def obtener_areas_paginadas_endpoint(
     - 200: Lista simple recuperada exitosamente
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_lista_simple_areas_endpoint(
     current_user: Any = Depends(get_current_active_user)
@@ -280,7 +281,7 @@ async def obtener_lista_simple_areas_endpoint(
     - 404: Área no encontrada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.leer"))],
 )
 async def obtener_area_por_id_endpoint(
     area_id: UUID = Path(..., description="ID del área"),
@@ -355,7 +356,7 @@ async def obtener_area_por_id_endpoint(
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def actualizar_area_endpoint(
     area_id: UUID = Path(..., description="ID del área"),
@@ -442,7 +443,7 @@ async def actualizar_area_endpoint(
     - 400: Área ya está desactivada
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def desactivar_area_endpoint(
     area_id: UUID = Path(..., description="ID del área"),
@@ -513,7 +514,7 @@ async def desactivar_area_endpoint(
     - 400: Área ya está activa
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def reactivar_area_endpoint(
     area_id: UUID = Path(..., description="ID del área"),

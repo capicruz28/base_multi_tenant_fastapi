@@ -2,6 +2,7 @@
 from typing import Any
 import logging
 import time
+from contextlib import asynccontextmanager
 
 # ✅ CRÍTICO: Configurar logging ANTES de cualquier import que pueda hacer logging
 # Esto asegura que los emojis y caracteres Unicode funcionen correctamente en Windows
@@ -233,6 +234,39 @@ def create_application() -> FastAPI:
 
 # Instancia de la aplicación
 app = create_application()
+
+
+@asynccontextmanager
+async def rbac_lifespan(app: FastAPI):
+    """
+    Lifespan wrapper para ejecutar RBAC startup después de que todos los routers/middlewares
+    han sido registrados.
+    """
+    from app.core.authorization.permission_startup import run_rbac_startup
+
+    try:
+        print("[RBAC] Lifespan executing. Routes:", len(getattr(app, "routes", [])))
+    except Exception:
+        pass
+
+    await run_rbac_startup(app)
+
+    yield
+
+
+# Registrar lifespan RBAC sin modificar otros startup/shutdown ya declarados
+app.router.lifespan_context = rbac_lifespan
+
+
+@app.on_event("startup")
+async def rbac_permission_sync_startup():
+    """Sincroniza permisos RBAC code-first con tabla permiso y advierte endpoints sin permiso."""
+    try:
+        # RBAC ahora se ejecuta en el lifespan (rbac_lifespan); este handler se mantiene por compatibilidad.
+        logger.info("[RBAC] rbac_permission_sync_startup delegado a lifespan RBAC.")
+    except Exception as e:
+        logger.warning("[RBAC] Startup permission sync failed (non-blocking): %s", e)
+
 
 # Rutas base
 @app.get("/")

@@ -2,7 +2,7 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import select, insert, update, and_
-from app.infrastructure.database.tables_erp import MfgListaMaterialesDetalleTable
+from app.infrastructure.database.tables_erp import MfgListaMaterialesTable, MfgListaMaterialesDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in MfgListaMaterialesDetalleTable.c}
@@ -37,6 +37,18 @@ async def create_lista_materiales_detalle(client_id: UUID, data: Dict[str, Any])
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("bom_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde BOM (cabecera) para evitar cruces
+    bom_id = payload.get("bom_id")
+    if bom_id:
+        q = select(MfgListaMaterialesTable.c.empresa_id).where(
+            and_(
+                MfgListaMaterialesTable.c.cliente_id == client_id,
+                MfgListaMaterialesTable.c.bom_id == bom_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     await execute_insert(insert(MfgListaMaterialesDetalleTable).values(**payload), client_id=client_id)
     return await get_lista_materiales_detalle_by_id(client_id, payload["bom_detalle_id"])
 

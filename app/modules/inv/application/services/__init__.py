@@ -52,6 +52,25 @@ from app.modules.inv.application.services.inventario_fisico_service import (
     create_inventario_fisico_servicio,
     update_inventario_fisico_servicio,
 )
+from app.modules.inv.application.services.movimiento_detalle_service import (
+    list_movimientos_detalle_servicio,
+    get_movimiento_detalle_servicio,
+    create_movimiento_detalle_servicio,
+    update_movimiento_detalle_servicio,
+)
+from app.modules.inv.application.services.inventario_fisico_detalle_service import (
+    list_inventarios_fisicos_detalle_servicio,
+    get_inventario_fisico_detalle_servicio,
+    create_inventario_fisico_detalle_servicio,
+    update_inventario_fisico_detalle_servicio,
+)
+from app.modules.inv.application.services.movimiento_proceso_service import (
+    procesar_movimiento_servicio,
+    anular_movimiento_servicio,
+)
+from app.modules.inv.application.services.inventario_fisico_aprobacion_service import (
+    aprobar_inventario_fisico_servicio,
+)
 
 # Re-exportar como módulos para facilitar imports
 from app.modules.inv.application.services import categoria_service
@@ -62,6 +81,10 @@ from app.modules.inv.application.services import stock_service
 from app.modules.inv.application.services import tipo_movimiento_service
 from app.modules.inv.application.services import movimiento_service
 from app.modules.inv.application.services import inventario_fisico_service
+from app.modules.inv.application.services import movimiento_detalle_service
+from app.modules.inv.application.services import inventario_fisico_detalle_service
+from app.modules.inv.application.services import movimiento_proceso_service
+from app.modules.inv.application.services import inventario_fisico_aprobacion_service
 
 __all__ = [
     # Categorías
@@ -105,6 +128,21 @@ __all__ = [
     "get_inventario_fisico_servicio",
     "create_inventario_fisico_servicio",
     "update_inventario_fisico_servicio",
+    # Movimiento detalle
+    "list_movimientos_detalle_servicio",
+    "get_movimiento_detalle_servicio",
+    "create_movimiento_detalle_servicio",
+    "update_movimiento_detalle_servicio",
+    # Inventario físico detalle
+    "list_inventarios_fisicos_detalle_servicio",
+    "get_inventario_fisico_detalle_servicio",
+    "create_inventario_fisico_detalle_servicio",
+    "update_inventario_fisico_detalle_servicio",
+    # Proceso movimiento
+    "procesar_movimiento_servicio",
+    "anular_movimiento_servicio",
+    # Aprobación inventario físico
+    "aprobar_inventario_fisico_servicio",
     # Módulos
     "categoria_service",
     "unidad_medida_service",
@@ -114,4 +152,8 @@ __all__ = [
     "tipo_movimiento_service",
     "movimiento_service",
     "inventario_fisico_service",
+    "movimiento_detalle_service",
+    "inventario_fisico_detalle_service",
+    "movimiento_proceso_service",
+    "inventario_fisico_aprobacion_service",
 ]

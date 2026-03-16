@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import select, insert, update, and_
 
-from app.infrastructure.database.tables_erp import PosVentaDetalleTable
+from app.infrastructure.database.tables_erp import PosVentaTable, PosVentaDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in PosVentaDetalleTable.c}
@@ -46,6 +46,18 @@ async def create_venta_detalle(client_id: UUID, data: Dict[str, Any]) -> Dict[st
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("venta_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde la venta (cabecera)
+    venta_id = payload.get("venta_id")
+    if venta_id:
+        q = select(PosVentaTable.c.empresa_id).where(
+            and_(
+                PosVentaTable.c.cliente_id == client_id,
+                PosVentaTable.c.venta_id == venta_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     stmt = insert(PosVentaDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
     return await get_venta_detalle_by_id(client_id, payload["venta_detalle_id"])

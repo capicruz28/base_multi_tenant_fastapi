@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.prc.application.services import (
     list_listas_precio,
@@ -28,6 +29,9 @@ from app.modules.prc.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "prc"
+RESOURCE_CODE = "lista_precio"
+
 router = APIRouter()
 
 
@@ -43,6 +47,7 @@ async def get_listas_precio(
     solo_vigentes: bool = Query(False),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista listas de precio del tenant."""
     return await list_listas_precio(
@@ -59,6 +64,7 @@ async def get_listas_precio(
 async def get_lista_precio(
     lista_precio_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una lista de precio por id."""
     try:
@@ -71,6 +77,7 @@ async def get_lista_precio(
 async def post_lista_precio(
     data: ListaPrecioCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una lista de precio."""
     return await create_lista_precio(current_user.cliente_id, data)
@@ -81,6 +88,7 @@ async def put_lista_precio(
     lista_precio_id: UUID,
     data: ListaPrecioUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una lista de precio."""
     try:
@@ -99,6 +107,7 @@ async def get_lista_precio_detalles(
     producto_id: Optional[UUID] = Query(None),
     solo_activos: bool = Query(True),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista detalles de una lista de precio."""
     return await list_lista_precio_detalles(
@@ -125,6 +134,7 @@ async def post_lista_precio_detalle(
 async def get_lista_precio_detalle(
     lista_precio_detalle_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un detalle por id."""
     try:
@@ -138,6 +148,7 @@ async def put_lista_precio_detalle(
     lista_precio_detalle_id: UUID,
     data: ListaPrecioDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un detalle de lista de precio."""
     try:

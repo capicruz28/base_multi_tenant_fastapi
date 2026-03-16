@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mrp.application.services import (
     list_orden_sugerida,
@@ -12,6 +13,9 @@ from app.modules.mrp.application.services import (
 )
 from app.modules.mrp.presentation.schemas import OrdenSugeridaCreate, OrdenSugeridaUpdate, OrdenSugeridaRead
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "mrp"
+RESOURCE_CODE = "orden_sugerida"
 
 router = APIRouter()
 
@@ -23,6 +27,7 @@ async def get_ordenes_sugeridas(
     estado: Optional[str] = Query(None),
     tipo_orden: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_orden_sugerida(
         current_user.cliente_id,
@@ -37,6 +42,7 @@ async def get_ordenes_sugeridas(
 async def get_orden_sugerida(
     orden_sugerida_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_orden_sugerida_by_id(current_user.cliente_id, orden_sugerida_id)
@@ -48,6 +54,7 @@ async def get_orden_sugerida(
 async def post_orden_sugerida(
     data: OrdenSugeridaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_orden_sugerida(current_user.cliente_id, data)
 
@@ -57,6 +64,7 @@ async def put_orden_sugerida(
     orden_sugerida_id: UUID,
     data: OrdenSugeridaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_orden_sugerida(current_user.cliente_id, orden_sugerida_id, data)

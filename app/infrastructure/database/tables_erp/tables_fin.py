@@ -25,7 +25,7 @@ FinPlanCuentasTable = Table(
     metadata_erp,
     Column("cuenta_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_cuenta", String(20), nullable=False),
     Column("nombre_cuenta", String(200), nullable=False),
     Column("descripcion", String(500), nullable=True),
@@ -60,7 +60,7 @@ FinPeriodoContableTable = Table(
     metadata_erp,
     Column("periodo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("año", Integer, nullable=False),
     Column("mes", Integer, nullable=False),
     Column("fecha_inicio", Date, nullable=False),
@@ -82,7 +82,7 @@ FinAsientoContableTable = Table(
     metadata_erp,
     Column("asiento_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_asiento", String(20), nullable=False),
     Column("fecha_asiento", Date, nullable=False),
     Column("periodo_id", UNIQUEIDENTIFIER, ForeignKey("fin_periodo_contable.periodo_id"), nullable=False),
@@ -113,16 +113,17 @@ Index("IDX_asiento_periodo", FinAsientoContableTable.c.periodo_id, FinAsientoCon
 Index("IDX_asiento_estado", FinAsientoContableTable.c.estado, FinAsientoContableTable.c.fecha_asiento.desc())
 
 # ============================================================================
-# TABLA: fin_asiento_detalle
+# TABLA: fin_asiento_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 FinAsientoDetalleTable = Table(
     "fin_asiento_detalle",
     metadata_erp,
     Column("asiento_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("asiento_id", UNIQUEIDENTIFIER, ForeignKey("fin_asiento_contable.asiento_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("asiento_id", UNIQUEIDENTIFIER, ForeignKey("fin_asiento_contable.asiento_id", ondelete="NO ACTION"), nullable=False),
     Column("item", Integer, nullable=False),
-    Column("cuenta_id", UNIQUEIDENTIFIER, ForeignKey("fin_plan_cuentas.cuenta_id"), nullable=False),
+    Column("cuenta_id", UNIQUEIDENTIFIER, ForeignKey("fin_plan_cuentas.cuenta_id", ondelete="NO ACTION"), nullable=False),
     Column("debe", Numeric(18, 2), nullable=True, server_default="0"),
     Column("haber", Numeric(18, 2), nullable=True, server_default="0"),
     Column("debe_me", Numeric(18, 2), nullable=True, server_default="0"),
@@ -137,6 +138,7 @@ FinAsientoDetalleTable = Table(
     Column("fecha_vencimiento", Date, nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_asientodet_empresa", FinAsientoDetalleTable.c.empresa_id)
 Index("IDX_asientodet_asiento", FinAsientoDetalleTable.c.asiento_id, FinAsientoDetalleTable.c.item)
 Index("IDX_asientodet_cuenta", FinAsientoDetalleTable.c.cuenta_id)
 Index("IDX_asientodet_cc", FinAsientoDetalleTable.c.centro_costo_id)

@@ -26,6 +26,7 @@ async def list_parametros_servicio(
     empresa_id: Optional[UUID] = None,
     modulo_codigo: Optional[str] = None,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
 ) -> List[ParametroRead]:
     rows = await list_parametros(
         client_id=client_id,
@@ -33,7 +34,17 @@ async def list_parametros_servicio(
         modulo_codigo=modulo_codigo,
         solo_activos=solo_activos,
     )
-    return [_row_to_read(r) for r in rows]
+    parametros = [_row_to_read(r) for r in rows]
+    if buscar:
+        term = buscar.lower()
+        parametros = [
+            p
+            for p in parametros
+            if term in (p.modulo_codigo or "").lower()
+            or term in (p.codigo_parametro or "").lower()
+            or term in (p.nombre_parametro or "").lower()
+        ]
+    return parametros
 
 
 async def get_parametro_servicio(
@@ -76,3 +87,23 @@ async def update_parametro_servicio(
         data=payload,
     )
     return _row_to_read(updated)
+
+
+async def delete_parametro_servicio(
+    client_id: UUID,
+    parametro_id: UUID,
+) -> None:
+    """
+    Baja lógica de un parámetro (es_activo = False).
+    """
+    row = await get_parametro_by_id(
+        client_id=client_id,
+        parametro_id=parametro_id,
+    )
+    if not row:
+        raise NotFoundError(detail="Parámetro no encontrado")
+    await update_parametro(
+        client_id=client_id,
+        parametro_id=parametro_id,
+        data={"es_activo": False},
+    )

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.log.application.services import (
     list_despachos,
@@ -31,6 +32,10 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "log"
+RESOURCE_CODE = "despacho"
+RESOURCE_CODE_DESPACHO_GUIA = "despacho_guia"
+
 
 # ============================================================================
 # DESPACHOS
@@ -46,6 +51,7 @@ async def get_despachos(
     fecha_hasta: Optional[date] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista despachos del tenant."""
     return await list_despachos(
@@ -64,6 +70,7 @@ async def get_despachos(
 async def get_despacho(
     despacho_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un despacho por id."""
     try:
@@ -76,6 +83,7 @@ async def get_despacho(
 async def post_despacho(
     data: DespachoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un despacho."""
     return await create_despacho(current_user.cliente_id, data)
@@ -86,6 +94,7 @@ async def put_despacho(
     despacho_id: UUID,
     data: DespachoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un despacho."""
     try:
@@ -103,6 +112,7 @@ async def get_despacho_guias(
     despacho_id: UUID,
     estado_entrega: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DESPACHO_GUIA}.leer")),
 ):
     """Lista guías de un despacho."""
     return await list_despacho_guias(
@@ -117,6 +127,7 @@ async def post_despacho_guia(
     despacho_id: UUID,
     data: DespachoGuiaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DESPACHO_GUIA}.crear")),
 ):
     """Crea una relación despacho-guía."""
     data.despacho_id = despacho_id
@@ -127,6 +138,7 @@ async def post_despacho_guia(
 async def get_despacho_guia(
     despacho_guia_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DESPACHO_GUIA}.leer")),
 ):
     """Obtiene una relación despacho-guía por id."""
     try:
@@ -140,6 +152,7 @@ async def put_despacho_guia(
     despacho_guia_id: UUID,
     data: DespachoGuiaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DESPACHO_GUIA}.actualizar")),
 ):
     """Actualiza una relación despacho-guía."""
     try:

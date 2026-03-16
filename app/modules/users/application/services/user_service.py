@@ -989,6 +989,12 @@ class UsuarioService(BaseService):
                  logger.error(f"Error desactivando roles para usuario {usuario_id}: {role_error}")
                  # 🟡 NO FALLAR LA ELIMINACIÓN PRINCIPAL POR ESTO
 
+            try:
+                from app.core.authorization.permission_resolver import get_permission_resolver
+                get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
+            except Exception as inv:
+                logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
+
             logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente en cliente {cliente_id}")
             return {
                 "message": "Usuario eliminado lógicamente exitosamente",
@@ -1108,6 +1114,11 @@ class UsuarioService(BaseService):
                             internal_code="ROLE_REACTIVATION_ERROR"
                         )
                     logger.info(f"Asignación reactivada exitosamente")
+                    try:
+                        from app.core.authorization.permission_resolver import get_permission_resolver
+                        get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
+                    except Exception as inv:
+                        logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
                     return result
             else:
                 # 🆕 CREAR NUEVA ASIGNACIÓN
@@ -1127,6 +1138,11 @@ class UsuarioService(BaseService):
                         internal_code="ROLE_ASSIGNMENT_ERROR"
                     )
                 logger.info(f"Asignación creada exitosamente")
+                try:
+                    from app.core.authorization.permission_resolver import get_permission_resolver
+                    get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
+                except Exception as inv:
+                    logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
                 return result
 
         except (ValidationError, NotFoundError):
@@ -1220,6 +1236,11 @@ class UsuarioService(BaseService):
                 return final_result[0] if final_result else {"message": "No se pudo desactivar la asignación"}
 
             logger.info(f"Asignación desactivada exitosamente")
+            try:
+                from app.core.authorization.permission_resolver import get_permission_resolver
+                get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
+            except Exception as inv:
+                logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
             return result
 
         except (ValidationError, NotFoundError):

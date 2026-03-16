@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mrp.application.services import (
     list_explosion_materiales,
@@ -17,6 +18,9 @@ from app.modules.mrp.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "mrp"
+RESOURCE_CODE = "explosion_materiales"
+
 router = APIRouter()
 
 
@@ -26,6 +30,7 @@ async def get_explosiones_materiales(
     producto_componente_id: Optional[UUID] = Query(None),
     nivel_bom: Optional[int] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_explosion_materiales(
         current_user.cliente_id,
@@ -39,6 +44,7 @@ async def get_explosiones_materiales(
 async def get_explosion_materiales(
     explosion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_explosion_materiales_by_id(current_user.cliente_id, explosion_id)
@@ -50,6 +56,7 @@ async def get_explosion_materiales(
 async def post_explosion_materiales(
     data: ExplosionMaterialesCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_explosion_materiales(current_user.cliente_id, data)
 
@@ -59,6 +66,7 @@ async def put_explosion_materiales(
     explosion_id: UUID,
     data: ExplosionMaterialesUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_explosion_materiales(current_user.cliente_id, explosion_id, data)

@@ -467,8 +467,8 @@ class UserDataWithRoles(UserDataBase):
     
     user_type: str = Field(
         "user",
-        description="Tipo de usuario: 'super_admin', 'tenant_admin', 'user'",
-        examples=["super_admin", "tenant_admin", "user"]
+        description="Tipo de usuario: 'platform_admin', 'tenant_admin', 'super_admin', 'user'",
+        examples=["platform_admin", "tenant_admin", "user"]
     )
     
     cliente_id: Optional[UUID] = Field(
@@ -543,8 +543,8 @@ class UserDataWithRoles(UserDataBase):
         Raises:
             ValueError: Cuando el tipo no es válido
         """
-        tipos_permitidos = ['super_admin', 'tenant_admin', 'user']
-        
+        tipos_permitidos = ['platform_admin', 'tenant_admin', 'super_admin', 'user']
+
         if valor not in tipos_permitidos:
             raise ValueError(f'Tipo de usuario no válido. Permitidos: {", ".join(tipos_permitidos)}')
         
@@ -666,6 +666,19 @@ class Token(BaseModel):
             raise ValueError('El token de acceso no puede estar vacío')
         
         return valor
+
+
+class PermissionsMeResponse(BaseModel):
+    """
+    Respuesta del endpoint GET /auth/permissions/me.
+    Lista plana de códigos de permiso del usuario actual (Permission Resolver como fuente de verdad).
+    """
+    permissions: List[str] = Field(
+        default_factory=list,
+        description="Lista de códigos de permiso efectivos (ej. billing.read, crm.access)",
+        examples=[["billing.read", "billing.write", "crm.access"]],
+    )
+
 
 class TokenPayload(BaseModel):
     """

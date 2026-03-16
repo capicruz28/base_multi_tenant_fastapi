@@ -41,7 +41,7 @@ from app.core.exceptions import CustomException
 
 # Importar Dependencias de Autorización
 from app.api.deps import get_current_active_user, RoleChecker
-from app.core.authorization.rbac import require_permission
+from app.core.authorization.rbac import require_permission, has_permission
 
 # Logging
 from app.core.logging_config import get_logger
@@ -221,7 +221,7 @@ async def crear_usuario(
     - 404: Usuario no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(get_current_active_user)]
+    dependencies=[Depends(require_permission("admin.usuario.leer"))]
 )
 async def read_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
@@ -240,8 +240,10 @@ async def read_usuario(
     Raises:
         HTTPException: Si el usuario no existe, es de otro cliente, o hay error interno
     """
-    logger.debug(f"Solicitud GET /usuarios/{usuario_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
-    
+    logger.debug(
+        f"Solicitud GET /usuarios/{usuario_id}/ recibida por usuario "
+        f"{current_user.usuario_id} del cliente {current_user.cliente_id}"
+    )
     try:
         usuario = await UsuarioService.obtener_usuario_por_id(
             cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
@@ -591,7 +593,7 @@ async def revoke_rol_from_usuario(
     - 403: Acceso denegado (intentar acceder a roles de usuario de otro cliente)
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(get_current_active_user)]
+    dependencies=[Depends(require_permission("admin.rol.leer"))]
 )
 async def read_usuario_roles(
     usuario_id: UUID = Path(..., description="ID del usuario"),
@@ -610,8 +612,10 @@ async def read_usuario_roles(
     Raises:
         HTTPException: En caso de error interno del servidor o acceso denegado
     """
-    logger.debug(f"Solicitud GET /usuarios/{usuario_id}/roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
-    
+    logger.debug(
+        f"Solicitud GET /usuarios/{usuario_id}/roles/ recibida por usuario "
+        f"{current_user.usuario_id} del cliente {current_user.cliente_id}"
+    )
     try:
         roles = await UsuarioService.obtener_roles_de_usuario(
             cliente_id=current_user.cliente_id, # ✅ Validar que el usuario_id pertenece al mismo cliente

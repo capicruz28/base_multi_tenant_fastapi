@@ -21,7 +21,7 @@ TaxLibroElectronicoTable = Table(
     metadata_erp,
     Column("libro_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("tipo_libro", String(30), nullable=False),
     Column("periodo_id", UNIQUEIDENTIFIER, ForeignKey("fin_periodo_contable.periodo_id", ondelete="NO ACTION"), nullable=False),
     Column("año", Integer, nullable=False),

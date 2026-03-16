@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.log.application.services import (
     list_vehiculos,
@@ -23,6 +24,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "log"
+RESOURCE_CODE = "vehiculo"
+
 
 @router.get("", response_model=List[VehiculoRead], tags=["LOG - Vehículos"])
 async def get_vehiculos(
@@ -33,6 +37,7 @@ async def get_vehiculos(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista vehículos del tenant."""
     return await list_vehiculos(
@@ -50,6 +55,7 @@ async def get_vehiculos(
 async def get_vehiculo(
     vehiculo_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un vehículo por id."""
     try:
@@ -62,6 +68,7 @@ async def get_vehiculo(
 async def post_vehiculo(
     data: VehiculoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un vehículo."""
     return await create_vehiculo(current_user.cliente_id, data)
@@ -72,6 +79,7 @@ async def put_vehiculo(
     vehiculo_id: UUID,
     data: VehiculoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un vehículo."""
     try:

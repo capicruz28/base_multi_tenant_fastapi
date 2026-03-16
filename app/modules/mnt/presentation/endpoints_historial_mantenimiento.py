@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mnt.application.services import (
     list_historial_mantenimiento,
@@ -17,6 +18,9 @@ from app.modules.mnt.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "mnt"
+RESOURCE_CODE = "historial_mantenimiento"
+
 router = APIRouter()
 
 
@@ -26,6 +30,7 @@ async def get_historiales_mantenimiento(
     orden_trabajo_id: Optional[UUID] = Query(None),
     tipo_mantenimiento: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_historial_mantenimiento(
         current_user.cliente_id,
@@ -39,6 +44,7 @@ async def get_historiales_mantenimiento(
 async def get_historial_mantenimiento(
     historial_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_historial_mantenimiento_by_id(current_user.cliente_id, historial_id)
@@ -50,6 +56,7 @@ async def get_historial_mantenimiento(
 async def post_historial_mantenimiento(
     data: HistorialMantenimientoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_historial_mantenimiento(current_user.cliente_id, data)
 
@@ -59,6 +66,7 @@ async def put_historial_mantenimiento(
     historial_id: UUID,
     data: HistorialMantenimientoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_historial_mantenimiento(current_user.cliente_id, historial_id, data)

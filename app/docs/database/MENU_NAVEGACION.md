@@ -9,7 +9,8 @@
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 📋 Mi Empresa
-   → Ver y editar datos de la empresa (RUC, razón social, logo, moneda)
+   → Ver y editar datos de la empresa (RUC, razón social, logo)
+   → Configurar moneda base y activar/desactivar multi-moneda
 
 🏢 Sucursales
    → Gestionar sucursales con dirección, teléfono, responsable

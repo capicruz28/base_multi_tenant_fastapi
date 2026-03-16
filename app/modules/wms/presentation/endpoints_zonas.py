@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.wms.application.services import (
     list_zonas_almacen,
@@ -21,6 +22,9 @@ from app.modules.wms.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "wms"
+RESOURCE_CODE = "zona"
+
 router = APIRouter()
 
 
@@ -31,6 +35,7 @@ async def get_zonas_almacen(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista zonas de almacén del tenant."""
     return await list_zonas_almacen(
@@ -46,6 +51,7 @@ async def get_zonas_almacen(
 async def get_zona_almacen(
     zona_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una zona de almacén por id."""
     try:
@@ -54,7 +60,13 @@ async def get_zona_almacen(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("", response_model=ZonaAlmacenRead, status_code=status.HTTP_201_CREATED, tags=["WMS - Zonas de Almacén"])
+@router.post(
+    "",
+    response_model=ZonaAlmacenRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["WMS - Zonas de Almacén"],
+    dependencies=[Depends(require_permission("wms.zona.crear"))],
+)
 async def post_zona_almacen(
     data: ZonaAlmacenCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
@@ -68,6 +80,7 @@ async def put_zona_almacen(
     zona_id: UUID,
     data: ZonaAlmacenUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una zona de almacén."""
     try:

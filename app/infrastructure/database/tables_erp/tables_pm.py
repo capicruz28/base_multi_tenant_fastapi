@@ -24,7 +24,7 @@ PmProyectoTable = Table(
     metadata_erp,
     Column("proyecto_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_proyecto", String(20), nullable=False),
     Column("nombre", String(150), nullable=False),
     Column("descripcion", Text, nullable=True),

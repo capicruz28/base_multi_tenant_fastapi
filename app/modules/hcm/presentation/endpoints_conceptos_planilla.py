@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.hcm.application.services import (
     list_conceptos_planilla,
@@ -15,6 +16,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "hcm"
+RESOURCE_CODE = "concepto_planilla"
+
 
 @router.get("", response_model=List[ConceptoPlanillaRead], tags=["HCM - Conceptos Planilla"])
 async def get_conceptos_planilla(
@@ -23,6 +27,7 @@ async def get_conceptos_planilla(
     es_activo: Optional[bool] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_conceptos_planilla(
         client_id=current_user.cliente_id,
@@ -37,6 +42,7 @@ async def get_conceptos_planilla(
 async def get_concepto_planilla(
     concepto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_concepto_planilla_by_id(current_user.cliente_id, concepto_id)
@@ -48,6 +54,7 @@ async def get_concepto_planilla(
 async def post_concepto_planilla(
     data: ConceptoPlanillaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_concepto_planilla(current_user.cliente_id, data)
 
@@ -57,6 +64,7 @@ async def put_concepto_planilla(
     concepto_id: UUID,
     data: ConceptoPlanillaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_concepto_planilla(current_user.cliente_id, concepto_id, data)

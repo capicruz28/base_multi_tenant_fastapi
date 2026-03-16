@@ -19,9 +19,11 @@ from app.modules.rbac.presentation import endpoints as rbac_endpoints
 from app.modules.rbac.presentation import endpoints_permisos, endpoints_permisos_catalogo
 from app.modules.menus.presentation import endpoints as menus_endpoints
 from app.modules.menus.presentation import endpoints_areas
+from app.modules.catalogos.presentation import endpoints as catalogos_endpoints
 from app.modules.tenant.presentation import endpoints_clientes, endpoints_modulos, endpoints_conexiones
 from app.modules.superadmin.presentation import endpoints_usuarios as superadmin_usuarios_endpoints
 from app.modules.superadmin.presentation import endpoints_auditoria as superadmin_auditoria_endpoints
+from app.modules.superadmin.presentation import endpoints_catalogos_globales as superadmin_catalogos_endpoints
 from app.modules.org.presentation import endpoints as org_endpoints
 from app.modules.inv.presentation import endpoints as inv_endpoints
 from app.modules.pur.presentation import endpoints as pur_endpoints
@@ -136,6 +138,12 @@ api_router.include_router(
     tags=["Conexiones BD (Super Admin)"]
 )
 
+api_router.include_router(
+    superadmin_catalogos_endpoints.router,
+    prefix="/catalogos-globales",
+    tags=["Catálogos Globales (Super Admin)"]
+)
+
 # ========================================
 # ENDPOINTS DE GESTIÓN DE USUARIOS Y ROLES
 # ========================================
@@ -170,6 +178,15 @@ api_router.include_router(
     menus_endpoints.router,
     prefix="/menus",
     tags=["Menus"]
+)
+
+# ========================================
+# ENDPOINTS DE CATÁLOGOS (lectura para tenants)
+# ========================================
+api_router.include_router(
+    catalogos_endpoints.router,
+    prefix="/catalogos",
+    tags=["Catálogos"]
 )
 
 # ========================================

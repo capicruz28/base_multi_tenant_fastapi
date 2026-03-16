@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.qms.application.services import (
     list_no_conformidades,
@@ -21,6 +22,9 @@ from app.modules.qms.presentation.schemas import (
     NoConformidadRead,
 )
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "qms"
+RESOURCE_CODE = "no_conformidad"
 
 router = APIRouter()
 
@@ -36,6 +40,7 @@ async def get_no_conformidades(
     fecha_hasta: Optional[datetime] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista no conformidades del tenant."""
     return await list_no_conformidades(
@@ -55,6 +60,7 @@ async def get_no_conformidades(
 async def get_no_conformidad(
     no_conformidad_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una no conformidad por id."""
     try:
@@ -67,6 +73,7 @@ async def get_no_conformidad(
 async def post_no_conformidad(
     data: NoConformidadCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una no conformidad."""
     return await create_no_conformidad(current_user.cliente_id, data)
@@ -77,6 +84,7 @@ async def put_no_conformidad(
     no_conformidad_id: UUID,
     data: NoConformidadUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una no conformidad."""
     try:

@@ -7,6 +7,7 @@ from uuid import UUID
 from datetime import date
 
 from app.core.exceptions import NotFoundError
+from app.modules.org.application.services.empresa_service import get_empresa_servicio
 from app.infrastructure.database.queries.inv import (
     list_inventarios_fisicos,
     get_inventario_fisico_by_id,
@@ -57,6 +58,7 @@ async def create_inventario_fisico_servicio(
     client_id: UUID,
     data: InventarioFisicoCreate,
 ) -> InventarioFisicoRead:
+    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump()
     row = await create_inventario_fisico(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -70,6 +72,8 @@ async def update_inventario_fisico_servicio(
     row = await get_inventario_fisico_by_id(client_id=client_id, inventario_fisico_id=inventario_fisico_id)
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
+    if data.empresa_id is not None:
+        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
     updated = await update_inventario_fisico(client_id=client_id, inventario_fisico_id=inventario_fisico_id, data=payload)
     return _row_to_read(updated)

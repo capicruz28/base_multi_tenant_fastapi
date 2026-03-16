@@ -414,6 +414,13 @@ class ClienteModuloService(BaseService):
             # No fallar la activación si las plantillas fallan, pero registrar el error
             # En producción, podrías querer hacer rollback o notificar al admin
         
+        # Invalidar cache del Permission Resolver (permisos por tenant cuando filter_by_subscription)
+        try:
+            from app.core.authorization.permission_resolver import get_permission_resolver
+            get_permission_resolver().invalidate_for_tenant(modulo_data.cliente_id)
+        except Exception as inv:
+            logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
+        
         # Obtener el módulo activo completo con información del módulo
         return await ClienteModuloService.obtener_modulo_activo_por_id(cliente_modulo_id_resultado)
 
@@ -493,6 +500,11 @@ class ClienteModuloService(BaseService):
             client_id=None
         )
         logger.info(f"Módulo {modulo_id} desactivado para cliente {cliente_id} exitosamente.")
+        try:
+            from app.core.authorization.permission_resolver import get_permission_resolver
+            get_permission_resolver().invalidate_for_tenant(cliente_id)
+        except Exception as inv:
+            logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
         return True
 
     @staticmethod
@@ -647,6 +659,11 @@ class ClienteModuloService(BaseService):
                 internal_code="VENCMIENTO_EXTENSION_FAILED"
             )
         
+        try:
+            from app.core.authorization.permission_resolver import get_permission_resolver
+            get_permission_resolver().invalidate_for_tenant(cliente_id)
+        except Exception as inv:
+            logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
         return await ClienteModuloService.obtener_modulo_activo_por_id(modulo_activo.cliente_modulo_id)
 
     @staticmethod

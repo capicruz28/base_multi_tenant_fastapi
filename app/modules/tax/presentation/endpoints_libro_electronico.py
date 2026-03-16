@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.tax.application.services import (
     list_libro_electronico,
@@ -17,6 +18,9 @@ from app.modules.tax.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "tax"
+RESOURCE_CODE = "libro"
+
 router = APIRouter()
 
 
@@ -28,6 +32,7 @@ async def get_libros_electronicos(
     mes: Optional[int] = Query(None, ge=1, le=12),
     estado: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_libro_electronico(
         current_user.cliente_id,
@@ -43,6 +48,7 @@ async def get_libros_electronicos(
 async def get_libro_electronico(
     libro_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_libro_electronico_by_id(current_user.cliente_id, libro_id)
@@ -54,6 +60,7 @@ async def get_libro_electronico(
 async def post_libro_electronico(
     data: LibroElectronicoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_libro_electronico(current_user.cliente_id, data)
 
@@ -63,6 +70,7 @@ async def put_libro_electronico(
     libro_id: UUID,
     data: LibroElectronicoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_libro_electronico(current_user.cliente_id, libro_id, data)

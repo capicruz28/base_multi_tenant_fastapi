@@ -6,6 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.core.exceptions import NotFoundError
+from app.modules.org.application.services.empresa_service import get_empresa_servicio
 from app.infrastructure.database.queries.inv import (
     list_unidades_medida,
     get_unidad_medida_by_id,
@@ -50,6 +51,7 @@ async def create_unidad_medida_servicio(
     client_id: UUID,
     data: UnidadMedidaCreate,
 ) -> UnidadMedidaRead:
+    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump()
     row = await create_unidad_medida(client_id=client_id, data=payload)
     return _row_to_read(row)

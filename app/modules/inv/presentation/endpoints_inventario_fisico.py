@@ -6,12 +6,16 @@ from typing import Optional
 from datetime import date
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import InventarioFisicoCreate, InventarioFisicoUpdate, InventarioFisicoRead
 from app.modules.inv.application.services import inventario_fisico_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+MODULE_CODE = "inv"
+RESOURCE_CODE = "inventario_fisico"
 
 
 @router.get("", response_model=list[InventarioFisicoRead], summary="Listar inventarios físicos")
@@ -22,6 +26,7 @@ async def listar_inventarios_fisicos(
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista inventarios físicos del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -39,6 +44,7 @@ async def listar_inventarios_fisicos(
 async def detalle_inventario_fisico(
     inventario_fisico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de un inventario físico. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -55,6 +61,7 @@ async def detalle_inventario_fisico(
 async def crear_inventario_fisico(
     data: InventarioFisicoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un inventario físico. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -66,6 +73,7 @@ async def actualizar_inventario_fisico(
     inventario_fisico_id: UUID,
     data: InventarioFisicoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un inventario físico. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pos.application.services import (
     list_ventas,
@@ -22,6 +23,9 @@ from app.modules.pos.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "pos"
+RESOURCE_CODE = "venta"
+
 router = APIRouter()
 
 
@@ -33,6 +37,7 @@ async def get_ventas(
     fecha_desde: Optional[datetime] = Query(None),
     fecha_hasta: Optional[datetime] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista ventas POS del tenant."""
     return await list_ventas(
@@ -49,6 +54,7 @@ async def get_ventas(
 async def get_venta(
     venta_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una venta POS por id."""
     try:
@@ -61,6 +67,7 @@ async def get_venta(
 async def post_venta(
     data: VentaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una venta POS."""
     return await create_venta(current_user.cliente_id, data)
@@ -71,6 +78,7 @@ async def put_venta(
     venta_id: UUID,
     data: VentaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una venta POS (ej. anulación)."""
     try:

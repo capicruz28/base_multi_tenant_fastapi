@@ -5,12 +5,16 @@ from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import ProductoCreate, ProductoUpdate, ProductoRead
 from app.modules.inv.application.services import producto_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+MODULE_CODE = "inv"
+RESOURCE_CODE = "producto"
 
 
 @router.get("", response_model=list[ProductoRead], summary="Listar productos")
@@ -21,6 +25,7 @@ async def listar_productos(
     solo_activos: bool = Query(True, description="Solo productos activos"),
     buscar: Optional[str] = Query(None, description="Búsqueda por nombre, SKU o código de barras"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista productos del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -38,6 +43,7 @@ async def listar_productos(
 async def detalle_producto(
     producto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de un producto. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -54,6 +60,7 @@ async def detalle_producto(
 async def crear_producto(
     data: ProductoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un producto. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -65,6 +72,7 @@ async def actualizar_producto(
     producto_id: UUID,
     data: ProductoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un producto. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

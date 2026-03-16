@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.sls.application.services import (
     list_direcciones,
@@ -21,6 +22,9 @@ from app.modules.sls.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "sls"
+RESOURCE_CODE = "direccion"
+
 router = APIRouter()
 
 
@@ -29,6 +33,7 @@ async def get_direcciones(
     cliente_venta_id: Optional[UUID] = Query(None),
     solo_activos: bool = Query(True),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista direcciones del tenant."""
     return await list_direcciones(
@@ -42,6 +47,7 @@ async def get_direcciones(
 async def get_direccion(
     direccion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una direccion por id."""
     try:
@@ -54,6 +60,7 @@ async def get_direccion(
 async def post_direccion(
     data: ClienteDireccionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una direccion."""
     return await create_direccion(current_user.cliente_id, data)
@@ -64,6 +71,7 @@ async def put_direccion(
     direccion_id: UUID,
     data: ClienteDireccionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una direccion."""
     try:

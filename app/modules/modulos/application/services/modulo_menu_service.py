@@ -14,7 +14,7 @@ Características clave:
 """
 from typing import List, Optional, Dict, Any
 import logging
-from sqlalchemy import select, update, delete, and_, or_, func as sql_func, Integer, case
+from sqlalchemy import select, update, delete, and_, or_, func as sql_func, Integer, case, text
 from uuid import UUID
 
 from app.infrastructure.database.tables_modulos import ModuloMenuTable, ModuloTable, ModuloSeccionTable, ClienteModuloTable
@@ -37,11 +37,62 @@ from app.infrastructure.database.connection_async import DatabaseConnection
 logger = logging.getLogger(__name__)
 
 
+def _normalize_uuid(v: Any) -> Optional[UUID]:
+    """Normaliza valor a UUID para claves de diccionario."""
+    if v is None:
+        return None
+    if isinstance(v, UUID):
+        return v
+    try:
+        return UUID(str(v))
+    except (ValueError, TypeError):
+        return None
+
+
 class ModuloMenuService(BaseService):
     """
     Servicio central para la administración de menús de módulos.
+    GET /auth/menu es la única fuente de verdad para la navegación y permisos UI del frontend.
+    Mapper: rol_menu_permiso → permisos (UI actions); permiso (RBAC) → required_permission (metadata).
     """
-    
+
+    @staticmethod
+    async def _get_required_permissions_by_modulo(
+        modulo_ids: List[UUID],
+    ) -> Dict[UUID, List[str]]:
+        """
+        Obtiene códigos de permiso RBAC (tabla permiso) por modulo_id desde BD central.
+        Usado para required_permissions en cada ítem de menú. Si un módulo no tiene
+        permisos asociados, devuelve lista vacía.
+        """
+        if not modulo_ids:
+            return {}
+        out: Dict[UUID, List[str]] = {mid: [] for mid in modulo_ids}
+        try:
+            # permiso está en BD central (ADMIN)
+            placeholders = ",".join([f":m{i}" for i in range(len(modulo_ids))])
+            sql = text(
+                f"""
+                SELECT modulo_id, codigo
+                FROM permiso
+                WHERE es_activo = 1 AND modulo_id IN ({placeholders})
+                """
+            )
+            params = {f"m{i}": str(mid) for i, mid in enumerate(modulo_ids)}
+            rows = await execute_query(
+                sql.bindparams(**params),
+                connection_type=DatabaseConnection.ADMIN,
+                client_id=None,
+            )
+            for row in (rows or []):
+                mid = _normalize_uuid(row.get("modulo_id"))
+                codigo = row.get("codigo")
+                if mid is not None and codigo:
+                    out.setdefault(mid, []).append(codigo)
+        except Exception as e:
+            logger.debug("required_permissions by modulo (no bloqueante): %s", e)
+        return out
+
     @staticmethod
     def _normalizar_menu_dict(menu_dict: dict) -> dict:
         """
@@ -797,6 +848,8 @@ class ModuloMenuService(BaseService):
         cliente_id: UUID,
         is_super_admin: bool = False,
         as_tenant_admin: bool = False,
+        *,
+        effective_permission_codes: Optional[List[str]] = None,
     ) -> MenuUsuarioResponse:
         """
         Obtiene el menú completo del usuario combinando datos de BD central y BD del cliente.
@@ -809,6 +862,11 @@ class ModuloMenuService(BaseService):
         ATAJO (1 query, permisos completos):
         - is_super_admin=True: todos los menús de módulos contratados del tenant.
         - as_tenant_admin=True: igual, para admin del tenant (no depende de rol_menu_permiso).
+        
+        Stage 2: effective_permission_codes (opcional). Cuando se proporciona, son los códigos
+        de permiso ya resueltos (p. ej. desde Permission Resolver vía user.permisos). Por ahora
+        la lógica del menú sigue usando rol_menu_permiso; en el futuro se podrá filtrar ítems
+        por permiso requerido (modulo_menu.permiso_requerido_id) usando esta lista.
         """
         use_elevated_menu = is_super_admin or as_tenant_admin
         logger.info(
@@ -907,7 +965,15 @@ class ModuloMenuService(BaseService):
             if not menus_central:
                 logger.info(f"No se encontraron menús activos para el cliente {cliente_id}")
                 return MenuUsuarioResponse(modulos=[])
-            
+
+            # Permisos RBAC por módulo (permiso → required_permissions). Una sola consulta central.
+            modulo_ids_distinct = [
+                mid for r in menus_central
+                if (mid := _normalize_uuid(r.get("modulo_id"))) is not None
+            ]
+            modulo_ids_distinct = list(dict.fromkeys(modulo_ids_distinct))
+            required_permissions_by_modulo = await ModuloMenuService._get_required_permissions_by_modulo(modulo_ids_distinct)
+
             # ============================================================
             # SUPERADMIN / TENANT ADMIN: Devolver todos los menús con permisos completos (1 query)
             # ============================================================
@@ -929,7 +995,10 @@ class ModuloMenuService(BaseService):
                         'puede_aprobar': True,
                         'permisos_extra': None,
                     })
-                menu_response = transformar_sp_menu_usuario(resultado_combinado)
+                menu_response = transformar_sp_menu_usuario(
+                    resultado_combinado,
+                    required_permissions_by_modulo=required_permissions_by_modulo,
+                )
                 logger.info(f"[MENU_USUARIO] Menú elevado: {len(menu_response.modulos)} módulos")
                 return menu_response
             
@@ -1121,10 +1190,13 @@ class ModuloMenuService(BaseService):
             if not resultado_combinado:
                 logger.info(f"Usuario {usuario_id} no tiene permisos para ver ningún menú")
                 return MenuUsuarioResponse(modulos=[])
-            
+
             # Transformar resultado combinado a estructura jerárquica
-            menu_response = transformar_sp_menu_usuario(resultado_combinado)
-            
+            menu_response = transformar_sp_menu_usuario(
+                resultado_combinado,
+                required_permissions_by_modulo=required_permissions_by_modulo,
+            )
+
             logger.info(f"Menú obtenido: {len(menu_response.modulos)} módulos con permisos")
             return menu_response
             

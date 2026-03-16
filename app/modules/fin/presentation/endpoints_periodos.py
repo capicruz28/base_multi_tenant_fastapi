@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.fin.application.services import (
     list_periodos_contables,
@@ -23,6 +24,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "fin"
+RESOURCE_CODE = "periodo"
+
 
 @router.get("", response_model=List[PeriodoContableRead], tags=["FIN - Periodos Contables"])
 async def get_periodos_contables(
@@ -31,6 +35,7 @@ async def get_periodos_contables(
     mes: Optional[int] = Query(None),
     estado: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista periodos contables del tenant."""
     return await list_periodos_contables(
@@ -46,6 +51,7 @@ async def get_periodos_contables(
 async def get_periodo_contable(
     periodo_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un periodo contable por id."""
     try:
@@ -58,6 +64,7 @@ async def get_periodo_contable(
 async def post_periodo_contable(
     data: PeriodoContableCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un periodo contable."""
     return await create_periodo_contable(current_user.cliente_id, data)
@@ -68,6 +75,7 @@ async def put_periodo_contable(
     periodo_id: UUID,
     data: PeriodoContableUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un periodo contable."""
     try:

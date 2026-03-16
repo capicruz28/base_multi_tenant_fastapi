@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_centros_costo.py
 """Endpoints ORG - Centros de costo. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -21,20 +21,22 @@ router = APIRouter()
 async def listar_centros_costo(
     empresa_id: Optional[UUID] = Query(None),
     solo_activos: bool = True,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    buscar: Optional[str] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.leer")),
 ):
     client_id = current_user.cliente_id
     return await centro_costo_service.list_centros_costo_servicio(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
 
 
 @router.get("/{centro_costo_id}", response_model=CentroCostoRead, summary="Detalle centro de costo")
 async def detalle_centro_costo(
     centro_costo_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.leer")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -49,7 +51,7 @@ async def detalle_centro_costo(
 @router.post("", response_model=CentroCostoRead, status_code=201, summary="Crear centro de costo")
 async def crear_centro_costo(
     data: CentroCostoCreate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.crear")),
 ):
     client_id = current_user.cliente_id
     return await centro_costo_service.create_centro_costo_servicio(
@@ -62,7 +64,7 @@ async def crear_centro_costo(
 async def actualizar_centro_costo(
     centro_costo_id: UUID,
     data: CentroCostoUpdate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.actualizar")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.actualizar")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -70,6 +72,26 @@ async def actualizar_centro_costo(
             client_id=client_id,
             centro_costo_id=centro_costo_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{centro_costo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) centro de costo",
+)
+async def eliminar_centro_costo(
+    centro_costo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.eliminar")),
+):
+    """Marca un centro de costo como inactivo (baja lógica) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await centro_costo_service.delete_centro_costo_servicio(
+            client_id=client_id,
+            centro_costo_id=centro_costo_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

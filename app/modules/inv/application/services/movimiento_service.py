@@ -7,6 +7,7 @@ from uuid import UUID
 from datetime import date
 
 from app.core.exceptions import NotFoundError
+from app.modules.org.application.services.empresa_service import get_empresa_servicio
 from app.infrastructure.database.queries.inv import (
     list_movimientos,
     get_movimiento_by_id,
@@ -59,6 +60,8 @@ async def create_movimiento_servicio(
     client_id: UUID,
     data: MovimientoCreate,
 ) -> MovimientoRead:
+    # Validar que la empresa pertenezca al cliente
+    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump()
     row = await create_movimiento(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -72,6 +75,9 @@ async def update_movimiento_servicio(
     row = await get_movimiento_by_id(client_id=client_id, movimiento_id=movimiento_id)
     if not row:
         raise NotFoundError(detail="Movimiento no encontrado")
+    # Si se actualiza empresa_id, validar pertenencia
+    if data.empresa_id is not None:
+        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
     updated = await update_movimiento(client_id=client_id, movimiento_id=movimiento_id, data=payload)
     return _row_to_read(updated)

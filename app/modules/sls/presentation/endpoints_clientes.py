@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.sls.application.services import (
     list_clientes,
@@ -21,6 +22,9 @@ from app.modules.sls.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "sls"
+RESOURCE_CODE = "cliente"
+
 router = APIRouter()
 
 
@@ -31,6 +35,7 @@ async def get_clientes(
     buscar: Optional[str] = Query(None),
     vendedor_usuario_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista clientes del tenant."""
     return await list_clientes(
@@ -46,6 +51,7 @@ async def get_clientes(
 async def get_cliente(
     cliente_venta_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un cliente por id."""
     try:
@@ -58,6 +64,7 @@ async def get_cliente(
 async def post_cliente(
     data: ClienteCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un cliente."""
     return await create_cliente(current_user.cliente_id, data)
@@ -68,6 +75,7 @@ async def put_cliente(
     cliente_venta_id: UUID,
     data: ClienteUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un cliente."""
     try:

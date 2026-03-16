@@ -5,12 +5,16 @@ from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import AlmacenCreate, AlmacenUpdate, AlmacenRead
 from app.modules.inv.application.services import almacen_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+MODULE_CODE = "inv"
+RESOURCE_CODE = "almacen"
 
 
 @router.get("", response_model=list[AlmacenRead], summary="Listar almacenes")
@@ -19,6 +23,7 @@ async def listar_almacenes(
     sucursal_id: Optional[UUID] = Query(None, description="Filtrar por sucursal"),
     solo_activos: bool = Query(True, description="Solo almacenes activos"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista almacenes del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -34,6 +39,7 @@ async def listar_almacenes(
 async def detalle_almacen(
     almacen_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de un almacén. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -50,6 +56,7 @@ async def detalle_almacen(
 async def crear_almacen(
     data: AlmacenCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un almacén. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -61,6 +68,7 @@ async def actualizar_almacen(
     almacen_id: UUID,
     data: AlmacenUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un almacén. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

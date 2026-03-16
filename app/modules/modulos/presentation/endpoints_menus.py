@@ -75,11 +75,21 @@ async def obtener_mi_menu(
         is_super_admin = getattr(current_user, "is_super_admin", False)
         access_level = getattr(current_user, "access_level", 1)
         as_tenant_admin = (access_level >= 4 and not is_super_admin)
+        effective_codes = None
+        try:
+            from app.core.config import settings as _s
+            if getattr(_s, "USE_MENU_EFFECTIVE_PERMISSIONS", False):
+                effective_codes = getattr(current_user, "permisos", None)
+                if effective_codes is not None and not isinstance(effective_codes, list):
+                    effective_codes = list(effective_codes) if effective_codes else None
+        except Exception:
+            pass
         menu = await ModuloMenuService.obtener_menu_usuario(
             usuario_id=current_user.usuario_id,
             cliente_id=current_user.cliente_id,
             is_super_admin=is_super_admin,
             as_tenant_admin=as_tenant_admin,
+            effective_permission_codes=effective_codes,
         )
         logger.info(f"Menú /me/ obtenido exitosamente para usuario {current_user.usuario_id}")
         return menu

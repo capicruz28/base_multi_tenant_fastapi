@@ -25,7 +25,7 @@ PurProveedorTable = Table(
     metadata_erp,
     Column("proveedor_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_proveedor", String(20), nullable=False),
     Column("razon_social", String(200), nullable=False),
     Column("nombre_comercial", String(150), nullable=True),
@@ -83,7 +83,7 @@ PurProveedorContactoTable = Table(
     metadata_erp,
     Column("contacto_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("proveedor_id", UNIQUEIDENTIFIER, ForeignKey("pur_proveedor.proveedor_id", ondelete="CASCADE"), nullable=False),
+    Column("proveedor_id", UNIQUEIDENTIFIER, ForeignKey("pur_proveedor.proveedor_id", ondelete="NO ACTION"), nullable=False),
     Column("nombre_completo", String(150), nullable=False),
     Column("cargo", String(100), nullable=True),
     Column("area", String(100), nullable=True),
@@ -106,8 +106,8 @@ PurProductoProveedorTable = Table(
     metadata_erp,
     Column("producto_proveedor_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("proveedor_id", UNIQUEIDENTIFIER, ForeignKey("pur_proveedor.proveedor_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="CASCADE"), nullable=False),
+    Column("proveedor_id", UNIQUEIDENTIFIER, ForeignKey("pur_proveedor.proveedor_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_proveedor", String(50), nullable=True),
     Column("descripcion_proveedor", String(200), nullable=True),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
@@ -137,7 +137,7 @@ PurSolicitudCompraTable = Table(
     metadata_erp,
     Column("solicitud_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_solicitud", String(20), nullable=False),
     Column("fecha_solicitud", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_requerida", Date, nullable=False),
@@ -168,14 +168,15 @@ Index("IDX_solcomp_estado", PurSolicitudCompraTable.c.estado, PurSolicitudCompra
 Index("IDX_solcomp_solicitante", PurSolicitudCompraTable.c.usuario_solicitante_id)
 
 # ============================================================================
-# TABLA: pur_solicitud_compra_detalle
+# TABLA: pur_solicitud_compra_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 PurSolicitudCompraDetalleTable = Table(
     "pur_solicitud_compra_detalle",
     metadata_erp,
     Column("solicitud_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("solicitud_id", UNIQUEIDENTIFIER, ForeignKey("pur_solicitud_compra.solicitud_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("solicitud_id", UNIQUEIDENTIFIER, ForeignKey("pur_solicitud_compra.solicitud_id", ondelete="NO ACTION"), nullable=False),
     Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
     Column("cantidad_solicitada", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
@@ -184,6 +185,7 @@ PurSolicitudCompraDetalleTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_solcompdet_empresa", PurSolicitudCompraDetalleTable.c.empresa_id)
 Index("IDX_solcompdet_solicitud", PurSolicitudCompraDetalleTable.c.solicitud_id)
 Index("IDX_solcompdet_producto", PurSolicitudCompraDetalleTable.c.producto_id)
 
@@ -195,7 +197,7 @@ PurCotizacionTable = Table(
     metadata_erp,
     Column("cotizacion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_cotizacion", String(20), nullable=False),
     Column("fecha_cotizacion", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_vencimiento", Date, nullable=True),
@@ -225,14 +227,15 @@ Index("IDX_cotiz_estado", PurCotizacionTable.c.estado)
 Index("IDX_cotiz_ganadora", PurCotizacionTable.c.es_ganadora)
 
 # ============================================================================
-# TABLA: pur_cotizacion_detalle
+# TABLA: pur_cotizacion_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 PurCotizacionDetalleTable = Table(
     "pur_cotizacion_detalle",
     metadata_erp,
     Column("cotizacion_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("cotizacion_id", UNIQUEIDENTIFIER, ForeignKey("pur_cotizacion.cotizacion_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("cotizacion_id", UNIQUEIDENTIFIER, ForeignKey("pur_cotizacion.cotizacion_id", ondelete="NO ACTION"), nullable=False),
     Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
     Column("cantidad", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
@@ -242,6 +245,7 @@ PurCotizacionDetalleTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_cotizdet_empresa", PurCotizacionDetalleTable.c.empresa_id)
 Index("IDX_cotizdet_cotizacion", PurCotizacionDetalleTable.c.cotizacion_id)
 Index("IDX_cotizdet_producto", PurCotizacionDetalleTable.c.producto_id)
 
@@ -253,7 +257,7 @@ PurOrdenCompraTable = Table(
     metadata_erp,
     Column("orden_compra_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_oc", String(20), nullable=False),
     Column("fecha_emision", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_requerida", Date, nullable=False),
@@ -296,15 +300,16 @@ Index("IDX_oc_estado", PurOrdenCompraTable.c.estado, PurOrdenCompraTable.c.fecha
 Index("IDX_oc_fecha_requerida", PurOrdenCompraTable.c.fecha_requerida, PurOrdenCompraTable.c.estado)
 
 # ============================================================================
-# TABLA: pur_orden_compra_detalle
+# TABLA: pur_orden_compra_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 PurOrdenCompraDetalleTable = Table(
     "pur_orden_compra_detalle",
     metadata_erp,
     Column("orden_compra_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("orden_compra_id", UNIQUEIDENTIFIER, ForeignKey("pur_orden_compra.orden_compra_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("orden_compra_id", UNIQUEIDENTIFIER, ForeignKey("pur_orden_compra.orden_compra_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad_ordenada", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
@@ -314,6 +319,7 @@ PurOrdenCompraDetalleTable = Table(
     Column("especificaciones", Text, nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_ocdet_empresa", PurOrdenCompraDetalleTable.c.empresa_id)
 Index("IDX_ocdet_oc", PurOrdenCompraDetalleTable.c.orden_compra_id)
 Index("IDX_ocdet_producto", PurOrdenCompraDetalleTable.c.producto_id)
 
@@ -325,7 +331,7 @@ PurRecepcionTable = Table(
     metadata_erp,
     Column("recepcion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_recepcion", String(20), nullable=False),
     Column("fecha_recepcion", DateTime, nullable=False, server_default=func.getdate()),
     Column("orden_compra_id", UNIQUEIDENTIFIER, ForeignKey("pur_orden_compra.orden_compra_id"), nullable=False),
@@ -357,16 +363,17 @@ Index("IDX_recep_estado", PurRecepcionTable.c.estado)
 Index("IDX_recep_almacen", PurRecepcionTable.c.almacen_id)
 
 # ============================================================================
-# TABLA: pur_recepcion_detalle
+# TABLA: pur_recepcion_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 PurRecepcionDetalleTable = Table(
     "pur_recepcion_detalle",
     metadata_erp,
     Column("recepcion_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("recepcion_id", UNIQUEIDENTIFIER, ForeignKey("pur_recepcion.recepcion_id", ondelete="CASCADE"), nullable=False),
-    Column("orden_compra_detalle_id", UNIQUEIDENTIFIER, ForeignKey("pur_orden_compra_detalle.orden_compra_detalle_id"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("recepcion_id", UNIQUEIDENTIFIER, ForeignKey("pur_recepcion.recepcion_id", ondelete="NO ACTION"), nullable=False),
+    Column("orden_compra_detalle_id", UNIQUEIDENTIFIER, ForeignKey("pur_orden_compra_detalle.orden_compra_detalle_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad_ordenada", Numeric(18, 4), nullable=False),
     Column("cantidad_recepcionada", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
@@ -378,6 +385,7 @@ PurRecepcionDetalleTable = Table(
     Column("motivo_diferencia", String(255), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_recepdet_empresa", PurRecepcionDetalleTable.c.empresa_id)
 Index("IDX_recepdet_recepcion", PurRecepcionDetalleTable.c.recepcion_id)
 Index("IDX_recepdet_producto", PurRecepcionDetalleTable.c.producto_id)
 Index("IDX_recepdet_ocdet", PurRecepcionDetalleTable.c.orden_compra_detalle_id)

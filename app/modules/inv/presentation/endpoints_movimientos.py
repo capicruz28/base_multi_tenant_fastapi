@@ -6,12 +6,16 @@ from typing import Optional
 from datetime import date
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import MovimientoCreate, MovimientoUpdate, MovimientoRead
 from app.modules.inv.application.services import movimiento_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+MODULE_CODE = "inv"
+RESOURCE_CODE = "movimiento"
 
 
 @router.get("", response_model=list[MovimientoRead], summary="Listar movimientos")
@@ -23,6 +27,7 @@ async def listar_movimientos(
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista movimientos del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -41,6 +46,7 @@ async def listar_movimientos(
 async def detalle_movimiento(
     movimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de un movimiento. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -57,6 +63,7 @@ async def detalle_movimiento(
 async def crear_movimiento(
     data: MovimientoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un movimiento. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -68,6 +75,7 @@ async def actualizar_movimiento(
     movimiento_id: UUID,
     data: MovimientoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un movimiento. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

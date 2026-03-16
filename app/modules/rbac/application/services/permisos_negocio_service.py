@@ -204,3 +204,10 @@ async def set_permisos_negocio_rol(rol_id: UUID, cliente_id: UUID, permiso_ids: 
         await execute_insert(insert_sql, client_id=cliente_id, connection_type=DatabaseConnection.DEFAULT)
 
     logger.info(f"Permisos de negocio actualizados para rol {rol_id}: {len(permiso_ids)} asignados.")
+
+    # Invalidar cache del Permission Resolver (Stage 1) para este tenant
+    try:
+        from app.core.authorization.permission_resolver import get_permission_resolver
+        get_permission_resolver().invalidate_for_tenant(cliente_id)
+    except Exception as inv:
+        logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)

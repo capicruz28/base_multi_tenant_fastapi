@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mps.application.services import (
     list_pronostico_demanda,
@@ -17,6 +18,9 @@ from app.modules.mps.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "mps"
+RESOURCE_CODE = "pronostico_demanda"
+
 router = APIRouter()
 
 
@@ -27,6 +31,7 @@ async def get_pronosticos_demanda(
     anio: Optional[int] = Query(None),
     mes: Optional[int] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_pronostico_demanda(
         current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_pronosticos_demanda(
 async def get_pronostico_demanda(
     pronostico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_pronostico_demanda_by_id(current_user.cliente_id, pronostico_id)
@@ -52,6 +58,7 @@ async def get_pronostico_demanda(
 async def post_pronostico_demanda(
     data: PronosticoDemandaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_pronostico_demanda(current_user.cliente_id, data)
 
@@ -61,6 +68,7 @@ async def put_pronostico_demanda(
     pronostico_id: UUID,
     data: PronosticoDemandaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_pronostico_demanda(current_user.cliente_id, pronostico_id, data)

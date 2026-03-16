@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.fin.application.services import (
     list_plan_cuentas,
@@ -23,6 +24,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "fin"
+RESOURCE_CODE = "plan_cuenta"
+
 
 @router.get("", response_model=List[PlanCuentaRead], tags=["FIN - Plan de Cuentas"])
 async def get_plan_cuentas(
@@ -33,6 +37,7 @@ async def get_plan_cuentas(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista cuentas del plan contable del tenant."""
     return await list_plan_cuentas(
@@ -50,6 +55,7 @@ async def get_plan_cuentas(
 async def get_cuenta(
     cuenta_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una cuenta por id."""
     try:
@@ -62,6 +68,7 @@ async def get_cuenta(
 async def post_cuenta(
     data: PlanCuentaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una cuenta."""
     return await create_cuenta(current_user.cliente_id, data)
@@ -72,6 +79,7 @@ async def put_cuenta(
     cuenta_id: UUID,
     data: PlanCuentaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una cuenta."""
     try:

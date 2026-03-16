@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.prc.application.services import (
     list_promociones,
@@ -20,6 +21,9 @@ from app.modules.prc.presentation.schemas import (
     PromocionRead,
 )
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "prc"
+RESOURCE_CODE = "promocion"
 
 router = APIRouter()
 
@@ -35,6 +39,7 @@ async def get_promociones(
     solo_vigentes: bool = Query(False),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista promociones del tenant."""
     return await list_promociones(
@@ -54,6 +59,7 @@ async def get_promociones(
 async def get_promocion(
     promocion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una promoción por id."""
     try:
@@ -66,6 +72,7 @@ async def get_promocion(
 async def post_promocion(
     data: PromocionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una promoción."""
     return await create_promocion(current_user.cliente_id, data)
@@ -76,6 +83,7 @@ async def put_promocion(
     promocion_id: UUID,
     data: PromocionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una promoción."""
     try:

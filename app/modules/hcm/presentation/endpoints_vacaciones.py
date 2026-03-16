@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.hcm.application.services import (
     list_vacaciones,
@@ -15,6 +16,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "hcm"
+RESOURCE_CODE = "vacaciones"
+
 
 @router.get("", response_model=List[VacacionesRead], tags=["HCM - Vacaciones"])
 async def get_vacaciones(
@@ -23,6 +27,7 @@ async def get_vacaciones(
     estado: Optional[str] = Query(None),
     año_periodo: Optional[int] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_vacaciones(
         client_id=current_user.cliente_id,
@@ -37,6 +42,7 @@ async def get_vacaciones(
 async def get_vacaciones_by_id_endpoint(
     vacaciones_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_vacaciones_by_id(current_user.cliente_id, vacaciones_id)
@@ -48,6 +54,7 @@ async def get_vacaciones_by_id_endpoint(
 async def post_vacaciones(
     data: VacacionesCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_vacaciones(current_user.cliente_id, data)
 
@@ -57,6 +64,7 @@ async def put_vacaciones(
     vacaciones_id: UUID,
     data: VacacionesUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_vacaciones(current_user.cliente_id, vacaciones_id, data)

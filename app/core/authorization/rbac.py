@@ -28,6 +28,9 @@ from typing import List, Optional, Callable, Any, Dict
 from fastapi import HTTPException, status, Depends
 import logging
 
+from app.core.authorization.permission_registry import register as register_permission
+from app.core.authorization.permission_metadata import PermissionMetadata
+
 # 🗄️ IMPORTACIONES DE SCHEMAS Y MODELOS
 from app.modules.auth.presentation.schemas import UserWithRolesAndPermissions
 from app.api.deps import get_current_active_user
@@ -186,6 +189,12 @@ def has_permission(user: UserWithRolesAndPermissions, permission: str) -> bool:
         permisos_usuario = permisos_list
     else:
         permisos_usuario = [getattr(p, "nombre", str(p)) for p in permisos_list]
+
+    logger.warning(
+        "[RBAC_DEBUG] checking permission='%s' against=%s",
+        permission,
+        permisos_usuario,
+    )
 
     if permission in permisos_usuario:
         logger.debug(f"Usuario {user.nombre_usuario} tiene permiso explícito: {permission}")
@@ -346,7 +355,46 @@ def require_permission(permission: str) -> Callable:
         logger.info(f"Permiso '{permission}' autorizado para: {current_user.nombre_usuario}")
         return current_user
     
+    dependency.__permission_codigo__ = permission
     return dependency
+
+
+def RequirePermission(metadata: PermissionMetadata) -> Callable:
+    """
+    Dependency que declara y exige un permiso (code-first RBAC).
+    Registra la metadata en PermissionRegistry para sync con tabla permiso al startup.
+    
+    Uso:
+        @router.get("/...", dependencies=[Depends(RequirePermission({
+            "codigo": "log.orden_servicio.crear",
+            "nombre": "Crear orden de servicio",
+            "descripcion": "Permite crear órdenes de servicio",
+            "recurso": "orden_servicio",
+            "accion": "crear",
+            "modulo_codigo": "LOG",
+        }))])
+    """
+    codigo = (metadata.get("codigo") or "").strip()
+    if not codigo:
+        raise ValueError("RequirePermission: 'codigo' es obligatorio en metadata")
+    register_permission(metadata)
+    
+    def dependency(
+        current_user: UserWithRolesAndPermissions = Depends(get_current_active_user)
+    ) -> UserWithRolesAndPermissions:
+        logger.info(f"Validando permiso '{codigo}' para usuario: {current_user.nombre_usuario}")
+        if not has_permission(current_user, codigo):
+            logger.warning(f"Intento de acceso sin permiso '{codigo}' por: {current_user.nombre_usuario}")
+            raise AuthorizationError(
+                detail=f"No tiene permisos suficientes. Se requiere: {codigo}",
+                internal_code="PERMISSION_DENIED"
+            )
+        logger.info(f"Permiso '{codigo}' autorizado para: {current_user.nombre_usuario}")
+        return current_user
+    
+    dependency.__permission_metadata__ = metadata
+    return dependency
+
 
 def require_any_permission(permissions: List[str]) -> Callable:
     """

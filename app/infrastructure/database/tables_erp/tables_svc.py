@@ -24,7 +24,7 @@ SvcOrdenServicioTable = Table(
     metadata_erp,
     Column("orden_servicio_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_os", String(20), nullable=False),
     Column("fecha_solicitud", DateTime, nullable=False, server_default=func.getdate()),
     Column("cliente_venta_id", UNIQUEIDENTIFIER, nullable=True),

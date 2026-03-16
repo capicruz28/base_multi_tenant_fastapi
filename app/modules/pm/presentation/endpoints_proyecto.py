@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pm.application.services import (
     list_proyecto,
@@ -17,6 +18,9 @@ from app.modules.pm.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "pm"
+RESOURCE_CODE = "proyecto"
+
 router = APIRouter()
 
 
@@ -27,6 +31,7 @@ async def get_proyectos(
     cliente_venta_id: Optional[UUID] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_proyecto(
         current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_proyectos(
 async def get_proyecto(
     proyecto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_proyecto_by_id(current_user.cliente_id, proyecto_id)
@@ -52,6 +58,7 @@ async def get_proyecto(
 async def post_proyecto(
     data: ProyectoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_proyecto(current_user.cliente_id, data)
 
@@ -61,6 +68,7 @@ async def put_proyecto(
     proyecto_id: UUID,
     data: ProyectoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_proyecto(current_user.cliente_id, proyecto_id, data)

@@ -24,7 +24,7 @@ MntActivoTable = Table(
     metadata_erp,
     Column("activo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_activo", String(20), nullable=False),
     Column("nombre", String(150), nullable=False),
     Column("descripcion", String(500), nullable=True),
@@ -62,14 +62,15 @@ Index("IDX_activo_tipo", MntActivoTable.c.tipo_activo, MntActivoTable.c.estado_a
 Index("IDX_activo_criticidad", MntActivoTable.c.criticidad)
 
 # ============================================================================
-# TABLA: mnt_plan_mantenimiento
+# TABLA: mnt_plan_mantenimiento (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 MntPlanMantenimientoTable = Table(
     "mnt_plan_mantenimiento",
     metadata_erp,
     Column("plan_mantenimiento_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("activo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_activo.activo_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("activo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_activo.activo_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_plan", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(500), nullable=True),
@@ -88,8 +89,9 @@ MntPlanMantenimientoTable = Table(
     Column("es_activo", Boolean, nullable=False, server_default="1"),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
     Column("usuario_creacion_id", UNIQUEIDENTIFIER, nullable=True),
-    UniqueConstraint("cliente_id", "codigo_plan", name="UQ_planmnt_codigo"),
+    UniqueConstraint("cliente_id", "empresa_id", "codigo_plan", name="UQ_planmnt_codigo"),
 )
+Index("IDX_planmnt_empresa", MntPlanMantenimientoTable.c.empresa_id, MntPlanMantenimientoTable.c.es_activo)
 Index("IDX_planmnt_activo", MntPlanMantenimientoTable.c.activo_id, MntPlanMantenimientoTable.c.es_activo)
 
 # ============================================================================
@@ -101,7 +103,7 @@ MntOrdenTrabajoTable = Table(
     metadata_erp,
     Column("orden_trabajo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_ot", String(20), nullable=False),
     Column("fecha_solicitud", DateTime, nullable=False, server_default=func.getdate()),
     Column("activo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_activo.activo_id", ondelete="NO ACTION"), nullable=False),
@@ -135,15 +137,16 @@ Index("IDX_ot_activo", MntOrdenTrabajoTable.c.activo_id, MntOrdenTrabajoTable.c.
 Index("IDX_ot_estado", MntOrdenTrabajoTable.c.estado, MntOrdenTrabajoTable.c.prioridad)
 
 # ============================================================================
-# TABLA: mnt_historial_mantenimiento
+# TABLA: mnt_historial_mantenimiento (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 MntHistorialMantenimientoTable = Table(
     "mnt_historial_mantenimiento",
     metadata_erp,
     Column("historial_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("activo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_activo.activo_id", ondelete="CASCADE"), nullable=False),
-    Column("orden_trabajo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_orden_trabajo.orden_trabajo_id", ondelete="SET NULL"), nullable=True),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("activo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_activo.activo_id", ondelete="NO ACTION"), nullable=False),
+    Column("orden_trabajo_id", UNIQUEIDENTIFIER, ForeignKey("mnt_orden_trabajo.orden_trabajo_id", ondelete="NO ACTION"), nullable=True),
     Column("fecha_mantenimiento", Date, nullable=False),
     Column("tipo_mantenimiento", String(20), nullable=False),
     Column("descripcion_trabajo", Text, nullable=True),
@@ -155,5 +158,6 @@ MntHistorialMantenimientoTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_histmnt_empresa", MntHistorialMantenimientoTable.c.empresa_id, MntHistorialMantenimientoTable.c.fecha_mantenimiento.desc())
 Index("IDX_histmnt_activo", MntHistorialMantenimientoTable.c.activo_id, MntHistorialMantenimientoTable.c.fecha_mantenimiento.desc())
 Index("IDX_histmnt_fecha", MntHistorialMantenimientoTable.c.fecha_mantenimiento.desc())

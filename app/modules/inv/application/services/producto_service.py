@@ -6,6 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.core.exceptions import NotFoundError
+from app.modules.org.application.services.empresa_service import get_empresa_servicio
 from app.infrastructure.database.queries.inv import (
     list_productos,
     get_producto_by_id,
@@ -56,6 +57,7 @@ async def create_producto_servicio(
     client_id: UUID,
     data: ProductoCreate,
 ) -> ProductoRead:
+    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump()
     row = await create_producto(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -69,6 +71,8 @@ async def update_producto_servicio(
     row = await get_producto_by_id(client_id=client_id, producto_id=producto_id)
     if not row:
         raise NotFoundError(detail="Producto no encontrado")
+    if data.empresa_id is not None:
+        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
     updated = await update_producto(client_id=client_id, producto_id=producto_id, data=payload)
     return _row_to_read(updated)

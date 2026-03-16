@@ -43,7 +43,7 @@ INSERT INTO cliente (
     'local',
     '#1E56A0',
     '#0A1628',
-    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "''Instrument Serif'', serif",     "body": "''Space Grotesk'', sans-serif",     "mono": "''JetBrains Mono'', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'enterprise',
     'activo',
     'admin@platform.com',
@@ -84,7 +84,7 @@ INSERT INTO cliente (
     'local',
     '#19d29a',  
     '#424242',
-    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "''Instrument Serif'', serif",     "body": "''Space Grotesk'', sans-serif",     "mono": "''JetBrains Mono'', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'profesional',
     'activo',
     'admin@acme.com',
@@ -125,7 +125,7 @@ INSERT INTO cliente (
     'local',
     '#a119d2',
     '#424242',
-    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "''Instrument Serif'', serif",     "body": "''Space Grotesk'', sans-serif",     "mono": "''JetBrains Mono'', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'basico',
     'activo',
     'admin@innova.com',
@@ -166,7 +166,7 @@ INSERT INTO cliente (
     'local',
     '#d21950',
     '#424242',
-    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "''Instrument Serif'', serif",     "body": "''Space Grotesk'', sans-serif",     "mono": "''JetBrains Mono'', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'enterprise',
     'activo',
     'admin@techcorp.com',
@@ -207,7 +207,7 @@ INSERT INTO cliente (
     'local',
     '#1976D2',
     '#424242',
-    '{   "appName": "CAXIS",   "fonts": {     "display": "'Instrument Serif', serif",     "body": "'Space Grotesk', sans-serif",     "mono": "'JetBrains Mono', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
+    '{   "appName": "CAXIS",   "fonts": {     "display": "''Instrument Serif'', serif",     "body": "''Space Grotesk'', sans-serif",     "mono": "''JetBrains Mono'', monospace"   },   "colors": {     "navy": "#0A1628",     "blue": "#1E56A0",     "cyan": "#1FB6E8",     "mint": "#00D4AA",     "slate": "#64748B",     "amber": "#F59E0B",     "red": "#EF4444",     "green": "#10B981",     "indigo": "#4F46E5",     "purple": "#8B5CF6",     "orange": "#F97316"   },   "grays": {     "50": "#F8FAFC",     "100": "#F1F5F9",     "200": "#E2E8F0",     "300": "#CBD5E1",     "400": "#94A3B8",     "500": "#64748B",     "600": "#475569",     "700": "#334155",     "800": "#1E293B",     "900": "#0F172A"   },   "gradients": {     "primary": "linear-gradient(135deg, #1E56A0 0%, #1FB6E8 100%)",     "success": "linear-gradient(135deg, #10B981 0%, #00D4AA 100%)",     "dark": "linear-gradient(135deg, #0A1628 0%, #162944 100%)"   },   "shadows": {     "sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",     "md": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",     "lg": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",     "focus-blue": "0 0 0 3px rgba(30, 86, 160, 0.1)"   },   "borderRadius": "0.5rem",   "spacing": {     "small": "0.5rem",     "medium": "1rem",     "large": "1.5rem"   } }',
     'enterprise',
     'activo',
     'admin@globallog.com',
@@ -216,7 +216,7 @@ INSERT INTO cliente (
     1,
     0
 );
-
+/*
 -- ============================================================================
 -- SECCIÓN 2: MÓDULOS ERP
 -- ============================================================================
@@ -970,7 +970,7 @@ INSERT INTO cliente_modulo (
     1,
     GETDATE()
 );
-
+*/
 -- ============================================================================
 -- SECCIÓN 6: USUARIOS Y ROLES (Para clientes con tipo_instalacion = 'shared')
 -- ============================================================================
@@ -991,11 +991,32 @@ INSERT INTO rol (
 ) VALUES (
     '00000000-0000-0000-0000-000000000010',  -- ADMIN (UUID válido)
     '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
-    'SUPER_ADMIN',
+    'ADMIN_PLATFORM',
     'Administrador',
     'Rol de administrador con acceso completo',
     1,
     5,
+    1
+);
+
+-- Rol SUPPORT para SUPERADMIN
+INSERT INTO rol (
+    rol_id,
+    cliente_id,
+    codigo_rol,
+    nombre,
+    descripcion,
+    es_rol_sistema,
+    nivel_acceso,
+    es_activo
+) VALUES (
+    '00000000-0000-0000-0000-000000000020',  -- SUPPORT (UUID válido)
+    '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
+    'SUPPORT_PLATFORM',
+    'Soporte',
+    'Rol de soporte',
+    1,
+    3,
     1
 );
 
@@ -1010,11 +1031,11 @@ INSERT INTO rol (
     nivel_acceso,
     es_activo
 ) VALUES (
-    '00000000-0000-0000-0000-000000000020',  -- USER (UUID válido)
+    '00000000-0000-0000-0000-000000000030',  -- USER (UUID válido)
     '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
-    'SUPPORT',
-    'Soporte',
-    'Rol de soporte',
+    'USER_PLATFORM',
+    'Usuario',
+    'Rol de usuario',
     1,
     1,
     1
@@ -1039,7 +1060,31 @@ INSERT INTO usuario (
     '$2b$12$6J/bWiSYNFHFblxoVot4Je2HyWGU.QyFxtPdpsAMP2hz4fGid5WQu',  -- admin123
     'Administrador',
     'Sistema',
-    'admin@plataforma.local',
+    'admin@plataforma.com',
+    1,
+    1
+);
+
+-- Usuario support para SUPERADMIN
+-- Password: support123
+INSERT INTO usuario (
+    usuario_id,
+    cliente_id,
+    nombre_usuario,
+    contrasena,
+    nombre,
+    apellido,
+    correo,
+    es_activo,
+    correo_confirmado
+) VALUES (
+    '00000000-0000-0000-0000-000000000200',  -- user (UUID válido)
+    '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
+    'support',
+    '$2a$12$DXqMPDK40Ng7stZ6K21qOuzcvPjOTGgQjTNGJm5cUsqiyP1OXHcuK',  -- support123
+    'Soporte',
+    'Sistema',
+    'support@plataforma.com',
     1,
     1
 );
@@ -1057,13 +1102,13 @@ INSERT INTO usuario (
     es_activo,
     correo_confirmado
 ) VALUES (
-    '00000000-0000-0000-0000-000000000200',  -- user (UUID válido)
+    '00000000-0000-0000-0000-000000000300',  -- user (UUID válido)
     '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
     'user',
     '$2b$12$ZvpoS9E0eMe6pbxGNoho1eN8hMbeTCkAE5Fyztm1N.51jxcqVYW86',  -- user123
     'Usuario',
-    'Prueba',
-    'user@plataforma.local',
+    'Sistema',
+    'user@plataforma.com',
     1,
     1
 );
@@ -1085,8 +1130,15 @@ INSERT INTO usuario_rol (
 ),
 (
     NEWID(),
-    '00000000-0000-0000-0000-000000000200',  -- user (UUID válido)  -- user
-    '00000000-0000-0000-0000-000000000020',  -- USER
+    '00000000-0000-0000-0000-000000000200',  -- support (UUID válido)  -- support
+    '00000000-0000-0000-0000-000000000020',  -- SUPPORT
+    '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
+    1
+),
+(
+    NEWID(),
+    '00000000-0000-0000-0000-000000000300',  -- user (UUID válido)  -- user
+    '00000000-0000-0000-0000-000000000030',  -- USER
     '00000000-0000-0000-0000-000000000001',  -- SUPERADMIN
     1
 );
@@ -1105,7 +1157,7 @@ INSERT INTO rol (
 ) VALUES (
     '11111111-1111-1111-1111-111111111110',  -- ADMIN (UUID válido)
     '11111111-1111-1111-1111-111111111111',  -- ACME
-    'ADMIN',
+    'ADMIN_TENANT',
     'Administrador',
     'Rol de administrador',
     1,
@@ -1126,7 +1178,7 @@ INSERT INTO rol (
 ) VALUES (
     '11111111-1111-1111-1111-111111111120',  -- MANAGER (UUID válido)
     '11111111-1111-1111-1111-111111111111',  -- ACME
-    'MANAGER',
+    'MANAGER_TENANT',
     'Supervisor',
     'Rol de supervisor',
     1,
@@ -1147,7 +1199,7 @@ INSERT INTO rol (
 ) VALUES (
     '11111111-1111-1111-1111-111111111130',  -- USER (UUID válido)
     '11111111-1111-1111-1111-111111111111',  -- ACME
-    'USER',
+    'USER_TENANT',
     'Usuario',
     'Rol de usuario',
     1,
@@ -1245,7 +1297,7 @@ INSERT INTO usuario_rol (
     '11111111-1111-1111-1111-111111111120',  -- MANAGER
     '11111111-1111-1111-1111-111111111111',  -- ACME
     1
-);
+),
 (
     NEWID(),
     '11111111-1111-1111-1111-111111111300',  -- user (UUID válido)  -- user
@@ -1268,11 +1320,11 @@ INSERT INTO rol (
 ) VALUES (
     '22222222-2222-2222-2222-222222222210',  -- ADMIN (UUID válido)
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
-    'ADMIN',
+    'ADMIN_TENANT',
     'Administrador',
     'Rol de administrador',
     1,
-    4,
+    5,
     1
 );
 
@@ -1289,11 +1341,11 @@ INSERT INTO rol (
 ) VALUES (
     '22222222-2222-2222-2222-222222222220',  -- MANAGER (UUID válido)
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
-    'MANAGER',
+    'MANAGER_TENANT',
     'Supervisor',
     'Rol de supervisor',
     1,
-    1,
+    3,
     1
 );
 
@@ -1310,7 +1362,7 @@ INSERT INTO rol (
 ) VALUES (
     '22222222-2222-2222-2222-222222222230',  -- USER (UUID válido)
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
-    'USER',
+    'USER_TENANT',
     'Usuario',
     'Rol de usuario',
     1,
@@ -1408,7 +1460,7 @@ INSERT INTO usuario_rol (
     '22222222-2222-2222-2222-222222222220',  -- MANAGER
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
     1
-);
+),
 (
     NEWID(),
     '22222222-2222-2222-2222-222222222300',  -- user (UUID válido)  -- user
@@ -1416,7 +1468,7 @@ INSERT INTO usuario_rol (
     '22222222-2222-2222-2222-222222222222',  -- INNOVA
     1
 );
-
+/*
 -- ============================================================================
 -- SECCIÓN 7: PERMISOS BÁSICOS (Para roles ADMIN y USER)
 -- ============================================================================
@@ -1563,9 +1615,9 @@ SELECT
     1, 0, 0, 0, 0, 0
 FROM modulo_menu
 WHERE cliente_id IS NULL OR cliente_id = '22222222-2222-2222-2222-222222222222';
-
+*/
 PRINT 'Seed de BD central completado exitosamente';
 PRINT 'Clientes creados: SUPERADMIN, ACME (shared), INNOVA (shared), TECHCORP (dedicated), GLOBALLOG (dedicated)';
-PRINT 'Módulos creados: ALMACEN, LOGISTICA, PLANILLAS';
-PRINT 'Usuarios creados para clientes shared: admin y user en cada uno';
+--PRINT 'Módulos creados: ALMACEN, LOGISTICA, PLANILLAS';
+PRINT 'Usuarios creados para clientes shared: admin, manager y user en cada uno';
 GO

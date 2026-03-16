@@ -25,7 +25,7 @@ PrcListaPrecioTable = Table(
     metadata_erp,
     Column("lista_precio_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_lista", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -48,17 +48,18 @@ Index("IDX_listaprc_empresa", PrcListaPrecioTable.c.empresa_id, PrcListaPrecioTa
 Index("IDX_listaprc_vigencia", PrcListaPrecioTable.c.fecha_vigencia_desde, PrcListaPrecioTable.c.fecha_vigencia_hasta)
 
 # ============================================================================
-# TABLA: prc_lista_precio_detalle
+# TABLA: prc_lista_precio_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 PrcListaPrecioDetalleTable = Table(
     "prc_lista_precio_detalle",
     metadata_erp,
     Column("lista_precio_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("lista_precio_id", UNIQUEIDENTIFIER, ForeignKey("prc_lista_precio.lista_precio_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("lista_precio_id", UNIQUEIDENTIFIER, ForeignKey("prc_lista_precio.lista_precio_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
-    Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id"), nullable=False),
+    Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad_minima", Numeric(18, 4), nullable=True, server_default="1"),
     Column("cantidad_maxima", Numeric(18, 4), nullable=True),
     Column("descuento_maximo_porcentaje", Numeric(5, 2), nullable=True),
@@ -68,6 +69,7 @@ PrcListaPrecioDetalleTable = Table(
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
     Column("fecha_actualizacion", DateTime, nullable=True),
 )
+Index("IDX_listadet_empresa", PrcListaPrecioDetalleTable.c.empresa_id)
 Index("IDX_listadet_lista", PrcListaPrecioDetalleTable.c.lista_precio_id, PrcListaPrecioDetalleTable.c.es_activo)
 Index("IDX_listadet_producto", PrcListaPrecioDetalleTable.c.producto_id, PrcListaPrecioDetalleTable.c.lista_precio_id)
 
@@ -79,7 +81,7 @@ PrcPromocionTable = Table(
     metadata_erp,
     Column("promocion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_promocion", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(500), nullable=True),

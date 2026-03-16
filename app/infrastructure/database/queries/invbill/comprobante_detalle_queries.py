@@ -7,7 +7,7 @@ from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_
 
-from app.infrastructure.database.tables_erp import InvbillComprobanteDetalleTable
+from app.infrastructure.database.tables_erp import InvbillComprobanteTable, InvbillComprobanteDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in InvbillComprobanteDetalleTable.c}
@@ -45,6 +45,18 @@ async def create_comprobante_detalle(client_id: UUID, data: Dict[str, Any]) -> D
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("comprobante_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde el comprobante (cabecera)
+    comprobante_id = payload.get("comprobante_id")
+    if comprobante_id:
+        q = select(InvbillComprobanteTable.c.empresa_id).where(
+            and_(
+                InvbillComprobanteTable.c.cliente_id == client_id,
+                InvbillComprobanteTable.c.comprobante_id == comprobante_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     stmt = insert(InvbillComprobanteDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
     return await get_comprobante_detalle_by_id(client_id, payload["comprobante_detalle_id"])

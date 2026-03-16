@@ -2,7 +2,7 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import select, insert, update, and_
-from app.infrastructure.database.tables_erp import MfgOrdenProduccionOperacionTable
+from app.infrastructure.database.tables_erp import MfgOrdenProduccionTable, MfgOrdenProduccionOperacionTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in MfgOrdenProduccionOperacionTable.c}
@@ -45,6 +45,18 @@ async def create_orden_produccion_operacion(client_id: UUID, data: Dict[str, Any
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("op_operacion_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde la orden (cabecera)
+    orden_produccion_id = payload.get("orden_produccion_id")
+    if orden_produccion_id:
+        q = select(MfgOrdenProduccionTable.c.empresa_id).where(
+            and_(
+                MfgOrdenProduccionTable.c.cliente_id == client_id,
+                MfgOrdenProduccionTable.c.orden_produccion_id == orden_produccion_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     await execute_insert(insert(MfgOrdenProduccionOperacionTable).values(**payload), client_id=client_id)
     return await get_orden_produccion_operacion_by_id(client_id, payload["op_operacion_id"])
 

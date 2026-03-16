@@ -24,7 +24,7 @@ WflFlujoTrabajoTable = Table(
     metadata_erp,
     Column("flujo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_flujo", String(20), nullable=False),
     Column("nombre", String(150), nullable=False),
     Column("descripcion", String(500), nullable=True),

@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.hcm.application.services import (
     list_planilla_detalles,
@@ -15,12 +16,16 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "hcm"
+RESOURCE_CODE = "planilla_detalle"
+
 
 @router.get("", response_model=List[PlanillaDetalleRead], tags=["HCM - Planilla Detalle"])
 async def get_planilla_detalles(
     planilla_empleado_id: Optional[UUID] = Query(None),
     tipo_concepto: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_planilla_detalles(
         client_id=current_user.cliente_id,
@@ -33,6 +38,7 @@ async def get_planilla_detalles(
 async def get_planilla_detalle(
     planilla_detalle_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_planilla_detalle_by_id(current_user.cliente_id, planilla_detalle_id)
@@ -44,6 +50,7 @@ async def get_planilla_detalle(
 async def post_planilla_detalle(
     data: PlanillaDetalleCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_planilla_detalle(current_user.cliente_id, data)
 
@@ -53,6 +60,7 @@ async def put_planilla_detalle(
     planilla_detalle_id: UUID,
     data: PlanillaDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_planilla_detalle(current_user.cliente_id, planilla_detalle_id, data)

@@ -33,6 +33,7 @@ from app.infrastructure.database.queries.inv.stock_queries import (
     get_stock_by_producto_almacen,
     create_stock,
     update_stock,
+    list_stock_alertas_bajo_minimo,
 )
 from app.infrastructure.database.queries.inv.tipo_movimiento_queries import (
     list_tipos_movimiento,
@@ -46,11 +47,26 @@ from app.infrastructure.database.queries.inv.movimiento_queries import (
     create_movimiento,
     update_movimiento,
 )
+from app.infrastructure.database.queries.inv.movimiento_detalle_queries import (
+    list_movimientos_detalle,
+    get_movimiento_detalle_by_id,
+    create_movimiento_detalle,
+    update_movimiento_detalle,
+)
 from app.infrastructure.database.queries.inv.inventario_fisico_queries import (
     list_inventarios_fisicos,
     get_inventario_fisico_by_id,
     create_inventario_fisico,
     update_inventario_fisico,
+)
+from app.infrastructure.database.queries.inv.inventario_fisico_detalle_queries import (
+    list_inventarios_fisicos_detalle,
+    get_inventario_fisico_detalle_by_id,
+    create_inventario_fisico_detalle,
+    update_inventario_fisico_detalle,
+)
+from app.infrastructure.database.queries.inv.kardex_queries import (
+    list_kardex,
 )
 
 __all__ = [
@@ -80,6 +96,7 @@ __all__ = [
     "get_stock_by_producto_almacen",
     "create_stock",
     "update_stock",
+    "list_stock_alertas_bajo_minimo",
     # Tipos de movimiento
     "list_tipos_movimiento",
     "get_tipo_movimiento_by_id",
@@ -90,9 +107,21 @@ __all__ = [
     "get_movimiento_by_id",
     "create_movimiento",
     "update_movimiento",
+    # Movimientos detalle
+    "list_movimientos_detalle",
+    "get_movimiento_detalle_by_id",
+    "create_movimiento_detalle",
+    "update_movimiento_detalle",
     # Inventario físico
     "list_inventarios_fisicos",
     "get_inventario_fisico_by_id",
     "create_inventario_fisico",
     "update_inventario_fisico",
+    # Inventario físico detalle
+    "list_inventarios_fisicos_detalle",
+    "get_inventario_fisico_detalle_by_id",
+    "create_inventario_fisico_detalle",
+    "update_inventario_fisico_detalle",
+    # Kardex
+    "list_kardex",
 ]

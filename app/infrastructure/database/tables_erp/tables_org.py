@@ -7,14 +7,86 @@ Tablas SQLAlchemy Core para el módulo ORG (Organización).
 """
 
 from sqlalchemy import (
-    Table, Column, Integer, String, Boolean, DateTime, Date,
-    ForeignKey, Text, Index, UniqueConstraint, Numeric, MetaData
+    Table,
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Date,
+    ForeignKey,
+    Text,
+    Index,
+    UniqueConstraint,
+    Numeric,
+    MetaData,
 )
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.sql import func
 
 # Metadata ERP (independiente de central para uso en BD dedicada)
 metadata_erp = MetaData()
+
+# ============================================================================
+# CATÁLOGOS GLOBALES (BD DEDICADA - sin cliente_id)
+# ============================================================================
+CatMonedaTable = Table(
+    "cat_moneda",
+    metadata_erp,
+    Column("moneda_id", UNIQUEIDENTIFIER, primary_key=True),
+    Column("codigo", String(3), nullable=False),
+    Column("nombre", String(50), nullable=False),
+    Column("simbolo", String(5), nullable=False),
+    Column("decimales", Integer, nullable=True),
+    Column("es_activo", Boolean, nullable=True, server_default="1"),
+    UniqueConstraint("codigo", name="UQ_moneda_codigo"),
+)
+Index("IDX_moneda_activo", CatMonedaTable.c.es_activo)
+
+CatPaisTable = Table(
+    "cat_pais",
+    metadata_erp,
+    Column("pais_id", UNIQUEIDENTIFIER, primary_key=True),
+    Column("codigo_iso2", String(2), nullable=False),
+    Column("codigo_iso3", String(3), nullable=False),
+    Column("nombre", String(100), nullable=False),
+    Column("es_activo", Boolean, nullable=True, server_default="1"),
+    UniqueConstraint("codigo_iso2", name="UQ_pais_iso2"),
+)
+Index("IDX_pais_activo", CatPaisTable.c.es_activo)
+
+CatDepartamentoTable = Table(
+    "cat_departamento",
+    metadata_erp,
+    Column("departamento_id", UNIQUEIDENTIFIER, primary_key=True),
+    Column("pais_id", UNIQUEIDENTIFIER, ForeignKey("cat_pais.pais_id", ondelete="NO ACTION"), nullable=False),
+    Column("codigo", String(10), nullable=False),
+    Column("nombre", String(100), nullable=False),
+)
+Index("IDX_depto_pais", CatDepartamentoTable.c.pais_id)
+
+CatProvinciaTable = Table(
+    "cat_provincia",
+    metadata_erp,
+    Column("provincia_id", UNIQUEIDENTIFIER, primary_key=True),
+    Column("departamento_id", UNIQUEIDENTIFIER, ForeignKey("cat_departamento.departamento_id", ondelete="NO ACTION"), nullable=False),
+    Column("codigo", String(10), nullable=False),
+    Column("nombre", String(100), nullable=False),
+)
+Index("IDX_prov_depto", CatProvinciaTable.c.departamento_id)
+
+CatDistritoTable = Table(
+    "cat_distrito",
+    metadata_erp,
+    Column("distrito_id", UNIQUEIDENTIFIER, primary_key=True),
+    Column("provincia_id", UNIQUEIDENTIFIER, ForeignKey("cat_provincia.provincia_id", ondelete="NO ACTION"), nullable=False),
+    Column("codigo", String(10), nullable=False),
+    Column("nombre", String(100), nullable=False),
+    Column("ubigeo", String(6), nullable=False),
+    UniqueConstraint("ubigeo", name="UQ_ubigeo"),
+)
+Index("IDX_dist_prov", CatDistritoTable.c.provincia_id)
+Index("IDX_dist_ubigeo", CatDistritoTable.c.ubigeo)
 
 # ============================================================================
 # TABLA: org_empresa
@@ -34,10 +106,10 @@ OrgEmpresaTable = Table(
     Column("rubro", String(50), nullable=True),
     Column("tipo_empresa", String(30), nullable=True),
     Column("direccion_fiscal", String(255), nullable=True),
-    Column("pais", String(50), nullable=True, server_default="Perú"),
-    Column("departamento", String(50), nullable=True),
-    Column("provincia", String(50), nullable=True),
-    Column("distrito", String(50), nullable=True),
+    Column("pais_id", UNIQUEIDENTIFIER, ForeignKey("cat_pais.pais_id", ondelete="NO ACTION"), nullable=True),
+    Column("departamento_id", UNIQUEIDENTIFIER, ForeignKey("cat_departamento.departamento_id", ondelete="NO ACTION"), nullable=True),
+    Column("provincia_id", UNIQUEIDENTIFIER, ForeignKey("cat_provincia.provincia_id", ondelete="NO ACTION"), nullable=True),
+    Column("distrito_id", UNIQUEIDENTIFIER, ForeignKey("cat_distrito.distrito_id", ondelete="NO ACTION"), nullable=True),
     Column("codigo_postal", String(10), nullable=True),
     Column("ubigeo", String(6), nullable=True),
     Column("telefono_principal", String(20), nullable=True),
@@ -48,7 +120,8 @@ OrgEmpresaTable = Table(
     Column("representante_legal_nombre", String(150), nullable=True),
     Column("representante_legal_dni", String(20), nullable=True),
     Column("representante_legal_cargo", String(50), nullable=True),
-    Column("moneda_base", String(3), nullable=True, server_default="PEN"),
+    Column("moneda_base_id", UNIQUEIDENTIFIER, ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"), nullable=True),
+    Column("maneja_multimoneda", Boolean, nullable=True, server_default="0"),
     Column("zona_horaria", String(50), nullable=True, server_default="America/Lima"),
     Column("idioma_sistema", String(5), nullable=True, server_default="es-PE"),
     Column("formato_fecha", String(20), nullable=True, server_default="dd/MM/yyyy"),
@@ -79,7 +152,7 @@ OrgCentroCostoTable = Table(
     metadata_erp,
     Column("centro_costo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -111,17 +184,17 @@ OrgSucursalTable = Table(
     metadata_erp,
     Column("sucursal_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
     Column("tipo_sucursal", String(30), nullable=True, server_default="sede"),
     Column("direccion", String(255), nullable=True),
     Column("referencia", String(255), nullable=True),
-    Column("pais", String(50), nullable=True, server_default="Perú"),
-    Column("departamento", String(50), nullable=True),
-    Column("provincia", String(50), nullable=True),
-    Column("distrito", String(50), nullable=True),
+    Column("pais_id", UNIQUEIDENTIFIER, ForeignKey("cat_pais.pais_id", ondelete="NO ACTION"), nullable=True),
+    Column("departamento_id", UNIQUEIDENTIFIER, ForeignKey("cat_departamento.departamento_id", ondelete="NO ACTION"), nullable=True),
+    Column("provincia_id", UNIQUEIDENTIFIER, ForeignKey("cat_provincia.provincia_id", ondelete="NO ACTION"), nullable=True),
+    Column("distrito_id", UNIQUEIDENTIFIER, ForeignKey("cat_distrito.distrito_id", ondelete="NO ACTION"), nullable=True),
     Column("ubigeo", String(6), nullable=True),
     Column("codigo_postal", String(10), nullable=True),
     Column("latitud", Numeric(10, 8), nullable=True),
@@ -155,7 +228,7 @@ OrgDepartamentoTable = Table(
     metadata_erp,
     Column("departamento_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -183,7 +256,7 @@ OrgCargoTable = Table(
     metadata_erp,
     Column("cargo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(500), nullable=True),
@@ -235,6 +308,23 @@ OrgParametroSistemaTable = Table(
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
     Column("fecha_actualizacion", DateTime, nullable=True),
     Column("usuario_actualizacion_id", UNIQUEIDENTIFIER, nullable=True),
-    UniqueConstraint("cliente_id", "empresa_id", "modulo_codigo", "codigo_parametro", name="UQ_parametro"),
+    UniqueConstraint(
+        "cliente_id",
+        "empresa_id",
+        "modulo_codigo",
+        "codigo_parametro",
+        name="UQ_parametro",
+    ),
 )
-Index("IDX_parametro_modulo", OrgParametroSistemaTable.c.modulo_codigo, OrgParametroSistemaTable.c.codigo_parametro)
+Index(
+    "IDX_parametro_modulo",
+    OrgParametroSistemaTable.c.modulo_codigo,
+    OrgParametroSistemaTable.c.codigo_parametro,
+)
+
+
+"""
+NOTA:
+`org_moneda` fue eliminado en Fase4. La configuración de monedas se gestiona
+mediante el catálogo global `cat_moneda` (administrado por Superadmin).
+"""

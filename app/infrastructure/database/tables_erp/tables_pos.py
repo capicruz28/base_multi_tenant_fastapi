@@ -24,10 +24,10 @@ PosPuntoVentaTable = Table(
     metadata_erp,
     Column("punto_venta_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_punto_venta", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
-    Column("sucursal_id", UNIQUEIDENTIFIER, ForeignKey("org_sucursal.sucursal_id", ondelete="CASCADE"), nullable=False),
+    Column("sucursal_id", UNIQUEIDENTIFIER, ForeignKey("org_sucursal.sucursal_id", ondelete="NO ACTION"), nullable=False),
     Column("ubicacion_fisica", String(100), nullable=True),
     Column("tipo_punto_venta", String(30), nullable=True, server_default="caja"),
     Column("serie_factura_id", UNIQUEIDENTIFIER, nullable=True),
@@ -58,8 +58,8 @@ PosTurnoCajaTable = Table(
     metadata_erp,
     Column("turno_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
-    Column("punto_venta_id", UNIQUEIDENTIFIER, ForeignKey("pos_punto_venta.punto_venta_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("punto_venta_id", UNIQUEIDENTIFIER, ForeignKey("pos_punto_venta.punto_venta_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_turno", String(20), nullable=False),
     Column("cajero_usuario_id", UNIQUEIDENTIFIER, nullable=False),
     Column("cajero_nombre", String(150), nullable=True),
@@ -96,7 +96,7 @@ PosVentaTable = Table(
     metadata_erp,
     Column("venta_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_venta", String(20), nullable=False),
     Column("fecha_venta", DateTime, nullable=False, server_default=func.getdate()),
     Column("punto_venta_id", UNIQUEIDENTIFIER, ForeignKey("pos_punto_venta.punto_venta_id"), nullable=False),
@@ -136,16 +136,17 @@ Index("IDX_posvta_turno", PosVentaTable.c.turno_caja_id)
 Index("IDX_posvta_comprobante", PosVentaTable.c.comprobante_id)
 
 # ============================================================================
-# TABLA: pos_venta_detalle
+# TABLA: pos_venta_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 PosVentaDetalleTable = Table(
     "pos_venta_detalle",
     metadata_erp,
     Column("venta_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("venta_id", UNIQUEIDENTIFIER, ForeignKey("pos_venta.venta_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("venta_id", UNIQUEIDENTIFIER, ForeignKey("pos_venta.venta_id", ondelete="NO ACTION"), nullable=False),
     Column("item", Integer, nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("descripcion", String(200), nullable=True),
     Column("cantidad", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id"), nullable=False),
@@ -155,5 +156,6 @@ PosVentaDetalleTable = Table(
     Column("lote", String(50), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_posvtadet_empresa", PosVentaDetalleTable.c.empresa_id)
 Index("IDX_posvtadet_venta", PosVentaDetalleTable.c.venta_id, PosVentaDetalleTable.c.item)
 Index("IDX_posvtadet_producto", PosVentaDetalleTable.c.producto_id)

@@ -25,13 +25,22 @@ async def list_cargos_servicio(
     client_id: UUID,
     empresa_id: Optional[UUID] = None,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
 ) -> List[CargoRead]:
     rows = await list_cargos(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
     )
-    return [_row_to_read(r) for r in rows]
+    cargos = [_row_to_read(r) for r in rows]
+    if buscar:
+        term = buscar.lower()
+        cargos = [
+            c
+            for c in cargos
+            if term in (c.codigo or "").lower() or term in (c.nombre or "").lower()
+        ]
+    return cargos
 
 
 async def get_cargo_servicio(
@@ -68,3 +77,20 @@ async def update_cargo_servicio(
         data=payload,
     )
     return _row_to_read(updated)
+
+
+async def delete_cargo_servicio(
+    client_id: UUID,
+    cargo_id: UUID,
+) -> None:
+    """
+    Baja lógica de un cargo (es_activo = False).
+    """
+    row = await get_cargo_by_id(client_id=client_id, cargo_id=cargo_id)
+    if not row:
+        raise NotFoundError(detail="Cargo no encontrado")
+    await update_cargo(
+        client_id=client_id,
+        cargo_id=cargo_id,
+        data={"es_activo": False},
+    )

@@ -142,6 +142,21 @@ class Settings(BaseSettings):
     # Para desactivar temporalmente, establecer ENABLE_UNIT_OF_WORK=false
     ENABLE_UNIT_OF_WORK: bool = os.getenv("ENABLE_UNIT_OF_WORK", "true").lower() == "true"
     
+    # ============================================
+    # PERMISSION RESOLVER (Stage 1 - Fase A)
+    # ============================================
+    USE_PERMISSION_RESOLVER: bool = os.getenv("USE_PERMISSION_RESOLVER", "false").lower() == "true"
+    PERMISSION_RESOLVER_CACHE_ENABLED: bool = os.getenv("PERMISSION_RESOLVER_CACHE_ENABLED", "false").lower() == "true"
+    PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION: bool = os.getenv("PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION", "false").lower() == "true"
+    PERMISSION_RESOLVER_CACHE_TTL: int = int(os.getenv("PERMISSION_RESOLVER_CACHE_TTL", "300"))
+    
+    # Code-first RBAC: sincronizar permisos declarados en código con tabla permiso al startup.
+    RBAC_PERMISSION_SYNC_ENABLED: bool = os.getenv("RBAC_PERMISSION_SYNC_ENABLED", "true").lower() == "true"
+    
+    # Stage 2: Menú puede recibir permisos efectivos ya calculados (evita lógica duplicada).
+    # Por defecto False; cuando True, el endpoint /modulos-menus/me/ pasa user.permisos al servicio.
+    USE_MENU_EFFECTIVE_PERMISSIONS: bool = os.getenv("USE_MENU_EFFECTIVE_PERMISSIONS", "false").lower() == "true"
+    
     # ✅ CORRECCIÓN AUDITORÍA: Conexiones async (desactivado por defecto hasta migración completa)
     # Para activar, instalar dependencias: pip install 'sqlalchemy[asyncio]' aioodbc
     # Luego establecer: ENABLE_ASYNC_CONNECTIONS=true

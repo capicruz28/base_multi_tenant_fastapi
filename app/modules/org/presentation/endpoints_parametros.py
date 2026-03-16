@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_parametros.py
 """Endpoints ORG - Parámetros del sistema. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -22,7 +22,8 @@ async def listar_parametros(
     empresa_id: Optional[UUID] = Query(None),
     modulo_codigo: Optional[str] = Query(None),
     solo_activos: bool = True,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    buscar: Optional[str] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.leer")),
 ):
     client_id = current_user.cliente_id
     return await parametro_service.list_parametros_servicio(
@@ -30,13 +31,14 @@ async def listar_parametros(
         empresa_id=empresa_id,
         modulo_codigo=modulo_codigo,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
 
 
 @router.get("/{parametro_id}", response_model=ParametroRead, summary="Detalle parámetro")
 async def detalle_parametro(
     parametro_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.leer")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -51,7 +53,7 @@ async def detalle_parametro(
 @router.post("", response_model=ParametroRead, status_code=201, summary="Crear parámetro")
 async def crear_parametro(
     data: ParametroCreate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.crear")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.crear")),
 ):
     client_id = current_user.cliente_id
     return await parametro_service.create_parametro_servicio(
@@ -64,7 +66,7 @@ async def crear_parametro(
 async def actualizar_parametro(
     parametro_id: UUID,
     data: ParametroUpdate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.actualizar")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.actualizar")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -72,6 +74,26 @@ async def actualizar_parametro(
             client_id=client_id,
             parametro_id=parametro_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{parametro_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) parámetro",
+)
+async def eliminar_parametro(
+    parametro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.eliminar")),
+):
+    """Marca un parámetro como inactivo (baja lógica) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await parametro_service.delete_parametro_servicio(
+            client_id=client_id,
+            parametro_id=parametro_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

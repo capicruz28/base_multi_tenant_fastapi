@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_sucursales.py
 """Endpoints ORG - Sucursales. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -17,20 +17,22 @@ router = APIRouter()
 async def listar_sucursales(
     empresa_id: Optional[UUID] = Query(None),
     solo_activos: bool = True,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    buscar: Optional[str] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.leer")),
 ):
     client_id = current_user.cliente_id
     return await sucursal_service.list_sucursales_servicio(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
 
 
 @router.get("/{sucursal_id}", response_model=SucursalRead, summary="Detalle sucursal")
 async def detalle_sucursal(
     sucursal_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.leer")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -45,7 +47,7 @@ async def detalle_sucursal(
 @router.post("", response_model=SucursalRead, status_code=201, summary="Crear sucursal")
 async def crear_sucursal(
     data: SucursalCreate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.crear")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.crear")),
 ):
     client_id = current_user.cliente_id
     return await sucursal_service.create_sucursal_servicio(client_id=client_id, data=data)
@@ -55,7 +57,7 @@ async def crear_sucursal(
 async def actualizar_sucursal(
     sucursal_id: UUID,
     data: SucursalUpdate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.actualizar")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -63,6 +65,26 @@ async def actualizar_sucursal(
             client_id=client_id,
             sucursal_id=sucursal_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{sucursal_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) sucursal",
+)
+async def eliminar_sucursal(
+    sucursal_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.eliminar")),
+):
+    """Marca una sucursal como inactiva (baja lógica) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await sucursal_service.delete_sucursal_servicio(
+            client_id=client_id,
+            sucursal_id=sucursal_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

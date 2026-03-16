@@ -25,13 +25,22 @@ async def list_departamentos_servicio(
     client_id: UUID,
     empresa_id: Optional[UUID] = None,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
 ) -> List[DepartamentoRead]:
     rows = await list_departamentos(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
     )
-    return [_row_to_read(r) for r in rows]
+    departamentos = [_row_to_read(r) for r in rows]
+    if buscar:
+        term = buscar.lower()
+        departamentos = [
+            d
+            for d in departamentos
+            if term in (d.codigo or "").lower() or term in (d.nombre or "").lower()
+        ]
+    return departamentos
 
 
 async def get_departamento_servicio(
@@ -74,3 +83,23 @@ async def update_departamento_servicio(
         data=payload,
     )
     return _row_to_read(updated)
+
+
+async def delete_departamento_servicio(
+    client_id: UUID,
+    departamento_id: UUID,
+) -> None:
+    """
+    Baja lógica de un departamento (es_activo = False).
+    """
+    row = await get_departamento_by_id(
+        client_id=client_id,
+        departamento_id=departamento_id,
+    )
+    if not row:
+        raise NotFoundError(detail="Departamento no encontrado")
+    await update_departamento(
+        client_id=client_id,
+        departamento_id=departamento_id,
+        data={"es_activo": False},
+    )

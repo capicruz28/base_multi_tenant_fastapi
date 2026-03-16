@@ -25,7 +25,7 @@ LogTransportistaTable = Table(
     metadata_erp,
     Column("transportista_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_transportista", String(20), nullable=False),
     Column("razon_social", String(200), nullable=False),
     Column("nombre_comercial", String(150), nullable=True),
@@ -55,7 +55,7 @@ LogVehiculoTable = Table(
     metadata_erp,
     Column("vehiculo_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("placa", String(15), nullable=False),
     Column("marca", String(50), nullable=True),
     Column("modelo", String(50), nullable=True),
@@ -94,7 +94,7 @@ LogRutaTable = Table(
     metadata_erp,
     Column("ruta_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_ruta", String(20), nullable=False),
     Column("nombre_ruta", String(100), nullable=False),
     Column("origen_sucursal_id", UNIQUEIDENTIFIER, ForeignKey("org_sucursal.sucursal_id", ondelete="SET NULL"), nullable=True),
@@ -125,7 +125,7 @@ LogGuiaRemisionTable = Table(
     metadata_erp,
     Column("guia_remision_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("serie", String(4), nullable=False),
     Column("numero", String(10), nullable=False),
     Column("fecha_emision", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
@@ -174,21 +174,23 @@ Index("IDX_guia_empresa", LogGuiaRemisionTable.c.empresa_id, LogGuiaRemisionTabl
 Index("IDX_guia_estado", LogGuiaRemisionTable.c.estado)
 
 # ============================================================================
-# TABLA: log_guia_remision_detalle
+# TABLA: log_guia_remision_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 LogGuiaRemisionDetalleTable = Table(
     "log_guia_remision_detalle",
     metadata_erp,
     Column("guia_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("guia_remision_id", UNIQUEIDENTIFIER, ForeignKey("log_guia_remision.guia_remision_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("guia_remision_id", UNIQUEIDENTIFIER, ForeignKey("log_guia_remision.guia_remision_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad", Numeric(18, 4), nullable=False),
     Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id"), nullable=False),
     Column("descripcion", String(255), nullable=True),
     Column("peso_kg", Numeric(12, 2), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_guiadet_empresa", LogGuiaRemisionDetalleTable.c.empresa_id)
 Index("IDX_guiadet_guia", LogGuiaRemisionDetalleTable.c.guia_remision_id)
 
 # ============================================================================
@@ -199,7 +201,7 @@ LogDespachoTable = Table(
     metadata_erp,
     Column("despacho_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_despacho", String(20), nullable=False),
     Column("fecha_programada", Date, nullable=False),
     Column("hora_salida_programada", Time, nullable=True),
@@ -230,15 +232,16 @@ Index("IDX_desp_estado", LogDespachoTable.c.estado)
 Index("IDX_desp_vehiculo", LogDespachoTable.c.vehiculo_id, LogDespachoTable.c.fecha_programada)
 
 # ============================================================================
-# TABLA: log_despacho_guia
+# TABLA: log_despacho_guia (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 LogDespachoGuiaTable = Table(
     "log_despacho_guia",
     metadata_erp,
     Column("despacho_guia_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("despacho_id", UNIQUEIDENTIFIER, ForeignKey("log_despacho.despacho_id", ondelete="CASCADE"), nullable=False),
-    Column("guia_remision_id", UNIQUEIDENTIFIER, ForeignKey("log_guia_remision.guia_remision_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("despacho_id", UNIQUEIDENTIFIER, ForeignKey("log_despacho.despacho_id", ondelete="NO ACTION"), nullable=False),
+    Column("guia_remision_id", UNIQUEIDENTIFIER, ForeignKey("log_guia_remision.guia_remision_id", ondelete="NO ACTION"), nullable=False),
     Column("orden_entrega", Integer, nullable=True),
     Column("fecha_entrega", DateTime, nullable=True),
     Column("estado_entrega", String(20), nullable=True, server_default="pendiente"),
@@ -248,5 +251,6 @@ LogDespachoGuiaTable = Table(
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
     UniqueConstraint("cliente_id", "despacho_id", "guia_remision_id", name="UQ_desp_guia"),
 )
+Index("IDX_despguia_empresa", LogDespachoGuiaTable.c.empresa_id)
 Index("IDX_despguia_desp", LogDespachoGuiaTable.c.despacho_id, LogDespachoGuiaTable.c.orden_entrega)
 Index("IDX_despguia_guia", LogDespachoGuiaTable.c.guia_remision_id)

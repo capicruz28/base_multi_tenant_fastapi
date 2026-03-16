@@ -49,7 +49,7 @@ BEGIN
         CONSTRAINT FK_rol_permiso_permiso FOREIGN KEY (permiso_id)
             REFERENCES permiso(permiso_id) ON DELETE CASCADE,
         CONSTRAINT FK_rol_permiso_cliente FOREIGN KEY (cliente_id)
-            REFERENCES cliente(cliente_id) ON DELETE CASCADE,
+            REFERENCES cliente(cliente_id) ON DELETE NO ACTION,
         CONSTRAINT UQ_rol_permiso UNIQUE (cliente_id, rol_id, permiso_id)
     );
     CREATE INDEX IDX_rol_permiso_rol ON rol_permiso(rol_id);

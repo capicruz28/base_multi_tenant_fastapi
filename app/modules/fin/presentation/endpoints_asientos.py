@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.fin.application.services import (
     list_asientos_contables,
@@ -30,6 +31,10 @@ from app.modules.fin.presentation.schemas import (
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+MODULE_CODE = "fin"
+RESOURCE_CODE = "asiento"
+RESOURCE_CODE_DETALLE = "asiento_detalle"
 
 
 # ============================================================================
@@ -66,6 +71,7 @@ async def get_asientos_contables(
 async def get_asiento_contable(
     asiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un asiento contable por id."""
     try:
@@ -88,6 +94,7 @@ async def put_asiento_contable(
     asiento_id: UUID,
     data: AsientoContableUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un asiento contable."""
     try:
@@ -105,6 +112,7 @@ async def get_asiento_detalles(
     asiento_id: UUID,
     cuenta_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.leer")),
 ):
     """Lista detalles de un asiento contable."""
     return await list_asiento_detalles(
@@ -119,6 +127,7 @@ async def post_asiento_detalle(
     asiento_id: UUID,
     data: AsientoDetalleCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.crear")),
 ):
     """Crea un detalle de asiento contable."""
     data.asiento_id = asiento_id
@@ -129,6 +138,7 @@ async def post_asiento_detalle(
 async def get_asiento_detalle(
     asiento_detalle_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.leer")),
 ):
     """Obtiene un detalle por id."""
     try:
@@ -142,6 +152,7 @@ async def put_asiento_detalle(
     asiento_detalle_id: UUID,
     data: AsientoDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.actualizar")),
 ):
     """Actualiza un detalle de asiento contable."""
     try:

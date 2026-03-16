@@ -277,19 +277,58 @@ async def build_user_with_roles(
         # 5. Cargar códigos de permiso RBAC (tablas permiso + rol_permiso). No rompe si no existen.
         permisos_codigos: List[str] = []
         try:
-            from app.modules.rbac.application.services.permisos_usuario_service import (
-                obtener_codigos_permiso_usuario,
-            )
-            permisos_codigos = await obtener_codigos_permiso_usuario(
-                usuario_id=usuario_id,
-                cliente_id=cliente_id,
-                database_type=database_type,
-            )
+            from app.core.config import settings as _settings
+            use_resolver = getattr(_settings, "USE_PERMISSION_RESOLVER", False)
+            if use_resolver:
+                try:
+                    from app.core.authorization.permission_resolver import get_permission_resolver
+                    from app.core.config import settings as _settings
+                    resolver = get_permission_resolver()
+                    effective = await resolver.get_effective_permissions(
+                        usuario_id=usuario_id,
+                        cliente_id=cliente_id,
+                        database_type=database_type,
+                        is_super_admin=is_superadmin,
+                        filter_by_subscription=getattr(
+                            _settings, "PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION", False
+                        ),
+                    )
+                    permisos_codigos = list(effective.codes)
+                except Exception as resolver_err:
+                    logger.warning(
+                        "[USER_BUILDER] Permission resolver falló, usando fallback: %s",
+                        resolver_err,
+                        exc_info=False,
+                    )
+                    from app.modules.rbac.application.services.permisos_usuario_service import (
+                        obtener_codigos_permiso_usuario,
+                    )
+                    permisos_codigos = await obtener_codigos_permiso_usuario(
+                        usuario_id=usuario_id,
+                        cliente_id=cliente_id,
+                        database_type=database_type,
+                    )
+            else:
+                from app.modules.rbac.application.services.permisos_usuario_service import (
+                    obtener_codigos_permiso_usuario,
+                )
+                permisos_codigos = await obtener_codigos_permiso_usuario(
+                    usuario_id=usuario_id,
+                    cliente_id=cliente_id,
+                    database_type=database_type,
+                )
         except Exception as perm_err:
             logger.debug(
                 f"[USER_BUILDER] Permisos RBAC no cargados para {username}: {perm_err}. "
                 "Usando lista vacía (comportamiento previo)."
             )
+
+        logger.warning(
+            "[RBAC_DEBUG] usuario=%s cliente=%s permisos=%s",
+            username,
+            cliente_id,
+            permisos_codigos,
+        )
 
         # 6. Construir UsuarioReadWithRoles
         # ✅ Asegurar que cliente_id corregido se establezca explícitamente

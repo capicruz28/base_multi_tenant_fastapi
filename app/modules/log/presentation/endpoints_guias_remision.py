@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.log.application.services import (
     list_guias_remision,
@@ -31,6 +32,10 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "log"
+RESOURCE_CODE = "guia_remision"
+RESOURCE_CODE_DETALLE = "guia_remision_detalle"
+
 
 # ============================================================================
 # GUÍAS DE REMISIÓN
@@ -46,6 +51,7 @@ async def get_guias_remision(
     fecha_hasta: Optional[date] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista guías de remisión del tenant."""
     return await list_guias_remision(
@@ -64,6 +70,7 @@ async def get_guias_remision(
 async def get_guia_remision(
     guia_remision_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una guía de remisión por id."""
     try:
@@ -76,6 +83,7 @@ async def get_guia_remision(
 async def post_guia_remision(
     data: GuiaRemisionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una guía de remisión."""
     return await create_guia_remision(current_user.cliente_id, data)
@@ -86,6 +94,7 @@ async def put_guia_remision(
     guia_remision_id: UUID,
     data: GuiaRemisionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una guía de remisión."""
     try:
@@ -103,6 +112,7 @@ async def get_guia_remision_detalles(
     guia_remision_id: UUID,
     producto_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.leer")),
 ):
     """Lista detalles de una guía de remisión."""
     return await list_guia_remision_detalles(
@@ -117,6 +127,7 @@ async def post_guia_remision_detalle(
     guia_remision_id: UUID,
     data: GuiaRemisionDetalleCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.crear")),
 ):
     """Crea un detalle de guía de remisión."""
     data.guia_remision_id = guia_remision_id
@@ -127,6 +138,7 @@ async def post_guia_remision_detalle(
 async def get_guia_remision_detalle(
     guia_detalle_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.leer")),
 ):
     """Obtiene un detalle por id."""
     try:
@@ -140,6 +152,7 @@ async def put_guia_remision_detalle(
     guia_detalle_id: UUID,
     data: GuiaRemisionDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE_DETALLE}.actualizar")),
 ):
     """Actualiza un detalle de guía de remisión."""
     try:

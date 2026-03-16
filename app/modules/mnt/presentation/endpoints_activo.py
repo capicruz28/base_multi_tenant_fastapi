@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mnt.application.services import (
     list_activo,
@@ -12,6 +13,9 @@ from app.modules.mnt.application.services import (
 )
 from app.modules.mnt.presentation.schemas import ActivoCreate, ActivoUpdate, ActivoRead
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "mnt"
+RESOURCE_CODE = "activo"
 
 router = APIRouter()
 
@@ -25,6 +29,7 @@ async def get_activos(
     es_activo: Optional[bool] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_activo(
         current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_activos(
 async def get_activo(
     activo_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_activo_by_id(current_user.cliente_id, activo_id)
@@ -52,6 +58,7 @@ async def get_activo(
 async def post_activo(
     data: ActivoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_activo(current_user.cliente_id, data)
 
@@ -61,6 +68,7 @@ async def put_activo(
     activo_id: UUID,
     data: ActivoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_activo(current_user.cliente_id, activo_id, data)

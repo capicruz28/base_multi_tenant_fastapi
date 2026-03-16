@@ -2,7 +2,7 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import select, insert, update, and_
-from app.infrastructure.database.tables_erp import MfgRutaFabricacionDetalleTable
+from app.infrastructure.database.tables_erp import MfgRutaFabricacionTable, MfgRutaFabricacionDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in MfgRutaFabricacionDetalleTable.c}
@@ -37,6 +37,18 @@ async def create_ruta_fabricacion_detalle(client_id: UUID, data: Dict[str, Any])
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("ruta_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde ruta (cabecera)
+    ruta_id = payload.get("ruta_id")
+    if ruta_id:
+        q = select(MfgRutaFabricacionTable.c.empresa_id).where(
+            and_(
+                MfgRutaFabricacionTable.c.cliente_id == client_id,
+                MfgRutaFabricacionTable.c.ruta_id == ruta_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     await execute_insert(insert(MfgRutaFabricacionDetalleTable).values(**payload), client_id=client_id)
     return await get_ruta_fabricacion_detalle_by_id(client_id, payload["ruta_detalle_id"])
 

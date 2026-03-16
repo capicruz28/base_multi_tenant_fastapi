@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.crm.application.services import (
     list_leads,
@@ -21,6 +22,9 @@ from app.modules.crm.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "crm"
+RESOURCE_CODE = "lead"
+
 router = APIRouter()
 
 
@@ -34,6 +38,7 @@ async def get_leads(
     asignado_vendedor_usuario_id: Optional[UUID] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista leads del tenant."""
     return await list_leads(
@@ -52,6 +57,7 @@ async def get_leads(
 async def get_lead(
     lead_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un lead por id."""
     try:
@@ -64,6 +70,7 @@ async def get_lead(
 async def post_lead(
     data: LeadCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un lead."""
     return await create_lead(current_user.cliente_id, data)
@@ -74,6 +81,7 @@ async def put_lead(
     lead_id: UUID,
     data: LeadUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un lead."""
     try:

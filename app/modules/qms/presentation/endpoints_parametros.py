@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.qms.application.services import (
     list_parametros_calidad,
@@ -21,6 +22,9 @@ from app.modules.qms.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "qms"
+RESOURCE_CODE = "parametro_calidad"
+
 router = APIRouter()
 
 
@@ -31,6 +35,7 @@ async def get_parametros_calidad(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista parámetros de calidad del tenant."""
     return await list_parametros_calidad(
@@ -46,6 +51,7 @@ async def get_parametros_calidad(
 async def get_parametro_calidad(
     parametro_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un parámetro de calidad por id."""
     try:
@@ -58,6 +64,7 @@ async def get_parametro_calidad(
 async def post_parametro_calidad(
     data: ParametroCalidadCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un parámetro de calidad."""
     return await create_parametro_calidad(current_user.cliente_id, data)
@@ -68,6 +75,7 @@ async def put_parametro_calidad(
     parametro_id: UUID,
     data: ParametroCalidadUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un parámetro de calidad."""
     try:

@@ -25,7 +25,7 @@ SlsClienteTable = Table(
     metadata_erp,
     Column("cliente_venta_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_cliente", String(20), nullable=False),
     Column("tipo_cliente", String(20), nullable=True, server_default="empresa"),
     Column("razon_social", String(200), nullable=False),
@@ -86,7 +86,7 @@ SlsClienteContactoTable = Table(
     metadata_erp,
     Column("contacto_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("cliente_venta_id", UNIQUEIDENTIFIER, ForeignKey("sls_cliente.cliente_venta_id", ondelete="CASCADE"), nullable=False),
+    Column("cliente_venta_id", UNIQUEIDENTIFIER, ForeignKey("sls_cliente.cliente_venta_id", ondelete="NO ACTION"), nullable=False),
     Column("nombre_completo", String(150), nullable=False),
     Column("cargo", String(100), nullable=True),
     Column("area", String(100), nullable=True),
@@ -111,7 +111,7 @@ SlsClienteDireccionTable = Table(
     metadata_erp,
     Column("direccion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("cliente_venta_id", UNIQUEIDENTIFIER, ForeignKey("sls_cliente.cliente_venta_id", ondelete="CASCADE"), nullable=False),
+    Column("cliente_venta_id", UNIQUEIDENTIFIER, ForeignKey("sls_cliente.cliente_venta_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_direccion", String(20), nullable=True),
     Column("nombre_direccion", String(100), nullable=False),
     Column("direccion", String(255), nullable=False),
@@ -139,7 +139,7 @@ SlsCotizacionTable = Table(
     metadata_erp,
     Column("cotizacion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_cotizacion", String(20), nullable=False),
     Column("fecha_cotizacion", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_vencimiento", Date, nullable=False),
@@ -179,23 +179,25 @@ Index("IDX_cotvta_estado", SlsCotizacionTable.c.estado, SlsCotizacionTable.c.fec
 Index("IDX_cotvta_vendedor", SlsCotizacionTable.c.vendedor_usuario_id)
 
 # ============================================================================
-# TABLA: sls_cotizacion_detalle
+# TABLA: sls_cotizacion_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 SlsCotizacionDetalleTable = Table(
     "sls_cotizacion_detalle",
     metadata_erp,
     Column("cotizacion_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("cotizacion_id", UNIQUEIDENTIFIER, ForeignKey("sls_cotizacion.cotizacion_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("cotizacion_id", UNIQUEIDENTIFIER, ForeignKey("sls_cotizacion.cotizacion_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad", Numeric(18, 4), nullable=False),
-    Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id"), nullable=False),
+    Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id", ondelete="NO ACTION"), nullable=False),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
     Column("descuento_porcentaje", Numeric(5, 2), nullable=True, server_default="0"),
     Column("tiempo_entrega_dias", Integer, nullable=True),
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_cotvtadet_empresa", SlsCotizacionDetalleTable.c.empresa_id)
 Index("IDX_cotvtadet_cotizacion", SlsCotizacionDetalleTable.c.cotizacion_id)
 Index("IDX_cotvtadet_producto", SlsCotizacionDetalleTable.c.producto_id)
 
@@ -207,7 +209,7 @@ SlsPedidoTable = Table(
     metadata_erp,
     Column("pedido_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_pedido", String(20), nullable=False),
     Column("fecha_pedido", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_entrega_prometida", Date, nullable=False),
@@ -252,17 +254,18 @@ Index("IDX_pedido_estado", SlsPedidoTable.c.estado, SlsPedidoTable.c.fecha_entre
 Index("IDX_pedido_vendedor", SlsPedidoTable.c.vendedor_usuario_id)
 
 # ============================================================================
-# TABLA: sls_pedido_detalle
+# TABLA: sls_pedido_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 SlsPedidoDetalleTable = Table(
     "sls_pedido_detalle",
     metadata_erp,
     Column("pedido_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("pedido_id", UNIQUEIDENTIFIER, ForeignKey("sls_pedido.pedido_id", ondelete="CASCADE"), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("pedido_id", UNIQUEIDENTIFIER, ForeignKey("sls_pedido.pedido_id", ondelete="NO ACTION"), nullable=False),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=False),
     Column("cantidad_pedida", Numeric(18, 4), nullable=False),
-    Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id"), nullable=False),
+    Column("unidad_medida_id", UNIQUEIDENTIFIER, ForeignKey("inv_unidad_medida.unidad_medida_id", ondelete="NO ACTION"), nullable=False),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
     Column("descuento_porcentaje", Numeric(5, 2), nullable=True, server_default="0"),
     Column("cantidad_despachada", Numeric(18, 4), nullable=True, server_default="0"),
@@ -271,5 +274,6 @@ SlsPedidoDetalleTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_pedidodet_empresa", SlsPedidoDetalleTable.c.empresa_id)
 Index("IDX_pedidodet_pedido", SlsPedidoDetalleTable.c.pedido_id)
 Index("IDX_pedidodet_producto", SlsPedidoDetalleTable.c.producto_id)

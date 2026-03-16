@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.cst.application.services import (
     list_producto_costo,
@@ -17,6 +18,9 @@ from app.modules.cst.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "cst"
+RESOURCE_CODE = "producto_costo"
+
 router = APIRouter()
 
 
@@ -28,6 +32,7 @@ async def get_productos_costo(
     mes: Optional[int] = Query(None, ge=1, le=12),
     metodo_costeo: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_producto_costo(
         current_user.cliente_id,
@@ -43,6 +48,7 @@ async def get_productos_costo(
 async def get_producto_costo(
     producto_costo_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_producto_costo_by_id(current_user.cliente_id, producto_costo_id)
@@ -54,6 +60,7 @@ async def get_producto_costo(
 async def post_producto_costo(
     data: ProductoCostoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_producto_costo(current_user.cliente_id, data)
 
@@ -63,6 +70,7 @@ async def put_producto_costo(
     producto_costo_id: UUID,
     data: ProductoCostoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_producto_costo(current_user.cliente_id, producto_costo_id, data)

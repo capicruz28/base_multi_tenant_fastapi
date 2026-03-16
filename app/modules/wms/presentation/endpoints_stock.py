@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.wms.application.services import (
     list_stock_ubicaciones,
@@ -21,6 +22,9 @@ from app.modules.wms.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "wms"
+RESOURCE_CODE = "stock_ubicacion"
+
 router = APIRouter()
 
 
@@ -32,6 +36,7 @@ async def get_stock_ubicaciones(
     estado_stock: Optional[str] = Query(None),
     lote: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista stock por ubicación del tenant."""
     return await list_stock_ubicaciones(
@@ -48,6 +53,7 @@ async def get_stock_ubicaciones(
 async def get_stock_ubicacion(
     stock_ubicacion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un stock por ubicación por id."""
     try:
@@ -60,6 +66,7 @@ async def get_stock_ubicacion(
 async def post_stock_ubicacion(
     data: StockUbicacionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un stock por ubicación."""
     return await create_stock_ubicacion(current_user.cliente_id, data)
@@ -70,6 +77,7 @@ async def put_stock_ubicacion(
     stock_ubicacion_id: UUID,
     data: StockUbicacionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un stock por ubicación."""
     try:

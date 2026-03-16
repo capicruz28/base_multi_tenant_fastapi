@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.sls.application.services import (
     list_cotizaciones,
@@ -22,6 +23,9 @@ from app.modules.sls.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "sls"
+RESOURCE_CODE = "cotizacion"
+
 router = APIRouter()
 
 
@@ -34,6 +38,7 @@ async def get_cotizaciones(
     fecha_desde: Optional[date] = Query(None),
     fecha_hasta: Optional[date] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista cotizaciones del tenant."""
     return await list_cotizaciones(
@@ -51,6 +56,7 @@ async def get_cotizaciones(
 async def get_cotizacion(
     cotizacion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una cotizacion por id."""
     try:
@@ -63,6 +69,7 @@ async def get_cotizacion(
 async def post_cotizacion(
     data: CotizacionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una cotizacion."""
     return await create_cotizacion(current_user.cliente_id, data)
@@ -73,6 +80,7 @@ async def put_cotizacion(
     cotizacion_id: UUID,
     data: CotizacionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una cotizacion."""
     try:

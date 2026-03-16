@@ -4,6 +4,7 @@ from uuid import UUID
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.hcm.application.services import (
     list_asistencias,
@@ -16,6 +17,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "hcm"
+RESOURCE_CODE = "asistencia"
+
 
 @router.get("", response_model=List[AsistenciaRead], tags=["HCM - Asistencia"])
 async def get_asistencias(
@@ -25,6 +29,7 @@ async def get_asistencias(
     fecha_hasta: Optional[date] = Query(None),
     tipo_asistencia: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_asistencias(
         client_id=current_user.cliente_id,
@@ -40,6 +45,7 @@ async def get_asistencias(
 async def get_asistencia(
     asistencia_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_asistencia_by_id(current_user.cliente_id, asistencia_id)
@@ -51,6 +57,7 @@ async def get_asistencia(
 async def post_asistencia(
     data: AsistenciaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_asistencia(current_user.cliente_id, data)
 
@@ -60,6 +67,7 @@ async def put_asistencia(
     asistencia_id: UUID,
     data: AsistenciaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_asistencia(current_user.cliente_id, asistencia_id, data)

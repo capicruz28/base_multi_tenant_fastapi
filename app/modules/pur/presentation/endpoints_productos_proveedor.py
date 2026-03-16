@@ -5,10 +5,14 @@ from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pur.presentation.schemas import ProductoProveedorCreate, ProductoProveedorUpdate, ProductoProveedorRead
 from app.modules.pur.application.services import producto_proveedor_service
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "pur"
+RESOURCE_CODE = "producto_proveedor"
 
 router = APIRouter()
 
@@ -19,6 +23,7 @@ async def listar_productos_proveedor(
     producto_id: Optional[UUID] = Query(None, description="Filtrar por producto"),
     solo_activos: bool = Query(True, description="Solo productos activos"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista productos por proveedor del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -34,6 +39,7 @@ async def listar_productos_proveedor(
 async def detalle_producto_proveedor(
     producto_proveedor_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de un producto por proveedor. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -50,6 +56,7 @@ async def detalle_producto_proveedor(
 async def crear_producto_proveedor(
     data: ProductoProveedorCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un producto por proveedor. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -61,6 +68,7 @@ async def actualizar_producto_proveedor(
     producto_proveedor_id: UUID,
     data: ProductoProveedorUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un producto por proveedor. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

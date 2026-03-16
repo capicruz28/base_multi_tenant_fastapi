@@ -2,56 +2,40 @@
 """
 Helper para transformar el resultado del stored procedure sp_obtener_menu_usuario
 a la estructura JSON jerárquica esperada por el frontend.
-
-El SP retorna un dataset plano que debe transformarse a:
-{
-  "modulos": [
-    {
-      "modulo_id": "...",
-      "codigo": "...",
-      "secciones": [
-        {
-          "seccion_id": "...",
-          "menus": [
-            {
-              "menu_id": "...",
-              "permisos": {...},
-              "submenus": [...]
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
 """
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 import logging
 
 from app.modules.modulos.presentation.schemas import (
-    MenuUsuarioResponse, ModuloMenuResponse, SeccionMenu, MenuItem, PermisosMenu
+    MenuUsuarioResponse,
+    ModuloMenuResponse,
+    SeccionMenu,
+    MenuItem,
+    PermisosMenu,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def transformar_sp_menu_usuario(sp_result: List[Dict[str, Any]]) -> MenuUsuarioResponse:
+def _norm_uuid(v: Any) -> Optional[UUID]:
+    if v is None:
+        return None
+    if isinstance(v, UUID):
+        return v
+    try:
+        return UUID(str(v))
+    except (ValueError, TypeError):
+        return None
+
+
+def transformar_sp_menu_usuario(
+    sp_result: List[Dict[str, Any]],
+    *,
+    required_permissions_by_modulo: Optional[Dict[UUID, List[str]]] = None,
+) -> MenuUsuarioResponse:
     """
     Transforma el resultado plano del SP sp_obtener_menu_usuario a estructura jerárquica.
-    
-    El SP debe retornar columnas como:
-    - modulo_id, modulo_codigo, modulo_nombre, modulo_icono, modulo_color, modulo_categoria, modulo_orden
-    - seccion_id, seccion_codigo, seccion_nombre, seccion_icono, seccion_orden
-    - menu_id, menu_codigo, menu_nombre, menu_icono, menu_ruta, menu_nivel, menu_tipo, menu_orden
-    - menu_padre_id
-    - puede_ver, puede_crear, puede_editar, puede_eliminar, puede_exportar, puede_imprimir, puede_aprobar
-    
-    Args:
-        sp_result: Lista de diccionarios con el resultado del SP
-        
-    Returns:
-        MenuUsuarioResponse: Estructura jerárquica completa
     """
     if not sp_result:
         logger.info("SP sp_obtener_menu_usuario no retornó resultados")
@@ -115,32 +99,51 @@ def transformar_sp_menu_usuario(sp_result: List[Dict[str, Any]]) -> MenuUsuarioR
             logger.warning(f"Fila sin menu_id, saltando: {row}")
             continue
         
-        # Crear permisos
+        # permisos = UI actions (rol_menu_permiso). NO seguridad backend.
         permisos = PermisosMenu(
-            ver=bool(row.get('puede_ver', False)),
-            crear=bool(row.get('puede_crear', False)),
-            editar=bool(row.get('puede_editar', False)),
-            eliminar=bool(row.get('puede_eliminar', False)),
-            exportar=bool(row.get('puede_exportar', False)),
-            imprimir=bool(row.get('puede_imprimir', False)),
-            aprobar=bool(row.get('puede_aprobar', False))
+            ver=bool(row.get("puede_ver", False)),
+            crear=bool(row.get("puede_crear", False)),
+            editar=bool(row.get("puede_editar", False)),
+            eliminar=bool(row.get("puede_eliminar", False)),
+            exportar=bool(row.get("puede_exportar", False)),
+            imprimir=bool(row.get("puede_imprimir", False)),
+            aprobar=bool(row.get("puede_aprobar", False)),
         )
-        
-        # Crear item de menú
+
+        # required_permission: metadata opcional, derivada desde permisos de negocio (tabla permiso).
+        required_permission: Optional[str] = None
+        if required_permissions_by_modulo:
+            mid = _norm_uuid(row.get("modulo_id"))
+            if mid:
+                codes = list(required_permissions_by_modulo.get(mid, []) or [])
+                for code in codes:
+                    if isinstance(code, str) and code.endswith(".leer"):
+                        required_permission = code
+                        break
+                if required_permission is None and codes:
+                    required_permission = codes[0]
+
+        # Metadata SaaS. is_visible refleja directamente permisos.ver;
+        # el frontend NO debe recalcular permisos.
+        is_visible = bool(permisos.ver)
+        is_enabled = True
+
         menu_item = {
-            'menu_id': menu_id,
-            'codigo': row.get('menu_codigo'),
-            'nombre': row.get('menu_nombre', ''),
-            'icono': row.get('menu_icono'),
-            'ruta': row.get('ruta') or row.get('menu_ruta'),  # Compatibilidad con ambos nombres
-            'nivel': row.get('menu_nivel', 1),
-            'tipo_menu': row.get('menu_tipo', 'pantalla'),
-            'orden': row.get('menu_orden', 0),
-            'permisos': permisos,
-            'menu_padre_id': row.get('menu_padre_id'),
-            'submenus': []
+            "menu_id": menu_id,
+            "codigo": row.get("menu_codigo"),
+            "nombre": row.get("menu_nombre", ""),
+            "icono": row.get("menu_icono"),
+            "ruta": row.get("ruta") or row.get("menu_ruta"),
+            "tipo_menu": row.get("menu_tipo", "pantalla"),
+            "orden": row.get("menu_orden", 0),
+            "is_visible": is_visible,
+            "is_enabled": is_enabled,
+            "required_permission": required_permission,
+            "permisos": permisos,
+            "menu_padre_id": row.get("menu_padre_id"),
+            "submenus": [],
         }
-        
+
         # Agregar a la sección
         seccion['menus'][menu_id] = menu_item
     

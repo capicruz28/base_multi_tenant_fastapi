@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.sls.application.services import (
     list_pedidos,
@@ -22,6 +23,9 @@ from app.modules.sls.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "sls"
+RESOURCE_CODE = "pedido"
+
 router = APIRouter()
 
 
@@ -35,6 +39,7 @@ async def get_pedidos(
     fecha_desde: Optional[date] = Query(None),
     fecha_hasta: Optional[date] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista pedidos del tenant."""
     return await list_pedidos(
@@ -53,6 +58,7 @@ async def get_pedidos(
 async def get_pedido(
     pedido_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un pedido por id."""
     try:
@@ -65,6 +71,7 @@ async def get_pedido(
 async def post_pedido(
     data: PedidoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un pedido."""
     return await create_pedido(current_user.cliente_id, data)
@@ -75,6 +82,7 @@ async def put_pedido(
     pedido_id: UUID,
     data: PedidoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un pedido."""
     try:

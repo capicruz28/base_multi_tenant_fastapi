@@ -28,9 +28,30 @@ Todos los endpoints exigen usuario autenticado. Los datos devueltos/creados pert
 | GET | `/api/v1/org/empresa/{empresa_id}` | Detalle de una empresa |
 | POST | `/api/v1/org/empresa` | Crear empresa |
 | PUT | `/api/v1/org/empresa/{empresa_id}` | Actualizar empresa |
+| DELETE | `/api/v1/org/empresa/{empresa_id}` | Eliminar (baja lógica, marca `es_activo = false`) |
+| POST | `/api/v1/org/empresa/{empresa_id}/reactivar` | Reactivar empresa (marca `es_activo = true`) |
 
 **Query params (GET list):**  
-- `solo_activos` (opcional, boolean, default `true`)
+- `solo_activos` (opcional, boolean, default `true`)  
+- `buscar` (opcional, string) — filtra por `codigo_empresa` o `razon_social`
+
+---
+
+### Catálogos globales (solo lectura para ORG)
+
+ORG ya **no administra monedas**. La moneda base se elige desde el catálogo global `cat_moneda`.
+Los catálogos de ubigeo (país/departamento/provincia/distrito) también se consumen desde endpoints globales.
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/v1/catalogos/monedas` | Listar `cat_moneda` (para seleccionar `moneda_base_id`) |
+| GET | `/api/v1/catalogos/paises` | Listar `cat_pais` |
+| GET | `/api/v1/catalogos/departamentos?pais_id=...` | Listar `cat_departamento` |
+| GET | `/api/v1/catalogos/provincias?departamento_id=...` | Listar `cat_provincia` |
+| GET | `/api/v1/catalogos/distritos?provincia_id=...` | Listar `cat_distrito` |
+
+**Administración (solo Superadmin):**  
+Los CRUD viven en `/api/v1/catalogos-globales/*` y se exponen en el panel `/super-admin/*` (ver seed `6.- SEED_ADMIN_MENU.sql`).
 
 ---
 
@@ -42,10 +63,12 @@ Todos los endpoints exigen usuario autenticado. Los datos devueltos/creados pert
 | GET | `/api/v1/org/sucursales/{sucursal_id}` | Detalle sucursal |
 | POST | `/api/v1/org/sucursales` | Crear sucursal |
 | PUT | `/api/v1/org/sucursales/{sucursal_id}` | Actualizar sucursal |
+| DELETE | `/api/v1/org/sucursales/{sucursal_id}` | Eliminar (baja lógica, `es_activo = false`) |
 
 **Query params (GET list):**  
 - `empresa_id` (opcional, UUID) — Filtrar por empresa  
-- `solo_activos` (opcional, boolean, default `true`)
+- `solo_activos` (opcional, boolean, default `true`)  
+- `buscar` (opcional, string) — filtra por código o nombre
 
 ---
 
@@ -57,10 +80,12 @@ Todos los endpoints exigen usuario autenticado. Los datos devueltos/creados pert
 | GET | `/api/v1/org/centros-costo/{centro_costo_id}` | Detalle centro de costo |
 | POST | `/api/v1/org/centros-costo` | Crear centro de costo |
 | PUT | `/api/v1/org/centros-costo/{centro_costo_id}` | Actualizar centro de costo |
+| DELETE | `/api/v1/org/centros-costo/{centro_costo_id}` | Eliminar (baja lógica, `es_activo = false`) |
 
 **Query params (GET list):**  
 - `empresa_id` (opcional, UUID)  
-- `solo_activos` (opcional, boolean, default `true`)
+- `solo_activos` (opcional, boolean, default `true`)  
+- `buscar` (opcional, string) — filtra por código o nombre
 
 ---
 
@@ -72,10 +97,12 @@ Todos los endpoints exigen usuario autenticado. Los datos devueltos/creados pert
 | GET | `/api/v1/org/departamentos/{departamento_id}` | Detalle departamento |
 | POST | `/api/v1/org/departamentos` | Crear departamento |
 | PUT | `/api/v1/org/departamentos/{departamento_id}` | Actualizar departamento |
+| DELETE | `/api/v1/org/departamentos/{departamento_id}` | Eliminar (baja lógica, `es_activo = false`) |
 
 **Query params (GET list):**  
 - `empresa_id` (opcional, UUID)  
-- `solo_activos` (opcional, boolean, default `true`)
+- `solo_activos` (opcional, boolean, default `true`)  
+- `buscar` (opcional, string) — filtra por código o nombre
 
 ---
 
@@ -87,10 +114,12 @@ Todos los endpoints exigen usuario autenticado. Los datos devueltos/creados pert
 | GET | `/api/v1/org/cargos/{cargo_id}` | Detalle cargo |
 | POST | `/api/v1/org/cargos` | Crear cargo |
 | PUT | `/api/v1/org/cargos/{cargo_id}` | Actualizar cargo |
+| DELETE | `/api/v1/org/cargos/{cargo_id}` | Eliminar (baja lógica, `es_activo = false`) |
 
 **Query params (GET list):**  
 - `empresa_id` (opcional, UUID)  
-- `solo_activos` (opcional, boolean, default `true`)
+- `solo_activos` (opcional, boolean, default `true`)  
+- `buscar` (opcional, string) — filtra por código o nombre
 
 ---
 
@@ -102,11 +131,13 @@ Todos los endpoints exigen usuario autenticado. Los datos devueltos/creados pert
 | GET | `/api/v1/org/parametros/{parametro_id}` | Detalle parámetro |
 | POST | `/api/v1/org/parametros` | Crear parámetro |
 | PUT | `/api/v1/org/parametros/{parametro_id}` | Actualizar parámetro |
+| DELETE | `/api/v1/org/parametros/{parametro_id}` | Eliminar (baja lógica, `es_activo = false`) |
 
 **Query params (GET list):**  
 - `empresa_id` (opcional, UUID)  
 - `modulo_codigo` (opcional, string) — Ej: `"ORG"`, `"INV"`  
-- `solo_activos` (opcional, boolean, default `true`)
+- `solo_activos` (opcional, boolean, default `true`)  
+- `buscar` (opcional, string) — filtra por módulo, código o nombre de parámetro
 
 ---
 
@@ -118,14 +149,28 @@ Los IDs son **UUID** (string). Las fechas vienen en ISO 8601 (ej. `"2025-02-18T1
 
 **Crear (POST):**  
 - Obligatorios: `codigo_empresa`, `razon_social`, `ruc`  
-- Opcionales: `nombre_comercial`, `tipo_documento_tributario`, `direccion_fiscal`, `pais`, `departamento`, `provincia`, `distrito`, `telefono_principal`, `email_principal`, `moneda_base`, `zona_horaria`, `es_activo`, etc.  
+- Opcionales: `nombre_comercial`, `tipo_documento_tributario`, `direccion_fiscal`, `pais`, `departamento`, `provincia`, `distrito`, `telefono_principal`, `email_principal`, `moneda_base_id` (UUID de moneda del catálogo), `maneja_multimoneda` (boolean), `zona_horaria`, `es_activo`, etc.  
 - **No enviar:** `cliente_id` ni `empresa_id` (el backend los asigna).
 
 **Actualizar (PUT):**  
-- Todos los campos opcionales; solo enviar los que se modifican.
+- Todos los campos opcionales; solo enviar los que se modifican. Incluye `moneda_base_id` y `maneja_multimoneda` para configurar multi-moneda.
 
 **Respuesta (Read):**  
-- `empresa_id`, `cliente_id`, `codigo_empresa`, `razon_social`, `nombre_comercial`, `ruc`, `tipo_documento_tributario`, `direccion_fiscal`, `pais`, `departamento`, `provincia`, `distrito`, `telefono_principal`, `email_principal`, `moneda_base`, `zona_horaria`, `es_activo`, `fecha_creacion`, `fecha_actualizacion`.
+- `empresa_id`, `cliente_id`, `codigo_empresa`, `razon_social`, `nombre_comercial`, `ruc`, `tipo_documento_tributario`, `direccion_fiscal`, `pais`, `departamento`, `provincia`, `distrito`, `telefono_principal`, `email_principal`, `moneda_base_id`, `maneja_multimoneda`, `zona_horaria`, `es_activo`, `fecha_creacion`, `fecha_actualizacion`.
+
+---
+
+### Moneda
+
+**Crear (POST):**  
+- Obligatorios: `empresa_id`, `codigo`, `nombre`, `simbolo`  
+- Opcionales: `decimales` (default 2), `es_moneda_base` (default false), `es_activo` (default true).  
+
+**Actualizar (PUT):**  
+- Todos opcionales; solo enviar los que se modifican.
+
+**Respuesta (Read):**  
+- `moneda_id`, `cliente_id`, `empresa_id`, `codigo`, `nombre`, `simbolo`, `decimales`, `es_moneda_base`, `es_activo`, `fecha_creacion`.
 
 ---
 
@@ -133,10 +178,10 @@ Los IDs son **UUID** (string). Las fechas vienen en ISO 8601 (ej. `"2025-02-18T1
 
 **Crear (POST):**  
 - Obligatorios: `empresa_id`, `codigo`, `nombre`  
-- Opcionales: `descripcion`, `tipo_sucursal`, `direccion`, `pais`, `departamento`, `provincia`, `distrito`, `telefono`, `email`, `es_casa_matriz`, `es_punto_venta`, `es_almacen`, `responsable_nombre`, `centro_costo_id`, `es_activo`, etc.
+- Opcionales: `descripcion`, `tipo_sucursal`, `direccion`, `pais_id`, `departamento_id`, `provincia_id`, `distrito_id`, `telefono`, `email`, `es_casa_matriz`, `es_punto_venta`, `es_almacen`, `responsable_nombre`, `centro_costo_id`, `es_activo`, etc.
 
 **Respuesta (Read):**  
-- `sucursal_id`, `cliente_id`, `empresa_id`, `codigo`, `nombre`, `descripcion`, `tipo_sucursal`, `direccion`, `pais`, `departamento`, `provincia`, `distrito`, `telefono`, `email`, `es_casa_matriz`, `es_punto_venta`, `es_almacen`, `es_activo`, `fecha_creacion`, etc.
+- `sucursal_id`, `cliente_id`, `empresa_id`, `codigo`, `nombre`, `descripcion`, `tipo_sucursal`, `direccion`, `pais_id`, `departamento_id`, `provincia_id`, `distrito_id`, `telefono`, `email`, `es_casa_matriz`, `es_punto_venta`, `es_almacen`, `es_activo`, `fecha_creacion`, etc.
 
 ---
 
@@ -198,7 +243,8 @@ Authorization: Bearer <token>
     "distrito": "Miraflores",
     "telefono_principal": "014567890",
     "email_principal": "contacto@miempresa.com",
-    "moneda_base": "PEN",
+    "moneda_base_id": "<UUID de cat_moneda>",
+    "maneja_multimoneda": false,
     "zona_horaria": "America/Lima",
     "es_activo": true,
     "fecha_creacion": "2025-02-18T10:00:00",
@@ -226,7 +272,8 @@ Content-Type: application/json
   "distrito": "Miraflores",
   "telefono_principal": "014567890",
   "email_principal": "contacto@miempresa.com",
-  "moneda_base": "PEN",
+  "moneda_base_id": "<UUID de cat_moneda>",
+  "maneja_multimoneda": false,
   "zona_horaria": "America/Lima",
   "es_activo": true
 }
@@ -294,7 +341,9 @@ El backend ya expone estas rutas en `modulo_menu` (script `SEED_MODULO_MENU_COMP
    - Listar: `GET /api/v1/org/empresa`.  
    - Si hay una sola empresa, redirigir o mostrar directamente el detalle.  
    - Crear: `POST /api/v1/org/empresa` (si el tenant no tiene empresa).  
-   - Editar: `PUT /api/v1/org/empresa/{empresa_id}`.
+   - Editar: `PUT /api/v1/org/empresa/{empresa_id}`.  
+   - Para **moneda base**: enviar `moneda_base_id` (UUID de la moneda elegida del catálogo).  
+   - Para **multi-moneda**: enviar `maneja_multimoneda: true/false`.
 4. **Pantalla Sucursales:**  
    - Listar: `GET /api/v1/org/sucursales` (opcional: `?empresa_id=...`).  
    - Crear: `POST /api/v1/org/sucursales` (incluir `empresa_id`).  
@@ -303,7 +352,8 @@ El backend ya expone estas rutas en `modulo_menu` (script `SEED_MODULO_MENU_COMP
    - Mismo patrón: GET list, GET by id, POST, PUT.  
    - En listados, usar `empresa_id` en query cuando la pantalla esté asociada a una empresa seleccionada.
 6. **Selectores:**  
-   - Para “Empresa” en formularios de Sucursal, Departamento, Cargo o Centro de costo, poblar con `GET /api/v1/org/empresa`.
+   - Para “Empresa” en formularios de Sucursal, Departamento, Cargo o Centro de costo, poblar con `GET /api/v1/org/empresa`.  
+   - Para “Moneda base” en Mi Empresa, poblar con `GET /api/v1/catalogos/monedas`.
 
 ---
 

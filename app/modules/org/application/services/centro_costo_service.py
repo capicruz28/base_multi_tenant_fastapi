@@ -25,13 +25,22 @@ async def list_centros_costo_servicio(
     client_id: UUID,
     empresa_id: Optional[UUID] = None,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
 ) -> List[CentroCostoRead]:
     rows = await list_centros_costo(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
     )
-    return [_row_to_read(r) for r in rows]
+    centros = [_row_to_read(r) for r in rows]
+    if buscar:
+        term = buscar.lower()
+        centros = [
+            c
+            for c in centros
+            if term in (c.codigo or "").lower() or term in (c.nombre or "").lower()
+        ]
+    return centros
 
 
 async def get_centro_costo_servicio(
@@ -74,3 +83,23 @@ async def update_centro_costo_servicio(
         data=payload,
     )
     return _row_to_read(updated)
+
+
+async def delete_centro_costo_servicio(
+    client_id: UUID,
+    centro_costo_id: UUID,
+) -> None:
+    """
+    Baja lógica de un centro de costo (es_activo = False).
+    """
+    row = await get_centro_costo_by_id(
+        client_id=client_id,
+        centro_costo_id=centro_costo_id,
+    )
+    if not row:
+        raise NotFoundError(detail="Centro de costo no encontrado")
+    await update_centro_costo(
+        client_id=client_id,
+        centro_costo_id=centro_costo_id,
+        data={"es_activo": False},
+    )

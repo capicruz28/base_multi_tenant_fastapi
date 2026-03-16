@@ -4,7 +4,7 @@
 
 | Tabla | Qué es | Quién la llena |
 |-------|--------|----------------|
-| **permiso** | Catálogo **global** de todos los permisos de negocio posibles (admin.usuario.leer, mfg.orden_produccion.crear, org.area.leer, etc.). Una sola vez en BD central. | **SuperAdmin / equipo técnico**: por seed SQL o por una pantalla de administración del catálogo. |
+| **permiso** | Catálogo **global** de todos los permisos de negocio posibles (admin.usuario.leer, mfg.orden_produccion.crear, org.empresa.leer, etc.). Una sola vez en BD central. | **SuperAdmin / equipo técnico**: por seed SQL o por una pantalla de administración del catálogo. |
 | **cliente_modulo** | Qué **módulos** tiene contratados/habilitados cada cliente (ORG, LOG, MFG, etc.). | **SuperAdmin** (o proceso comercial): al activar un módulo para un cliente. |
 | **rol_permiso** | Qué permisos del catálogo tiene asignados **cada rol** (por tenant). | **Admin del tenant** (o SuperAdmin): desde la pantalla “Permisos de negocio” del rol. |
 

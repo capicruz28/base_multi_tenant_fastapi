@@ -33,6 +33,7 @@ from app.core.exceptions import CustomException # Reemplaza ServiceError
 
 # Importar Dependencias de Autorización
 from app.api.deps import get_current_active_user, RoleChecker
+from app.core.authorization.rbac import require_permission
 
 # Logging
 from app.core.logging_config import get_logger
@@ -73,6 +74,7 @@ def _can_manage_system_menu(current_user: UsuarioReadWithRoles) -> bool:
     - 401: No autenticado.
     - 500: Error interno del servidor.
     """,
+    dependencies=[Depends(require_permission("modulos.menu.leer"))],
 )
 async def get_menu(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
@@ -123,7 +125,7 @@ async def get_menu(
     - 403: Acceso denegado (no Admin).
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.leer"))],
 )
 async def get_all_menus_admin_structured_endpoint(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
@@ -180,7 +182,7 @@ async def get_all_menus_admin_structured_endpoint(
     - 422: Error de validación Pydantic.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def create_menu_endpoint(
     menu_in: MenuCreate = Body(...),
@@ -237,7 +239,7 @@ async def create_menu_endpoint(
     - 404: Ítem de menú no encontrado.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.leer"))],
 )
 async def get_menu_by_id_endpoint(
     menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a consultar"),
@@ -304,7 +306,7 @@ async def get_menu_by_id_endpoint(
     - 422: Error de validación Pydantic.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def update_menu_endpoint(
     menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a actualizar"),
@@ -380,7 +382,7 @@ async def update_menu_endpoint(
     - 404: Ítem de menú no encontrado.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def deactivate_menu_endpoint(
     menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a desactivar"),
@@ -440,7 +442,7 @@ async def deactivate_menu_endpoint(
     - 404: Ítem de menú no encontrado.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.administrar"))],
 )
 async def reactivate_menu_endpoint(
     menu_id: UUID = Path(..., title="ID del Menú", description="El ID del ítem de menú a reactivar"),
@@ -500,7 +502,7 @@ async def reactivate_menu_endpoint(
     - 404: Área no encontrada (si el servicio lo valida).
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
+    dependencies=[Depends(require_admin), Depends(require_permission("modulos.menu.leer"))],
 )
 async def get_menu_tree_by_area_endpoint(
     area_id: UUID = Path(..., title="ID del Área", description="El ID del área a la que pertenece el menú"),

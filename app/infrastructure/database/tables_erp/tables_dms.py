@@ -24,7 +24,7 @@ DmsDocumentoTable = Table(
     metadata_erp,
     Column("documento_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_documento", String(20), nullable=True),
     Column("nombre_archivo", String(255), nullable=False),
     Column("descripcion", String(500), nullable=True),

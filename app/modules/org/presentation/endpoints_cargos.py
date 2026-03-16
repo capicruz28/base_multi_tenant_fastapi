@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_cargos.py
 """Endpoints ORG - Cargos. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -17,20 +17,22 @@ router = APIRouter()
 async def listar_cargos(
     empresa_id: Optional[UUID] = Query(None),
     solo_activos: bool = True,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    buscar: Optional[str] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.leer")),
 ):
     client_id = current_user.cliente_id
     return await cargo_service.list_cargos_servicio(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
 
 
 @router.get("/{cargo_id}", response_model=CargoRead, summary="Detalle cargo")
 async def detalle_cargo(
     cargo_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.leer")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.leer")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -45,7 +47,7 @@ async def detalle_cargo(
 @router.post("", response_model=CargoRead, status_code=201, summary="Crear cargo")
 async def crear_cargo(
     data: CargoCreate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.crear")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.crear")),
 ):
     client_id = current_user.cliente_id
     return await cargo_service.create_cargo_servicio(client_id=client_id, data=data)
@@ -55,7 +57,7 @@ async def crear_cargo(
 async def actualizar_cargo(
     cargo_id: UUID,
     data: CargoUpdate,
-    current_user: UsuarioReadWithRoles = Depends(require_permission("org.area.actualizar")),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.actualizar")),
 ):
     client_id = current_user.cliente_id
     try:
@@ -63,6 +65,26 @@ async def actualizar_cargo(
             client_id=client_id,
             cargo_id=cargo_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{cargo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) cargo",
+)
+async def eliminar_cargo(
+    cargo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.eliminar")),
+):
+    """Marca un cargo como inactivo (baja lógica) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await cargo_service.delete_cargo_servicio(
+            client_id=client_id,
+            cargo_id=cargo_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

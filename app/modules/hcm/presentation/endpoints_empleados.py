@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.hcm.application.services import (
     list_empleados,
@@ -15,6 +16,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "hcm"
+RESOURCE_CODE = "empleado"
+
 
 @router.get("", response_model=List[EmpleadoRead], tags=["HCM - Empleados"])
 async def get_empleados(
@@ -25,6 +29,7 @@ async def get_empleados(
     cargo_id: Optional[UUID] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_empleados(
         client_id=current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_empleados(
 async def get_empleado(
     empleado_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_empleado_by_id(current_user.cliente_id, empleado_id)
@@ -52,6 +58,7 @@ async def get_empleado(
 async def post_empleado(
     data: EmpleadoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_empleado(current_user.cliente_id, data)
 
@@ -61,6 +68,7 @@ async def put_empleado(
     empleado_id: UUID,
     data: EmpleadoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_empleado(current_user.cliente_id, empleado_id, data)

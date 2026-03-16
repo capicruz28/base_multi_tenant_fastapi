@@ -25,7 +25,7 @@ QmsParametroCalidadTable = Table(
     metadata_erp,
     Column("parametro_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
@@ -53,13 +53,13 @@ QmsPlanInspeccionTable = Table(
     metadata_erp,
     Column("plan_inspeccion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
     Column("aplica_a", String(20), nullable=False),
-    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="CASCADE"), nullable=True),
-    Column("categoria_id", UNIQUEIDENTIFIER, ForeignKey("inv_categoria_producto.categoria_id", ondelete="CASCADE"), nullable=True),
+    Column("producto_id", UNIQUEIDENTIFIER, ForeignKey("inv_producto.producto_id", ondelete="NO ACTION"), nullable=True),
+    Column("categoria_id", UNIQUEIDENTIFIER, ForeignKey("inv_categoria_producto.categoria_id", ondelete="NO ACTION"), nullable=True),
     Column("tipo_inspeccion", String(30), nullable=False),
     Column("tipo_muestreo", String(30), nullable=True, server_default="total"),
     Column("porcentaje_muestreo", Numeric(5, 2), nullable=True),
@@ -79,15 +79,16 @@ Index("IDX_qms_plan_producto", QmsPlanInspeccionTable.c.producto_id)
 Index("IDX_qms_plan_categoria", QmsPlanInspeccionTable.c.categoria_id)
 
 # ============================================================================
-# TABLA: qms_plan_inspeccion_detalle
+# TABLA: qms_plan_inspeccion_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 QmsPlanInspeccionDetalleTable = Table(
     "qms_plan_inspeccion_detalle",
     metadata_erp,
     Column("plan_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("plan_inspeccion_id", UNIQUEIDENTIFIER, ForeignKey("qms_plan_inspeccion.plan_inspeccion_id", ondelete="CASCADE"), nullable=False),
-    Column("parametro_calidad_id", UNIQUEIDENTIFIER, ForeignKey("qms_parametro_calidad.parametro_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("plan_inspeccion_id", UNIQUEIDENTIFIER, ForeignKey("qms_plan_inspeccion.plan_inspeccion_id", ondelete="NO ACTION"), nullable=False),
+    Column("parametro_calidad_id", UNIQUEIDENTIFIER, ForeignKey("qms_parametro_calidad.parametro_id", ondelete="NO ACTION"), nullable=False),
     Column("orden", Integer, nullable=True, server_default="0"),
     Column("es_obligatorio", Boolean, nullable=True, server_default="1"),
     Column("criticidad", String(20), nullable=True, server_default="menor"),
@@ -97,6 +98,7 @@ QmsPlanInspeccionDetalleTable = Table(
     Column("instrucciones_especificas", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_qms_plandet_empresa", QmsPlanInspeccionDetalleTable.c.empresa_id)
 Index("IDX_qms_plandet_plan", QmsPlanInspeccionDetalleTable.c.plan_inspeccion_id, QmsPlanInspeccionDetalleTable.c.orden)
 
 # ============================================================================
@@ -107,7 +109,7 @@ QmsInspeccionTable = Table(
     metadata_erp,
     Column("inspeccion_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_inspeccion", String(20), nullable=False),
     Column("fecha_inspeccion", DateTime, nullable=False, server_default=func.getdate()),
     Column("plan_inspeccion_id", UNIQUEIDENTIFIER, ForeignKey("qms_plan_inspeccion.plan_inspeccion_id"), nullable=False),
@@ -143,15 +145,16 @@ Index("IDX_qms_insp_resultado", QmsInspeccionTable.c.resultado, QmsInspeccionTab
 Index("IDX_qms_insp_lote", QmsInspeccionTable.c.lote)
 
 # ============================================================================
-# TABLA: qms_inspeccion_detalle
+# TABLA: qms_inspeccion_detalle (Fase 4: empresa_id + FK + índice)
 # ============================================================================
 QmsInspeccionDetalleTable = Table(
     "qms_inspeccion_detalle",
     metadata_erp,
     Column("inspeccion_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("inspeccion_id", UNIQUEIDENTIFIER, ForeignKey("qms_inspeccion.inspeccion_id", ondelete="CASCADE"), nullable=False),
-    Column("parametro_calidad_id", UNIQUEIDENTIFIER, ForeignKey("qms_parametro_calidad.parametro_id"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("inspeccion_id", UNIQUEIDENTIFIER, ForeignKey("qms_inspeccion.inspeccion_id", ondelete="NO ACTION"), nullable=False),
+    Column("parametro_calidad_id", UNIQUEIDENTIFIER, ForeignKey("qms_parametro_calidad.parametro_id", ondelete="NO ACTION"), nullable=False),
     Column("valor_medido", Numeric(18, 4), nullable=True),
     Column("valor_cualitativo", String(50), nullable=True),
     Column("resultado_pasa_no_pasa", Boolean, nullable=True),
@@ -160,6 +163,7 @@ QmsInspeccionDetalleTable = Table(
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_qms_inspdet_empresa", QmsInspeccionDetalleTable.c.empresa_id)
 Index("IDX_qms_inspdet_insp", QmsInspeccionDetalleTable.c.inspeccion_id)
 Index("IDX_qms_inspdet_no_conforme", QmsInspeccionDetalleTable.c.inspeccion_id)
 
@@ -171,7 +175,7 @@ QmsNoConformidadTable = Table(
     metadata_erp,
     Column("no_conformidad_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("numero_nc", String(20), nullable=False),
     Column("fecha_deteccion", DateTime, nullable=False, server_default=func.getdate()),
     Column("origen", String(30), nullable=False),

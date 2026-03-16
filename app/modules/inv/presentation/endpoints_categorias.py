@@ -5,6 +5,7 @@ from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import CategoriaCreate, CategoriaUpdate, CategoriaRead
 from app.modules.inv.application.services import categoria_service
@@ -12,12 +13,16 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "inv"
+RESOURCE_CODE = "categoria"
+
 
 @router.get("", response_model=list[CategoriaRead], summary="Listar categorías")
 async def listar_categorias(
     empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     solo_activos: bool = Query(True, description="Solo categorías activas"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista categorías del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -32,6 +37,7 @@ async def listar_categorias(
 async def detalle_categoria(
     categoria_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de una categoría. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -48,6 +54,7 @@ async def detalle_categoria(
 async def crear_categoria(
     data: CategoriaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una categoría. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -59,6 +66,7 @@ async def actualizar_categoria(
     categoria_id: UUID,
     data: CategoriaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una categoría. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

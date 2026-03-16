@@ -25,7 +25,7 @@ BdgPresupuestoTable = Table(
     metadata_erp,
     Column("presupuesto_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo_presupuesto", String(20), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("año", Integer, nullable=False),
@@ -42,7 +42,7 @@ BdgPresupuestoTable = Table(
 Index("IDX_bdg_empresa", BdgPresupuestoTable.c.empresa_id, BdgPresupuestoTable.c["año"])
 
 # ============================================================================
-# TABLA: bdg_presupuesto_detalle
+# TABLA: bdg_presupuesto_detalle (Fase 4: empresa_id + FK + índice)
 # monto_disponible se calcula en servicio (monto_presupuestado - monto_ejecutado)
 # ============================================================================
 BdgPresupuestoDetalleTable = Table(
@@ -50,7 +50,8 @@ BdgPresupuestoDetalleTable = Table(
     metadata_erp,
     Column("presupuesto_detalle_id", UNIQUEIDENTIFIER, primary_key=True),
     Column("cliente_id", UNIQUEIDENTIFIER, nullable=False),
-    Column("presupuesto_id", UNIQUEIDENTIFIER, ForeignKey("bdg_presupuesto.presupuesto_id", ondelete="CASCADE"), nullable=False),
+    Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
+    Column("presupuesto_id", UNIQUEIDENTIFIER, ForeignKey("bdg_presupuesto.presupuesto_id", ondelete="NO ACTION"), nullable=False),
     Column("cuenta_id", UNIQUEIDENTIFIER, ForeignKey("fin_plan_cuentas.cuenta_id", ondelete="NO ACTION"), nullable=False),
     Column("centro_costo_id", UNIQUEIDENTIFIER, ForeignKey("org_centro_costo.centro_costo_id", ondelete="SET NULL"), nullable=True),
     Column("mes", Integer, nullable=True),
@@ -59,4 +60,5 @@ BdgPresupuestoDetalleTable = Table(
     Column("observaciones", String(255), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
+Index("IDX_bdgdet_empresa", BdgPresupuestoDetalleTable.c.empresa_id)
 Index("IDX_bdgdet_presupuesto", BdgPresupuestoDetalleTable.c.presupuesto_id)

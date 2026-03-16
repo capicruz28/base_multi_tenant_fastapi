@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.wms.application.services import (
     list_tareas,
@@ -21,6 +22,9 @@ from app.modules.wms.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "wms"
+RESOURCE_CODE = "tarea"
+
 router = APIRouter()
 
 
@@ -33,6 +37,7 @@ async def get_tareas(
     producto_id: Optional[UUID] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista tareas de almacén del tenant."""
     return await list_tareas(
@@ -62,6 +67,7 @@ async def get_tarea(
 async def post_tarea(
     data: TareaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una tarea."""
     return await create_tarea(current_user.cliente_id, data)
@@ -72,6 +78,7 @@ async def put_tarea(
     tarea_id: UUID,
     data: TareaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una tarea."""
     try:

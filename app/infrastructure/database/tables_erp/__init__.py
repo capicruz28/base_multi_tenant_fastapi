@@ -21,6 +21,11 @@ from app.infrastructure.database.tables_erp.tables_org import (
     OrgDepartamentoTable,
     OrgCargoTable,
     OrgParametroSistemaTable,
+    CatMonedaTable,
+    CatPaisTable,
+    CatDepartamentoTable,
+    CatProvinciaTable,
+    CatDistritoTable,
 )
 from app.infrastructure.database.tables_erp.tables_inv import (
     InvCategoriaProductoTable,
@@ -187,6 +192,12 @@ __all__ = [
     "OrgDepartamentoTable",
     "OrgCargoTable",
     "OrgParametroSistemaTable",
+    # CAT (catálogos globales en BD dedicada)
+    "CatMonedaTable",
+    "CatPaisTable",
+    "CatDepartamentoTable",
+    "CatProvinciaTable",
+    "CatDistritoTable",
     # INV
     "InvCategoriaProductoTable",
     "InvUnidadMedidaTable",

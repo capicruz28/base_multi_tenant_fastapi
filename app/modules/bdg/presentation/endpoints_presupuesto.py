@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.bdg.application.services import (
     list_presupuesto,
@@ -17,6 +18,9 @@ from app.modules.bdg.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "bdg"
+RESOURCE_CODE = "presupuesto"
+
 router = APIRouter()
 
 
@@ -28,6 +32,7 @@ async def get_presupuestos(
     estado: Optional[str] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_presupuesto(
         current_user.cliente_id,
@@ -43,6 +48,7 @@ async def get_presupuestos(
 async def get_presupuesto(
     presupuesto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_presupuesto_by_id(current_user.cliente_id, presupuesto_id)
@@ -54,6 +60,7 @@ async def get_presupuesto(
 async def post_presupuesto(
     data: PresupuestoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_presupuesto(current_user.cliente_id, data)
 
@@ -63,6 +70,7 @@ async def put_presupuesto(
     presupuesto_id: UUID,
     data: PresupuestoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_presupuesto(current_user.cliente_id, presupuesto_id, data)

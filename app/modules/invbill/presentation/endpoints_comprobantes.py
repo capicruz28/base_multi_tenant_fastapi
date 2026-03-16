@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.invbill.application.services import (
     list_comprobantes,
@@ -21,6 +22,9 @@ from app.modules.invbill.presentation.schemas import (
     ComprobanteRead,
 )
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "inv_bill"
+RESOURCE_CODE = "comprobante"
 
 router = APIRouter()
 
@@ -36,6 +40,7 @@ async def get_comprobantes(
     fecha_desde: Optional[date] = Query(None),
     fecha_hasta: Optional[date] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista comprobantes del tenant."""
     return await list_comprobantes(
@@ -55,6 +60,7 @@ async def get_comprobantes(
 async def get_comprobante(
     comprobante_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un comprobante por id."""
     try:
@@ -67,6 +73,7 @@ async def get_comprobante(
 async def post_comprobante(
     data: ComprobanteCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un comprobante."""
     return await create_comprobante(current_user.cliente_id, data)
@@ -77,6 +84,7 @@ async def put_comprobante(
     comprobante_id: UUID,
     data: ComprobanteUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un comprobante."""
     try:

@@ -463,6 +463,26 @@ class StockRead(BaseModel):
 
 
 # ============================================================================
+# KARDEX (consulta)
+# ============================================================================
+class KardexLineaRead(BaseModel):
+    movimiento_id: UUID
+    movimiento_detalle_id: UUID
+    empresa_id: UUID
+    fecha_movimiento: datetime
+    tipo_movimiento_id: UUID
+    producto_id: UUID
+    almacen_origen_id: Optional[UUID] = None
+    almacen_destino_id: Optional[UUID] = None
+    cantidad_base: Decimal
+    costo_unitario: Optional[Decimal] = None
+    moneda: Optional[str] = None
+    lote: Optional[str] = None
+    numero_serie: Optional[str] = None
+    observaciones: Optional[str] = None
+
+
+# ============================================================================
 # TIPO DE MOVIMIENTO
 # ============================================================================
 class TipoMovimientoCreate(BaseModel):
@@ -684,6 +704,128 @@ class InventarioFisicoRead(BaseModel):
     fecha_finalizacion: Optional[datetime] = None
     fecha_ajuste: Optional[datetime] = None
     usuario_creacion_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# MOVIMIENTO DETALLE (solo lectura/escritura básica)
+# ============================================================================
+class MovimientoDetalleBase(BaseModel):
+    empresa_id: UUID
+    movimiento_id: UUID
+    producto_id: UUID
+    cantidad: Decimal
+    unidad_medida_id: UUID
+    cantidad_base: Decimal
+    costo_unitario: Optional[Decimal] = None
+    moneda: Optional[str] = "PEN"
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    numero_serie: Optional[str] = Field(None, max_length=100)
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class MovimientoDetalleCreate(MovimientoDetalleBase):
+    pass
+
+
+class MovimientoDetalleUpdate(BaseModel):
+    cantidad: Optional[Decimal] = None
+    unidad_medida_id: Optional[UUID] = None
+    cantidad_base: Optional[Decimal] = None
+    costo_unitario: Optional[Decimal] = None
+    moneda: Optional[str] = None
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    numero_serie: Optional[str] = Field(None, max_length=100)
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class MovimientoDetalleRead(BaseModel):
+    movimiento_detalle_id: UUID
+    cliente_id: UUID
+    empresa_id: UUID
+    movimiento_id: UUID
+    producto_id: UUID
+    cantidad: Decimal
+    unidad_medida_id: UUID
+    cantidad_base: Decimal
+    costo_unitario: Optional[Decimal] = None
+    moneda: Optional[str] = None
+    lote: Optional[str] = None
+    fecha_vencimiento: Optional[date] = None
+    numero_serie: Optional[str] = None
+    ubicacion_almacen: Optional[str] = None
+    observaciones: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# INVENTARIO FÍSICO DETALLE
+# ============================================================================
+class InventarioFisicoDetalleBase(BaseModel):
+    empresa_id: UUID
+    inventario_fisico_id: UUID
+    producto_id: UUID
+    cantidad_sistema: Decimal
+    cantidad_contada: Optional[Decimal] = None
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    costo_unitario: Optional[Decimal] = None
+    estado_conteo: Optional[str] = Field("pendiente", max_length=20)
+    contador_usuario_id: Optional[UUID] = None
+    contador_nombre: Optional[str] = Field(None, max_length=150)
+    fecha_conteo: Optional[datetime] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+    motivo_diferencia: Optional[str] = Field(None, max_length=500)
+
+
+class InventarioFisicoDetalleCreate(InventarioFisicoDetalleBase):
+    pass
+
+
+class InventarioFisicoDetalleUpdate(BaseModel):
+    cantidad_sistema: Optional[Decimal] = None
+    cantidad_contada: Optional[Decimal] = None
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    costo_unitario: Optional[Decimal] = None
+    estado_conteo: Optional[str] = Field(None, max_length=20)
+    contador_usuario_id: Optional[UUID] = None
+    contador_nombre: Optional[str] = Field(None, max_length=150)
+    fecha_conteo: Optional[datetime] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+    motivo_diferencia: Optional[str] = Field(None, max_length=500)
+
+
+class InventarioFisicoDetalleRead(BaseModel):
+    inventario_fisico_detalle_id: UUID
+    cliente_id: UUID
+    empresa_id: UUID
+    inventario_fisico_id: UUID
+    producto_id: UUID
+    cantidad_sistema: Decimal
+    cantidad_contada: Optional[Decimal] = None
+    lote: Optional[str] = None
+    fecha_vencimiento: Optional[date] = None
+    ubicacion_almacen: Optional[str] = None
+    costo_unitario: Optional[Decimal] = None
+    estado_conteo: Optional[str] = None
+    contador_usuario_id: Optional[UUID] = None
+    contador_nombre: Optional[str] = None
+    fecha_conteo: Optional[datetime] = None
+    observaciones: Optional[str] = None
+    motivo_diferencia: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
 
     class Config:
         from_attributes = True

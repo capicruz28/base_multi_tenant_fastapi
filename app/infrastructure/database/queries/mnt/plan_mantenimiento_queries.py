@@ -2,7 +2,7 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import select, insert, update, and_, or_
-from app.infrastructure.database.tables_erp import MntPlanMantenimientoTable
+from app.infrastructure.database.tables_erp import MntActivoTable, MntPlanMantenimientoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in MntPlanMantenimientoTable.c}
@@ -47,6 +47,18 @@ async def create_plan_mantenimiento(client_id: UUID, data: Dict[str, Any]) -> Di
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("plan_mantenimiento_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde el activo
+    activo_id = payload.get("activo_id")
+    if activo_id:
+        q = select(MntActivoTable.c.empresa_id).where(
+            and_(
+                MntActivoTable.c.cliente_id == client_id,
+                MntActivoTable.c.activo_id == activo_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     await execute_insert(insert(MntPlanMantenimientoTable).values(**payload), client_id=client_id)
     return await get_plan_mantenimiento_by_id(client_id, payload["plan_mantenimiento_id"])
 

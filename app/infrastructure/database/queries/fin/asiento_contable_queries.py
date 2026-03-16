@@ -140,6 +140,19 @@ async def create_asiento_detalle(client_id: UUID, data: Dict[str, Any]) -> Dict[
     payload = {k: v for k, v in data.items() if k in _COLUMNS_DETALLE}
     payload["cliente_id"] = client_id
     payload.setdefault("asiento_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio en detalle; derivarlo desde el asiento (cabecera)
+    if not payload.get("empresa_id"):
+        asiento_id = payload.get("asiento_id")
+        if asiento_id:
+            q = select(FinAsientoContableTable.c.empresa_id).where(
+                and_(
+                    FinAsientoContableTable.c.cliente_id == client_id,
+                    FinAsientoContableTable.c.asiento_id == asiento_id,
+                )
+            )
+            rows = await execute_query(q, client_id=client_id)
+            if rows:
+                payload["empresa_id"] = rows[0]["empresa_id"]
     stmt = insert(FinAsientoDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
     return await get_asiento_detalle_by_id(client_id, payload["asiento_detalle_id"])

@@ -33,6 +33,12 @@ GLOBAL_TABLES = {
     'modulo_seccion',  # Catálogo global
     'modulo_menu',  # Catálogo global (aunque puede tener cliente_id para personalización)
     'permiso',  # Catálogo global RBAC (solo en BD central)
+    # Catálogos globales en BD dedicada (no tienen cliente_id)
+    'cat_moneda',
+    'cat_pais',
+    'cat_departamento',
+    'cat_provincia',
+    'cat_distrito',
 }
 
 # Cache de versión de SQL Server (se detecta una vez)

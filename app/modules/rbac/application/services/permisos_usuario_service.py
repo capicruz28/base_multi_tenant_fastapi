@@ -4,6 +4,10 @@ Servicio para obtener los códigos de permiso de negocio (RBAC) de un usuario.
 
 Usa las tablas permiso (BD central) y rol_permiso (tenant: central o dedicada).
 No modifica rol_menu_permiso ni el flujo de menú existente.
+
+Filtro por módulos contratados: cuando filter_by_active_modules=True, solo se devuelven
+permisos cuyo permiso.modulo_id es NULL (globales: admin, modulos) o pertenece a un
+módulo activo del tenant en cliente_modulo (esta_activo=1, fecha_vencimiento vigente).
 """
 
 from typing import List
@@ -16,26 +20,43 @@ from app.infrastructure.database.connection_async import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
+# Fragmento SQL: restricción por módulos activos del tenant (cliente_modulo).
+# Incluye permisos globales (modulo_id IS NULL) y de módulos contratados.
+_CLIENTE_MODULO_FILTER = """
+      AND (
+          p.modulo_id IS NULL
+          OR EXISTS (
+              SELECT 1 FROM cliente_modulo cm
+              WHERE cm.modulo_id = p.modulo_id
+                AND cm.cliente_id = :cliente_id
+                AND cm.esta_activo = 1
+                AND (cm.fecha_vencimiento IS NULL OR cm.fecha_vencimiento > CAST(GETDATE() AS DATE))
+          )
+      )
+"""
+
 
 async def obtener_codigos_permiso_usuario(
     usuario_id: UUID,
     cliente_id: UUID,
     database_type: str = "single",
+    *,
+    filter_by_active_modules: bool = True,
 ) -> List[str]:
     """
     Obtiene la lista de códigos de permiso (ej. admin.usuario.leer) que tiene
     el usuario por sus roles, desde permiso + rol_permiso.
 
-    - Single DB: una sola query (usuario_rol + rol_permiso + permiso en misma BD).
-    - Multi DB: query en tenant (usuario_rol + rol_permiso) y luego en central
-      (permiso) para resolver códigos.
+    Flujo: Usuario → Roles (usuario_rol) → Permisos (rol_permiso ⋈ permiso)
+           → Módulos contratados (cliente_modulo) → Permisos finales.
 
-    No rompe si las tablas no existen o están vacías: devuelve [].
+    filter_by_active_modules=True (por defecto): solo retorna permisos cuyo
+    permiso.modulo_id es NULL o está en cliente_modulo activos del tenant.
     """
     try:
         if database_type == "multi":
-            return await _permisos_dedicated(usuario_id, cliente_id)
-        return await _permisos_single(usuario_id, cliente_id)
+            return await _permisos_dedicated(usuario_id, cliente_id, filter_by_active_modules)
+        return await _permisos_single(usuario_id, cliente_id, filter_by_active_modules)
     except Exception as e:
         logger.warning(
             f"[PERMISOS_USUARIO] Error obteniendo permisos para usuario {usuario_id}: {e}. "
@@ -44,8 +65,10 @@ async def obtener_codigos_permiso_usuario(
         return []
 
 
-async def _permisos_single(usuario_id: UUID, cliente_id: UUID) -> List[str]:
-    """BD central/shared: permiso y rol_permiso en la misma BD."""
+async def _permisos_single(
+    usuario_id: UUID, cliente_id: UUID, filter_by_active_modules: bool
+) -> List[str]:
+    """BD central/shared: permiso y rol_permiso en la misma BD. Filtro por cliente_modulo si está activo."""
     sql = text("""
         SELECT DISTINCT p.codigo
         FROM usuario_rol ur
@@ -55,7 +78,9 @@ async def _permisos_single(usuario_id: UUID, cliente_id: UUID) -> List[str]:
           AND ur.cliente_id = :cliente_id
           AND ur.es_activo = 1
           AND (ur.fecha_expiracion IS NULL OR ur.fecha_expiracion > GETDATE())
-    """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
+    """ + (_CLIENTE_MODULO_FILTER if filter_by_active_modules else "") + "\n").bindparams(
+        usuario_id=usuario_id, cliente_id=cliente_id
+    )
 
     rows = await execute_query(
         sql,
@@ -68,8 +93,10 @@ async def _permisos_single(usuario_id: UUID, cliente_id: UUID) -> List[str]:
     return [r["codigo"] for r in rows if r.get("codigo")]
 
 
-async def _permisos_dedicated(usuario_id: UUID, cliente_id: UUID) -> List[str]:
-    """BD dedicada: rol_permiso en tenant; permiso solo en central (ADMIN)."""
+async def _permisos_dedicated(
+    usuario_id: UUID, cliente_id: UUID, filter_by_active_modules: bool
+) -> List[str]:
+    """BD dedicada: rol_permiso en tenant; permiso en central (ADMIN). Filtro por cliente_modulo en central."""
     # 1) Permiso IDs desde BD del tenant (sin tabla permiso)
     sql_ids = text("""
         SELECT DISTINCT rp.permiso_id
@@ -94,14 +121,34 @@ async def _permisos_dedicated(usuario_id: UUID, cliente_id: UUID) -> List[str]:
     if not permiso_ids:
         return []
 
-    # 2) Códigos desde BD central (permiso)
-    # permiso está en GLOBAL_TABLES, no se aplica filtro tenant
+    # 2) Códigos desde BD central (permiso), filtrando por módulos activos del tenant (cliente_modulo)
     placeholders = ", ".join(f":p{i}" for i in range(len(permiso_ids)))
-    sql_codigos = text(
-        f"SELECT codigo FROM permiso WHERE es_activo = 1 AND permiso_id IN ({placeholders})"
-    )
-    params = {f"p{i}": pid for i, pid in enumerate(permiso_ids)}
-    sql_codigos = sql_codigos.bindparams(**params)
+    if filter_by_active_modules:
+        sql_codigos = text(
+            f"""
+            SELECT codigo FROM permiso p
+            WHERE p.es_activo = 1 AND p.permiso_id IN ({placeholders})
+              AND (
+                  p.modulo_id IS NULL
+                  OR EXISTS (
+                      SELECT 1 FROM cliente_modulo cm
+                      WHERE cm.modulo_id = p.modulo_id
+                        AND cm.cliente_id = :cliente_id
+                        AND cm.esta_activo = 1
+                        AND (cm.fecha_vencimiento IS NULL OR cm.fecha_vencimiento > CAST(GETDATE() AS DATE))
+                  )
+              )
+            """
+        )
+        params = {f"p{i}": pid for i, pid in enumerate(permiso_ids)}
+        params["cliente_id"] = cliente_id
+        sql_codigos = sql_codigos.bindparams(**params)
+    else:
+        sql_codigos = text(
+            f"SELECT codigo FROM permiso WHERE es_activo = 1 AND permiso_id IN ({placeholders})"
+        )
+        params = {f"p{i}": pid for i, pid in enumerate(permiso_ids)}
+        sql_codigos = sql_codigos.bindparams(**params)
 
     rows_codigos = await execute_query(
         sql_codigos,

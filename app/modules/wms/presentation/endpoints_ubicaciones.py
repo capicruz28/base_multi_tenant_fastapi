@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.wms.application.services import (
     list_ubicaciones,
@@ -21,6 +22,9 @@ from app.modules.wms.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "wms"
+RESOURCE_CODE = "ubicacion"
+
 router = APIRouter()
 
 
@@ -34,6 +38,7 @@ async def get_ubicaciones(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista ubicaciones del tenant."""
     return await list_ubicaciones(
@@ -52,6 +57,7 @@ async def get_ubicaciones(
 async def get_ubicacion(
     ubicacion_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una ubicación por id."""
     try:
@@ -60,7 +66,13 @@ async def get_ubicacion(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("", response_model=UbicacionRead, status_code=status.HTTP_201_CREATED, tags=["WMS - Ubicaciones"])
+@router.post(
+    "",
+    response_model=UbicacionRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["WMS - Ubicaciones"],
+    dependencies=[Depends(require_permission("wms.ubicacion.crear"))],
+)
 async def post_ubicacion(
     data: UbicacionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
@@ -74,6 +86,7 @@ async def put_ubicacion(
     ubicacion_id: UUID,
     data: UbicacionUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una ubicación."""
     try:

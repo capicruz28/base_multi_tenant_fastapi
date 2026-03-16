@@ -5,10 +5,14 @@ from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pur.presentation.schemas import ProveedorCreate, ProveedorUpdate, ProveedorRead
 from app.modules.pur.application.services import proveedor_service
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "pur"
+RESOURCE_CODE = "proveedor"
 
 router = APIRouter()
 
@@ -19,6 +23,7 @@ async def listar_proveedores(
     solo_activos: bool = Query(True, description="Solo proveedores activos"),
     buscar: Optional[str] = Query(None, description="Búsqueda por razón social, RUC o código"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista proveedores del tenant. Filtro por cliente_id del token."""
     client_id = current_user.cliente_id
@@ -34,6 +39,7 @@ async def listar_proveedores(
 async def detalle_proveedor(
     proveedor_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Detalle de un proveedor. Solo del tenant del usuario."""
     client_id = current_user.cliente_id
@@ -50,6 +56,7 @@ async def detalle_proveedor(
 async def crear_proveedor(
     data: ProveedorCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un proveedor. cliente_id se asigna desde el contexto (tenant), no desde el body."""
     client_id = current_user.cliente_id
@@ -61,6 +68,7 @@ async def actualizar_proveedor(
     proveedor_id: UUID,
     data: ProveedorUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un proveedor. Solo del tenant del usuario."""
     client_id = current_user.cliente_id

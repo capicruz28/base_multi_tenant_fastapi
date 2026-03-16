@@ -137,6 +137,18 @@ async def create_guia_remision_detalle(client_id: UUID, data: Dict[str, Any]) ->
     payload = {k: v for k, v in data.items() if k in _COLUMNS_DETALLE}
     payload["cliente_id"] = client_id
     payload.setdefault("guia_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde la guía (cabecera)
+    guia_remision_id = payload.get("guia_remision_id")
+    if guia_remision_id:
+        q = select(LogGuiaRemisionTable.c.empresa_id).where(
+            and_(
+                LogGuiaRemisionTable.c.cliente_id == client_id,
+                LogGuiaRemisionTable.c.guia_remision_id == guia_remision_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     stmt = insert(LogGuiaRemisionDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
     return await get_guia_remision_detalle_by_id(client_id, payload["guia_detalle_id"])

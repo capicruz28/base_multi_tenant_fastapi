@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mrp.application.services import (
     list_plan_maestro,
@@ -13,6 +14,9 @@ from app.modules.mrp.application.services import (
 from app.modules.mrp.presentation.schemas import PlanMaestroCreate, PlanMaestroUpdate, PlanMaestroRead
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "mrp"
+RESOURCE_CODE = "plan_maestro"
+
 router = APIRouter()
 
 
@@ -22,6 +26,7 @@ async def get_planes_maestro(
     estado: Optional[str] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_plan_maestro(
         current_user.cliente_id,
@@ -35,6 +40,7 @@ async def get_planes_maestro(
 async def get_plan_maestro(
     plan_maestro_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_plan_maestro_by_id(current_user.cliente_id, plan_maestro_id)
@@ -46,6 +52,7 @@ async def get_plan_maestro(
 async def post_plan_maestro(
     data: PlanMaestroCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_plan_maestro(current_user.cliente_id, data)
 
@@ -55,6 +62,7 @@ async def put_plan_maestro(
     plan_maestro_id: UUID,
     data: PlanMaestroUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_plan_maestro(current_user.cliente_id, plan_maestro_id, data)

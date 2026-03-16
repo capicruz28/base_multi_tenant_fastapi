@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.mnt.application.services import (
     list_plan_mantenimiento,
@@ -17,6 +18,9 @@ from app.modules.mnt.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "mnt"
+RESOURCE_CODE = "plan_mantenimiento"
+
 router = APIRouter()
 
 
@@ -27,6 +31,7 @@ async def get_planes_mantenimiento(
     es_activo: Optional[bool] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     return await list_plan_mantenimiento(
         current_user.cliente_id,
@@ -41,6 +46,7 @@ async def get_planes_mantenimiento(
 async def get_plan_mantenimiento(
     plan_mantenimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
         return await get_plan_mantenimiento_by_id(current_user.cliente_id, plan_mantenimiento_id)
@@ -52,6 +58,7 @@ async def get_plan_mantenimiento(
 async def post_plan_mantenimiento(
     data: PlanMantenimientoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_plan_mantenimiento(current_user.cliente_id, data)
 
@@ -61,6 +68,7 @@ async def put_plan_mantenimiento(
     plan_mantenimiento_id: UUID,
     data: PlanMantenimientoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
         return await update_plan_mantenimiento(current_user.cliente_id, plan_mantenimiento_id, data)

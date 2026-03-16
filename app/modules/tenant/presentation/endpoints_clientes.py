@@ -23,6 +23,7 @@ from app.modules.tenant.presentation.schemas import (
 )
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.core.authorization.lbac import require_super_admin
+from app.core.authorization.rbac import require_permission
 from app.api.deps import get_current_active_user
 from app.core.exceptions import ValidationError, NotFoundError
 from math import ceil
@@ -54,7 +55,8 @@ router = APIRouter()
     - 409: Conflicto - subdominio o código ya existen
     - 422: Error de validación en los datos de entrada
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.crear"))],
 )
 @require_super_admin()
 async def crear_cliente(
@@ -103,7 +105,8 @@ async def crear_cliente(
     - 200: Lista de clientes recuperada exitosamente con metadatos de paginación
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.leer"))],
 )
 @require_super_admin()
 async def listar_clientes(
@@ -161,7 +164,8 @@ async def listar_clientes(
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente no encontrado
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.leer"))],
 )
 @require_super_admin()
 async def obtener_cliente(
@@ -210,7 +214,8 @@ async def obtener_cliente(
     - 409: Conflicto - subdominio o código ya existen
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.actualizar"))],
 )
 @require_super_admin()
 async def actualizar_cliente(
@@ -262,7 +267,8 @@ async def actualizar_cliente(
     - 404: Cliente no encontrado
     - 400: No se puede eliminar el cliente SYSTEM
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.eliminar"))],
 )
 @require_super_admin()
 async def eliminar_cliente(
@@ -310,7 +316,8 @@ async def eliminar_cliente(
     - 404: Cliente no encontrado
     - 400: Cliente ya está suspendido
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.actualizar"))],
 )
 @require_super_admin()
 async def suspender_cliente(
@@ -357,7 +364,8 @@ async def suspender_cliente(
     - 404: Cliente no encontrado
     - 400: Cliente ya está activo
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.actualizar"))],
 )
 @require_super_admin()
 async def activar_cliente(
@@ -403,7 +411,8 @@ async def activar_cliente(
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente no encontrado
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.leer"))],
 )
 @require_super_admin()
 async def obtener_estadisticas_cliente(
@@ -561,7 +570,8 @@ async def obtener_branding_por_subdominio(
     - 400: No se pudo determinar el tenant actual
     - 404: Cliente no encontrado o inactivo
     - 500: Error interno del servidor
-    """
+    """,
+    dependencies=[Depends(require_permission("tenant.branding.leer"))],
 )
 async def obtener_branding_tenant(
     current_user = Depends(get_current_active_user)

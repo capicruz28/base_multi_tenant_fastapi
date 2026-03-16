@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.log.application.services import (
     list_rutas,
@@ -23,6 +24,9 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+MODULE_CODE = "log"
+RESOURCE_CODE = "ruta"
+
 
 @router.get("", response_model=List[RutaRead], tags=["LOG - Rutas"])
 async def get_rutas(
@@ -31,6 +35,7 @@ async def get_rutas(
     solo_activos: bool = Query(True),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista rutas del tenant."""
     return await list_rutas(
@@ -46,6 +51,7 @@ async def get_rutas(
 async def get_ruta(
     ruta_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una ruta por id."""
     try:
@@ -58,6 +64,7 @@ async def get_ruta(
 async def post_ruta(
     data: RutaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una ruta."""
     return await create_ruta(current_user.cliente_id, data)
@@ -68,6 +75,7 @@ async def put_ruta(
     ruta_id: UUID,
     data: RutaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una ruta."""
     try:

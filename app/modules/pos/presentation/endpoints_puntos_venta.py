@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pos.application.services import (
     list_puntos_venta,
@@ -21,6 +22,9 @@ from app.modules.pos.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "pos"
+RESOURCE_CODE = "punto_venta"
+
 router = APIRouter()
 
 
@@ -32,6 +36,7 @@ async def get_puntos_venta(
     es_activo: Optional[bool] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista puntos de venta del tenant."""
     return await list_puntos_venta(
@@ -48,6 +53,7 @@ async def get_puntos_venta(
 async def get_punto_venta(
     punto_venta_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un punto de venta por id."""
     try:
@@ -60,6 +66,7 @@ async def get_punto_venta(
 async def post_punto_venta(
     data: PuntoVentaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un punto de venta."""
     return await create_punto_venta(current_user.cliente_id, data)
@@ -70,6 +77,7 @@ async def put_punto_venta(
     punto_venta_id: UUID,
     data: PuntoVentaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un punto de venta."""
     try:

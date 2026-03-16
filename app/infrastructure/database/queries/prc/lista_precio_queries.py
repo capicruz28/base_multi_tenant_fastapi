@@ -143,6 +143,18 @@ async def create_lista_precio_detalle(client_id: UUID, data: Dict[str, Any]) -> 
     payload = {k: v for k, v in data.items() if k in _COLUMNS_DETALLE}
     payload["cliente_id"] = client_id
     payload.setdefault("lista_precio_detalle_id", uuid4())
+    # Fase 5: empresa_id es obligatorio; derivarlo desde la lista (cabecera)
+    lista_precio_id = payload.get("lista_precio_id")
+    if lista_precio_id:
+        q = select(PrcListaPrecioTable.c.empresa_id).where(
+            and_(
+                PrcListaPrecioTable.c.cliente_id == client_id,
+                PrcListaPrecioTable.c.lista_precio_id == lista_precio_id,
+            )
+        )
+        rows = await execute_query(q, client_id=client_id)
+        if rows:
+            payload["empresa_id"] = rows[0]["empresa_id"]
     stmt = insert(PrcListaPrecioDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
     return await get_lista_precio_detalle_by_id(client_id, payload["lista_precio_detalle_id"])

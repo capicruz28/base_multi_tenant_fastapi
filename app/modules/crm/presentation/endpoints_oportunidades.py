@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.crm.application.services import (
     list_oportunidades,
@@ -21,6 +22,9 @@ from app.modules.crm.presentation.schemas import (
     OportunidadRead,
 )
 from app.core.exceptions import NotFoundError
+
+MODULE_CODE = "crm"
+RESOURCE_CODE = "oportunidad"
 
 router = APIRouter()
 
@@ -39,6 +43,7 @@ async def get_oportunidades(
     fecha_cierre_hasta: Optional[date] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista oportunidades del tenant."""
     return await list_oportunidades(
@@ -61,6 +66,7 @@ async def get_oportunidades(
 async def get_oportunidad(
     oportunidad_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una oportunidad por id."""
     try:
@@ -73,6 +79,7 @@ async def get_oportunidad(
 async def post_oportunidad(
     data: OportunidadCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea una oportunidad."""
     return await create_oportunidad(current_user.cliente_id, data)
@@ -83,6 +90,7 @@ async def put_oportunidad(
     oportunidad_id: UUID,
     data: OportunidadUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una oportunidad."""
     try:

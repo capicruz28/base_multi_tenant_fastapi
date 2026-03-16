@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status
 
 from app.api.deps import get_current_active_user
+from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.pos.application.services import (
     list_turnos_caja,
@@ -22,6 +23,9 @@ from app.modules.pos.presentation.schemas import (
 )
 from app.core.exceptions import NotFoundError
 
+MODULE_CODE = "pos"
+RESOURCE_CODE = "turno_caja"
+
 router = APIRouter()
 
 
@@ -33,6 +37,7 @@ async def get_turnos_caja(
     fecha_desde: Optional[datetime] = Query(None),
     fecha_hasta: Optional[datetime] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista turnos de caja del tenant."""
     return await list_turnos_caja(
@@ -49,6 +54,7 @@ async def get_turnos_caja(
 async def get_turno_caja(
     turno_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un turno de caja por id."""
     try:
@@ -61,6 +67,7 @@ async def get_turno_caja(
 async def post_turno_caja(
     data: TurnoCajaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Abre un turno de caja (apertura)."""
     return await create_turno_caja(current_user.cliente_id, data)
@@ -71,6 +78,7 @@ async def put_turno_caja(
     turno_id: UUID,
     data: TurnoCajaUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un turno de caja (ej. cierre)."""
     try:
