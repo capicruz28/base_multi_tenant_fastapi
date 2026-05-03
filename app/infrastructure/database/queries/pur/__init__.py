@@ -27,11 +27,24 @@ from app.infrastructure.database.queries.pur.solicitud_queries import (
     create_solicitud,
     update_solicitud,
 )
+from app.infrastructure.database.queries.pur.solicitud_detalle_queries import (
+    list_solicitudes_detalle,
+    get_solicitud_detalle_by_id,
+    create_solicitud_detalle,
+    update_solicitud_detalle,
+)
 from app.infrastructure.database.queries.pur.cotizacion_queries import (
     list_cotizaciones,
     get_cotizacion_by_id,
     create_cotizacion,
     update_cotizacion,
+    clear_es_ganadora_by_solicitud,
+)
+from app.infrastructure.database.queries.pur.cotizacion_detalle_queries import (
+    list_cotizaciones_detalle,
+    get_cotizacion_detalle_by_id,
+    create_cotizacion_detalle,
+    update_cotizacion_detalle,
 )
 from app.infrastructure.database.queries.pur.orden_compra_queries import (
     list_ordenes_compra,
@@ -39,11 +52,23 @@ from app.infrastructure.database.queries.pur.orden_compra_queries import (
     create_orden_compra,
     update_orden_compra,
 )
+from app.infrastructure.database.queries.pur.orden_compra_detalle_queries import (
+    list_ordenes_compra_detalle,
+    get_orden_compra_detalle_by_id,
+    create_orden_compra_detalle,
+    update_orden_compra_detalle,
+)
 from app.infrastructure.database.queries.pur.recepcion_queries import (
     list_recepciones,
     get_recepcion_by_id,
     create_recepcion,
     update_recepcion,
+)
+from app.infrastructure.database.queries.pur.recepcion_detalle_queries import (
+    list_recepciones_detalle,
+    get_recepcion_detalle_by_id,
+    create_recepcion_detalle,
+    update_recepcion_detalle,
 )
 
 __all__ = [
@@ -67,19 +92,36 @@ __all__ = [
     "get_solicitud_by_id",
     "create_solicitud",
     "update_solicitud",
+    "list_solicitudes_detalle",
+    "get_solicitud_detalle_by_id",
+    "create_solicitud_detalle",
+    "update_solicitud_detalle",
     # Cotizaciones
     "list_cotizaciones",
     "get_cotizacion_by_id",
     "create_cotizacion",
     "update_cotizacion",
+    "clear_es_ganadora_by_solicitud",
+    "list_cotizaciones_detalle",
+    "get_cotizacion_detalle_by_id",
+    "create_cotizacion_detalle",
+    "update_cotizacion_detalle",
     # Órdenes de compra
     "list_ordenes_compra",
     "get_orden_compra_by_id",
     "create_orden_compra",
     "update_orden_compra",
+    "list_ordenes_compra_detalle",
+    "get_orden_compra_detalle_by_id",
+    "create_orden_compra_detalle",
+    "update_orden_compra_detalle",
     # Recepciones
     "list_recepciones",
     "get_recepcion_by_id",
     "create_recepcion",
     "update_recepcion",
+    "list_recepciones_detalle",
+    "get_recepcion_detalle_by_id",
+    "create_recepcion_detalle",
+    "update_recepcion_detalle",
 ]

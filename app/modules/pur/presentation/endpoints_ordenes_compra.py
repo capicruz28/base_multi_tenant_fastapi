@@ -1,6 +1,6 @@
 # app/modules/pur/presentation/endpoints_ordenes_compra.py
 """Endpoints PUR - Órdenes de Compra. client_id siempre desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from uuid import UUID
 from typing import Optional
 from datetime import date
@@ -26,10 +26,14 @@ async def listar_ordenes_compra(
     estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
+    page: Optional[int] = Query(None, ge=1, description="Página (con page_size)"),
+    page_size: Optional[int] = Query(None, ge=1, le=500, description="Registros por página"),
+    sort_by: Optional[str] = Query(None, description="Ordenar por: fecha_emision, estado, numero_oc, fecha_creacion"),
+    order: Optional[str] = Query(None, description="asc o desc"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista órdenes de compra del tenant. Filtro por cliente_id del token."""
+    """Lista órdenes de compra del tenant. Paginación opcional con page y page_size."""
     client_id = current_user.cliente_id
     return await orden_compra_service.list_ordenes_compra_servicio(
         client_id=client_id,
@@ -39,6 +43,10 @@ async def listar_ordenes_compra(
         estado=estado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        order=order,
     )
 
 
@@ -84,6 +92,46 @@ async def actualizar_orden_compra(
             client_id=client_id,
             orden_compra_id=orden_compra_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/{orden_compra_id}/aprobar", response_model=OrdenCompraRead, summary="Aprobar orden de compra")
+async def aprobar_orden_compra(
+    orden_compra_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Aprueba la orden de compra. Solo en estado borrador."""
+    client_id = current_user.cliente_id
+    try:
+        return await orden_compra_service.aprobar_orden_compra_servicio(
+            client_id=client_id,
+            orden_compra_id=orden_compra_id,
+            aprobado_por_usuario_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{orden_compra_id}/anular", response_model=OrdenCompraRead, summary="Anular orden de compra")
+async def anular_orden_compra(
+    orden_compra_id: UUID,
+    body: Optional[dict] = Body(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Anula la orden de compra. Body: { \"motivo_anulacion\": \"...\" }."""
+    client_id = current_user.cliente_id
+    motivo_anulacion = (body or {}).get("motivo_anulacion", "") or ""
+    try:
+        return await orden_compra_service.anular_orden_compra_servicio(
+            client_id=client_id,
+            orden_compra_id=orden_compra_id,
+            motivo_anulacion=motivo_anulacion,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

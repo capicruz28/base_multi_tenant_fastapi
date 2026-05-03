@@ -24,10 +24,10 @@ class ProveedorCreate(BaseModel):
     tipo_proveedor: Optional[str] = Field("bienes", max_length=30)
     categoria_proveedor: Optional[str] = Field(None, max_length=50)
     direccion: Optional[str] = Field(None, max_length=255)
-    pais: Optional[str] = "Perú"
-    departamento: Optional[str] = Field(None, max_length=50)
-    provincia: Optional[str] = Field(None, max_length=50)
-    distrito: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = Field(None, max_length=6)
     contacto_nombre: Optional[str] = Field(None, max_length=150)
     contacto_cargo: Optional[str] = Field(None, max_length=100)
@@ -38,7 +38,7 @@ class ProveedorCreate(BaseModel):
     sitio_web: Optional[str] = Field(None, max_length=255)
     condicion_pago_defecto: Optional[str] = Field(None, max_length=50)
     dias_credito_defecto: Optional[int] = 0
-    moneda_preferida: Optional[str] = "PEN"
+    moneda_preferida: UUID
     banco: Optional[str] = Field(None, max_length=100)
     numero_cuenta: Optional[str] = Field(None, max_length=30)
     tipo_cuenta: Optional[str] = Field(None, max_length=20)
@@ -64,10 +64,10 @@ class ProveedorUpdate(BaseModel):
     tipo_proveedor: Optional[str] = Field(None, max_length=30)
     categoria_proveedor: Optional[str] = Field(None, max_length=50)
     direccion: Optional[str] = Field(None, max_length=255)
-    pais: Optional[str] = None
-    departamento: Optional[str] = Field(None, max_length=50)
-    provincia: Optional[str] = Field(None, max_length=50)
-    distrito: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = Field(None, max_length=6)
     contacto_nombre: Optional[str] = Field(None, max_length=150)
     contacto_cargo: Optional[str] = Field(None, max_length=100)
@@ -78,7 +78,7 @@ class ProveedorUpdate(BaseModel):
     sitio_web: Optional[str] = Field(None, max_length=255)
     condicion_pago_defecto: Optional[str] = Field(None, max_length=50)
     dias_credito_defecto: Optional[int] = None
-    moneda_preferida: Optional[str] = None
+    moneda_preferida: Optional[UUID] = None
     banco: Optional[str] = Field(None, max_length=100)
     numero_cuenta: Optional[str] = Field(None, max_length=30)
     tipo_cuenta: Optional[str] = Field(None, max_length=20)
@@ -107,10 +107,10 @@ class ProveedorRead(BaseModel):
     tipo_proveedor: Optional[str] = None
     categoria_proveedor: Optional[str] = None
     direccion: Optional[str] = None
-    pais: Optional[str] = None
-    departamento: Optional[str] = None
-    provincia: Optional[str] = None
-    distrito: Optional[str] = None
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = None
     contacto_nombre: Optional[str] = None
     contacto_cargo: Optional[str] = None
@@ -121,7 +121,7 @@ class ProveedorRead(BaseModel):
     sitio_web: Optional[str] = None
     condicion_pago_defecto: Optional[str] = None
     dias_credito_defecto: Optional[int] = None
-    moneda_preferida: Optional[str] = None
+    moneda_preferida: UUID
     banco: Optional[str] = None
     numero_cuenta: Optional[str] = None
     tipo_cuenta: Optional[str] = None
@@ -204,7 +204,7 @@ class ProductoProveedorCreate(BaseModel):
     codigo_proveedor: Optional[str] = Field(None, max_length=50)
     descripcion_proveedor: Optional[str] = Field(None, max_length=200)
     precio_unitario: Decimal = Field(..., ge=0)
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
     unidad_medida_id: UUID
     cantidad_minima: Optional[Decimal] = None
     multiplo_compra: Optional[Decimal] = None
@@ -220,7 +220,7 @@ class ProductoProveedorUpdate(BaseModel):
     codigo_proveedor: Optional[str] = Field(None, max_length=50)
     descripcion_proveedor: Optional[str] = Field(None, max_length=200)
     precio_unitario: Optional[Decimal] = Field(None, ge=0)
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     unidad_medida_id: Optional[UUID] = None
     cantidad_minima: Optional[Decimal] = None
     multiplo_compra: Optional[Decimal] = None
@@ -240,7 +240,7 @@ class ProductoProveedorRead(BaseModel):
     codigo_proveedor: Optional[str] = None
     descripcion_proveedor: Optional[str] = None
     precio_unitario: Decimal
-    moneda: Optional[str] = None
+    moneda_id: UUID
     unidad_medida_id: UUID
     cantidad_minima: Optional[Decimal] = None
     multiplo_compra: Optional[Decimal] = None
@@ -274,7 +274,7 @@ class SolicitudCompraCreate(BaseModel):
     motivo_solicitud: Optional[str] = Field(None, max_length=30)
     total_items: Optional[int] = 0
     total_estimado: Optional[Decimal] = Field(0, ge=0)
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
     estado: Optional[str] = Field("borrador", max_length=20)
     requiere_aprobacion: Optional[bool] = True
     observaciones: Optional[str] = None
@@ -293,7 +293,7 @@ class SolicitudCompraUpdate(BaseModel):
     motivo_solicitud: Optional[str] = Field(None, max_length=30)
     total_items: Optional[int] = None
     total_estimado: Optional[Decimal] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     estado: Optional[str] = Field(None, max_length=20)
     requiere_aprobacion: Optional[bool] = None
     aprobado_por_usuario_id: Optional[UUID] = None
@@ -319,7 +319,7 @@ class SolicitudCompraRead(BaseModel):
     motivo_solicitud: Optional[str] = None
     total_items: Optional[int] = None
     total_estimado: Optional[Decimal] = None
-    moneda: Optional[str] = None
+    moneda_id: UUID
     estado: str
     requiere_aprobacion: Optional[bool] = None
     aprobado_por_usuario_id: Optional[UUID] = None
@@ -330,6 +330,49 @@ class SolicitudCompraRead(BaseModel):
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
     usuario_creacion_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# SOLICITUD DE COMPRA DETALLE
+# ============================================================================
+class SolicitudCompraDetalleBase(BaseModel):
+    empresa_id: UUID
+    solicitud_id: UUID
+    producto_id: UUID
+    cantidad_solicitada: Decimal
+    unidad_medida_id: UUID
+    precio_referencial: Optional[Decimal] = None
+    cantidad_atendida: Optional[Decimal] = Field(0, ge=0)
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class SolicitudCompraDetalleCreate(SolicitudCompraDetalleBase):
+    pass
+
+
+class SolicitudCompraDetalleUpdate(BaseModel):
+    cantidad_solicitada: Optional[Decimal] = None
+    unidad_medida_id: Optional[UUID] = None
+    precio_referencial: Optional[Decimal] = None
+    cantidad_atendida: Optional[Decimal] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class SolicitudCompraDetalleRead(BaseModel):
+    solicitud_detalle_id: UUID
+    cliente_id: UUID
+    empresa_id: UUID
+    solicitud_id: UUID
+    producto_id: UUID
+    cantidad_solicitada: Decimal
+    unidad_medida_id: UUID
+    precio_referencial: Optional[Decimal] = None
+    cantidad_atendida: Optional[Decimal] = None
+    observaciones: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -349,7 +392,8 @@ class CotizacionCreate(BaseModel):
     dias_credito: Optional[int] = None
     tiempo_entrega_dias: Optional[int] = None
     lugar_entrega: Optional[str] = Field(None, max_length=255)
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
+    tipo_cambio: Optional[Decimal] = Field(1, ge=0)
     subtotal: Optional[Decimal] = Field(0, ge=0)
     descuento: Optional[Decimal] = Field(0, ge=0)
     igv: Optional[Decimal] = Field(0, ge=0)
@@ -369,7 +413,8 @@ class CotizacionUpdate(BaseModel):
     dias_credito: Optional[int] = None
     tiempo_entrega_dias: Optional[int] = None
     lugar_entrega: Optional[str] = Field(None, max_length=255)
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
+    tipo_cambio: Optional[Decimal] = None
     subtotal: Optional[Decimal] = None
     descuento: Optional[Decimal] = None
     igv: Optional[Decimal] = None
@@ -393,7 +438,8 @@ class CotizacionRead(BaseModel):
     dias_credito: Optional[int] = None
     tiempo_entrega_dias: Optional[int] = None
     lugar_entrega: Optional[str] = None
-    moneda: Optional[str] = None
+    moneda_id: UUID
+    tipo_cambio: Optional[Decimal] = None
     subtotal: Optional[Decimal] = None
     descuento: Optional[Decimal] = None
     igv: Optional[Decimal] = None
@@ -405,6 +451,52 @@ class CotizacionRead(BaseModel):
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
     usuario_creacion_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# COTIZACIÓN DETALLE
+# ============================================================================
+class CotizacionDetalleBase(BaseModel):
+    empresa_id: UUID
+    cotizacion_id: UUID
+    producto_id: UUID
+    cantidad: Decimal
+    unidad_medida_id: UUID
+    precio_unitario: Decimal
+    descuento_porcentaje: Optional[Decimal] = Field(0, ge=0)
+    tiempo_entrega_dias: Optional[int] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class CotizacionDetalleCreate(CotizacionDetalleBase):
+    pass
+
+
+class CotizacionDetalleUpdate(BaseModel):
+    cantidad: Optional[Decimal] = None
+    unidad_medida_id: Optional[UUID] = None
+    precio_unitario: Optional[Decimal] = None
+    descuento_porcentaje: Optional[Decimal] = None
+    tiempo_entrega_dias: Optional[int] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class CotizacionDetalleRead(BaseModel):
+    cotizacion_detalle_id: UUID
+    cliente_id: UUID
+    empresa_id: UUID
+    cotizacion_id: UUID
+    producto_id: UUID
+    cantidad: Decimal
+    unidad_medida_id: UUID
+    precio_unitario: Decimal
+    descuento_porcentaje: Optional[Decimal] = None
+    tiempo_entrega_dias: Optional[int] = None
+    observaciones: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -427,7 +519,7 @@ class OrdenCompraCreate(BaseModel):
     cotizacion_id: Optional[UUID] = None
     condicion_pago: str = Field(..., max_length=50)
     dias_credito: Optional[int] = Field(0, ge=0)
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
     tipo_cambio: Optional[Decimal] = Field(1, ge=0)
     subtotal: Optional[Decimal] = Field(0, ge=0)
     descuento_global: Optional[Decimal] = Field(0, ge=0)
@@ -454,7 +546,7 @@ class OrdenCompraUpdate(BaseModel):
     cotizacion_id: Optional[UUID] = None
     condicion_pago: Optional[str] = Field(None, max_length=50)
     dias_credito: Optional[int] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal] = None
     subtotal: Optional[Decimal] = None
     descuento_global: Optional[Decimal] = None
@@ -490,7 +582,7 @@ class OrdenCompraRead(BaseModel):
     cotizacion_id: Optional[UUID] = None
     condicion_pago: str
     dias_credito: Optional[int] = None
-    moneda: Optional[str] = None
+    moneda_id: UUID
     tipo_cambio: Optional[Decimal] = None
     subtotal: Optional[Decimal] = None
     descuento_global: Optional[Decimal] = None
@@ -512,6 +604,55 @@ class OrdenCompraRead(BaseModel):
     fecha_anulacion: Optional[datetime] = None
     usuario_creacion_id: Optional[UUID] = None
     usuario_aprobacion_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# ORDEN DE COMPRA DETALLE
+# ============================================================================
+class OrdenCompraDetalleBase(BaseModel):
+    empresa_id: UUID
+    orden_compra_id: UUID
+    producto_id: UUID
+    cantidad_ordenada: Decimal
+    unidad_medida_id: UUID
+    precio_unitario: Decimal
+    descuento_porcentaje: Optional[Decimal] = Field(0, ge=0)
+    cantidad_recepcionada: Optional[Decimal] = Field(0, ge=0)
+    observaciones: Optional[str] = Field(None, max_length=500)
+    especificaciones: Optional[str] = None
+
+
+class OrdenCompraDetalleCreate(OrdenCompraDetalleBase):
+    pass
+
+
+class OrdenCompraDetalleUpdate(BaseModel):
+    cantidad_ordenada: Optional[Decimal] = None
+    unidad_medida_id: Optional[UUID] = None
+    precio_unitario: Optional[Decimal] = None
+    descuento_porcentaje: Optional[Decimal] = None
+    cantidad_recepcionada: Optional[Decimal] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+    especificaciones: Optional[str] = None
+
+
+class OrdenCompraDetalleRead(BaseModel):
+    orden_compra_detalle_id: UUID
+    cliente_id: UUID
+    empresa_id: UUID
+    orden_compra_id: UUID
+    producto_id: UUID
+    cantidad_ordenada: Decimal
+    unidad_medida_id: UUID
+    precio_unitario: Decimal
+    descuento_porcentaje: Optional[Decimal] = None
+    cantidad_recepcionada: Optional[Decimal] = None
+    observaciones: Optional[str] = None
+    especificaciones: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -597,3 +738,148 @@ class RecepcionRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# RECEPCIÓN DETALLE
+# ============================================================================
+class RecepcionDetalleBase(BaseModel):
+    empresa_id: UUID
+    recepcion_id: UUID
+    orden_compra_detalle_id: UUID
+    producto_id: UUID
+    cantidad_ordenada: Decimal
+    cantidad_recepcionada: Decimal
+    unidad_medida_id: UUID
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    precio_unitario: Optional[Decimal] = Field(0, ge=0)
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    observaciones: Optional[str] = Field(None, max_length=500)
+    motivo_diferencia: Optional[str] = Field(None, max_length=255)
+
+
+class RecepcionDetalleCreate(RecepcionDetalleBase):
+    pass
+
+
+class RecepcionDetalleUpdate(BaseModel):
+    cantidad_recepcionada: Optional[Decimal] = None
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    precio_unitario: Optional[Decimal] = None
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    observaciones: Optional[str] = Field(None, max_length=500)
+    motivo_diferencia: Optional[str] = Field(None, max_length=255)
+
+
+class RecepcionDetalleRead(BaseModel):
+    recepcion_detalle_id: UUID
+    cliente_id: UUID
+    empresa_id: UUID
+    recepcion_id: UUID
+    orden_compra_detalle_id: UUID
+    producto_id: UUID
+    cantidad_ordenada: Decimal
+    cantidad_recepcionada: Decimal
+    unidad_medida_id: UUID
+    lote: Optional[str] = None
+    fecha_vencimiento: Optional[date] = None
+    precio_unitario: Optional[Decimal] = None
+    ubicacion_almacen: Optional[str] = None
+    observaciones: Optional[str] = None
+    motivo_diferencia: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# CREACION CABECERA + DETALLE (TRANSACCIONAL) - PUR
+# ============================================================================
+
+# ---- Solicitud de compra (cabecera + detalle en un solo request) ----
+
+
+class SolicitudCompraDetalleItemTransaccionalCreate(BaseModel):
+    """
+    Item para crear una SOLICITUD completa (cabecera + detalle) de forma transaccional.
+    - Se omiten solicitud_id y cliente_id para evitar inconsistencias y repetición.
+    - La integridad de empresa_id/tenant se valida en backend.
+    """
+
+    producto_id: UUID
+    cantidad_solicitada: Decimal = Field(..., gt=0)
+    unidad_medida_id: UUID
+    precio_referencial: Optional[Decimal] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class SolicitudCompraTransaccionalCreate(BaseModel):
+    cabecera: SolicitudCompraCreate
+    detalle: list[SolicitudCompraDetalleItemTransaccionalCreate]
+
+
+# ---- Cotización (cabecera + detalle en un solo request) ----
+
+
+class CotizacionDetalleItemTransaccionalCreate(BaseModel):
+    producto_id: UUID
+    cantidad: Decimal = Field(..., gt=0)
+    unidad_medida_id: UUID
+    precio_unitario: Decimal = Field(..., gt=0)
+    descuento_porcentaje: Optional[Decimal] = Field(0, ge=0)
+    tiempo_entrega_dias: Optional[int] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class CotizacionTransaccionalCreate(BaseModel):
+    cabecera: CotizacionCreate
+    detalle: list[CotizacionDetalleItemTransaccionalCreate]
+
+
+# ---- Orden de compra (cabecera + detalle en un solo request) ----
+
+
+class OrdenCompraDetalleItemTransaccionalCreate(BaseModel):
+    producto_id: UUID
+    cantidad_ordenada: Decimal = Field(..., gt=0)
+    unidad_medida_id: UUID
+    precio_unitario: Decimal = Field(..., gt=0)
+    descuento_porcentaje: Optional[Decimal] = Field(0, ge=0)
+    observaciones: Optional[str] = Field(None, max_length=500)
+    especificaciones: Optional[str] = None
+
+
+class OrdenCompraTransaccionalCreate(BaseModel):
+    cabecera: OrdenCompraCreate
+    detalle: list[OrdenCompraDetalleItemTransaccionalCreate]
+
+
+# ---- Recepción (cabecera + detalle en un solo request) ----
+
+
+class RecepcionDetalleItemTransaccionalCreate(BaseModel):
+    """
+    Item para crear una RECEPCION completa (cabecera + detalle) de forma transaccional.
+    - Requiere orden_compra_detalle_id para preservar integridad contra OC.
+    - Se omiten recepcion_id/cliente_id para que backend asigne.
+    """
+
+    orden_compra_detalle_id: UUID
+    producto_id: UUID
+    cantidad_ordenada: Decimal = Field(..., gt=0)
+    cantidad_recepcionada: Decimal = Field(..., gt=0)
+    unidad_medida_id: UUID
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    precio_unitario: Optional[Decimal] = Field(0, ge=0)
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    observaciones: Optional[str] = Field(None, max_length=500)
+    motivo_diferencia: Optional[str] = Field(None, max_length=255)
+
+
+class RecepcionTransaccionalCreate(BaseModel):
+    cabecera: RecepcionCreate
+    detalle: list[RecepcionDetalleItemTransaccionalCreate]

@@ -19,7 +19,7 @@ from typing import AsyncIterator, Optional, Dict, Any, Union, List
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, Select, Update, Delete, Insert
-from sqlalchemy.sql import ClauseElement, TextClause
+from sqlalchemy.sql.elements import ClauseElement, TextClause
 
 from app.infrastructure.database.connection_async import (
     get_db_connection, DatabaseConnection

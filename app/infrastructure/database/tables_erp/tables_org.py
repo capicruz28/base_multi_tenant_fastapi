@@ -267,7 +267,7 @@ OrgCargoTable = Table(
     Column("cargo_jefe_id", UNIQUEIDENTIFIER, nullable=True),
     Column("rango_salarial_min", Numeric(12, 2), nullable=True),
     Column("rango_salarial_max", Numeric(12, 2), nullable=True),
-    Column("moneda_salarial", String(3), nullable=True, server_default="PEN"),
+    Column("moneda_salarial", UNIQUEIDENTIFIER, ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"), nullable=False),
     Column("nivel_educacion_minimo", String(50), nullable=True),
     Column("experiencia_minima_meses", Integer, nullable=True),
     Column("requisitos_especificos", Text, nullable=True),

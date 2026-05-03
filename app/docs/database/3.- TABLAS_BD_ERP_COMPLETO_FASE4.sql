@@ -424,7 +424,7 @@ CREATE TABLE org_cargo (
     -- Configuración salarial
     rango_salarial_min DECIMAL(12,2) NULL,                    -- Salario mínimo del cargo
     rango_salarial_max DECIMAL(12,2) NULL,                    -- Salario máximo del cargo
-    moneda_salarial NVARCHAR(3) DEFAULT 'PEN',
+    moneda_salarial UNIQUEIDENTIFIER NOT NULL,
     
     -- Requisitos (flexible para diferentes industrias)
     nivel_educacion_minimo NVARCHAR(50) NULL,                 -- 'secundaria', 'tecnico', 'universitario', 'posgrado'
@@ -443,7 +443,9 @@ CREATE TABLE org_cargo (
         REFERENCES org_departamento(departamento_id) ON DELETE NO ACTION,
     CONSTRAINT FK_cargo_jefe FOREIGN KEY (cargo_jefe_id) 
         REFERENCES org_cargo(cargo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_cargo_codigo UNIQUE (cliente_id, empresa_id, codigo)
+    CONSTRAINT UQ_cargo_codigo UNIQUE (cliente_id, empresa_id, codigo),
+    CONSTRAINT FK_cargo_moneda FOREIGN KEY (moneda_salarial)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_cargo_empresa ON org_cargo(empresa_id, es_activo);
@@ -670,11 +672,12 @@ CREATE TABLE inv_producto (
     costo_estandar DECIMAL(18,4) NULL,
     costo_ultima_compra DECIMAL(18,4) NULL,
     costo_promedio DECIMAL(18,4) NULL,
-    moneda_costo NVARCHAR(3) DEFAULT 'PEN',
+    moneda_costo UNIQUEIDENTIFIER NOT NULL,
+    
     
     -- Precios (PRC)
     precio_base_venta DECIMAL(18,4) NULL,
-    moneda_venta NVARCHAR(3) DEFAULT 'PEN',
+    moneda_venta UNIQUEIDENTIFIER NOT NULL,
     afecto_igv BIT DEFAULT 1,                                 -- Si está afecto a impuestos
     porcentaje_igv DECIMAL(5,2) DEFAULT 18.00,
     
@@ -711,7 +714,11 @@ CREATE TABLE inv_producto (
         REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
     CONSTRAINT FK_prod_um_venta FOREIGN KEY (unidad_medida_venta_id) 
         REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_prod_sku UNIQUE (cliente_id, empresa_id, codigo_sku)
+    CONSTRAINT UQ_prod_sku UNIQUE (cliente_id, empresa_id, codigo_sku),
+    CONSTRAINT FK_prod_moneda_costo FOREIGN KEY (moneda_costo)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_prod_moneda_venta FOREIGN KEY (moneda_venta)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_prod_empresa ON inv_producto(empresa_id, es_activo);
@@ -801,7 +808,7 @@ CREATE TABLE inv_stock (
     -- Valores
     costo_promedio DECIMAL(18,4) DEFAULT 0,                   -- Costo promedio unitario
     valor_total AS (cantidad_actual * costo_promedio) PERSISTED, -- Valor total del stock
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Control
     stock_minimo DECIMAL(18,4) NULL,                          -- Mínimo específico para este almacén
@@ -821,7 +828,9 @@ CREATE TABLE inv_stock (
         REFERENCES inv_producto(producto_id) ON DELETE NO ACTION,
     CONSTRAINT FK_stock_almacen FOREIGN KEY (almacen_id) 
         REFERENCES inv_almacen(almacen_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_stock_prod_alm UNIQUE (cliente_id, producto_id, almacen_id)
+    CONSTRAINT UQ_stock_prod_alm UNIQUE (cliente_id, producto_id, almacen_id),
+    CONSTRAINT FK_stock_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_stock_producto ON inv_stock(producto_id);
@@ -909,7 +918,7 @@ CREATE TABLE inv_movimiento (
     total_items INT DEFAULT 0,
     total_cantidad DECIMAL(18,4) DEFAULT 0,
     total_costo DECIMAL(18,4) DEFAULT 0,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Estado y control
     estado NVARCHAR(20) DEFAULT 'borrador',                   -- 'borrador', 'autorizado', 'procesado', 'anulado'
@@ -941,7 +950,9 @@ CREATE TABLE inv_movimiento (
         REFERENCES inv_almacen(almacen_id) ON DELETE NO ACTION,
     CONSTRAINT FK_mov_cc FOREIGN KEY (centro_costo_id) 
         REFERENCES org_centro_costo(centro_costo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_mov_numero UNIQUE (cliente_id, empresa_id, numero_movimiento)
+    CONSTRAINT UQ_mov_numero UNIQUE (cliente_id, empresa_id, numero_movimiento),
+    CONSTRAINT FK_mov_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_mov_empresa ON inv_movimiento(empresa_id, fecha_movimiento DESC);
@@ -974,7 +985,7 @@ CREATE TABLE inv_movimiento_detalle (
     -- Costos
     costo_unitario DECIMAL(18,4) DEFAULT 0,                   -- Costo por unidad
     costo_total AS (cantidad * costo_unitario) PERSISTED,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Lote y vencimiento (si aplica)
     lote NVARCHAR(50) NULL,
@@ -997,7 +1008,9 @@ CREATE TABLE inv_movimiento_detalle (
     CONSTRAINT FK_movdet_producto FOREIGN KEY (producto_id) 
         REFERENCES inv_producto(producto_id) ON DELETE NO ACTION,
     CONSTRAINT FK_movdet_um FOREIGN KEY (unidad_medida_id) 
-        REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION
+        REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_movdet_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_movdet_empresa ON inv_movimiento_detalle(empresa_id);
@@ -1715,10 +1728,10 @@ CREATE TABLE pur_proveedor (
     
     -- Dirección fiscal
     direccion NVARCHAR(255) NULL,
-    pais NVARCHAR(50) DEFAULT 'Perú',
-    departamento NVARCHAR(50) NULL,
-    provincia NVARCHAR(50) NULL,
-    distrito NVARCHAR(50) NULL,
+    pais_id UNIQUEIDENTIFIER NULL,
+    departamento_id UNIQUEIDENTIFIER NULL,
+    provincia_id UNIQUEIDENTIFIER NULL,
+    distrito_id UNIQUEIDENTIFIER NULL,
     ubigeo NVARCHAR(6) NULL,
     
     -- Contacto principal
@@ -1733,7 +1746,7 @@ CREATE TABLE pur_proveedor (
     -- Condiciones comerciales
     condicion_pago_defecto NVARCHAR(50) NULL,                 -- 'contado', '15_dias', '30_dias', '60_dias'
     dias_credito_defecto INT DEFAULT 0,
-    moneda_preferida NVARCHAR(3) DEFAULT 'PEN',
+    moneda_preferida UNIQUEIDENTIFIER NOT NULL,
     
     -- Datos bancarios
     banco NVARCHAR(100) NULL,
@@ -1768,7 +1781,17 @@ CREATE TABLE pur_proveedor (
     CONSTRAINT FK_prov_empresa FOREIGN KEY (empresa_id) 
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT UQ_prov_codigo UNIQUE (cliente_id, empresa_id, codigo_proveedor),
-    CONSTRAINT UQ_prov_documento UNIQUE (cliente_id, empresa_id, tipo_documento, numero_documento)
+    CONSTRAINT UQ_prov_documento UNIQUE (cliente_id, empresa_id, tipo_documento, numero_documento),
+    CONSTRAINT FK_prov_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_prov_departamento FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_prov_provincia FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_prov_distrito FOREIGN KEY (distrito_id) 
+        REFERENCES cat_distrito(distrito_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_prov_moneda FOREIGN KEY (moneda_preferida)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_prov_empresa ON pur_proveedor(empresa_id, es_activo);
@@ -1826,7 +1849,7 @@ CREATE TABLE pur_producto_proveedor (
     
     -- Precio y condiciones
     precio_unitario DECIMAL(18,4) NOT NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     unidad_medida_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Compra
@@ -1853,7 +1876,9 @@ CREATE TABLE pur_producto_proveedor (
         REFERENCES inv_producto(producto_id) ON DELETE NO ACTION,
     CONSTRAINT FK_prodprov_um FOREIGN KEY (unidad_medida_id) 
         REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_prodprov UNIQUE (cliente_id, proveedor_id, producto_id)
+    CONSTRAINT UQ_prodprov UNIQUE (cliente_id, proveedor_id, producto_id),
+    CONSTRAINT FK_prodprov_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_prodprov_proveedor ON pur_producto_proveedor(proveedor_id, es_activo);
@@ -1892,7 +1917,7 @@ CREATE TABLE pur_solicitud_compra (
     -- Totales
     total_items INT DEFAULT 0,
     total_estimado DECIMAL(18,2) DEFAULT 0,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Estado y aprobación
     estado NVARCHAR(20) DEFAULT 'borrador',                   -- 'borrador', 'pendiente_aprobacion', 'aprobada', 'rechazada', 'procesada', 'anulada'
@@ -1920,7 +1945,9 @@ CREATE TABLE pur_solicitud_compra (
         REFERENCES inv_almacen(almacen_id) ON DELETE NO ACTION,
     CONSTRAINT FK_solcomp_cc FOREIGN KEY (centro_costo_id) 
         REFERENCES org_centro_costo(centro_costo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_solcomp_numero UNIQUE (cliente_id, empresa_id, numero_solicitud)
+    CONSTRAINT UQ_solcomp_numero UNIQUE (cliente_id, empresa_id, numero_solicitud),
+    CONSTRAINT FK_solcomp_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_solcomp_empresa ON pur_solicitud_compra(empresa_id, fecha_solicitud DESC);
@@ -2386,7 +2413,7 @@ CREATE TABLE log_transportista (
     -- Tarifas
     tarifa_km DECIMAL(10,2) NULL,
     tarifa_hora DECIMAL(10,2) NULL,
-    moneda_tarifa NVARCHAR(3) DEFAULT 'PEN',
+    moneda_tarifa UNIQUEIDENTIFIER NOT NULL,
     
     -- Calificación
     calificacion DECIMAL(3,2) NULL,
@@ -2398,7 +2425,9 @@ CREATE TABLE log_transportista (
     
     CONSTRAINT FK_transp_empresa FOREIGN KEY (empresa_id) 
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_transp_codigo UNIQUE (cliente_id, empresa_id, codigo_transportista)
+    CONSTRAINT UQ_transp_codigo UNIQUE (cliente_id, empresa_id, codigo_transportista),
+    CONSTRAINT FK_transp_moneda FOREIGN KEY (moneda_tarifa)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_transp_empresa ON log_transportista(empresa_id, es_activo);
@@ -2494,7 +2523,7 @@ CREATE TABLE log_ruta (
     
     -- Costos
     costo_estimado DECIMAL(12,2) NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Peajes y paradas
     cantidad_peajes INT DEFAULT 0,
@@ -2510,7 +2539,9 @@ CREATE TABLE log_ruta (
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT FK_logruta_origen_suc FOREIGN KEY (origen_sucursal_id) 
         REFERENCES org_sucursal(sucursal_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_logruta_codigo UNIQUE (cliente_id, empresa_id, codigo_ruta)
+    CONSTRAINT UQ_logruta_codigo UNIQUE (cliente_id, empresa_id, codigo_ruta),
+    CONSTRAINT FK_logruta_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_ruta_empresa ON log_ruta(empresa_id, es_activo);
@@ -3100,7 +3131,7 @@ CREATE TABLE mfg_orden_produccion (
     costo_mano_obra DECIMAL(18,2) DEFAULT 0,
     costo_cif DECIMAL(18,2) DEFAULT 0,                        -- Costos indirectos fabricación
     costo_total AS (costo_materiales + costo_mano_obra + costo_cif) PERSISTED,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Centro de costo
     centro_costo_id UNIQUEIDENTIFIER NULL,
@@ -3134,7 +3165,9 @@ CREATE TABLE mfg_orden_produccion (
         REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
     CONSTRAINT FK_op_cc FOREIGN KEY (centro_costo_id) 
         REFERENCES org_centro_costo(centro_costo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_op_numero UNIQUE (cliente_id, empresa_id, numero_op)
+    CONSTRAINT UQ_op_numero UNIQUE (cliente_id, empresa_id, numero_op),
+    CONSTRAINT FK_op_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_op_empresa ON mfg_orden_produccion(empresa_id, fecha_emision DESC);
@@ -3686,7 +3719,7 @@ CREATE TABLE mnt_activo (
     -- Costo
     valor_adquisicion DECIMAL(18,2) NULL,
     valor_actual DECIMAL(18,2) NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Estado
     estado_activo NVARCHAR(20) DEFAULT 'operativo',           -- 'operativo', 'mantenimiento', 'averiado', 'baja'
@@ -3709,7 +3742,9 @@ CREATE TABLE mnt_activo (
         REFERENCES log_vehiculo(vehiculo_id) ON DELETE NO ACTION,
     CONSTRAINT FK_activo_prov FOREIGN KEY (proveedor_id) 
         REFERENCES pur_proveedor(proveedor_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_activo_codigo UNIQUE (cliente_id, empresa_id, codigo_activo)
+    CONSTRAINT UQ_activo_codigo UNIQUE (cliente_id, empresa_id, codigo_activo),
+    CONSTRAINT FK_activo_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_activo_empresa ON mnt_activo(empresa_id, es_activo);
@@ -3753,7 +3788,7 @@ CREATE TABLE mnt_plan_mantenimiento (
     
     -- Costo estimado
     costo_estimado DECIMAL(18,2) NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Estado
     es_activo BIT DEFAULT 1 NOT NULL,
@@ -3766,7 +3801,9 @@ CREATE TABLE mnt_plan_mantenimiento (
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT FK_planmnt_activo FOREIGN KEY (activo_id) 
         REFERENCES mnt_activo(activo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_planmnt_codigo UNIQUE (cliente_id, empresa_id, codigo_plan)
+    CONSTRAINT UQ_planmnt_codigo UNIQUE (cliente_id, empresa_id, codigo_plan),
+    CONSTRAINT FK_planmnt_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_planmnt_empresa ON mnt_plan_mantenimiento(empresa_id, es_activo);
@@ -3824,7 +3861,7 @@ CREATE TABLE mnt_orden_trabajo (
     costo_repuestos DECIMAL(18,2) DEFAULT 0,
     costo_servicios_terceros DECIMAL(18,2) DEFAULT 0,
     costo_total AS (costo_mano_obra + costo_repuestos + costo_servicios_terceros) PERSISTED,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Estado
     estado NVARCHAR(20) DEFAULT 'solicitada',                 -- 'solicitada', 'programada', 'en_proceso', 'pausada', 'completada', 'cerrada', 'cancelada'
@@ -3847,7 +3884,9 @@ CREATE TABLE mnt_orden_trabajo (
         REFERENCES mnt_activo(activo_id) ON DELETE NO ACTION,
     CONSTRAINT FK_ot_plan FOREIGN KEY (plan_mantenimiento_id) 
         REFERENCES mnt_plan_mantenimiento(plan_mantenimiento_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_ot_numero UNIQUE (cliente_id, empresa_id, numero_ot)
+    CONSTRAINT UQ_ot_numero UNIQUE (cliente_id, empresa_id, numero_ot),
+    CONSTRAINT FK_ot_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_ot_empresa ON mnt_orden_trabajo(empresa_id, fecha_solicitud DESC);
@@ -3879,7 +3918,7 @@ CREATE TABLE mnt_historial_mantenimiento (
     kilometraje DECIMAL(12,2) NULL,
     
     costo_total DECIMAL(18,2) DEFAULT 0,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     observaciones NVARCHAR(500) NULL,
     
@@ -3890,7 +3929,9 @@ CREATE TABLE mnt_historial_mantenimiento (
     CONSTRAINT FK_histmnt_activo FOREIGN KEY (activo_id) 
         REFERENCES mnt_activo(activo_id) ON DELETE NO ACTION,
     CONSTRAINT FK_histmnt_ot FOREIGN KEY (orden_trabajo_id) 
-        REFERENCES mnt_orden_trabajo(orden_trabajo_id) ON DELETE NO ACTION
+        REFERENCES mnt_orden_trabajo(orden_trabajo_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_histmnt_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_histmnt_empresa ON mnt_historial_mantenimiento(empresa_id, fecha_mantenimiento DESC);
@@ -3942,10 +3983,10 @@ CREATE TABLE sls_cliente (
     
     -- Dirección fiscal
     direccion NVARCHAR(255) NULL,
-    pais NVARCHAR(50) DEFAULT 'Perú',
-    departamento NVARCHAR(50) NULL,
-    provincia NVARCHAR(50) NULL,
-    distrito NVARCHAR(50) NULL,
+    pais_id UNIQUEIDENTIFIER NULL,
+    departamento_id UNIQUEIDENTIFIER NULL,
+    provincia_id UNIQUEIDENTIFIER NULL,
+    distrito_id UNIQUEIDENTIFIER NULL,
     ubigeo NVARCHAR(6) NULL,
     
     -- Contacto principal
@@ -3960,7 +4001,7 @@ CREATE TABLE sls_cliente (
     -- Condiciones comerciales
     condicion_pago_defecto NVARCHAR(50) DEFAULT 'contado',    -- 'contado', '15_dias', '30_dias', '60_dias'
     dias_credito_defecto INT DEFAULT 0,
-    moneda_preferida NVARCHAR(3) DEFAULT 'PEN',
+    moneda_preferida UNIQUEIDENTIFIER NOT NULL,
     lista_precio_id UNIQUEIDENTIFIER NULL,                    -- FK a prc_lista_precio
     
     -- Límites
@@ -3998,7 +4039,17 @@ CREATE TABLE sls_cliente (
     CONSTRAINT FK_cltvta_empresa FOREIGN KEY (empresa_id) 
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT UQ_cltvta_codigo UNIQUE (cliente_id, empresa_id, codigo_cliente),
-    CONSTRAINT UQ_cltvta_documento UNIQUE (cliente_id, empresa_id, tipo_documento, numero_documento)
+    CONSTRAINT UQ_cltvta_documento UNIQUE (cliente_id, empresa_id, tipo_documento, numero_documento),
+    CONSTRAINT FK_cltvta_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltvta_departamento FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltvta_provincia FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltvta_distrito FOREIGN KEY (distrito_id) 
+        REFERENCES cat_distrito(distrito_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltvta_moneda FOREIGN KEY (moneda_preferida)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_cltvta_empresa ON sls_cliente(empresa_id, es_activo);
@@ -4057,10 +4108,10 @@ CREATE TABLE sls_cliente_direccion (
     
     direccion NVARCHAR(255) NOT NULL,
     referencia NVARCHAR(255) NULL,
-    pais NVARCHAR(50) DEFAULT 'Perú',
-    departamento NVARCHAR(50) NULL,
-    provincia NVARCHAR(50) NULL,
-    distrito NVARCHAR(50) NULL,
+    pais_id UNIQUEIDENTIFIER NULL,
+    departamento_id UNIQUEIDENTIFIER NULL,
+    provincia_id UNIQUEIDENTIFIER NULL,
+    distrito_id UNIQUEIDENTIFIER NULL,
     ubigeo NVARCHAR(6) NULL,
     codigo_postal NVARCHAR(10) NULL,
     
@@ -4074,7 +4125,15 @@ CREATE TABLE sls_cliente_direccion (
     fecha_creacion DATETIME DEFAULT GETDATE() NOT NULL,
     
     CONSTRAINT FK_cltdir_cliente FOREIGN KEY (cliente_venta_id) 
-        REFERENCES sls_cliente(cliente_venta_id) ON DELETE NO ACTION
+        REFERENCES sls_cliente(cliente_venta_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltdir_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltdir_departamento FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltdir_provincia FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cltdir_distrito FOREIGN KEY (distrito_id) 
+        REFERENCES cat_distrito(distrito_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_cltdir_cliente ON sls_cliente_direccion(cliente_venta_id, es_activo);
@@ -4378,7 +4437,7 @@ CREATE TABLE crm_campana (
     -- Presupuesto
     presupuesto DECIMAL(18,2) NULL,
     gasto_real DECIMAL(18,2) DEFAULT 0,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Responsable
     responsable_usuario_id UNIQUEIDENTIFIER NULL,
@@ -4403,7 +4462,9 @@ CREATE TABLE crm_campana (
     
     CONSTRAINT FK_campana_empresa FOREIGN KEY (empresa_id) 
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_campana_codigo UNIQUE (cliente_id, empresa_id, codigo_campana)
+    CONSTRAINT UQ_campana_codigo UNIQUE (cliente_id, empresa_id, codigo_campana),
+    CONSTRAINT FK_campana_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_campana_empresa ON crm_campana(empresa_id, estado);
@@ -4433,7 +4494,7 @@ CREATE TABLE crm_lead (
     -- Dirección
     direccion NVARCHAR(255) NULL,
     ciudad NVARCHAR(100) NULL,
-    pais NVARCHAR(50) DEFAULT 'Perú',
+    pais_id UNIQUEIDENTIFIER NULL,
     
     -- Origen
     origen_lead NVARCHAR(30) NOT NULL,                        -- 'web', 'telefono', 'referido', 'evento', 'campana', 'redes_sociales'
@@ -4473,7 +4534,9 @@ CREATE TABLE crm_lead (
     CONSTRAINT FK_lead_campana FOREIGN KEY (campana_id) 
         REFERENCES crm_campana(campana_id) ON DELETE NO ACTION,
     CONSTRAINT FK_lead_cliente FOREIGN KEY (cliente_venta_id) 
-        REFERENCES sls_cliente(cliente_venta_id) ON DELETE NO ACTION
+        REFERENCES sls_cliente(cliente_venta_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_lead_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_lead_empresa ON crm_lead(empresa_id, estado);
@@ -4510,7 +4573,7 @@ CREATE TABLE crm_oportunidad (
     
     -- Valor estimado
     monto_estimado DECIMAL(18,2) NOT NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     probabilidad_cierre DECIMAL(5,2) DEFAULT 50,              -- % probabilidad de ganar
     valor_ponderado AS (monto_estimado * probabilidad_cierre / 100) PERSISTED,
     
@@ -4560,7 +4623,9 @@ CREATE TABLE crm_oportunidad (
         REFERENCES crm_lead(lead_id) ON DELETE NO ACTION,
     CONSTRAINT FK_opor_campana FOREIGN KEY (campana_id) 
         REFERENCES crm_campana(campana_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_opor_numero UNIQUE (cliente_id, empresa_id, numero_oportunidad)
+    CONSTRAINT UQ_opor_numero UNIQUE (cliente_id, empresa_id, numero_oportunidad),
+    CONSTRAINT FK_opor_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_opor_empresa ON crm_oportunidad(empresa_id, estado);
@@ -4664,7 +4729,7 @@ CREATE TABLE prc_lista_precio (
     
     -- Aplicabilidad
     tipo_lista NVARCHAR(30) DEFAULT 'general',                -- 'general', 'mayorista', 'minorista', 'distribuidor', 'corporativo'
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Vigencia
     fecha_vigencia_desde DATE NOT NULL,
@@ -4689,7 +4754,9 @@ CREATE TABLE prc_lista_precio (
     
     CONSTRAINT FK_listaprc_empresa FOREIGN KEY (empresa_id) 
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_listaprc_codigo UNIQUE (cliente_id, empresa_id, codigo_lista)
+    CONSTRAINT UQ_listaprc_codigo UNIQUE (cliente_id, empresa_id, codigo_lista),
+    CONSTRAINT FK_listaprc_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_listaprc_empresa ON prc_lista_precio(empresa_id, es_activo);
@@ -5228,7 +5295,7 @@ CREATE TABLE pos_venta (
     cliente_documento_numero NVARCHAR(20) NULL,
     
     -- Totales
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     subtotal DECIMAL(18,2) DEFAULT 0,
     descuento_global DECIMAL(18,2) DEFAULT 0,
     igv DECIMAL(18,2) DEFAULT 0,
@@ -5284,7 +5351,9 @@ CREATE TABLE pos_venta (
         REFERENCES sls_cliente(cliente_venta_id) ON DELETE NO ACTION,
     CONSTRAINT FK_posvta_comp FOREIGN KEY (comprobante_id) 
         REFERENCES invbill_comprobante(comprobante_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_posvta_numero UNIQUE (cliente_id, empresa_id, punto_venta_id, numero_venta)
+    CONSTRAINT UQ_posvta_numero UNIQUE (cliente_id, empresa_id, punto_venta_id, numero_venta),
+    CONSTRAINT FK_posvta_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_posvta_empresa ON pos_venta(empresa_id, fecha_venta DESC);
@@ -5528,7 +5597,7 @@ CREATE TABLE hcm_contrato (
     cargo_descripcion NVARCHAR(150) NULL,
     
     remuneracion_basica DECIMAL(12,2) NOT NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     tipo_remuneracion NVARCHAR(20) DEFAULT 'mensual',         -- 'mensual', 'quincenal', 'semanal', 'diario', 'por_hora'
     
     -- Jornada laboral
@@ -5576,7 +5645,9 @@ CREATE TABLE hcm_contrato (
         REFERENCES org_cargo(cargo_id) ON DELETE NO ACTION,
     CONSTRAINT FK_contrato_renovado FOREIGN KEY (contrato_renovado_desde_id) 
         REFERENCES hcm_contrato(contrato_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_contrato_numero UNIQUE (cliente_id, empresa_id, numero_contrato)
+    CONSTRAINT UQ_contrato_numero UNIQUE (cliente_id, empresa_id, numero_contrato),
+    CONSTRAINT FK_contrato_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_contrato_empresa ON hcm_contrato(empresa_id, fecha_inicio DESC);
@@ -5946,7 +6017,7 @@ CREATE TABLE hcm_prestamo (
     tipo_prestamo NVARCHAR(30) NOT NULL,                      -- 'adelanto_sueldo', 'prestamo', 'adelanto_gratificacion'
     
     monto_prestamo DECIMAL(12,2) NOT NULL,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     fecha_prestamo DATE DEFAULT GETDATE() NOT NULL,
     
@@ -5977,7 +6048,9 @@ CREATE TABLE hcm_prestamo (
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT FK_prestamo_empleado FOREIGN KEY (empleado_id) 
         REFERENCES hcm_empleado(empleado_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_prestamo_numero UNIQUE (cliente_id, empresa_id, numero_prestamo)
+    CONSTRAINT UQ_prestamo_numero UNIQUE (cliente_id, empresa_id, numero_prestamo),
+    CONSTRAINT FK_prestamo_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_prestamo_empresa ON hcm_prestamo(empresa_id, fecha_prestamo DESC);

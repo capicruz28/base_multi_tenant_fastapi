@@ -26,10 +26,14 @@ async def listar_cotizaciones(
     estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
+    page: Optional[int] = Query(None, ge=1, description="Página (con page_size)"),
+    page_size: Optional[int] = Query(None, ge=1, le=500, description="Registros por página"),
+    sort_by: Optional[str] = Query(None, description="Ordenar por: fecha_cotizacion, estado, fecha_creacion"),
+    order: Optional[str] = Query(None, description="asc o desc"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista cotizaciones del tenant. Filtro por cliente_id del token."""
+    """Lista cotizaciones del tenant. Paginación opcional con page y page_size."""
     client_id = current_user.cliente_id
     return await cotizacion_service.list_cotizaciones_servicio(
         client_id=client_id,
@@ -39,6 +43,10 @@ async def listar_cotizaciones(
         estado=estado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        order=order,
     )
 
 
@@ -84,6 +92,23 @@ async def actualizar_cotizacion(
             client_id=client_id,
             cotizacion_id=cotizacion_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/{cotizacion_id}/marcar-ganadora", response_model=CotizacionRead, summary="Marcar cotización ganadora")
+async def marcar_ganadora_cotizacion(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Marca esta cotización como ganadora. Otras cotizaciones de la misma solicitud quedan no ganadoras."""
+    client_id = current_user.cliente_id
+    try:
+        return await cotizacion_service.marcar_ganadora_cotizacion_servicio(
+            client_id=client_id,
+            cotizacion_id=cotizacion_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

@@ -371,7 +371,7 @@ class CargoCreate(BaseModel):
     cargo_jefe_id: Optional[UUID] = None
     rango_salarial_min: Optional[Decimal] = None
     rango_salarial_max: Optional[Decimal] = None
-    moneda_salarial: Optional[str] = "PEN"
+    moneda_salarial: UUID
     nivel_educacion_minimo: Optional[str] = None
     experiencia_minima_meses: Optional[int] = None
     requisitos_especificos: Optional[str] = None
@@ -389,7 +389,7 @@ class CargoUpdate(BaseModel):
     cargo_jefe_id: Optional[UUID] = None
     rango_salarial_min: Optional[Decimal] = None
     rango_salarial_max: Optional[Decimal] = None
-    moneda_salarial: Optional[str] = None
+    moneda_salarial: Optional[UUID] = None
     nivel_educacion_minimo: Optional[str] = None
     experiencia_minima_meses: Optional[int] = None
     requisitos_especificos: Optional[str] = None
@@ -410,7 +410,7 @@ class CargoRead(BaseModel):
     cargo_jefe_id: Optional[UUID] = None
     rango_salarial_min: Optional[Decimal] = None
     rango_salarial_max: Optional[Decimal] = None
-    moneda_salarial: Optional[str] = None
+    moneda_salarial: UUID
     nivel_educacion_minimo: Optional[str] = None
     experiencia_minima_meses: Optional[int] = None
     requisitos_especificos: Optional[str] = None

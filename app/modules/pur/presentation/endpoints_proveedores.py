@@ -22,16 +22,30 @@ async def listar_proveedores(
     empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     solo_activos: bool = Query(True, description="Solo proveedores activos"),
     buscar: Optional[str] = Query(None, description="Búsqueda por razón social, RUC o código"),
+    tipo_proveedor: Optional[str] = Query(None, description="Filtrar por tipo (ej. bienes, servicios)"),
+    categoria_proveedor: Optional[str] = Query(None, description="Filtrar por categoría"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado (ej. activo, bloqueado)"),
+    page: Optional[int] = Query(None, ge=1, description="Página (con page_size)"),
+    page_size: Optional[int] = Query(None, ge=1, le=500, description="Registros por página"),
+    sort_by: Optional[str] = Query(None, description="Ordenar por: razon_social, codigo_proveedor, fecha_creacion, numero_documento"),
+    order: Optional[str] = Query(None, description="asc o desc"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista proveedores del tenant. Filtro por cliente_id del token."""
+    """Lista proveedores del tenant. Filtros opcionales: tipo, categoría, estado. Paginación con page y page_size."""
     client_id = current_user.cliente_id
     return await proveedor_service.list_proveedores_servicio(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
         buscar=buscar,
+        tipo_proveedor=tipo_proveedor,
+        categoria_proveedor=categoria_proveedor,
+        estado=estado,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        order=order,
     )
 
 

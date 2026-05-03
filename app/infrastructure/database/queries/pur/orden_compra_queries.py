@@ -5,12 +5,15 @@ Filtro tenant estricto: todas las operaciones usan cliente_id.
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime, date
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, and_, asc, desc
 
 from app.infrastructure.database.tables_erp import PurOrdenCompraTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in PurOrdenCompraTable.c}
+
+
+_SORT_COLUMNS_OC = {"fecha_emision", "estado", "numero_oc", "fecha_creacion"}
 
 
 async def list_ordenes_compra(
@@ -20,7 +23,11 @@ async def list_ordenes_compra(
     solicitud_compra_id: Optional[UUID] = None,
     estado: Optional[str] = None,
     fecha_desde: Optional[date] = None,
-    fecha_hasta: Optional[date] = None
+    fecha_hasta: Optional[date] = None,
+    skip: Optional[int] = None,
+    limit: Optional[int] = None,
+    sort_by: Optional[str] = None,
+    order: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista órdenes de compra del tenant. Siempre filtra por cliente_id."""
     query = select(PurOrdenCompraTable).where(
@@ -38,7 +45,14 @@ async def list_ordenes_compra(
         query = query.where(PurOrdenCompraTable.c.fecha_emision >= fecha_desde)
     if fecha_hasta:
         query = query.where(PurOrdenCompraTable.c.fecha_emision <= fecha_hasta)
-    query = query.order_by(PurOrdenCompraTable.c.fecha_emision.desc())
+    col = PurOrdenCompraTable.c.fecha_emision
+    if sort_by and sort_by in _SORT_COLUMNS_OC:
+        col = getattr(PurOrdenCompraTable.c, sort_by)
+    query = query.order_by(desc(col) if order == "desc" else asc(col))
+    if skip is not None:
+        query = query.offset(skip)
+    if limit is not None:
+        query = query.limit(limit)
     return await execute_query(query, client_id=client_id)
 
 

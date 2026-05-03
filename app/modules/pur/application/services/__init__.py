@@ -27,11 +27,23 @@ from app.modules.pur.application.services.solicitud_service import (
     create_solicitud_servicio,
     update_solicitud_servicio,
 )
+from app.modules.pur.application.services.solicitud_detalle_service import (
+    list_solicitudes_detalle_servicio,
+    get_solicitud_detalle_servicio,
+    create_solicitud_detalle_servicio,
+    update_solicitud_detalle_servicio,
+)
 from app.modules.pur.application.services.cotizacion_service import (
     list_cotizaciones_servicio,
     get_cotizacion_servicio,
     create_cotizacion_servicio,
     update_cotizacion_servicio,
+)
+from app.modules.pur.application.services.cotizacion_detalle_service import (
+    list_cotizaciones_detalle_servicio,
+    get_cotizacion_detalle_servicio,
+    create_cotizacion_detalle_servicio,
+    update_cotizacion_detalle_servicio,
 )
 from app.modules.pur.application.services.orden_compra_service import (
     list_ordenes_compra_servicio,
@@ -39,11 +51,23 @@ from app.modules.pur.application.services.orden_compra_service import (
     create_orden_compra_servicio,
     update_orden_compra_servicio,
 )
+from app.modules.pur.application.services.orden_compra_detalle_service import (
+    list_ordenes_compra_detalle_servicio,
+    get_orden_compra_detalle_servicio,
+    create_orden_compra_detalle_servicio,
+    update_orden_compra_detalle_servicio,
+)
 from app.modules.pur.application.services.recepcion_service import (
     list_recepciones_servicio,
     get_recepcion_servicio,
     create_recepcion_servicio,
     update_recepcion_servicio,
+)
+from app.modules.pur.application.services.recepcion_detalle_service import (
+    list_recepciones_detalle_servicio,
+    get_recepcion_detalle_servicio,
+    create_recepcion_detalle_servicio,
+    update_recepcion_detalle_servicio,
 )
 
 # Re-exportar como módulos para facilitar imports
@@ -53,7 +77,9 @@ from app.modules.pur.application.services import producto_proveedor_service
 from app.modules.pur.application.services import solicitud_service
 from app.modules.pur.application.services import cotizacion_service
 from app.modules.pur.application.services import orden_compra_service
+from app.modules.pur.application.services import orden_compra_detalle_service
 from app.modules.pur.application.services import recepcion_service
+from app.modules.pur.application.services import recepcion_detalle_service
 
 __all__ = [
     # Proveedores
@@ -76,21 +102,37 @@ __all__ = [
     "get_solicitud_servicio",
     "create_solicitud_servicio",
     "update_solicitud_servicio",
+    "list_solicitudes_detalle_servicio",
+    "get_solicitud_detalle_servicio",
+    "create_solicitud_detalle_servicio",
+    "update_solicitud_detalle_servicio",
     # Cotizaciones
     "list_cotizaciones_servicio",
     "get_cotizacion_servicio",
     "create_cotizacion_servicio",
     "update_cotizacion_servicio",
+    "list_cotizaciones_detalle_servicio",
+    "get_cotizacion_detalle_servicio",
+    "create_cotizacion_detalle_servicio",
+    "update_cotizacion_detalle_servicio",
     # Órdenes de compra
     "list_ordenes_compra_servicio",
     "get_orden_compra_servicio",
     "create_orden_compra_servicio",
     "update_orden_compra_servicio",
+    "list_ordenes_compra_detalle_servicio",
+    "get_orden_compra_detalle_servicio",
+    "create_orden_compra_detalle_servicio",
+    "update_orden_compra_detalle_servicio",
     # Recepciones
     "list_recepciones_servicio",
     "get_recepcion_servicio",
     "create_recepcion_servicio",
     "update_recepcion_servicio",
+    "list_recepciones_detalle_servicio",
+    "get_recepcion_detalle_servicio",
+    "create_recepcion_detalle_servicio",
+    "update_recepcion_detalle_servicio",
     # Módulos
     "proveedor_service",
     "contacto_service",
@@ -98,5 +140,7 @@ __all__ = [
     "solicitud_service",
     "cotizacion_service",
     "orden_compra_service",
+    "orden_compra_detalle_service",
     "recepcion_service",
+    "recepcion_detalle_service",
 ]

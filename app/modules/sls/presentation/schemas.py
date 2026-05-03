@@ -26,10 +26,10 @@ class ClienteCreate(BaseModel):
     segmento: Optional[str] = Field(None, max_length=50)
     canal_venta: Optional[str] = Field(None, max_length=30)
     direccion: Optional[str] = Field(None, max_length=255)
-    pais: Optional[str] = "Perú"
-    departamento: Optional[str] = Field(None, max_length=50)
-    provincia: Optional[str] = Field(None, max_length=50)
-    distrito: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = Field(None, max_length=6)
     contacto_nombre: Optional[str] = Field(None, max_length=150)
     contacto_cargo: Optional[str] = Field(None, max_length=100)
@@ -68,10 +68,10 @@ class ClienteUpdate(BaseModel):
     segmento: Optional[str] = Field(None, max_length=50)
     canal_venta: Optional[str] = Field(None, max_length=30)
     direccion: Optional[str] = Field(None, max_length=255)
-    pais: Optional[str] = None
-    departamento: Optional[str] = Field(None, max_length=50)
-    provincia: Optional[str] = Field(None, max_length=50)
-    distrito: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = Field(None, max_length=6)
     contacto_nombre: Optional[str] = Field(None, max_length=150)
     contacto_cargo: Optional[str] = Field(None, max_length=100)
@@ -113,10 +113,10 @@ class ClienteRead(BaseModel):
     segmento: Optional[str]
     canal_venta: Optional[str]
     direccion: Optional[str]
-    pais: Optional[str]
-    departamento: Optional[str]
-    provincia: Optional[str]
-    distrito: Optional[str]
+    pais_id: Optional[UUID]
+    departamento_id: Optional[UUID]
+    provincia_id: Optional[UUID]
+    distrito_id: Optional[UUID]
     ubigeo: Optional[str]
     contacto_nombre: Optional[str]
     contacto_cargo: Optional[str]
@@ -217,10 +217,10 @@ class ClienteDireccionCreate(BaseModel):
     nombre_direccion: str = Field(..., max_length=100)
     direccion: str = Field(..., max_length=255)
     referencia: Optional[str] = Field(None, max_length=255)
-    pais: Optional[str] = "Perú"
-    departamento: Optional[str] = Field(None, max_length=50)
-    provincia: Optional[str] = Field(None, max_length=50)
-    distrito: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = Field(None, max_length=6)
     codigo_postal: Optional[str] = Field(None, max_length=10)
     contacto_nombre: Optional[str] = Field(None, max_length=150)
@@ -235,10 +235,10 @@ class ClienteDireccionUpdate(BaseModel):
     nombre_direccion: Optional[str] = Field(None, max_length=100)
     direccion: Optional[str] = Field(None, max_length=255)
     referencia: Optional[str] = Field(None, max_length=255)
-    pais: Optional[str] = None
-    departamento: Optional[str] = Field(None, max_length=50)
-    provincia: Optional[str] = Field(None, max_length=50)
-    distrito: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
+    departamento_id: Optional[UUID] = None
+    provincia_id: Optional[UUID] = None
+    distrito_id: Optional[UUID] = None
     ubigeo: Optional[str] = Field(None, max_length=6)
     codigo_postal: Optional[str] = Field(None, max_length=10)
     contacto_nombre: Optional[str] = Field(None, max_length=150)
@@ -256,10 +256,10 @@ class ClienteDireccionRead(BaseModel):
     nombre_direccion: str
     direccion: str
     referencia: Optional[str]
-    pais: Optional[str]
-    departamento: Optional[str]
-    provincia: Optional[str]
-    distrito: Optional[str]
+    pais_id: Optional[UUID]
+    departamento_id: Optional[UUID]
+    provincia_id: Optional[UUID]
+    distrito_id: Optional[UUID]
     ubigeo: Optional[str]
     codigo_postal: Optional[str]
     contacto_nombre: Optional[str]

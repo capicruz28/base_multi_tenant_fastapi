@@ -1,6 +1,6 @@
 # app/modules/pur/presentation/endpoints_solicitudes.py
 """Endpoints PUR - Solicitudes de Compra. client_id siempre desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from uuid import UUID
 from typing import Optional
 from datetime import date
@@ -24,10 +24,14 @@ async def listar_solicitudes(
     estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
+    page: Optional[int] = Query(None, ge=1, description="Página (con page_size)"),
+    page_size: Optional[int] = Query(None, ge=1, le=500, description="Registros por página"),
+    sort_by: Optional[str] = Query(None, description="Ordenar por: fecha_solicitud, estado, numero_solicitud, fecha_creacion"),
+    order: Optional[str] = Query(None, description="asc o desc"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista solicitudes de compra del tenant. Filtro por cliente_id del token."""
+    """Lista solicitudes de compra del tenant. Paginación opcional con page y page_size."""
     client_id = current_user.cliente_id
     return await solicitud_service.list_solicitudes_servicio(
         client_id=client_id,
@@ -35,6 +39,10 @@ async def listar_solicitudes(
         estado=estado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        order=order,
     )
 
 
@@ -80,6 +88,65 @@ async def actualizar_solicitud(
             client_id=client_id,
             solicitud_id=solicitud_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/{solicitud_id}/aprobar", response_model=SolicitudCompraRead, summary="Aprobar solicitud")
+async def aprobar_solicitud(
+    solicitud_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Aprueba la solicitud de compra. Solo en estado borrador o pendiente_aprobacion."""
+    client_id = current_user.cliente_id
+    try:
+        return await solicitud_service.aprobar_solicitud_servicio(
+            client_id=client_id,
+            solicitud_id=solicitud_id,
+            aprobado_por_usuario_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{solicitud_id}/rechazar", response_model=SolicitudCompraRead, summary="Rechazar solicitud")
+async def rechazar_solicitud(
+    solicitud_id: UUID,
+    body: Optional[dict] = Body(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Rechaza la solicitud de compra. Body: { \"motivo_rechazo\": \"...\" }."""
+    client_id = current_user.cliente_id
+    motivo_rechazo = (body or {}).get("motivo_rechazo", "") or ""
+    try:
+        return await solicitud_service.rechazar_solicitud_servicio(
+            client_id=client_id,
+            solicitud_id=solicitud_id,
+            motivo_rechazo=motivo_rechazo,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{solicitud_id}/marcar-procesada", response_model=SolicitudCompraRead, summary="Marcar solicitud como procesada")
+async def marcar_procesada_solicitud(
+    solicitud_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Marca la solicitud como procesada (se generó OC)."""
+    client_id = current_user.cliente_id
+    try:
+        return await solicitud_service.marcar_procesada_solicitud_servicio(
+            client_id=client_id,
+            solicitud_id=solicitud_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

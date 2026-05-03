@@ -97,7 +97,7 @@ class LeadCreate(BaseModel):
     email: Optional[str] = Field(None, max_length=100)
     direccion: Optional[str] = Field(None, max_length=255)
     ciudad: Optional[str] = Field(None, max_length=100)
-    pais: Optional[str] = Field("Perú", max_length=50)
+    pais_id: Optional[UUID] = None
     origen_lead: str = Field(..., max_length=30)  # 'web', 'telefono', 'referido', 'evento', 'campana', 'redes_sociales'
     campana_id: Optional[UUID] = None
     referido_por: Optional[str] = Field(None, max_length=150)
@@ -118,7 +118,7 @@ class LeadUpdate(BaseModel):
     email: Optional[str] = Field(None, max_length=100)
     direccion: Optional[str] = Field(None, max_length=255)
     ciudad: Optional[str] = Field(None, max_length=100)
-    pais: Optional[str] = Field(None, max_length=50)
+    pais_id: Optional[UUID] = None
     origen_lead: Optional[str] = Field(None, max_length=30)
     campana_id: Optional[UUID] = None
     referido_por: Optional[str] = Field(None, max_length=150)
@@ -149,7 +149,7 @@ class LeadRead(BaseModel):
     email: Optional[str]
     direccion: Optional[str]
     ciudad: Optional[str]
-    pais: Optional[str]
+    pais_id: Optional[UUID]
     origen_lead: str
     campana_id: Optional[UUID]
     referido_por: Optional[str]

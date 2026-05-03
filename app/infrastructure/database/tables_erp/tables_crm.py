@@ -69,7 +69,7 @@ CrmLeadTable = Table(
     Column("email", String(100), nullable=True),
     Column("direccion", String(255), nullable=True),
     Column("ciudad", String(100), nullable=True),
-    Column("pais", String(50), nullable=True, server_default="Perú"),
+    Column("pais_id", UNIQUEIDENTIFIER, ForeignKey("cat_pais.pais_id", ondelete="NO ACTION"), nullable=True),
     Column("origen_lead", String(30), nullable=False),
     Column("campana_id", UNIQUEIDENTIFIER, ForeignKey("crm_campana.campana_id", ondelete="SET NULL"), nullable=True),
     Column("referido_por", String(150), nullable=True),

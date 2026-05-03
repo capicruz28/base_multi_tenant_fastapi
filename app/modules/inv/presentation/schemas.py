@@ -165,9 +165,9 @@ class ProductoCreate(BaseModel):
     costo_estandar: Optional[Decimal] = None
     costo_ultima_compra: Optional[Decimal] = None
     costo_promedio: Optional[Decimal] = None
-    moneda_costo: Optional[str] = "PEN"
+    moneda_costo: UUID
     precio_base_venta: Optional[Decimal] = None
-    moneda_venta: Optional[str] = "PEN"
+    moneda_venta: UUID
     afecto_igv: Optional[bool] = True
     porcentaje_igv: Optional[Decimal] = Field(18.00, ge=0, le=100)
     codigo_sunat: Optional[str] = Field(None, max_length=10)
@@ -233,9 +233,9 @@ class ProductoUpdate(BaseModel):
     costo_estandar: Optional[Decimal] = None
     costo_ultima_compra: Optional[Decimal] = None
     costo_promedio: Optional[Decimal] = None
-    moneda_costo: Optional[str] = None
+    moneda_costo: Optional[UUID] = None
     precio_base_venta: Optional[Decimal] = None
-    moneda_venta: Optional[str] = None
+    moneda_venta: Optional[UUID] = None
     afecto_igv: Optional[bool] = None
     porcentaje_igv: Optional[Decimal] = None
     codigo_sunat: Optional[str] = Field(None, max_length=10)
@@ -304,9 +304,9 @@ class ProductoRead(BaseModel):
     costo_estandar: Optional[Decimal] = None
     costo_ultima_compra: Optional[Decimal] = None
     costo_promedio: Optional[Decimal] = None
-    moneda_costo: Optional[str] = None
+    moneda_costo: UUID
     precio_base_venta: Optional[Decimal] = None
-    moneda_venta: Optional[str] = None
+    moneda_venta: UUID
     afecto_igv: Optional[bool] = None
     porcentaje_igv: Optional[Decimal] = None
     codigo_sunat: Optional[str] = None
@@ -411,7 +411,7 @@ class StockCreate(BaseModel):
     cantidad_reservada: Optional[Decimal] = Field(0, ge=0)
     cantidad_transito: Optional[Decimal] = Field(0, ge=0)
     costo_promedio: Optional[Decimal] = Field(0, ge=0)
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
     stock_minimo: Optional[Decimal] = None
     stock_maximo: Optional[Decimal] = None
     punto_reorden: Optional[Decimal] = None
@@ -426,7 +426,7 @@ class StockUpdate(BaseModel):
     cantidad_reservada: Optional[Decimal] = None
     cantidad_transito: Optional[Decimal] = None
     costo_promedio: Optional[Decimal] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     stock_minimo: Optional[Decimal] = None
     stock_maximo: Optional[Decimal] = None
     punto_reorden: Optional[Decimal] = None
@@ -448,7 +448,7 @@ class StockRead(BaseModel):
     cantidad_transito: Optional[Decimal] = None
     costo_promedio: Optional[Decimal] = None
     valor_total: Optional[Decimal] = None  # Calculado en BD
-    moneda: Optional[str] = None
+    moneda_id: UUID
     stock_minimo: Optional[Decimal] = None
     stock_maximo: Optional[Decimal] = None
     punto_reorden: Optional[Decimal] = None

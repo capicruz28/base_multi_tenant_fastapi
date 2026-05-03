@@ -35,7 +35,7 @@ async def list_kardex(
             InvMovimientoTable.c.almacen_destino_id,
             InvMovimientoDetalleTable.c.cantidad_base,
             InvMovimientoDetalleTable.c.costo_unitario,
-            InvMovimientoDetalleTable.c.moneda,
+            InvMovimientoDetalleTable.c.moneda_id,
             InvMovimientoDetalleTable.c.lote,
             InvMovimientoDetalleTable.c.numero_serie,
             InvMovimientoDetalleTable.c.observaciones,

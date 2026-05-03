@@ -5,7 +5,7 @@ Filtro tenant estricto: todas las operaciones usan cliente_id.
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime, date
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, and_, asc, desc
 
 from app.infrastructure.database.tables_erp import PurSolicitudCompraTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -13,12 +13,19 @@ from app.infrastructure.database.queries_async import execute_query, execute_ins
 _COLUMNS = {c.name for c in PurSolicitudCompraTable.c}
 
 
+_SORT_COLUMNS_SOLICITUD = {"fecha_solicitud", "estado", "numero_solicitud", "fecha_creacion"}
+
+
 async def list_solicitudes(
     client_id: UUID,
     empresa_id: Optional[UUID] = None,
     estado: Optional[str] = None,
     fecha_desde: Optional[date] = None,
-    fecha_hasta: Optional[date] = None
+    fecha_hasta: Optional[date] = None,
+    skip: Optional[int] = None,
+    limit: Optional[int] = None,
+    sort_by: Optional[str] = None,
+    order: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista solicitudes del tenant. Siempre filtra por cliente_id."""
     query = select(PurSolicitudCompraTable).where(
@@ -32,7 +39,14 @@ async def list_solicitudes(
         query = query.where(PurSolicitudCompraTable.c.fecha_solicitud >= fecha_desde)
     if fecha_hasta:
         query = query.where(PurSolicitudCompraTable.c.fecha_solicitud <= fecha_hasta)
-    query = query.order_by(PurSolicitudCompraTable.c.fecha_solicitud.desc())
+    col = PurSolicitudCompraTable.c.fecha_solicitud
+    if sort_by and sort_by in _SORT_COLUMNS_SOLICITUD:
+        col = getattr(PurSolicitudCompraTable.c, sort_by)
+    query = query.order_by(desc(col) if order == "desc" else asc(col))
+    if skip is not None:
+        query = query.offset(skip)
+    if limit is not None:
+        query = query.limit(limit)
     return await execute_query(query, client_id=client_id)
 
 

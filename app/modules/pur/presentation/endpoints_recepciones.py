@@ -27,10 +27,14 @@ async def listar_recepciones(
     estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
+    page: Optional[int] = Query(None, ge=1, description="Página (con page_size)"),
+    page_size: Optional[int] = Query(None, ge=1, le=500, description="Registros por página"),
+    sort_by: Optional[str] = Query(None, description="Ordenar por: fecha_recepcion, estado, numero_recepcion, fecha_creacion"),
+    order: Optional[str] = Query(None, description="asc o desc"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista recepciones del tenant. Filtro por cliente_id del token."""
+    """Lista recepciones del tenant. Paginación opcional con page y page_size."""
     client_id = current_user.cliente_id
     return await recepcion_service.list_recepciones_servicio(
         client_id=client_id,
@@ -41,6 +45,10 @@ async def listar_recepciones(
         estado=estado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        order=order,
     )
 
 
@@ -86,6 +94,24 @@ async def actualizar_recepcion(
             client_id=client_id,
             recepcion_id=recepcion_id,
             data=data,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/{recepcion_id}/procesar", response_model=RecepcionRead, summary="Procesar recepción")
+async def procesar_recepcion(
+    recepcion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Marca la recepción como procesada (estado=procesada, fecha y usuario de procesado)."""
+    client_id = current_user.cliente_id
+    try:
+        return await recepcion_service.procesar_recepcion_servicio(
+            client_id=client_id,
+            recepcion_id=recepcion_id,
+            usuario_procesado_id=current_user.usuario_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
