@@ -14,6 +14,8 @@ from app.infrastructure.database.queries.invbill.comprobante_queries import (
     get_comprobante_by_id,
     create_comprobante,
     update_comprobante,
+    anular_comprobante,
+    procesar_comprobante,
 )
 from app.infrastructure.database.queries.invbill.comprobante_detalle_queries import (
     list_comprobante_detalles,
@@ -33,6 +35,8 @@ __all__ = [
     "get_comprobante_by_id",
     "create_comprobante",
     "update_comprobante",
+    "anular_comprobante",
+    "procesar_comprobante",
     # Detalles
     "list_comprobante_detalles",
     "get_comprobante_detalle_by_id",

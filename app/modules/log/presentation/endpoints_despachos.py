@@ -15,6 +15,8 @@ from app.modules.log.application.services import (
     get_despacho_by_id,
     create_despacho,
     update_despacho,
+    completar_despacho,
+    anular_despacho,
     list_despacho_guias,
     get_despacho_guia_by_id,
     create_despacho_guia,
@@ -29,6 +31,7 @@ from app.modules.log.presentation.schemas import (
     DespachoGuiaRead,
 )
 from app.core.exceptions import NotFoundError
+from app.core.exceptions import ValidationError
 
 router = APIRouter()
 
@@ -69,12 +72,17 @@ async def get_despachos(
 @router.get("/{despacho_id}", response_model=DespachoRead, tags=["LOG - Despachos"])
 async def get_despacho(
     despacho_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un despacho por id."""
     try:
-        return await get_despacho_by_id(current_user.cliente_id, despacho_id)
+        return await get_despacho_by_id(
+            current_user.cliente_id,
+            despacho_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -93,14 +101,72 @@ async def post_despacho(
 async def put_despacho(
     despacho_id: UUID,
     data: DespachoUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un despacho."""
     try:
-        return await update_despacho(current_user.cliente_id, despacho_id, data)
+        return await update_despacho(
+            current_user.cliente_id,
+            despacho_id,
+            data,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{despacho_id}/completar",
+    response_model=DespachoRead,
+    status_code=status.HTTP_200_OK,
+    tags=["LOG - Despachos"],
+)
+async def post_completar_despacho(
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Marca el despacho como completado."""
+    try:
+        return await completar_despacho(
+            current_user.cliente_id,
+            despacho_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{despacho_id}/anular",
+    response_model=DespachoRead,
+    status_code=status.HTTP_200_OK,
+    tags=["LOG - Despachos"],
+)
+async def post_anular_despacho(
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Marca el despacho como cancelado."""
+    try:
+        return await anular_despacho(
+            current_user.cliente_id,
+            despacho_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 # ============================================================================

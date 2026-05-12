@@ -38,18 +38,28 @@ async def create_plan_produccion_detalle(client_id: UUID, data: Dict[str, Any]) 
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("plan_detalle_id", uuid4())
-    # Fase 5: empresa_id es obligatorio; derivarlo desde el plan (cabecera)
+    # ✅ Endurecimiento tenant:
+    # - empresa_id es obligatorio en la tabla (NO NULL)
+    # - la derivación debe ocurrir en la capa de servicio (para poder lanzar errores de negocio claros)
+    if not payload.get("empresa_id"):
+        raise ValueError("empresa_id es obligatorio para crear detalle de plan de producción")
+
+    # Validar pertenencia y coherencia: el plan debe existir en el mismo tenant y su empresa_id debe coincidir
     plan_produccion_id = payload.get("plan_produccion_id")
-    if plan_produccion_id:
-        q = select(MpsPlanProduccionTable.c.empresa_id).where(
-            and_(
-                MpsPlanProduccionTable.c.cliente_id == client_id,
-                MpsPlanProduccionTable.c.plan_produccion_id == plan_produccion_id,
-            )
+    if not plan_produccion_id:
+        raise ValueError("plan_produccion_id es obligatorio para crear detalle de plan de producción")
+
+    q = select(MpsPlanProduccionTable.c.empresa_id).where(
+        and_(
+            MpsPlanProduccionTable.c.cliente_id == client_id,
+            MpsPlanProduccionTable.c.plan_produccion_id == plan_produccion_id,
         )
-        rows = await execute_query(q, client_id=client_id)
-        if rows:
-            payload["empresa_id"] = rows[0]["empresa_id"]
+    )
+    rows = await execute_query(q, client_id=client_id)
+    if not rows:
+        raise ValueError("plan_produccion_id no existe o no pertenece al tenant")
+    if rows[0]["empresa_id"] != payload["empresa_id"]:
+        raise ValueError("empresa_id no coincide con la empresa del plan de producción")
     await execute_insert(insert(MpsPlanProduccionDetalleTable).values(**payload), client_id=client_id)
     return await get_plan_produccion_detalle_by_id(client_id, payload["plan_detalle_id"])
 

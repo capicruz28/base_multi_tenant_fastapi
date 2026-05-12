@@ -3,7 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.infrastructure.database.queries.org import (
     list_cargos,
     get_cargo_by_id,
@@ -19,6 +19,14 @@ from app.modules.org.presentation.schemas import (
 
 def _row_to_read(row: dict) -> CargoRead:
     return CargoRead(**row)
+
+def _require_empresa_id(empresa_id: Optional[UUID]) -> UUID:
+    if empresa_id is None:
+        raise ValidationError(
+            detail="empresa_id es obligatorio para operar cargos por ID.",
+            internal_code="MISSING_REQUIRED_FIELDS",
+        )
+    return empresa_id
 
 
 async def list_cargos_servicio(
@@ -46,8 +54,12 @@ async def list_cargos_servicio(
 async def get_cargo_servicio(
     client_id: UUID,
     cargo_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> CargoRead:
-    row = await get_cargo_by_id(client_id=client_id, cargo_id=cargo_id)
+    empresa_id = _require_empresa_id(empresa_id)
+    row = await get_cargo_by_id(
+        client_id=client_id, cargo_id=cargo_id, empresa_id=empresa_id
+    )
     if not row:
         raise NotFoundError(detail="Cargo no encontrado")
     return _row_to_read(row)
@@ -66,8 +78,12 @@ async def update_cargo_servicio(
     client_id: UUID,
     cargo_id: UUID,
     data: CargoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> CargoRead:
-    row = await get_cargo_by_id(client_id=client_id, cargo_id=cargo_id)
+    empresa_id = _require_empresa_id(empresa_id)
+    row = await get_cargo_by_id(
+        client_id=client_id, cargo_id=cargo_id, empresa_id=empresa_id
+    )
     if not row:
         raise NotFoundError(detail="Cargo no encontrado")
     payload = data.model_dump(exclude_unset=True)
@@ -75,6 +91,7 @@ async def update_cargo_servicio(
         client_id=client_id,
         cargo_id=cargo_id,
         data=payload,
+        empresa_id=empresa_id,
     )
     return _row_to_read(updated)
 
@@ -82,15 +99,40 @@ async def update_cargo_servicio(
 async def delete_cargo_servicio(
     client_id: UUID,
     cargo_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> None:
     """
     Baja lógica de un cargo (es_activo = False).
     """
-    row = await get_cargo_by_id(client_id=client_id, cargo_id=cargo_id)
+    empresa_id = _require_empresa_id(empresa_id)
+    row = await get_cargo_by_id(
+        client_id=client_id, cargo_id=cargo_id, empresa_id=empresa_id
+    )
     if not row:
         raise NotFoundError(detail="Cargo no encontrado")
     await update_cargo(
         client_id=client_id,
         cargo_id=cargo_id,
         data={"es_activo": False},
+        empresa_id=empresa_id,
     )
+
+
+async def reactivar_cargo_servicio(
+    client_id: UUID,
+    cargo_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> CargoRead:
+    empresa_id = _require_empresa_id(empresa_id)
+    row = await get_cargo_by_id(
+        client_id=client_id, cargo_id=cargo_id, empresa_id=empresa_id
+    )
+    if not row:
+        raise NotFoundError(detail="Cargo no encontrado")
+    updated = await update_cargo(
+        client_id=client_id,
+        cargo_id=cargo_id,
+        data={"es_activo": True},
+        empresa_id=empresa_id,
+    )
+    return _row_to_read(updated)

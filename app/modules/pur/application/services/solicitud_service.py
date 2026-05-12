@@ -13,6 +13,7 @@ from app.infrastructure.database.queries.pur import (
     get_solicitud_by_id,
     create_solicitud,
     update_solicitud,
+    update_solicitud_anular,
     list_solicitudes_detalle,
 )
 from app.modules.pur.presentation.schemas import (
@@ -20,6 +21,18 @@ from app.modules.pur.presentation.schemas import (
     SolicitudCompraUpdate,
     SolicitudCompraRead,
 )
+
+_EDITABLE_SOLICITUD = frozenset({"borrador", "pendiente_aprobacion"})
+# Anular: solo antes de “procesada”; aprobada aún anulable si no se cerró el flujo hacia OC en el mismo instante (concurrencia vía UPDATE condicional en query).
+_ANULAR_SOLICITUD_PERMITIDOS = frozenset({"borrador", "pendiente_aprobacion", "aprobada"})
+
+
+def _estado_solicitud_norm(estado: Optional[str]) -> str:
+    return (estado or "").strip().lower()
+
+
+def _solicitud_cabecera_editable(estado: Optional[str]) -> bool:
+    return _estado_solicitud_norm(estado) in _EDITABLE_SOLICITUD
 
 
 def _row_to_read(row: dict) -> SolicitudCompraRead:
@@ -82,6 +95,10 @@ async def update_solicitud_servicio(
     if not row:
         raise NotFoundError(detail="Solicitud de compra no encontrada")
     payload = data.model_dump(exclude_unset=True)
+    if payload and not _solicitud_cabecera_editable(row.get("estado")):
+        raise ValueError(
+            "Solo se puede editar la solicitud en estado borrador o pendiente de aprobación"
+        )
     updated = await update_solicitud(client_id=client_id, solicitud_id=solicitud_id, data=payload)
     return _row_to_read(updated)
 
@@ -138,6 +155,37 @@ async def marcar_procesada_solicitud_servicio(
     row = await get_solicitud_by_id(client_id=client_id, solicitud_id=solicitud_id)
     if not row:
         raise NotFoundError(detail="Solicitud de compra no encontrada")
+    if _estado_solicitud_norm(row.get("estado")) != "aprobada":
+        raise ValueError(
+            "Solo se puede marcar como procesada una solicitud en estado aprobada"
+        )
     payload = {"estado": "procesada", "orden_compra_generada": True}
     updated = await update_solicitud(client_id=client_id, solicitud_id=solicitud_id, data=payload)
+    return _row_to_read(updated)
+
+
+async def anular_solicitud_servicio(
+    client_id: UUID,
+    solicitud_id: UUID,
+    motivo: Optional[str] = None,
+) -> SolicitudCompraRead:
+    row = await get_solicitud_by_id(client_id=client_id, solicitud_id=solicitud_id)
+    if not row:
+        raise NotFoundError(detail="Solicitud de compra no encontrada")
+    st = _estado_solicitud_norm(row.get("estado"))
+    if st not in _ANULAR_SOLICITUD_PERMITIDOS:
+        raise ValueError(
+            "Solo se puede anular una solicitud en borrador, pendiente de aprobación o aprobada. "
+            "No aplica si ya está procesada, rechazada o anulada."
+        )
+    motivo_rechazo = (motivo or "").strip()[:500] if motivo else None
+    updated = await update_solicitud_anular(
+        client_id=client_id,
+        solicitud_id=solicitud_id,
+        motivo_rechazo=motivo_rechazo,
+    )
+    if not updated or _estado_solicitud_norm(updated.get("estado")) != "anulada":
+        raise ValueError(
+            "No se pudo anular la solicitud: el estado cambió de forma concurrente o ya no es anulable."
+        )
     return _row_to_read(updated)

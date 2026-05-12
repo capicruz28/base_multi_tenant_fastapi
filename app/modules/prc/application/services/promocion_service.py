@@ -2,10 +2,10 @@
 Servicios de aplicación para prc_promocion.
 Maneja la lógica de negocio y llama a las queries.
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from uuid import UUID
-from datetime import date
 
+from app.core.exceptions import NotFoundError
 from app.infrastructure.database.queries.prc import (
     list_promociones as _list_promociones,
     get_promocion_by_id as _get_promocion_by_id,
@@ -17,7 +17,6 @@ from app.modules.prc.presentation.schemas import (
     PromocionUpdate,
     PromocionRead,
 )
-from app.core.exceptions import NotFoundError
 
 
 async def list_promociones(
@@ -29,7 +28,7 @@ async def list_promociones(
     categoria_id: Optional[UUID] = None,
     solo_activos: bool = True,
     solo_vigentes: bool = False,
-    buscar: Optional[str] = None
+    buscar: Optional[str] = None,
 ) -> List[PromocionRead]:
     """Lista promociones del tenant."""
     rows = await _list_promociones(
@@ -41,14 +40,16 @@ async def list_promociones(
         categoria_id=categoria_id,
         solo_activos=solo_activos,
         solo_vigentes=solo_vigentes,
-        buscar=buscar
+        buscar=buscar,
     )
     return [PromocionRead(**row) for row in rows]
 
 
-async def get_promocion_by_id(client_id: UUID, promocion_id: UUID) -> PromocionRead:
+async def get_promocion_by_id(
+    client_id: UUID, promocion_id: UUID, empresa_id: Optional[UUID] = None
+) -> PromocionRead:
     """Obtiene una promoción por id. Lanza NotFoundError si no existe."""
-    row = await _get_promocion_by_id(client_id, promocion_id)
+    row = await _get_promocion_by_id(client_id, promocion_id, empresa_id)
     if not row:
         raise NotFoundError(f"Promoción {promocion_id} no encontrada")
     return PromocionRead(**row)
@@ -61,12 +62,47 @@ async def create_promocion(client_id: UUID, data: PromocionCreate) -> PromocionR
 
 
 async def update_promocion(
-    client_id: UUID, promocion_id: UUID, data: PromocionUpdate
+    client_id: UUID,
+    promocion_id: UUID,
+    data: PromocionUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> PromocionRead:
     """Actualiza una promoción. Lanza NotFoundError si no existe."""
     row = await _update_promocion(
-        client_id, promocion_id, data.model_dump(exclude_none=True)
+        client_id,
+        promocion_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(f"Promoción {promocion_id} no encontrada")
     return PromocionRead(**row)
+
+
+async def desactivar_promocion(
+    client_id: UUID, promocion_id: UUID, empresa_id: Optional[UUID] = None
+) -> None:
+    """Baja lógica (es_activo = 0)."""
+    row = await _get_promocion_by_id(client_id, promocion_id, empresa_id)
+    if not row:
+        raise NotFoundError(f"Promoción {promocion_id} no encontrada")
+    updated = await _update_promocion(
+        client_id, promocion_id, {"es_activo": False}, empresa_id=empresa_id
+    )
+    if not updated:
+        raise NotFoundError(f"Promoción {promocion_id} no encontrada")
+
+
+async def reactivar_promocion(
+    client_id: UUID, promocion_id: UUID, empresa_id: Optional[UUID] = None
+) -> PromocionRead:
+    """Reactiva promoción (es_activo = 1)."""
+    row = await _get_promocion_by_id(client_id, promocion_id, empresa_id)
+    if not row:
+        raise NotFoundError(f"Promoción {promocion_id} no encontrada")
+    updated = await _update_promocion(
+        client_id, promocion_id, {"es_activo": True}, empresa_id=empresa_id
+    )
+    if not updated:
+        raise NotFoundError(f"Promoción {promocion_id} no encontrada")
+    return PromocionRead(**updated)

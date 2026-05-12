@@ -20,7 +20,7 @@ from app.modules.invbill.presentation.schemas import (
     ComprobanteDetalleUpdate,
     ComprobanteDetalleRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceError
 
 MODULE_CODE = "inv_bill"
 RESOURCE_CODE = "comprobante_detalle"
@@ -61,7 +61,12 @@ async def post_comprobante_detalle(
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un detalle."""
-    return await create_comprobante_detalle(current_user.cliente_id, data)
+    try:
+        return await create_comprobante_detalle(current_user.cliente_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{comprobante_detalle_id}", response_model=ComprobanteDetalleRead, tags=["INV_BILL - Detalles"])
@@ -73,6 +78,10 @@ async def put_comprobante_detalle(
 ):
     """Actualiza un detalle."""
     try:
-        return await update_comprobante_detalle(current_user.cliente_id, comprobante_detalle_id, data)
+        return await update_comprobante_detalle(
+            current_user.cliente_id, comprobante_detalle_id, data
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

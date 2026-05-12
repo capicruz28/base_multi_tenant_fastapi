@@ -14,6 +14,8 @@ from app.infrastructure.database.queries_async import (
 )
 
 _COLUMNS = {c.name for c in PurRecepcionDetalleTable.c}
+_COMPUTED = frozenset({"diferencia", "total"})
+_WRITABLE_COLUMNS = _COLUMNS - _COMPUTED
 
 
 async def list_recepciones_detalle(
@@ -61,7 +63,7 @@ async def create_recepcion_detalle(
     """Inserta una línea de recepción. cliente_id se fuerza desde contexto."""
     from uuid import uuid4
 
-    payload = {k: v for k, v in data.items() if k in _COLUMNS}
+    payload = {k: v for k, v in data.items() if k in _WRITABLE_COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("recepcion_detalle_id", uuid4())
     stmt = insert(PurRecepcionDetalleTable).values(**payload)
@@ -78,7 +80,7 @@ async def update_recepcion_detalle(
     payload = {
         k: v
         for k, v in data.items()
-        if k in _COLUMNS
+        if k in _WRITABLE_COLUMNS
         and k
         not in (
             "recepcion_detalle_id",

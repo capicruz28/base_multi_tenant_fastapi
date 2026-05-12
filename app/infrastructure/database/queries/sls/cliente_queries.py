@@ -87,3 +87,26 @@ async def update_cliente(
     )
     await execute_update(stmt, client_id=client_id)
     return await get_cliente_by_id(client_id, cliente_venta_id)
+
+
+async def set_cliente_activo(
+    client_id: UUID,
+    cliente_venta_id: UUID,
+    es_activo: bool,
+) -> Optional[Dict[str, Any]]:
+    """Actualiza es_activo (baja lógica / reactivar)."""
+    stmt = (
+        update(SlsClienteTable)
+        .where(
+            and_(
+                SlsClienteTable.c.cliente_id == client_id,
+                SlsClienteTable.c.cliente_venta_id == cliente_venta_id,
+            )
+        )
+        .values(
+            es_activo=es_activo,
+            fecha_actualizacion=datetime.utcnow(),
+        )
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_cliente_by_id(client_id, cliente_venta_id)

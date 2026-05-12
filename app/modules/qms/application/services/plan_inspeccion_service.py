@@ -22,7 +22,7 @@ from app.modules.qms.presentation.schemas import (
     PlanInspeccionDetalleUpdate,
     PlanInspeccionDetalleRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ConflictError
 
 
 async def list_planes_inspeccion(
@@ -77,7 +77,14 @@ async def list_plan_inspeccion_detalles(
     client_id: UUID, plan_inspeccion_id: UUID
 ) -> List[PlanInspeccionDetalleRead]:
     """Lista detalles de un plan de inspección."""
-    rows = await _list_plan_inspeccion_detalles(client_id, plan_inspeccion_id)
+    plan_row = await _get_plan_inspeccion_by_id(client_id, plan_inspeccion_id)
+    if not plan_row:
+        raise NotFoundError(f"Plan de inspección {plan_inspeccion_id} no encontrado")
+    rows = await _list_plan_inspeccion_detalles(
+        client_id,
+        plan_inspeccion_id,
+        empresa_id=plan_row.get("empresa_id"),
+    )
     return [PlanInspeccionDetalleRead(**row) for row in rows]
 
 
@@ -95,7 +102,15 @@ async def create_plan_inspeccion_detalle(
     client_id: UUID, data: PlanInspeccionDetalleCreate
 ) -> PlanInspeccionDetalleRead:
     """Crea un detalle de plan."""
-    row = await _create_plan_inspeccion_detalle(client_id, data.model_dump(exclude_none=True))
+    plan_row = await _get_plan_inspeccion_by_id(client_id, data.plan_inspeccion_id)
+    if not plan_row:
+        raise NotFoundError(f"Plan de inspección {data.plan_inspeccion_id} no encontrado")
+    if not plan_row.get("es_activo", True):
+        raise ConflictError("No se puede modificar el detalle de un plan inactivo")
+
+    payload = data.model_dump(exclude_none=True)
+    payload["empresa_id"] = plan_row.get("empresa_id")
+    row = await _create_plan_inspeccion_detalle(client_id, payload)
     return PlanInspeccionDetalleRead(**row)
 
 
@@ -103,6 +118,16 @@ async def update_plan_inspeccion_detalle(
     client_id: UUID, plan_detalle_id: UUID, data: PlanInspeccionDetalleUpdate
 ) -> PlanInspeccionDetalleRead:
     """Actualiza un detalle de plan."""
+    current_row = await _get_plan_inspeccion_detalle_by_id(client_id, plan_detalle_id)
+    if not current_row:
+        raise NotFoundError(f"Detalle de plan {plan_detalle_id} no encontrado")
+
+    plan_row = await _get_plan_inspeccion_by_id(client_id, current_row["plan_inspeccion_id"])
+    if not plan_row:
+        raise NotFoundError(f"Plan de inspección {current_row['plan_inspeccion_id']} no encontrado")
+    if not plan_row.get("es_activo", True):
+        raise ConflictError("No se puede modificar el detalle de un plan inactivo")
+
     row = await _update_plan_inspeccion_detalle(
         client_id, plan_detalle_id, data.model_dump(exclude_none=True)
     )

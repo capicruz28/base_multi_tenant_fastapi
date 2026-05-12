@@ -31,13 +31,18 @@ async def list_proyecto(
     return await execute_query(q, client_id=client_id)
 
 
-async def get_proyecto_by_id(client_id: UUID, proyecto_id: UUID) -> Optional[Dict[str, Any]]:
-    q = select(PmProyectoTable).where(
-        and_(
-            PmProyectoTable.c.cliente_id == client_id,
-            PmProyectoTable.c.proyecto_id == proyecto_id,
-        )
-    )
+async def get_proyecto_by_id(
+    client_id: UUID,
+    proyecto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    conds = [
+        PmProyectoTable.c.cliente_id == client_id,
+        PmProyectoTable.c.proyecto_id == proyecto_id,
+    ]
+    if empresa_id is not None:
+        conds.append(PmProyectoTable.c.empresa_id == empresa_id)
+    q = select(PmProyectoTable).where(and_(*conds))
     rows = await execute_query(q, client_id=client_id)
     return rows[0] if rows else None
 
@@ -52,19 +57,25 @@ async def create_proyecto(client_id: UUID, data: Dict[str, Any]) -> Dict[str, An
 
 
 async def update_proyecto(
-    client_id: UUID, proyecto_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    proyecto_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     payload = {
         k: v for k, v in data.items()
         if k in _COLUMNS and k not in ("proyecto_id", "cliente_id")
     }
+    where_conds = [
+        PmProyectoTable.c.cliente_id == client_id,
+        PmProyectoTable.c.proyecto_id == proyecto_id,
+    ]
+    if empresa_id is not None:
+        where_conds.append(PmProyectoTable.c.empresa_id == empresa_id)
+
     if not payload:
-        return await get_proyecto_by_id(client_id, proyecto_id)
-    stmt = update(PmProyectoTable).where(
-        and_(
-            PmProyectoTable.c.cliente_id == client_id,
-            PmProyectoTable.c.proyecto_id == proyecto_id,
-        )
-    ).values(**payload)
+        return await get_proyecto_by_id(client_id, proyecto_id, empresa_id=empresa_id)
+
+    stmt = update(PmProyectoTable).where(and_(*where_conds)).values(**payload)
     await execute_update(stmt, client_id=client_id)
-    return await get_proyecto_by_id(client_id, proyecto_id)
+    return await get_proyecto_by_id(client_id, proyecto_id, empresa_id=empresa_id)

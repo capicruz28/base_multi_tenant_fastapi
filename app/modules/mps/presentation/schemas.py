@@ -140,6 +140,7 @@ class PlanProduccionDetalleUpdate(BaseModel):
 class PlanProduccionDetalleRead(BaseModel):
     plan_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     plan_produccion_id: UUID
     producto_id: UUID
     fecha_inicio: date

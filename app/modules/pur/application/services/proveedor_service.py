@@ -86,3 +86,18 @@ async def update_proveedor_servicio(
     payload = data.model_dump(exclude_unset=True)
     updated = await update_proveedor(client_id=client_id, proveedor_id=proveedor_id, data=payload)
     return _row_to_read(updated)
+
+
+async def reactivar_proveedor_servicio(
+    client_id: UUID,
+    proveedor_id: UUID,
+) -> ProveedorRead:
+    row = await get_proveedor_by_id(client_id=client_id, proveedor_id=proveedor_id)
+    if not row:
+        raise NotFoundError(detail="Proveedor no encontrado")
+    updated = await update_proveedor(
+        client_id=client_id,
+        proveedor_id=proveedor_id,
+        data={"es_activo": True, "estado": "activo"},
+    )
+    return _row_to_read(updated)

@@ -48,11 +48,16 @@ async def get_reportes(
 @router.get("/{reporte_id}", response_model=ReporteRead)
 async def get_reporte(
     reporte_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission("bi.reporte.leer")),
 ):
     try:
-        return await get_reporte_by_id(current_user.cliente_id, reporte_id)
+        return await get_reporte_by_id(
+            current_user.cliente_id,
+            reporte_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -70,10 +75,52 @@ async def post_reporte(
 async def put_reporte(
     reporte_id: UUID,
     data: ReporteUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: UsuarioReadWithRoles = Depends(require_permission("bi.reporte.crear")),
+    _: UsuarioReadWithRoles = Depends(require_permission("bi.reporte.actualizar")),
 ):
     try:
-        return await update_reporte(current_user.cliente_id, reporte_id, data)
+        return await update_reporte(
+            current_user.cliente_id,
+            reporte_id,
+            data,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch("/{reporte_id}/activar", response_model=ReporteRead)
+async def patch_activar_reporte(
+    reporte_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("bi.reporte.actualizar")),
+):
+    try:
+        return await update_reporte(
+            current_user.cliente_id,
+            reporte_id,
+            ReporteUpdate(es_activo=True),
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch("/{reporte_id}/desactivar", response_model=ReporteRead)
+async def patch_desactivar_reporte(
+    reporte_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("bi.reporte.actualizar")),
+):
+    try:
+        return await update_reporte(
+            current_user.cliente_id,
+            reporte_id,
+            ReporteUpdate(es_activo=False),
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

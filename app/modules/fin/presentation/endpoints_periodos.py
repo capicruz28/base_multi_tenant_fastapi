@@ -14,13 +14,14 @@ from app.modules.fin.application.services import (
     get_periodo_contable_by_id,
     create_periodo_contable,
     update_periodo_contable,
+    cerrar_periodo_contable,
 )
 from app.modules.fin.presentation.schemas import (
     PeriodoContableCreate,
     PeriodoContableUpdate,
     PeriodoContableRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceError
 
 router = APIRouter()
 
@@ -82,3 +83,27 @@ async def put_periodo_contable(
         return await update_periodo_contable(current_user.cliente_id, periodo_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{periodo_id}/cerrar",
+    response_model=PeriodoContableRead,
+    tags=["FIN - Periodos Contables"],
+    summary="Cerrar periodo contable",
+)
+async def post_cerrar_periodo_contable(
+    periodo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.cerrar")),
+):
+    """Cierra el periodo si no hay asientos en borrador."""
+    try:
+        return await cerrar_periodo_contable(
+            current_user.cliente_id,
+            periodo_id,
+            current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

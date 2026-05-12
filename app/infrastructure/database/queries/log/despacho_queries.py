@@ -50,14 +50,19 @@ async def list_despachos(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_despacho_by_id(client_id: UUID, despacho_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_despacho_by_id(
+    client_id: UUID,
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene un despacho por id. Exige cliente_id para no cruzar tenants."""
-    query = select(LogDespachoTable).where(
-        and_(
-            LogDespachoTable.c.cliente_id == client_id,
-            LogDespachoTable.c.despacho_id == despacho_id,
-        )
-    )
+    filters = [
+        LogDespachoTable.c.cliente_id == client_id,
+        LogDespachoTable.c.despacho_id == despacho_id,
+    ]
+    if empresa_id:
+        filters.append(LogDespachoTable.c.empresa_id == empresa_id)
+    query = select(LogDespachoTable).where(and_(*filters))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -74,7 +79,10 @@ async def create_despacho(client_id: UUID, data: Dict[str, Any]) -> Dict[str, An
 
 
 async def update_despacho(
-    client_id: UUID, despacho_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    despacho_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza un despacho. WHERE incluye cliente_id y despacho_id."""
     payload = {
@@ -82,19 +90,66 @@ async def update_despacho(
         if k in _COLUMNS_DESPACHO and k not in ("despacho_id", "cliente_id")
     }
     if not payload:
-        return await get_despacho_by_id(client_id, despacho_id)
+        return await get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
+    filters = [
+        LogDespachoTable.c.cliente_id == client_id,
+        LogDespachoTable.c.despacho_id == despacho_id,
+    ]
+    if empresa_id:
+        filters.append(LogDespachoTable.c.empresa_id == empresa_id)
     stmt = (
         update(LogDespachoTable)
-        .where(
-            and_(
-                LogDespachoTable.c.cliente_id == client_id,
-                LogDespachoTable.c.despacho_id == despacho_id,
-            )
-        )
+        .where(and_(*filters))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_despacho_by_id(client_id, despacho_id)
+    return await get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
+
+
+async def completar_despacho(
+    client_id: UUID,
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Transición: marca despacho como 'completado'.
+    """
+    filters = [
+        LogDespachoTable.c.cliente_id == client_id,
+        LogDespachoTable.c.despacho_id == despacho_id,
+    ]
+    if empresa_id:
+        filters.append(LogDespachoTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(LogDespachoTable)
+        .where(and_(*filters))
+        .values(estado="completado")
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
+
+
+async def anular_despacho(
+    client_id: UUID,
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Transición: marca despacho como 'cancelado'.
+    """
+    filters = [
+        LogDespachoTable.c.cliente_id == client_id,
+        LogDespachoTable.c.despacho_id == despacho_id,
+    ]
+    if empresa_id:
+        filters.append(LogDespachoTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(LogDespachoTable)
+        .where(and_(*filters))
+        .values(estado="cancelado")
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
 
 
 # ============================================================================

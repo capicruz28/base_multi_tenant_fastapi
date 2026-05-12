@@ -49,7 +49,9 @@ async def list_leads(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_lead_by_id(client_id: UUID, lead_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_lead_by_id(
+    client_id: UUID, lead_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
     """Obtiene un lead por id."""
     query = select(CrmLeadTable).where(
         and_(
@@ -57,6 +59,8 @@ async def get_lead_by_id(client_id: UUID, lead_id: UUID) -> Optional[Dict[str, A
             CrmLeadTable.c.lead_id == lead_id,
         )
     )
+    if empresa_id:
+        query = query.where(CrmLeadTable.c.empresa_id == empresa_id)
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 

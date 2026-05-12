@@ -15,6 +15,9 @@ from app.modules.fin.application.services import (
     get_asiento_contable_by_id,
     create_asiento_contable,
     update_asiento_contable,
+    aprobar_asiento_contable,
+    registrar_asiento_contable,
+    anular_asiento_contable,
     list_asiento_detalles,
     get_asiento_detalle_by_id,
     create_asiento_detalle,
@@ -24,11 +27,12 @@ from app.modules.fin.presentation.schemas import (
     AsientoContableCreate,
     AsientoContableUpdate,
     AsientoContableRead,
+    AsientoAnularBody,
     AsientoDetalleCreate,
     AsientoDetalleUpdate,
     AsientoDetalleRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceError
 
 router = APIRouter()
 
@@ -52,6 +56,7 @@ async def get_asientos_contables(
     fecha_hasta: Optional[date] = Query(None),
     buscar: Optional[str] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Lista asientos contables del tenant."""
     return await list_asientos_contables(
@@ -84,9 +89,13 @@ async def get_asiento_contable(
 async def post_asiento_contable(
     data: AsientoContableCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     """Crea un asiento contable."""
-    return await create_asiento_contable(current_user.cliente_id, data)
+    try:
+        return await create_asiento_contable(current_user.cliente_id, data)
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{asiento_id}", response_model=AsientoContableRead, tags=["FIN - Asientos Contables"])
@@ -101,6 +110,74 @@ async def put_asiento_contable(
         return await update_asiento_contable(current_user.cliente_id, asiento_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{asiento_id}/aprobar",
+    response_model=AsientoContableRead,
+    tags=["FIN - Asientos Contables"],
+    summary="Aprobar asiento (borrador → aprobado)",
+)
+async def post_aprobar_asiento_contable(
+    asiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")),
+):
+    try:
+        return await aprobar_asiento_contable(
+            current_user.cliente_id,
+            asiento_id,
+            current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{asiento_id}/registrar",
+    response_model=AsientoContableRead,
+    tags=["FIN - Asientos Contables"],
+    summary="Registrar asiento (aprobado → registrado)",
+)
+async def post_registrar_asiento_contable(
+    asiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.registrar")),
+):
+    try:
+        return await registrar_asiento_contable(current_user.cliente_id, asiento_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{asiento_id}/anular",
+    response_model=AsientoContableRead,
+    tags=["FIN - Asientos Contables"],
+    summary="Anular asiento",
+)
+async def post_anular_asiento_contable(
+    asiento_id: UUID,
+    body: AsientoAnularBody,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+):
+    try:
+        return await anular_asiento_contable(
+            current_user.cliente_id,
+            asiento_id,
+            body.motivo_anulacion,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 # ============================================================================
@@ -131,7 +208,12 @@ async def post_asiento_detalle(
 ):
     """Crea un detalle de asiento contable."""
     data.asiento_id = asiento_id
-    return await create_asiento_detalle(current_user.cliente_id, data)
+    try:
+        return await create_asiento_detalle(current_user.cliente_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.get("/detalles/{asiento_detalle_id}", response_model=AsientoDetalleRead, tags=["FIN - Detalles de Asiento"])
@@ -159,3 +241,5 @@ async def put_asiento_detalle(
         return await update_asiento_detalle(current_user.cliente_id, asiento_detalle_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

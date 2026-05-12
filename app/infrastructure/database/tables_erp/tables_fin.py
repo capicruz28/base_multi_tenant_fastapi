@@ -92,6 +92,12 @@ FinAsientoContableTable = Table(
     Column("documento_origen_id", UNIQUEIDENTIFIER, nullable=True),
     Column("documento_origen_numero", String(30), nullable=True),
     Column("glosa", String(500), nullable=False),
+    Column(
+        "moneda_id",
+        UNIQUEIDENTIFIER,
+        ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"),
+        nullable=True,
+    ),
     Column("moneda", String(3), nullable=True, server_default="PEN"),
     Column("tipo_cambio", Numeric(10, 4), nullable=True, server_default="1"),
     Column("total_debe", Numeric(18, 2), nullable=True, server_default="0"),

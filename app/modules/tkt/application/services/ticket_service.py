@@ -1,4 +1,5 @@
 """Servicio aplicacion tkt_ticket. Calcula tiempo_resolucion_horas en Read."""
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 from app.infrastructure.database.queries.tkt import (
@@ -6,13 +7,17 @@ from app.infrastructure.database.queries.tkt import (
     get_ticket_by_id as _get,
     create_ticket as _create,
     update_ticket as _update,
+    assign_ticket_transition as _assign_transition,
+    iniciar_ticket_transition as _iniciar_transition,
+    resolver_ticket_transition as _resolver_transition,
+    cerrar_ticket_transition as _cerrar_transition,
 )
 from app.modules.tkt.presentation.schemas import (
     TicketCreate,
     TicketUpdate,
     TicketRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 
 
 def _row_to_read(row: dict) -> dict:
@@ -28,6 +33,10 @@ def _row_to_read(row: dict) -> dict:
     else:
         r["tiempo_resolucion_horas"] = None
     return r
+
+
+def _norm_estado(v: Optional[str]) -> str:
+    return (v or "").strip().lower()
 
 
 async def list_ticket(
@@ -51,8 +60,10 @@ async def list_ticket(
     return [TicketRead(**_row_to_read(r)) for r in rows]
 
 
-async def get_ticket_by_id(client_id: UUID, ticket_id: UUID) -> TicketRead:
-    row = await _get(client_id, ticket_id)
+async def get_ticket_by_id(
+    client_id: UUID, ticket_id: UUID, empresa_id: Optional[UUID] = None
+) -> TicketRead:
+    row = await _get(client_id, ticket_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Ticket no encontrado")
     return TicketRead(**_row_to_read(row))
@@ -65,10 +76,125 @@ async def create_ticket(client_id: UUID, data: TicketCreate) -> TicketRead:
 
 
 async def update_ticket(
-    client_id: UUID, ticket_id: UUID, data: TicketUpdate
+    client_id: UUID,
+    ticket_id: UUID,
+    data: TicketUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> TicketRead:
+    current = await _get(client_id, ticket_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Ticket no encontrado")
+    st = _norm_estado(current.get("estado"))
+    if st not in ("abierto", "asignado"):
+        raise ValidationError(
+            "Solo se puede editar un ticket en estado abierto o asignado."
+        )
     dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, ticket_id, dump)
+    if "estado" in dump and dump["estado"] is not None:
+        if _norm_estado(dump["estado"]) != st:
+            raise ValidationError(
+                "Los cambios de estado deben realizarse mediante los endpoints de transición."
+            )
+    row = await _update(client_id, ticket_id, dump, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Ticket no encontrado")
     return TicketRead(**_row_to_read(row))
+
+
+async def assign_ticket(
+    client_id: UUID,
+    ticket_id: UUID,
+    asignado_usuario_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> TicketRead:
+    current = await _get(client_id, ticket_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Ticket no encontrado")
+    st = _norm_estado(current.get("estado"))
+    if st == "asignado":
+        actual = current.get("asignado_usuario_id")
+        if actual == asignado_usuario_id:
+            return TicketRead(**_row_to_read(current))
+        raise ValidationError("El ticket ya está asignado a otro usuario.")
+    if st != "abierto":
+        raise ValidationError("Solo se puede asignar un ticket en estado abierto.")
+    now = datetime.utcnow()
+    row = await _assign_transition(
+        client_id,
+        ticket_id,
+        asignado_usuario_id,
+        now,
+        empresa_id=empresa_id,
+    )
+    if row:
+        return TicketRead(**_row_to_read(row))
+    # Si falló, intentar inferir si cambió de estado por carrera
+    cur = await _get(client_id, ticket_id, empresa_id=empresa_id)
+    if cur and _norm_estado(cur.get("estado")) == "abierto":
+        raise ValidationError(
+            "No se pudo asignar el ticket; intente nuevamente o verifique el estado."
+        )
+    raise ValidationError("Solo se puede asignar un ticket en estado abierto.")
+
+
+async def iniciar_ticket(
+    client_id: UUID, ticket_id: UUID, empresa_id: Optional[UUID] = None
+) -> TicketRead:
+    current = await _get(client_id, ticket_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Ticket no encontrado")
+    st = _norm_estado(current.get("estado"))
+    if st == "en_proceso":
+        return TicketRead(**_row_to_read(current))
+    row = await _iniciar_transition(client_id, ticket_id, empresa_id=empresa_id)
+    if row:
+        return TicketRead(**_row_to_read(row))
+    if st != "asignado":
+        raise ValidationError("Solo se puede iniciar un ticket en estado asignado.")
+    raise ValidationError(
+        "No se pudo iniciar el ticket; intente nuevamente o verifique el estado."
+    )
+
+
+async def resolver_ticket(
+    client_id: UUID,
+    ticket_id: UUID,
+    solucion: str,
+    empresa_id: Optional[UUID] = None,
+) -> TicketRead:
+    current = await _get(client_id, ticket_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Ticket no encontrado")
+    st = _norm_estado(current.get("estado"))
+    if st == "resuelto":
+        return TicketRead(**_row_to_read(current))
+    now = datetime.utcnow()
+    row = await _resolver_transition(
+        client_id, ticket_id, now, solucion, empresa_id=empresa_id
+    )
+    if row:
+        return TicketRead(**_row_to_read(row))
+    if st != "en_proceso":
+        raise ValidationError("Solo se puede resolver un ticket en estado en_proceso.")
+    raise ValidationError(
+        "No se pudo resolver el ticket; intente nuevamente o verifique el estado."
+    )
+
+
+async def cerrar_ticket(
+    client_id: UUID, ticket_id: UUID, empresa_id: Optional[UUID] = None
+) -> TicketRead:
+    current = await _get(client_id, ticket_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Ticket no encontrado")
+    st = _norm_estado(current.get("estado"))
+    if st == "cerrado":
+        return TicketRead(**_row_to_read(current))
+    row = await _cerrar_transition(client_id, ticket_id, empresa_id=empresa_id)
+    if row:
+        return TicketRead(**_row_to_read(row))
+    if st != "resuelto":
+        raise ValidationError("Solo se puede cerrar un ticket en estado resuelto.")
+    raise ValidationError(
+        "No se pudo cerrar el ticket; intente nuevamente o verifique el estado."
+    )

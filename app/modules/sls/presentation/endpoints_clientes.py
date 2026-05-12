@@ -14,6 +14,8 @@ from app.modules.sls.application.services import (
     get_cliente_by_id,
     create_cliente,
     update_cliente,
+    baja_cliente,
+    reactivar_cliente,
 )
 from app.modules.sls.presentation.schemas import (
     ClienteCreate,
@@ -80,5 +82,31 @@ async def put_cliente(
     """Actualiza un cliente."""
     try:
         return await update_cliente(current_user.cliente_id, cliente_venta_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{cliente_venta_id}/reactivar", response_model=ClienteRead, tags=["SLS - Clientes"])
+async def post_reactivar_cliente(
+    cliente_venta_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva un cliente (es_activo=1)."""
+    try:
+        return await reactivar_cliente(current_user.cliente_id, cliente_venta_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete("/{cliente_venta_id}", response_model=ClienteRead, tags=["SLS - Clientes"])
+async def delete_cliente(
+    cliente_venta_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Baja lógica de un cliente (es_activo=0)."""
+    try:
+        return await baja_cliente(current_user.cliente_id, cliente_venta_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

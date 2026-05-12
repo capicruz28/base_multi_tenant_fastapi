@@ -65,3 +65,13 @@ async def update_cuenta(
     if not row:
         raise NotFoundError(f"Cuenta {cuenta_id} no encontrada")
     return PlanCuentaRead(**row)
+
+
+async def desactivar_cuenta(client_id: UUID, cuenta_id: UUID) -> None:
+    """Baja lógica: es_activo = 0."""
+    await update_cuenta(client_id, cuenta_id, PlanCuentaUpdate(es_activo=False))
+
+
+async def reactivar_cuenta(client_id: UUID, cuenta_id: UUID) -> PlanCuentaRead:
+    """Reactiva una cuenta inactiva."""
+    return await update_cuenta(client_id, cuenta_id, PlanCuentaUpdate(es_activo=True))

@@ -16,7 +16,11 @@ class LibroElectronicoCreate(BaseModel):
     mes: int = Field(..., ge=1, le=12)
     nombre_archivo: Optional[str] = Field(None, max_length=255)
     ruta_archivo: Optional[str] = Field(None, max_length=500)
-    estado: Optional[str] = Field("generado", max_length=20)
+    estado: Optional[str] = Field(
+        None,
+        max_length=20,
+        description="Ignorado en creación: el libro siempre se persiste en estado borrador.",
+    )
     fecha_envio_sunat: Optional[datetime] = None
     codigo_respuesta_sunat: Optional[str] = Field(None, max_length=10)
     total_registros: Optional[int] = Field(0, ge=0)
@@ -27,11 +31,18 @@ class LibroElectronicoCreate(BaseModel):
 class LibroElectronicoUpdate(BaseModel):
     nombre_archivo: Optional[str] = None
     ruta_archivo: Optional[str] = None
-    estado: Optional[str] = None
     fecha_envio_sunat: Optional[datetime] = None
     codigo_respuesta_sunat: Optional[str] = None
     total_registros: Optional[int] = None
     observaciones: Optional[str] = None
+    generado_por_usuario_id: Optional[UUID] = None
+
+
+class LibroElectronicoRegistrarEnvio(BaseModel):
+    """Cuerpo opcional al registrar envío a SUNAT (transición generado → enviado)."""
+
+    fecha_envio_sunat: Optional[datetime] = None
+    codigo_respuesta_sunat: Optional[str] = Field(None, max_length=10)
 
 
 class LibroElectronicoRead(BaseModel):

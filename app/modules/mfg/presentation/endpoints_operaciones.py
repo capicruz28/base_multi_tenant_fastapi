@@ -68,3 +68,43 @@ async def put_operacion(operacion_id: UUID, data: OperacionUpdate, current_user:
         return await update_operacion(current_user.cliente_id, operacion_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{operacion_id}/activar",
+    response_model=OperacionRead,
+    tags=["MFG - Operaciones"],
+    dependencies=[Depends(require_permission("mfg.operacion.activar"))],
+)
+async def activar_operacion(
+    operacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await update_operacion(
+            current_user.cliente_id,
+            operacion_id,
+            OperacionUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{operacion_id}/desactivar",
+    response_model=OperacionRead,
+    tags=["MFG - Operaciones"],
+    dependencies=[Depends(require_permission("mfg.operacion.desactivar"))],
+)
+async def desactivar_operacion(
+    operacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await update_operacion(
+            current_user.cliente_id,
+            operacion_id,
+            OperacionUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

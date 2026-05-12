@@ -1,11 +1,12 @@
 """Queries para mrp_plan_maestro. Filtro tenant: cliente_id."""
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy import select, insert, update, and_, or_, func
 from app.infrastructure.database.tables_erp import MrpPlanMaestroTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in MrpPlanMaestroTable.c}
+_ESTADOS_VALIDOS = {"borrador", "inicial", "calculado", "aprobado", "ejecutado", "cerrado", "anulado"}
 
 
 async def list_plan_maestro(
@@ -60,5 +61,38 @@ async def update_plan_maestro(
             MrpPlanMaestroTable.c.plan_maestro_id == plan_maestro_id,
         )
     ).values(**payload)
+    await execute_update(stmt, client_id=client_id)
+    return await get_plan_maestro_by_id(client_id, plan_maestro_id)
+
+
+async def set_plan_maestro_estado(
+    client_id: UUID,
+    plan_maestro_id: UUID,
+    nuevo_estado: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Cambia estado de un plan maestro dentro del tenant.
+
+    Nota: la validación de transición (estado previo) se realiza en el service.
+    """
+    if nuevo_estado not in _ESTADOS_VALIDOS:
+        raise ValueError(f"Estado inválido: {nuevo_estado}")
+
+    values: Dict[str, Any] = {"estado": nuevo_estado}
+    if nuevo_estado == "calculado":
+        values["fecha_calculo"] = func.getdate()
+    if nuevo_estado == "aprobado":
+        values["fecha_aprobacion"] = func.getdate()
+
+    stmt = (
+        update(MrpPlanMaestroTable)
+        .where(
+            and_(
+                MrpPlanMaestroTable.c.cliente_id == client_id,
+                MrpPlanMaestroTable.c.plan_maestro_id == plan_maestro_id,
+            )
+        )
+        .values(**values)
+    )
     await execute_update(stmt, client_id=client_id)
     return await get_plan_maestro_by_id(client_id, plan_maestro_id)

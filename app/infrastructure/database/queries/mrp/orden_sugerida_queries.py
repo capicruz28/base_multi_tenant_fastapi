@@ -1,11 +1,12 @@
 """Queries para mrp_orden_sugerida. Filtro tenant: cliente_id."""
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy import select, insert, update, and_, or_, func
 from app.infrastructure.database.tables_erp import MrpOrdenSugeridaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in MrpOrdenSugeridaTable.c}
+_ESTADOS_VALIDOS = {"sugerida", "aprobada", "convertida", "rechazada"}
 
 
 async def list_orden_sugerida(
@@ -60,5 +61,44 @@ async def update_orden_sugerida(
             MrpOrdenSugeridaTable.c.orden_sugerida_id == orden_sugerida_id,
         )
     ).values(**payload)
+    await execute_update(stmt, client_id=client_id)
+    return await get_orden_sugerida_by_id(client_id, orden_sugerida_id)
+
+
+async def set_orden_sugerida_estado(
+    client_id: UUID,
+    orden_sugerida_id: UUID,
+    nuevo_estado: str,
+    *,
+    documento_generado_tipo: Optional[str] = None,
+    documento_generado_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Cambia estado de orden sugerida dentro del tenant.
+
+    Nota: la validación de transición (estado previo) se realiza en el service.
+    """
+    if nuevo_estado not in _ESTADOS_VALIDOS:
+        raise ValueError(f"Estado inválido: {nuevo_estado}")
+
+    values: Dict[str, Any] = {"estado": nuevo_estado}
+
+    if nuevo_estado == "convertida":
+        if not documento_generado_tipo or not documento_generado_id:
+            raise ValueError("Para convertir se requiere documento_generado_tipo y documento_generado_id")
+        values["documento_generado_tipo"] = documento_generado_tipo
+        values["documento_generado_id"] = documento_generado_id
+        values["fecha_conversion"] = func.getdate()
+
+    stmt = (
+        update(MrpOrdenSugeridaTable)
+        .where(
+            and_(
+                MrpOrdenSugeridaTable.c.cliente_id == client_id,
+                MrpOrdenSugeridaTable.c.orden_sugerida_id == orden_sugerida_id,
+            )
+        )
+        .values(**values)
+    )
     await execute_update(stmt, client_id=client_id)
     return await get_orden_sugerida_by_id(client_id, orden_sugerida_id)

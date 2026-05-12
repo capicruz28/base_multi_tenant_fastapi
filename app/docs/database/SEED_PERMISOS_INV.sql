@@ -23,11 +23,13 @@ USING (
     SELECT 'inv.categoria.leer'          AS codigo, 'Leer categorías'              AS nombre, 'Listar y ver categorías de productos'                   AS descripcion, @ModuloInv AS modulo_id, 'categoria'          AS recurso, 'leer'       AS accion UNION ALL
     SELECT 'inv.categoria.crear',                     'Crear categorías',                      'Crear categorías de productos',                              @ModuloInv,                 'categoria',                    'crear'                  UNION ALL
     SELECT 'inv.categoria.actualizar',                'Actualizar categorías',                 'Editar categorías de productos',                             @ModuloInv,                 'categoria',                    'actualizar'             UNION ALL
+    SELECT 'inv.categoria.eliminar',                  'Eliminar categorías',                   'Dar de baja lógica categorías de productos'                   , @ModuloInv,                 'categoria',                    'eliminar'               UNION ALL
 
     -- Unidades de medida
     SELECT 'inv.unidad_medida.leer',                  'Leer unidades de medida',               'Listar y ver unidades de medida'                            @ModuloInv,                 'unidad_medida',                'leer'                   UNION ALL
     SELECT 'inv.unidad_medida.crear',                 'Crear unidades de medida',              'Crear unidades de medida'                                   @ModuloInv,                 'unidad_medida',                'crear'                  UNION ALL
     SELECT 'inv.unidad_medida.actualizar',            'Actualizar unidades de medida',         'Editar unidades de medida'                                  @ModuloInv,                 'unidad_medida',                'actualizar'             UNION ALL
+    SELECT 'inv.unidad_medida.eliminar',              'Eliminar unidades de medida',           'Dar de baja lógica unidades de medida'                       , @ModuloInv,                 'unidad_medida',                'eliminar'               UNION ALL
 
     -- Productos (complementa seed global si existe)
     SELECT 'inv.producto.leer',                       'Leer productos',                        'Listar y ver productos, categorías, stock'                  @ModuloInv,                 'producto',                     'leer'                   UNION ALL
@@ -39,6 +41,7 @@ USING (
     SELECT 'inv.almacen.leer',                        'Leer almacenes',                        'Listar y ver almacenes'                                     @ModuloInv,                 'almacen',                      'leer'                   UNION ALL
     SELECT 'inv.almacen.crear',                       'Crear almacenes',                       'Crear almacenes físicos y virtuales'                        @ModuloInv,                 'almacen',                      'crear'                  UNION ALL
     SELECT 'inv.almacen.actualizar',                  'Actualizar almacenes',                  'Editar datos de almacenes'                                  @ModuloInv,                 'almacen',                      'actualizar'             UNION ALL
+    SELECT 'inv.almacen.eliminar',                    'Eliminar almacenes',                    'Dar de baja lógica almacenes'                                , @ModuloInv,                 'almacen',                      'eliminar'               UNION ALL
 
     -- Stock
     SELECT 'inv.stock.leer',                          'Leer stock',                            'Consultar stock por producto y almacén'                     @ModuloInv,                 'stock',                        'leer'                   UNION ALL
@@ -49,6 +52,7 @@ USING (
     SELECT 'inv.tipo_movimiento.leer',                'Leer tipos de movimiento',              'Listar y ver tipos de movimiento de inventario'             @ModuloInv,                 'tipo_movimiento',              'leer'                   UNION ALL
     SELECT 'inv.tipo_movimiento.crear',               'Crear tipos de movimiento',             'Crear tipos de movimiento de inventario'                    @ModuloInv,                 'tipo_movimiento',              'crear'                  UNION ALL
     SELECT 'inv.tipo_movimiento.actualizar',          'Actualizar tipos de movimiento',        'Editar tipos de movimiento de inventario'                   @ModuloInv,                 'tipo_movimiento',              'actualizar'             UNION ALL
+    SELECT 'inv.tipo_movimiento.eliminar',            'Eliminar tipos de movimiento',          'Dar de baja lógica tipos de movimiento'                      , @ModuloInv,                 'tipo_movimiento',              'eliminar'               UNION ALL
 
     -- Movimientos (cabecera)
     SELECT 'inv.movimiento.leer',                     'Leer movimientos',                      'Listar y ver movimientos de inventario'                     @ModuloInv,                 'movimiento',                   'leer'                   UNION ALL

@@ -30,7 +30,12 @@ PrcListaPrecioTable = Table(
     Column("nombre", String(100), nullable=False),
     Column("descripcion", String(255), nullable=True),
     Column("tipo_lista", String(30), nullable=True, server_default="general"),
-    Column("moneda", String(3), nullable=True, server_default="PEN"),
+    Column(
+        "moneda_id",
+        UNIQUEIDENTIFIER,
+        ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"),
+        nullable=False,
+    ),
     Column("fecha_vigencia_desde", Date, nullable=False),
     Column("fecha_vigencia_hasta", Date, nullable=True),
     Column("incluye_igv", Boolean, nullable=True, server_default="1"),

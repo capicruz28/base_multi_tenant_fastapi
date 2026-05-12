@@ -11,6 +11,7 @@ from app.infrastructure.database.queries.log import (
     get_guia_remision_by_id as _get_guia_remision_by_id,
     create_guia_remision as _create_guia_remision,
     update_guia_remision as _update_guia_remision,
+    anular_guia_remision as _anular_guia_remision,
     list_guia_remision_detalles as _list_guia_remision_detalles,
     get_guia_remision_detalle_by_id as _get_guia_remision_detalle_by_id,
     create_guia_remision_detalle as _create_guia_remision_detalle,
@@ -25,6 +26,7 @@ from app.modules.log.presentation.schemas import (
     GuiaRemisionDetalleRead,
 )
 from app.core.exceptions import NotFoundError
+from app.core.exceptions import ValidationError
 
 
 async def list_guias_remision(
@@ -51,9 +53,13 @@ async def list_guias_remision(
     return [GuiaRemisionRead(**row) for row in rows]
 
 
-async def get_guia_remision_by_id(client_id: UUID, guia_remision_id: UUID) -> GuiaRemisionRead:
+async def get_guia_remision_by_id(
+    client_id: UUID,
+    guia_remision_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> GuiaRemisionRead:
     """Obtiene una guía de remisión por id. Lanza NotFoundError si no existe."""
-    row = await _get_guia_remision_by_id(client_id, guia_remision_id)
+    row = await _get_guia_remision_by_id(client_id, guia_remision_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Guía de remisión {guia_remision_id} no encontrada")
     return GuiaRemisionRead(**row)
@@ -66,12 +72,41 @@ async def create_guia_remision(client_id: UUID, data: GuiaRemisionCreate) -> Gui
 
 
 async def update_guia_remision(
-    client_id: UUID, guia_remision_id: UUID, data: GuiaRemisionUpdate
+    client_id: UUID,
+    guia_remision_id: UUID,
+    data: GuiaRemisionUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> GuiaRemisionRead:
-    """Actualiza una guía de remisión. Lanza NotFoundError si no existe."""
+    """Actualiza una guía de remisión. Solo editable en estado 'borrador'."""
+    current = await _get_guia_remision_by_id(client_id, guia_remision_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError(f"Guía de remisión {guia_remision_id} no encontrada")
+    if (current.get("estado") or "").lower() != "borrador":
+        raise ValidationError("Solo se puede editar una guía de remisión en estado borrador.")
+
     row = await _update_guia_remision(
-        client_id, guia_remision_id, data.model_dump(exclude_none=True)
+        client_id,
+        guia_remision_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
     )
+    if not row:
+        raise NotFoundError(f"Guía de remisión {guia_remision_id} no encontrada")
+    return GuiaRemisionRead(**row)
+
+
+async def anular_guia_remision(
+    client_id: UUID,
+    guia_remision_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> GuiaRemisionRead:
+    """Transición de estado: anula la guía."""
+    current = await _get_guia_remision_by_id(client_id, guia_remision_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError(f"Guía de remisión {guia_remision_id} no encontrada")
+    if (current.get("estado") or "").lower() == "anulada":
+        return GuiaRemisionRead(**current)
+    row = await _anular_guia_remision(client_id, guia_remision_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Guía de remisión {guia_remision_id} no encontrada")
     return GuiaRemisionRead(**row)

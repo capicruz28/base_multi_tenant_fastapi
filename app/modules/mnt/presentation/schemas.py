@@ -35,6 +35,7 @@ class ActivoCreate(BaseModel):
     valor_adquisicion: Optional[Decimal] = None
     valor_actual: Optional[Decimal] = None
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     estado_activo: Optional[str] = Field("operativo", max_length=20)
     observaciones: Optional[str] = None
     es_activo: Optional[bool] = True
@@ -66,6 +67,7 @@ class ActivoUpdate(BaseModel):
     valor_adquisicion: Optional[Decimal] = None
     valor_actual: Optional[Decimal] = None
     moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     estado_activo: Optional[str] = None
     observaciones: Optional[str] = None
     es_activo: Optional[bool] = None
@@ -100,6 +102,7 @@ class ActivoRead(BaseModel):
     valor_adquisicion: Optional[Decimal]
     valor_actual: Optional[Decimal]
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     estado_activo: Optional[str]
     observaciones: Optional[str]
     es_activo: Optional[bool]
@@ -128,6 +131,7 @@ class PlanMantenimientoCreate(BaseModel):
     tareas_mantenimiento: Optional[str] = None
     costo_estimado: Optional[Decimal] = None
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     es_activo: Optional[bool] = True
 
 
@@ -148,12 +152,14 @@ class PlanMantenimientoUpdate(BaseModel):
     tareas_mantenimiento: Optional[str] = None
     costo_estimado: Optional[Decimal] = None
     moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     es_activo: Optional[bool] = None
 
 
 class PlanMantenimientoRead(BaseModel):
     plan_mantenimiento_id: UUID
     cliente_id: UUID
+    empresa_id: Optional[UUID] = None
     activo_id: UUID
     codigo_plan: str
     nombre: str
@@ -170,6 +176,7 @@ class PlanMantenimientoRead(BaseModel):
     tareas_mantenimiento: Optional[str]
     costo_estimado: Optional[Decimal]
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     es_activo: Optional[bool]
     fecha_creacion: datetime
     usuario_creacion_id: Optional[UUID]
@@ -199,6 +206,7 @@ class OrdenTrabajoCreate(BaseModel):
     costo_repuestos: Optional[Decimal] = Field(0, ge=0)
     costo_servicios_terceros: Optional[Decimal] = Field(0, ge=0)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     estado: Optional[str] = Field("solicitada", max_length=20)
     fecha_cierre: Optional[datetime] = None
     cerrado_por_usuario_id: Optional[UUID] = None
@@ -225,6 +233,7 @@ class OrdenTrabajoUpdate(BaseModel):
     costo_repuestos: Optional[Decimal] = None
     costo_servicios_terceros: Optional[Decimal] = None
     moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     estado: Optional[str] = None
     fecha_cierre: Optional[datetime] = None
     cerrado_por_usuario_id: Optional[UUID] = None
@@ -257,6 +266,7 @@ class OrdenTrabajoRead(BaseModel):
     costo_servicios_terceros: Optional[Decimal]
     costo_total: Optional[Decimal] = None
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     estado: Optional[str]
     fecha_cierre: Optional[datetime]
     cerrado_por_usuario_id: Optional[UUID]
@@ -281,6 +291,7 @@ class HistorialMantenimientoCreate(BaseModel):
     kilometraje: Optional[Decimal] = None
     costo_total: Optional[Decimal] = Field(0, ge=0)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     observaciones: Optional[str] = None
 
 
@@ -295,12 +306,14 @@ class HistorialMantenimientoUpdate(BaseModel):
     kilometraje: Optional[Decimal] = None
     costo_total: Optional[Decimal] = None
     moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     observaciones: Optional[str] = None
 
 
 class HistorialMantenimientoRead(BaseModel):
     historial_id: UUID
     cliente_id: UUID
+    empresa_id: Optional[UUID] = None
     activo_id: UUID
     orden_trabajo_id: Optional[UUID]
     fecha_mantenimiento: date
@@ -311,8 +324,44 @@ class HistorialMantenimientoRead(BaseModel):
     kilometraje: Optional[Decimal]
     costo_total: Optional[Decimal]
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     observaciones: Optional[str]
     fecha_creacion: datetime
 
     class Config:
         from_attributes = True
+
+
+# ========== Orden Trabajo - Transiciones de estado (body opcional) ==========
+class OrdenTrabajoProgramarRequest(BaseModel):
+    """Body opcional para PATCH /ordenes-trabajo/{id}/programar."""
+    fecha_programada: Optional[datetime] = None
+    tecnico_asignado_usuario_id: Optional[UUID] = None
+    tecnico_nombre: Optional[str] = Field(None, max_length=150)
+
+
+class OrdenTrabajoIniciarRequest(BaseModel):
+    """Body opcional para PATCH /ordenes-trabajo/{id}/iniciar."""
+    fecha_inicio_real: Optional[datetime] = None
+
+
+class OrdenTrabajoCompletarRequest(BaseModel):
+    """Body opcional para PATCH /ordenes-trabajo/{id}/completar."""
+    fecha_fin_real: Optional[datetime] = None
+    trabajo_realizado: Optional[str] = None
+    repuestos_utilizados: Optional[str] = None
+    costo_mano_obra: Optional[Decimal] = Field(None, ge=0)
+    costo_repuestos: Optional[Decimal] = Field(None, ge=0)
+    costo_servicios_terceros: Optional[Decimal] = Field(None, ge=0)
+
+
+class OrdenTrabajoCancelarRequest(BaseModel):
+    """Body opcional para PATCH /ordenes-trabajo/{id}/cancelar."""
+    observaciones: Optional[str] = None
+
+
+class OrdenTrabajoCerrarRequest(BaseModel):
+    """Body opcional para PATCH /ordenes-trabajo/{id}/cerrar."""
+    cerrado_por_usuario_id: Optional[UUID] = None
+    calificacion_trabajo: Optional[Decimal] = Field(None, ge=1, le=5)
+    observaciones_historial: Optional[str] = None

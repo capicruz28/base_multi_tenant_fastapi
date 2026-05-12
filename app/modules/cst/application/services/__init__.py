@@ -4,6 +4,8 @@ from app.modules.cst.application.services.centro_costo_tipo_service import (
     get_centro_costo_tipo_by_id,
     create_centro_costo_tipo,
     update_centro_costo_tipo,
+    deactivate_centro_costo_tipo,
+    reactivate_centro_costo_tipo,
 )
 from app.modules.cst.application.services.producto_costo_service import (
     list_producto_costo,
@@ -17,6 +19,8 @@ __all__ = [
     "get_centro_costo_tipo_by_id",
     "create_centro_costo_tipo",
     "update_centro_costo_tipo",
+    "deactivate_centro_costo_tipo",
+    "reactivate_centro_costo_tipo",
     "list_producto_costo",
     "get_producto_costo_by_id",
     "create_producto_costo",

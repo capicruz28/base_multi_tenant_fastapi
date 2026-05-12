@@ -10,6 +10,8 @@ from app.modules.hcm.application.services import (
     get_empleado_by_id,
     create_empleado,
     update_empleado,
+    desactivar_empleado,
+    activar_empleado,
 )
 from app.modules.hcm.presentation.schemas import EmpleadoCreate, EmpleadoUpdate, EmpleadoRead
 from app.core.exceptions import NotFoundError
@@ -61,6 +63,44 @@ async def post_empleado(
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_empleado(current_user.cliente_id, data)
+
+
+@router.patch(
+    "/{empleado_id}/desactivar",
+    response_model=EmpleadoRead,
+    tags=["HCM - Empleados"],
+    summary="Desactivar empleado",
+)
+async def patch_desactivar_empleado(
+    empleado_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.desactivar")
+    ),
+):
+    try:
+        return await desactivar_empleado(current_user.cliente_id, empleado_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch(
+    "/{empleado_id}/activar",
+    response_model=EmpleadoRead,
+    tags=["HCM - Empleados"],
+    summary="Activar empleado",
+)
+async def patch_activar_empleado(
+    empleado_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.activar")
+    ),
+):
+    try:
+        return await activar_empleado(current_user.cliente_id, empleado_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.put("/{empleado_id}", response_model=EmpleadoRead, tags=["HCM - Empleados"])

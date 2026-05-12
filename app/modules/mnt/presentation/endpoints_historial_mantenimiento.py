@@ -1,6 +1,7 @@
 """Endpoints mnt_historial_mantenimiento."""
 from typing import List, Optional
 from uuid import UUID
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
@@ -29,6 +30,9 @@ async def get_historiales_mantenimiento(
     activo_id: Optional[UUID] = Query(None),
     orden_trabajo_id: Optional[UUID] = Query(None),
     tipo_mantenimiento: Optional[str] = Query(None),
+    empresa_id: Optional[UUID] = Query(None),
+    fecha_desde: Optional[date] = Query(None, description="Filtra historial con fecha_mantenimiento >= fecha_desde"),
+    fecha_hasta: Optional[date] = Query(None, description="Filtra historial con fecha_mantenimiento <= fecha_hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
@@ -37,6 +41,9 @@ async def get_historiales_mantenimiento(
         activo_id=activo_id,
         orden_trabajo_id=orden_trabajo_id,
         tipo_mantenimiento=tipo_mantenimiento,
+        empresa_id=empresa_id,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
 
 

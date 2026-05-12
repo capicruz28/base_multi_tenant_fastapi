@@ -11,12 +11,20 @@ from app.infrastructure.database.queries.fin import (
     create_periodo_contable as _create_periodo_contable,
     update_periodo_contable as _update_periodo_contable,
 )
+from app.infrastructure.database.queries.fin.periodo_contable_queries import (
+    count_asientos_borrador_en_periodo as _count_asientos_borrador_en_periodo,
+    cerrar_periodo_contable as _cerrar_periodo_contable_query,
+)
 from app.modules.fin.presentation.schemas import (
     PeriodoContableCreate,
     PeriodoContableUpdate,
     PeriodoContableRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceError
+
+
+def _estado_periodo_norm(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
 
 
 async def list_periodos_contables(
@@ -57,6 +65,37 @@ async def update_periodo_contable(
     """Actualiza un periodo contable. Lanza NotFoundError si no existe."""
     row = await _update_periodo_contable(
         client_id, periodo_id, data.model_dump(exclude_none=True)
+    )
+    if not row:
+        raise NotFoundError(f"Periodo contable {periodo_id} no encontrado")
+    return PeriodoContableRead(**row)
+
+
+async def cerrar_periodo_contable(
+    client_id: UUID, periodo_id: UUID, cerrado_por_usuario_id: UUID
+) -> PeriodoContableRead:
+    """
+    Cierra el periodo. Exige que no existan asientos en borrador para ese periodo.
+    """
+    current = await _get_periodo_contable_by_id(client_id, periodo_id)
+    if not current:
+        raise NotFoundError(f"Periodo contable {periodo_id} no encontrado")
+    est = _estado_periodo_norm(current.get("estado"))
+    if est in ("cerrado", "bloqueado"):
+        raise ServiceError(
+            status_code=409,
+            detail="El periodo ya está cerrado o bloqueado.",
+            internal_code="FIN_PERIODO_YA_CERRADO",
+        )
+    n_borrador = await _count_asientos_borrador_en_periodo(client_id, periodo_id)
+    if n_borrador > 0:
+        raise ServiceError(
+            status_code=400,
+            detail=f"Existen {n_borrador} asiento(s) en borrador; no se puede cerrar el periodo.",
+            internal_code="FIN_PERIODO_ASIENTOS_BORRADOR",
+        )
+    row = await _cerrar_periodo_contable_query(
+        client_id, periodo_id, cerrado_por_usuario_id
     )
     if not row:
         raise NotFoundError(f"Periodo contable {periodo_id} no encontrado")

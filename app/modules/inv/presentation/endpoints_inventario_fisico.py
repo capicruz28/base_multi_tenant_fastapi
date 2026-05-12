@@ -85,3 +85,24 @@ async def actualizar_inventario_fisico(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{inventario_fisico_id}/anular",
+    response_model=InventarioFisicoRead,
+    summary="Anular inventario físico",
+)
+async def anular_inventario_fisico(
+    inventario_fisico_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Anula un inventario físico dentro del tenant (cambia estado a 'anulado')."""
+    client_id = current_user.cliente_id
+    try:
+        return await inventario_fisico_service.anular_inventario_fisico_servicio(
+            client_id=client_id,
+            inventario_fisico_id=inventario_fisico_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

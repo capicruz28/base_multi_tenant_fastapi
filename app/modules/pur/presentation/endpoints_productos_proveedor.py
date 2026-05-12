@@ -80,3 +80,23 @@ async def actualizar_producto_proveedor(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{producto_proveedor_id}/reactivar",
+    response_model=ProductoProveedorRead,
+    summary="Reactivar asociación producto-proveedor",
+)
+async def reactivar_producto_proveedor(
+    producto_proveedor_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    client_id = current_user.cliente_id
+    try:
+        return await producto_proveedor_service.reactivar_producto_proveedor_servicio(
+            client_id=client_id,
+            producto_proveedor_id=producto_proveedor_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

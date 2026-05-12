@@ -72,8 +72,46 @@ async def update_inventario_fisico_servicio(
     row = await get_inventario_fisico_by_id(client_id=client_id, inventario_fisico_id=inventario_fisico_id)
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
+    # Lifecycle: impedir edición cuando ya fue ajustado o anulado
+    estado_actual = (row.get("estado") or "").lower()
+    if estado_actual in ("ajustado", "anulado"):
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede editar un inventario físico en estado '{row.get('estado')}'",
+        )
     if data.empresa_id is not None:
         await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
     updated = await update_inventario_fisico(client_id=client_id, inventario_fisico_id=inventario_fisico_id, data=payload)
+    return _row_to_read(updated)
+
+
+async def anular_inventario_fisico_servicio(
+    *,
+    client_id: UUID,
+    inventario_fisico_id: UUID,
+) -> InventarioFisicoRead:
+    """
+    Anula un inventario físico (cambia estado a 'anulado').
+    Regla conservadora:
+    - Si está 'ajustado' (ya generó ajuste), no se permite anular.
+    """
+    row = await get_inventario_fisico_by_id(client_id=client_id, inventario_fisico_id=inventario_fisico_id)
+    if not row:
+        raise NotFoundError(detail="Inventario físico no encontrado")
+    estado = (row.get("estado") or "").lower()
+    if estado == "anulado":
+        return _row_to_read(row)
+    if estado == "ajustado":
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se puede anular un inventario físico ajustado",
+        )
+    updated = await update_inventario_fisico(
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        data={"estado": "anulado"},
+    )
     return _row_to_read(updated)

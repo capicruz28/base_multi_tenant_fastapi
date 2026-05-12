@@ -8,6 +8,8 @@ from app.modules.sls.application.services.cliente_service import (
     get_cliente_by_id,
     create_cliente,
     update_cliente,
+    baja_cliente,
+    reactivar_cliente,
 )
 from app.modules.sls.application.services.contacto_service import (
     list_contactos,
@@ -26,12 +28,23 @@ from app.modules.sls.application.services.cotizacion_service import (
     get_cotizacion_by_id,
     create_cotizacion,
     update_cotizacion,
+    get_detalle_cotizacion,
+    put_detalle_cotizacion,
+    enviar_cotizacion,
+    aceptar_cotizacion,
+    rechazar_cotizacion,
+    convertir_cotizacion_a_pedido,
 )
 from app.modules.sls.application.services.pedido_service import (
     list_pedidos,
     get_pedido_by_id,
     create_pedido,
     update_pedido,
+    get_detalle_pedido,
+    put_detalle_pedido,
+    confirmar_pedido,
+    aprobar_pedido,
+    anular_pedido,
 )
 
 __all__ = [
@@ -40,6 +53,8 @@ __all__ = [
     "get_cliente_by_id",
     "create_cliente",
     "update_cliente",
+    "baja_cliente",
+    "reactivar_cliente",
     # Contactos
     "list_contactos",
     "get_contacto_by_id",
@@ -55,9 +70,20 @@ __all__ = [
     "get_cotizacion_by_id",
     "create_cotizacion",
     "update_cotizacion",
+    "get_detalle_cotizacion",
+    "put_detalle_cotizacion",
+    "enviar_cotizacion",
+    "aceptar_cotizacion",
+    "rechazar_cotizacion",
+    "convertir_cotizacion_a_pedido",
     # Pedidos
     "list_pedidos",
     "get_pedido_by_id",
     "create_pedido",
     "update_pedido",
+    "get_detalle_pedido",
+    "put_detalle_pedido",
+    "confirmar_pedido",
+    "aprobar_pedido",
+    "anular_pedido",
 ]

@@ -8,7 +8,13 @@ from datetime import date
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
-from app.modules.pur.presentation.schemas import SolicitudCompraCreate, SolicitudCompraUpdate, SolicitudCompraRead
+from app.modules.pur.presentation.schemas import (
+    SolicitudCompraCreate,
+    SolicitudCompraUpdate,
+    SolicitudCompraRead,
+    PurMotivoRechazoBody,
+    SolicitudAnularBody,
+)
 from app.modules.pur.application.services import solicitud_service
 from app.core.exceptions import NotFoundError
 
@@ -46,23 +52,6 @@ async def listar_solicitudes(
     )
 
 
-@router.get("/{solicitud_id}", response_model=SolicitudCompraRead, summary="Detalle solicitud")
-async def detalle_solicitud(
-    solicitud_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
-):
-    """Detalle de una solicitud. Solo del tenant del usuario."""
-    client_id = current_user.cliente_id
-    try:
-        return await solicitud_service.get_solicitud_servicio(
-            client_id=client_id,
-            solicitud_id=solicitud_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-
-
 @router.post("", response_model=SolicitudCompraRead, status_code=status.HTTP_201_CREATED, summary="Crear solicitud")
 async def crear_solicitud(
     data: SolicitudCompraCreate,
@@ -91,6 +80,8 @@ async def actualizar_solicitud(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/{solicitud_id}/aprobar", response_model=SolicitudCompraRead, summary="Aprobar solicitud")
@@ -116,18 +107,41 @@ async def aprobar_solicitud(
 @router.post("/{solicitud_id}/rechazar", response_model=SolicitudCompraRead, summary="Rechazar solicitud")
 async def rechazar_solicitud(
     solicitud_id: UUID,
-    body: Optional[dict] = Body(None),
+    body: Optional[PurMotivoRechazoBody] = Body(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Rechaza la solicitud de compra. Body: { \"motivo_rechazo\": \"...\" }."""
+    """Rechaza la solicitud de compra. Body opcional: motivo_rechazo (JSON vacío permitido)."""
     client_id = current_user.cliente_id
-    motivo_rechazo = (body or {}).get("motivo_rechazo", "") or ""
+    body_data = body or PurMotivoRechazoBody()
+    motivo_rechazo = body_data.motivo_rechazo or ""
     try:
         return await solicitud_service.rechazar_solicitud_servicio(
             client_id=client_id,
             solicitud_id=solicitud_id,
             motivo_rechazo=motivo_rechazo,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{solicitud_id}/anular", response_model=SolicitudCompraRead, summary="Anular solicitud de compra")
+async def anular_solicitud(
+    solicitud_id: UUID,
+    body: Optional[SolicitudAnularBody] = Body(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Pasa la solicitud a estado anulada. Body opcional: motivo (máx. 500)."""
+    client_id = current_user.cliente_id
+    body_data = body or SolicitudAnularBody()
+    try:
+        return await solicitud_service.anular_solicitud_servicio(
+            client_id=client_id,
+            solicitud_id=solicitud_id,
+            motivo=body_data.motivo or None,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -145,6 +159,25 @@ async def marcar_procesada_solicitud(
     client_id = current_user.cliente_id
     try:
         return await solicitud_service.marcar_procesada_solicitud_servicio(
+            client_id=client_id,
+            solicitud_id=solicitud_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{solicitud_id}", response_model=SolicitudCompraRead, summary="Detalle solicitud")
+async def detalle_solicitud(
+    solicitud_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+):
+    """Detalle de una solicitud. Solo del tenant del usuario."""
+    client_id = current_user.cliente_id
+    try:
+        return await solicitud_service.get_solicitud_servicio(
             client_id=client_id,
             solicitud_id=solicitud_id,
         )

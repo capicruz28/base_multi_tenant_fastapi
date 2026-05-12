@@ -31,13 +31,16 @@ async def list_producto_costo(
     return await execute_query(q, client_id=client_id)
 
 
-async def get_producto_costo_by_id(client_id: UUID, producto_costo_id: UUID) -> Optional[Dict[str, Any]]:
-    q = select(CstProductoCostoTable).where(
-        and_(
-            CstProductoCostoTable.c.cliente_id == client_id,
-            CstProductoCostoTable.c.producto_costo_id == producto_costo_id,
-        )
-    )
+async def get_producto_costo_by_id(
+    client_id: UUID, producto_costo_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    conds = [
+        CstProductoCostoTable.c.cliente_id == client_id,
+        CstProductoCostoTable.c.producto_costo_id == producto_costo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(CstProductoCostoTable.c.empresa_id == empresa_id)
+    q = select(CstProductoCostoTable).where(and_(*conds))
     rows = await execute_query(q, client_id=client_id)
     return rows[0] if rows else None
 
@@ -52,16 +55,20 @@ async def create_producto_costo(client_id: UUID, data: Dict[str, Any]) -> Dict[s
 
 
 async def update_producto_costo(
-    client_id: UUID, producto_costo_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    producto_costo_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     payload = {k: v for k, v in data.items() if k in _COLUMNS and k not in ("producto_costo_id", "cliente_id")}
     if not payload:
-        return await get_producto_costo_by_id(client_id, producto_costo_id)
-    stmt = update(CstProductoCostoTable).where(
-        and_(
-            CstProductoCostoTable.c.cliente_id == client_id,
-            CstProductoCostoTable.c.producto_costo_id == producto_costo_id,
-        )
-    ).values(**payload)
+        return await get_producto_costo_by_id(client_id, producto_costo_id, empresa_id)
+    conds = [
+        CstProductoCostoTable.c.cliente_id == client_id,
+        CstProductoCostoTable.c.producto_costo_id == producto_costo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(CstProductoCostoTable.c.empresa_id == empresa_id)
+    stmt = update(CstProductoCostoTable).where(and_(*conds)).values(**payload)
     await execute_update(stmt, client_id=client_id)
-    return await get_producto_costo_by_id(client_id, producto_costo_id)
+    return await get_producto_costo_by_id(client_id, producto_costo_id, empresa_id)

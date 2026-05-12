@@ -2,8 +2,9 @@
 Servicios de aplicación para invbill_serie_comprobante.
 Maneja la lógica de negocio y llama a las queries.
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from uuid import UUID
+from datetime import date
 
 from app.infrastructure.database.queries.invbill import (
     list_series as _list_series,
@@ -19,21 +20,25 @@ async def list_series(
     client_id: UUID,
     empresa_id: Optional[UUID] = None,
     tipo_comprobante: Optional[str] = None,
-    solo_activos: bool = True
+    solo_activos: bool = True,
 ) -> List[SerieComprobanteRead]:
     """Lista series de comprobantes del tenant."""
     rows = await _list_series(
         client_id=client_id,
         empresa_id=empresa_id,
         tipo_comprobante=tipo_comprobante,
-        solo_activos=solo_activos
+        solo_activos=solo_activos,
     )
     return [SerieComprobanteRead(**row) for row in rows]
 
 
-async def get_serie_by_id(client_id: UUID, serie_id: UUID) -> SerieComprobanteRead:
+async def get_serie_by_id(
+    client_id: UUID,
+    serie_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> SerieComprobanteRead:
     """Obtiene una serie por id. Lanza NotFoundError si no existe."""
-    row = await _get_serie_by_id(client_id, serie_id)
+    row = await _get_serie_by_id(client_id, serie_id, empresa_id)
     if not row:
         raise NotFoundError(f"Serie {serie_id} no encontrada")
     return SerieComprobanteRead(**row)
@@ -46,12 +51,58 @@ async def create_serie(client_id: UUID, data: SerieComprobanteCreate) -> SerieCo
 
 
 async def update_serie(
-    client_id: UUID, serie_id: UUID, data: SerieComprobanteUpdate
+    client_id: UUID,
+    serie_id: UUID,
+    data: SerieComprobanteUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> SerieComprobanteRead:
-    """Actualiza una serie. Lanza NotFoundError si no existe."""
-    row = await _update_serie(
-        client_id, serie_id, data.model_dump(exclude_none=True)
-    )
+    """Actualiza una serie. Lanza NotFoundError si no existe o no coincide empresa_id (si se envía)."""
+    row = await _get_serie_by_id(client_id, serie_id, empresa_id)
     if not row:
         raise NotFoundError(f"Serie {serie_id} no encontrada")
-    return SerieComprobanteRead(**row)
+    row2 = await _update_serie(client_id, serie_id, data.model_dump(exclude_none=True))
+    if not row2:
+        raise NotFoundError(f"Serie {serie_id} no encontrada")
+    return SerieComprobanteRead(**row2)
+
+
+async def activar_serie(
+    client_id: UUID,
+    serie_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> SerieComprobanteRead:
+    """Marca la serie como activa y registra fecha de activación."""
+    row = await _get_serie_by_id(client_id, serie_id, empresa_id)
+    if not row:
+        raise NotFoundError(f"Serie {serie_id} no encontrada")
+    patch = {
+        "es_activo": True,
+        "fecha_activacion": date.today(),
+        "fecha_baja": None,
+        "motivo_baja": None,
+    }
+    row2 = await _update_serie(client_id, serie_id, patch)
+    if not row2:
+        raise NotFoundError(f"Serie {serie_id} no encontrada")
+    return SerieComprobanteRead(**row2)
+
+
+async def desactivar_serie(
+    client_id: UUID,
+    serie_id: UUID,
+    empresa_id: Optional[UUID] = None,
+    motivo_baja: Optional[str] = None,
+) -> SerieComprobanteRead:
+    """Baja lógica de la serie (es_activo = 0)."""
+    row = await _get_serie_by_id(client_id, serie_id, empresa_id)
+    if not row:
+        raise NotFoundError(f"Serie {serie_id} no encontrada")
+    patch = {
+        "es_activo": False,
+        "fecha_baja": date.today(),
+        "motivo_baja": motivo_baja,
+    }
+    row2 = await _update_serie(client_id, serie_id, patch)
+    if not row2:
+        raise NotFoundError(f"Serie {serie_id} no encontrada")
+    return SerieComprobanteRead(**row2)

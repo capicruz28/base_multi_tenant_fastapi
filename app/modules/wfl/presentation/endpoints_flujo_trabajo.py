@@ -44,11 +44,14 @@ async def get_flujos_trabajo(
 @router.get("/{flujo_id}", response_model=FlujoTrabajoRead)
 async def get_flujo_trabajo(
     flujo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission("wfl.flujo.leer")),
 ):
     try:
-        return await get_flujo_trabajo_by_id(current_user.cliente_id, flujo_id)
+        return await get_flujo_trabajo_by_id(
+            current_user.cliente_id, flujo_id, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -66,10 +69,57 @@ async def post_flujo_trabajo(
 async def put_flujo_trabajo(
     flujo_id: UUID,
     data: FlujoTrabajoUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission("wfl.flujo.actualizar")),
 ):
     try:
-        return await update_flujo_trabajo(current_user.cliente_id, flujo_id, data)
+        return await update_flujo_trabajo(
+            current_user.cliente_id, flujo_id, data, empresa_id=empresa_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{flujo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Desactivar flujo de trabajo (baja lógica)",
+)
+async def delete_flujo_trabajo(
+    flujo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("wfl.flujo.eliminar")),
+):
+    try:
+        await update_flujo_trabajo(
+            current_user.cliente_id,
+            flujo_id,
+            FlujoTrabajoUpdate(es_activo=False),
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{flujo_id}/reactivar",
+    response_model=FlujoTrabajoRead,
+    summary="Reactivar flujo de trabajo",
+)
+async def post_reactivar_flujo_trabajo(
+    flujo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("wfl.flujo.actualizar")),
+):
+    try:
+        return await update_flujo_trabajo(
+            current_user.cliente_id,
+            flujo_id,
+            FlujoTrabajoUpdate(es_activo=True),
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

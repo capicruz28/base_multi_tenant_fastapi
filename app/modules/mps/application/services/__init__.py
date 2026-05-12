@@ -10,6 +10,10 @@ from app.modules.mps.application.services.plan_produccion_service import (
     get_plan_produccion_by_id,
     create_plan_produccion,
     update_plan_produccion,
+    aprobar_plan_produccion,
+    ejecutar_plan_produccion,
+    cerrar_plan_produccion,
+    anular_plan_produccion,
 )
 from app.modules.mps.application.services.plan_produccion_detalle_service import (
     list_plan_produccion_detalle,
@@ -27,6 +31,10 @@ __all__ = [
     "get_plan_produccion_by_id",
     "create_plan_produccion",
     "update_plan_produccion",
+    "aprobar_plan_produccion",
+    "ejecutar_plan_produccion",
+    "cerrar_plan_produccion",
+    "anular_plan_produccion",
     "list_plan_produccion_detalle",
     "get_plan_produccion_detalle_by_id",
     "create_plan_produccion_detalle",

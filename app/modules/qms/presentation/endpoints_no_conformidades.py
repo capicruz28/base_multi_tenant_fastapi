@@ -15,6 +15,8 @@ from app.modules.qms.application.services import (
     get_no_conformidad_by_id,
     create_no_conformidad,
     update_no_conformidad,
+    cerrar_no_conformidad,
+    cancelar_no_conformidad,
 )
 from app.modules.qms.presentation.schemas import (
     NoConformidadCreate,
@@ -89,5 +91,39 @@ async def put_no_conformidad(
     """Actualiza una no conformidad."""
     try:
         return await update_no_conformidad(current_user.cliente_id, no_conformidad_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{no_conformidad_id}/cerrar", response_model=NoConformidadRead, tags=["QMS - No Conformidades"])
+async def post_no_conformidad_cerrar(
+    no_conformidad_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.cerrar")),
+):
+    """Cierra una no conformidad (transición de estado)."""
+    try:
+        return await cerrar_no_conformidad(
+            client_id=current_user.cliente_id,
+            no_conformidad_id=no_conformidad_id,
+            cerrado_por_usuario_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{no_conformidad_id}/cancelar", response_model=NoConformidadRead, tags=["QMS - No Conformidades"])
+async def post_no_conformidad_cancelar(
+    no_conformidad_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.cancelar")),
+):
+    """Cancela una no conformidad (transición de estado)."""
+    try:
+        return await cancelar_no_conformidad(
+            client_id=current_user.cliente_id,
+            no_conformidad_id=no_conformidad_id,
+            cerrado_por_usuario_id=current_user.usuario_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

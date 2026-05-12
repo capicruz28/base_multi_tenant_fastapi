@@ -6,9 +6,37 @@ from app.infrastructure.database.queries.mrp import (
     get_plan_maestro_by_id as _get,
     create_plan_maestro as _create,
     update_plan_maestro as _update,
+    set_plan_maestro_estado as _set_estado,
 )
 from app.modules.mrp.presentation.schemas import PlanMaestroCreate, PlanMaestroUpdate, PlanMaestroRead
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
+
+_ESTADOS_EDITABLES = {"borrador", "inicial"}
+
+_TRANSICIONES_VALIDAS: dict[str, set[str]] = {
+    "calculado": {"borrador", "inicial"},
+    "aprobado": {"calculado"},
+    "ejecutado": {"aprobado"},
+    "cerrado": {"ejecutado"},
+    "anulado": {"borrador", "inicial", "calculado", "aprobado"},
+}
+
+
+def _normalizar_estado(estado: Optional[str]) -> str:
+    return (estado or "borrador").strip().lower()
+
+
+def _validar_transicion(estado_actual: str, nuevo_estado: str) -> None:
+    estado_actual_n = _normalizar_estado(estado_actual)
+    nuevo_estado_n = _normalizar_estado(nuevo_estado)
+    allowed_prev = _TRANSICIONES_VALIDAS.get(nuevo_estado_n)
+    if not allowed_prev:
+        raise ValidationError(detail=f"Transición no soportada hacia estado '{nuevo_estado_n}'")
+    if estado_actual_n not in allowed_prev:
+        raise ValidationError(
+            detail=f"No se puede pasar de '{estado_actual_n}' a '{nuevo_estado_n}'",
+            internal_code="INVALID_STATE_TRANSITION",
+        )
 
 
 async def list_plan_maestro(
@@ -34,7 +62,80 @@ async def create_plan_maestro(client_id: UUID, data: PlanMaestroCreate) -> PlanM
 
 
 async def update_plan_maestro(client_id: UUID, plan_maestro_id: UUID, data: PlanMaestroUpdate) -> PlanMaestroRead:
+    actual = await _get(client_id, plan_maestro_id)
+    if not actual:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+
+    estado_actual = _normalizar_estado(actual.get("estado"))
+    if estado_actual not in _ESTADOS_EDITABLES:
+        raise ValidationError(
+            detail=f"El plan maestro solo es editable en estado borrador/inicial (estado actual: {estado_actual})",
+            internal_code="PLAN_MAESTRO_NOT_EDITABLE",
+        )
+
+    # Evitar cambios de estado por PUT; las transiciones deben ser explícitas.
+    if data.estado is not None and _normalizar_estado(data.estado) != estado_actual:
+        raise ValidationError(
+            detail="No se permite cambiar el estado por PUT. Use las acciones de transición del plan maestro.",
+            internal_code="STATE_CHANGE_NOT_ALLOWED",
+        )
+
     row = await _update(client_id, plan_maestro_id, data.model_dump(exclude_none=True))
+    if not row:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    return PlanMaestroRead(**row)
+
+
+async def calcular_plan_maestro(client_id: UUID, plan_maestro_id: UUID) -> PlanMaestroRead:
+    actual = await _get(client_id, plan_maestro_id)
+    if not actual:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    _validar_transicion(actual.get("estado"), "calculado")
+    row = await _set_estado(client_id, plan_maestro_id, "calculado")
+    if not row:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    return PlanMaestroRead(**row)
+
+
+async def aprobar_plan_maestro(client_id: UUID, plan_maestro_id: UUID) -> PlanMaestroRead:
+    actual = await _get(client_id, plan_maestro_id)
+    if not actual:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    _validar_transicion(actual.get("estado"), "aprobado")
+    row = await _set_estado(client_id, plan_maestro_id, "aprobado")
+    if not row:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    return PlanMaestroRead(**row)
+
+
+async def ejecutar_plan_maestro(client_id: UUID, plan_maestro_id: UUID) -> PlanMaestroRead:
+    actual = await _get(client_id, plan_maestro_id)
+    if not actual:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    _validar_transicion(actual.get("estado"), "ejecutado")
+    row = await _set_estado(client_id, plan_maestro_id, "ejecutado")
+    if not row:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    return PlanMaestroRead(**row)
+
+
+async def cerrar_plan_maestro(client_id: UUID, plan_maestro_id: UUID) -> PlanMaestroRead:
+    actual = await _get(client_id, plan_maestro_id)
+    if not actual:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    _validar_transicion(actual.get("estado"), "cerrado")
+    row = await _set_estado(client_id, plan_maestro_id, "cerrado")
+    if not row:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    return PlanMaestroRead(**row)
+
+
+async def anular_plan_maestro(client_id: UUID, plan_maestro_id: UUID) -> PlanMaestroRead:
+    actual = await _get(client_id, plan_maestro_id)
+    if not actual:
+        raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
+    _validar_transicion(actual.get("estado"), "anulado")
+    row = await _set_estado(client_id, plan_maestro_id, "anulado")
     if not row:
         raise NotFoundError(f"Plan maestro {plan_maestro_id} no encontrado")
     return PlanMaestroRead(**row)

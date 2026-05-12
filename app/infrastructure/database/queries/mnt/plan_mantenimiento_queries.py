@@ -1,6 +1,7 @@
 """Queries para mnt_plan_mantenimiento. Filtro tenant: cliente_id."""
 from typing import List, Dict, Any, Optional
 from uuid import UUID
+from datetime import date
 from sqlalchemy import select, insert, update, and_, or_
 from app.infrastructure.database.tables_erp import MntActivoTable, MntPlanMantenimientoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -14,14 +15,23 @@ async def list_plan_mantenimiento(
     tipo_mantenimiento: Optional[str] = None,
     es_activo: Optional[bool] = None,
     buscar: Optional[str] = None,
+    empresa_id: Optional[UUID] = None,
+    vence_desde: Optional[date] = None,
+    vence_hasta: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
     q = select(MntPlanMantenimientoTable).where(MntPlanMantenimientoTable.c.cliente_id == client_id)
+    if empresa_id:
+        q = q.where(MntPlanMantenimientoTable.c.empresa_id == empresa_id)
     if activo_id:
         q = q.where(MntPlanMantenimientoTable.c.activo_id == activo_id)
     if tipo_mantenimiento:
         q = q.where(MntPlanMantenimientoTable.c.tipo_mantenimiento == tipo_mantenimiento)
     if es_activo is not None:
         q = q.where(MntPlanMantenimientoTable.c.es_activo == es_activo)
+    if vence_desde:
+        q = q.where(MntPlanMantenimientoTable.c.fecha_proximo_mantenimiento >= vence_desde)
+    if vence_hasta:
+        q = q.where(MntPlanMantenimientoTable.c.fecha_proximo_mantenimiento <= vence_hasta)
     if buscar:
         q = q.where(or_(
             MntPlanMantenimientoTable.c.nombre.ilike(f"%{buscar}%"),

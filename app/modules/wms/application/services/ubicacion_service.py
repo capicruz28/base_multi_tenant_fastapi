@@ -21,6 +21,7 @@ from app.core.exceptions import NotFoundError
 
 async def list_ubicaciones(
     client_id: UUID,
+    empresa_id: UUID,
     almacen_id: Optional[UUID] = None,
     zona_id: Optional[UUID] = None,
     tipo_ubicacion: Optional[str] = None,
@@ -32,6 +33,7 @@ async def list_ubicaciones(
     """Lista ubicaciones del tenant."""
     rows = await _list_ubicaciones(
         client_id=client_id,
+        empresa_id=empresa_id,
         almacen_id=almacen_id,
         zona_id=zona_id,
         tipo_ubicacion=tipo_ubicacion,
@@ -43,9 +45,9 @@ async def list_ubicaciones(
     return [UbicacionRead(**row) for row in rows]
 
 
-async def get_ubicacion_by_id(client_id: UUID, ubicacion_id: UUID) -> UbicacionRead:
+async def get_ubicacion_by_id(client_id: UUID, empresa_id: UUID, ubicacion_id: UUID) -> UbicacionRead:
     """Obtiene una ubicación por id. Lanza NotFoundError si no existe."""
-    row = await _get_ubicacion_by_id(client_id, ubicacion_id)
+    row = await _get_ubicacion_by_id(client_id, empresa_id, ubicacion_id)
     if not row:
         raise NotFoundError(f"Ubicación {ubicacion_id} no encontrada")
     return UbicacionRead(**row)
@@ -53,16 +55,23 @@ async def get_ubicacion_by_id(client_id: UUID, ubicacion_id: UUID) -> UbicacionR
 
 async def create_ubicacion(client_id: UUID, data: UbicacionCreate) -> UbicacionRead:
     """Crea una ubicación."""
-    row = await _create_ubicacion(client_id, data.model_dump(exclude_none=True))
+    row = await _create_ubicacion(
+        client_id,
+        data.empresa_id,
+        data.model_dump(exclude_none=True),
+    )
     return UbicacionRead(**row)
 
 
 async def update_ubicacion(
-    client_id: UUID, ubicacion_id: UUID, data: UbicacionUpdate
+    client_id: UUID, empresa_id: UUID, ubicacion_id: UUID, data: UbicacionUpdate
 ) -> UbicacionRead:
     """Actualiza una ubicación. Lanza NotFoundError si no existe."""
     row = await _update_ubicacion(
-        client_id, ubicacion_id, data.model_dump(exclude_none=True)
+        client_id,
+        empresa_id,
+        ubicacion_id,
+        data.model_dump(exclude_none=True),
     )
     if not row:
         raise NotFoundError(f"Ubicación {ubicacion_id} no encontrada")

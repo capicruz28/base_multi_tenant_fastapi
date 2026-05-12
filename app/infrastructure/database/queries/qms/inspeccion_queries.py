@@ -104,28 +104,34 @@ async def update_inspeccion(
 
 
 async def list_inspeccion_detalles(
-    client_id: UUID, inspeccion_id: UUID
+    client_id: UUID,
+    inspeccion_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> List[Dict[str, Any]]:
     """Lista detalles de una inspección."""
-    query = select(QmsInspeccionDetalleTable).where(
-        and_(
-            QmsInspeccionDetalleTable.c.cliente_id == client_id,
-            QmsInspeccionDetalleTable.c.inspeccion_id == inspeccion_id,
-        )
-    )
+    filters = [
+        QmsInspeccionDetalleTable.c.cliente_id == client_id,
+        QmsInspeccionDetalleTable.c.inspeccion_id == inspeccion_id,
+    ]
+    if empresa_id is not None:
+        filters.append(QmsInspeccionDetalleTable.c.empresa_id == empresa_id)
+    query = select(QmsInspeccionDetalleTable).where(and_(*filters))
     return await execute_query(query, client_id=client_id)
 
 
 async def get_inspeccion_detalle_by_id(
-    client_id: UUID, inspeccion_detalle_id: UUID
+    client_id: UUID,
+    inspeccion_detalle_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene un detalle por id."""
-    query = select(QmsInspeccionDetalleTable).where(
-        and_(
-            QmsInspeccionDetalleTable.c.cliente_id == client_id,
-            QmsInspeccionDetalleTable.c.inspeccion_detalle_id == inspeccion_detalle_id,
-        )
-    )
+    filters = [
+        QmsInspeccionDetalleTable.c.cliente_id == client_id,
+        QmsInspeccionDetalleTable.c.inspeccion_detalle_id == inspeccion_detalle_id,
+    ]
+    if empresa_id is not None:
+        filters.append(QmsInspeccionDetalleTable.c.empresa_id == empresa_id)
+    query = select(QmsInspeccionDetalleTable).where(and_(*filters))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -138,7 +144,11 @@ async def create_inspeccion_detalle(client_id: UUID, data: Dict[str, Any]) -> Di
     payload.setdefault("inspeccion_detalle_id", uuid4())
     stmt = insert(QmsInspeccionDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_inspeccion_detalle_by_id(client_id, payload["inspeccion_detalle_id"])
+    return await get_inspeccion_detalle_by_id(
+        client_id,
+        payload["inspeccion_detalle_id"],
+        empresa_id=payload.get("empresa_id"),
+    )
 
 
 async def update_inspeccion_detalle(
@@ -147,7 +157,7 @@ async def update_inspeccion_detalle(
     """Actualiza un detalle de inspección."""
     payload = {
         k: v for k, v in data.items()
-        if k in _COLUMNS_DETALLE and k not in ("inspeccion_detalle_id", "cliente_id")
+        if k in _COLUMNS_DETALLE and k not in ("inspeccion_detalle_id", "cliente_id", "empresa_id")
     }
     if not payload:
         return await get_inspeccion_detalle_by_id(client_id, inspeccion_detalle_id)

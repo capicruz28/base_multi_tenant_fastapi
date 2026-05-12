@@ -15,11 +15,17 @@ from app.modules.crm.application.services import (
     get_oportunidad_by_id,
     create_oportunidad,
     update_oportunidad,
+    marcar_oportunidad_ganada,
+    marcar_oportunidad_perdida,
+    cancelar_oportunidad,
 )
 from app.modules.crm.presentation.schemas import (
     OportunidadCreate,
     OportunidadUpdate,
     OportunidadRead,
+    OportunidadMarcarGanada,
+    OportunidadMarcarPerdida,
+    OportunidadCancelar,
 )
 from app.core.exceptions import NotFoundError
 
@@ -65,12 +71,13 @@ async def get_oportunidades(
 @router.get("/{oportunidad_id}", response_model=OportunidadRead, tags=["CRM - Oportunidades"])
 async def get_oportunidad(
     oportunidad_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una oportunidad por id."""
     try:
-        return await get_oportunidad_by_id(current_user.cliente_id, oportunidad_id)
+        return await get_oportunidad_by_id(current_user.cliente_id, oportunidad_id, empresa_id=empresa_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -95,5 +102,74 @@ async def put_oportunidad(
     """Actualiza una oportunidad."""
     try:
         return await update_oportunidad(current_user.cliente_id, oportunidad_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{oportunidad_id}/marcar-ganada",
+    response_model=OportunidadRead,
+    tags=["CRM - Oportunidades"],
+)
+async def post_marcar_ganada(
+    oportunidad_id: UUID,
+    data: OportunidadMarcarGanada,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    try:
+        return await marcar_oportunidad_ganada(
+            client_id=current_user.cliente_id,
+            oportunidad_id=oportunidad_id,
+            data=data,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{oportunidad_id}/marcar-perdida",
+    response_model=OportunidadRead,
+    tags=["CRM - Oportunidades"],
+)
+async def post_marcar_perdida(
+    oportunidad_id: UUID,
+    data: OportunidadMarcarPerdida,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    try:
+        return await marcar_oportunidad_perdida(
+            client_id=current_user.cliente_id,
+            oportunidad_id=oportunidad_id,
+            data=data,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{oportunidad_id}/cancelar",
+    response_model=OportunidadRead,
+    tags=["CRM - Oportunidades"],
+)
+async def post_cancelar(
+    oportunidad_id: UUID,
+    data: OportunidadCancelar,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    try:
+        return await cancelar_oportunidad(
+            client_id=current_user.cliente_id,
+            oportunidad_id=oportunidad_id,
+            data=data,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

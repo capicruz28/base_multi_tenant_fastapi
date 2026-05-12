@@ -95,6 +95,40 @@ async def put_plan_inspeccion(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
+@router.post("/{plan_inspeccion_id}/activar", response_model=PlanInspeccionRead, tags=["QMS - Planes de Inspección"])
+async def post_plan_inspeccion_activar(
+    plan_inspeccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.activar")),
+):
+    """Activa un plan de inspección (borrado lógico)."""
+    try:
+        return await update_plan_inspeccion(
+            current_user.cliente_id,
+            plan_inspeccion_id,
+            PlanInspeccionUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{plan_inspeccion_id}/desactivar", response_model=PlanInspeccionRead, tags=["QMS - Planes de Inspección"])
+async def post_plan_inspeccion_desactivar(
+    plan_inspeccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.desactivar")),
+):
+    """Desactiva un plan de inspección (borrado lógico)."""
+    try:
+        return await update_plan_inspeccion(
+            current_user.cliente_id,
+            plan_inspeccion_id,
+            PlanInspeccionUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
 # Detalles de Plan de Inspección
 @router.get("/{plan_inspeccion_id}/detalles", response_model=List[PlanInspeccionDetalleRead], tags=["QMS - Planes de Inspección"])
 async def get_plan_inspeccion_detalles(

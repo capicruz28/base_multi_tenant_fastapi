@@ -34,8 +34,10 @@ async def list_flujo_trabajo(
     return [FlujoTrabajoRead(**dict(r)) for r in rows]
 
 
-async def get_flujo_trabajo_by_id(client_id: UUID, flujo_id: UUID) -> FlujoTrabajoRead:
-    row = await _get(client_id, flujo_id)
+async def get_flujo_trabajo_by_id(
+    client_id: UUID, flujo_id: UUID, empresa_id: Optional[UUID] = None
+) -> FlujoTrabajoRead:
+    row = await _get(client_id, flujo_id, empresa_id)
     if not row:
         raise NotFoundError("Flujo de trabajo no encontrado")
     return FlujoTrabajoRead(**dict(row))
@@ -48,10 +50,13 @@ async def create_flujo_trabajo(client_id: UUID, data: FlujoTrabajoCreate) -> Flu
 
 
 async def update_flujo_trabajo(
-    client_id: UUID, flujo_id: UUID, data: FlujoTrabajoUpdate
+    client_id: UUID,
+    flujo_id: UUID,
+    data: FlujoTrabajoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> FlujoTrabajoRead:
     dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, flujo_id, dump)
+    row = await _update(client_id, flujo_id, dump, empresa_id)
     if not row:
         raise NotFoundError("Flujo de trabajo no encontrado")
     return FlujoTrabajoRead(**dict(row))

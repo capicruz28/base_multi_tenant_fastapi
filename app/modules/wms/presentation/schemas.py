@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 # ZONA DE ALMACÉN
 # ============================================================================
 class ZonaAlmacenCreate(BaseModel):
+    empresa_id: UUID
     almacen_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -29,6 +30,7 @@ class ZonaAlmacenCreate(BaseModel):
 
 
 class ZonaAlmacenUpdate(BaseModel):
+    empresa_id: Optional[UUID] = None
     codigo: Optional[str] = Field(None, max_length=20)
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
@@ -44,6 +46,7 @@ class ZonaAlmacenUpdate(BaseModel):
 class ZonaAlmacenRead(BaseModel):
     zona_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     almacen_id: UUID
     codigo: str
     nombre: str
@@ -66,6 +69,7 @@ class ZonaAlmacenRead(BaseModel):
 # UBICACIÓN
 # ============================================================================
 class UbicacionCreate(BaseModel):
+    empresa_id: UUID
     almacen_id: UUID
     zona_id: Optional[UUID] = None
     codigo_ubicacion: str = Field(..., max_length=30)
@@ -89,6 +93,7 @@ class UbicacionCreate(BaseModel):
 
 
 class UbicacionUpdate(BaseModel):
+    empresa_id: Optional[UUID] = None
     zona_id: Optional[UUID] = None
     codigo_ubicacion: Optional[str] = Field(None, max_length=30)
     pasillo: Optional[str] = Field(None, max_length=10)
@@ -113,6 +118,7 @@ class UbicacionUpdate(BaseModel):
 class UbicacionRead(BaseModel):
     ubicacion_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     almacen_id: UUID
     zona_id: Optional[UUID]
     codigo_ubicacion: str
@@ -144,6 +150,7 @@ class UbicacionRead(BaseModel):
 # STOCK POR UBICACIÓN
 # ============================================================================
 class StockUbicacionCreate(BaseModel):
+    empresa_id: UUID
     almacen_id: UUID
     ubicacion_id: UUID
     producto_id: UUID
@@ -157,6 +164,7 @@ class StockUbicacionCreate(BaseModel):
 
 
 class StockUbicacionUpdate(BaseModel):
+    empresa_id: Optional[UUID] = None
     ubicacion_id: Optional[UUID] = None
     producto_id: Optional[UUID] = None
     cantidad: Optional[Decimal] = Field(None, ge=0)
@@ -171,6 +179,7 @@ class StockUbicacionUpdate(BaseModel):
 class StockUbicacionRead(BaseModel):
     stock_ubicacion_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     almacen_id: UUID
     ubicacion_id: UUID
     producto_id: UUID
@@ -192,6 +201,7 @@ class StockUbicacionRead(BaseModel):
 # TAREA
 # ============================================================================
 class TareaCreate(BaseModel):
+    empresa_id: UUID
     almacen_id: UUID
     numero_tarea: str = Field(..., max_length=20)
     tipo_tarea: str = Field(..., max_length=30)  # 'picking', 'putaway', 'reabastecimiento', 'conteo', 'reubicacion'
@@ -212,6 +222,7 @@ class TareaCreate(BaseModel):
 
 
 class TareaUpdate(BaseModel):
+    empresa_id: Optional[UUID] = None
     numero_tarea: Optional[str] = Field(None, max_length=20)
     tipo_tarea: Optional[str] = Field(None, max_length=30)
     prioridad: Optional[int] = Field(None, ge=1, le=4)
@@ -236,6 +247,7 @@ class TareaUpdate(BaseModel):
 class TareaRead(BaseModel):
     tarea_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     almacen_id: UUID
     numero_tarea: str
     tipo_tarea: str
@@ -261,3 +273,11 @@ class TareaRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# WORKFLOW TAREA (ACCIONES)
+# ============================================================================
+class TareaAsignarRequest(BaseModel):
+    asignado_usuario_id: UUID
+    asignado_nombre: Optional[str] = Field(None, max_length=150)

@@ -34,13 +34,19 @@ async def list_presupuesto(
     return await execute_query(q, client_id=client_id)
 
 
-async def get_presupuesto_by_id(client_id: UUID, presupuesto_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_presupuesto_by_id(
+    client_id: UUID,
+    presupuesto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     q = select(BdgPresupuestoTable).where(
         and_(
             BdgPresupuestoTable.c.cliente_id == client_id,
             BdgPresupuestoTable.c.presupuesto_id == presupuesto_id,
         )
     )
+    if empresa_id:
+        q = q.where(BdgPresupuestoTable.c.empresa_id == empresa_id)
     rows = await execute_query(q, client_id=client_id)
     return rows[0] if rows else None
 
@@ -55,16 +61,24 @@ async def create_presupuesto(client_id: UUID, data: Dict[str, Any]) -> Dict[str,
 
 
 async def update_presupuesto(
-    client_id: UUID, presupuesto_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    presupuesto_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     payload = {k: v for k, v in data.items() if k in _COLUMNS and k not in ("presupuesto_id", "cliente_id")}
     if not payload:
-        return await get_presupuesto_by_id(client_id, presupuesto_id)
+        return await get_presupuesto_by_id(client_id, presupuesto_id, empresa_id=empresa_id)
+    filters = [
+        BdgPresupuestoTable.c.cliente_id == client_id,
+        BdgPresupuestoTable.c.presupuesto_id == presupuesto_id,
+    ]
+    if empresa_id:
+        filters.append(BdgPresupuestoTable.c.empresa_id == empresa_id)
     stmt = update(BdgPresupuestoTable).where(
         and_(
-            BdgPresupuestoTable.c.cliente_id == client_id,
-            BdgPresupuestoTable.c.presupuesto_id == presupuesto_id,
+            *filters
         )
     ).values(**payload)
     await execute_update(stmt, client_id=client_id)
-    return await get_presupuesto_by_id(client_id, presupuesto_id)
+    return await get_presupuesto_by_id(client_id, presupuesto_id, empresa_id=empresa_id)

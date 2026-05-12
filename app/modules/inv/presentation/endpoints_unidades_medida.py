@@ -78,3 +78,47 @@ async def actualizar_unidad_medida(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{unidad_medida_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) unidad de medida",
+)
+async def eliminar_unidad_medida(
+    unidad_medida_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Marca una unidad de medida como inactiva (es_activo = 0) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await unidad_medida_service.update_unidad_medida_servicio(
+            client_id=client_id,
+            unidad_medida_id=unidad_medida_id,
+            data=UnidadMedidaUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{unidad_medida_id}/reactivar",
+    response_model=UnidadMedidaRead,
+    summary="Reactivar unidad de medida",
+)
+async def reactivar_unidad_medida(
+    unidad_medida_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva una unidad de medida previamente dada de baja dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await unidad_medida_service.update_unidad_medida_servicio(
+            client_id=client_id,
+            unidad_medida_id=unidad_medida_id,
+            data=UnidadMedidaUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

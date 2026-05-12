@@ -1,6 +1,7 @@
 """Endpoints mnt_plan_mantenimiento."""
 from typing import List, Optional
 from uuid import UUID
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
@@ -10,6 +11,8 @@ from app.modules.mnt.application.services import (
     get_plan_mantenimiento_by_id,
     create_plan_mantenimiento,
     update_plan_mantenimiento,
+    activar_plan_mantenimiento,
+    desactivar_plan_mantenimiento,
 )
 from app.modules.mnt.presentation.schemas import (
     PlanMantenimientoCreate,
@@ -30,6 +33,9 @@ async def get_planes_mantenimiento(
     tipo_mantenimiento: Optional[str] = Query(None),
     es_activo: Optional[bool] = Query(None),
     buscar: Optional[str] = Query(None),
+    empresa_id: Optional[UUID] = Query(None),
+    vence_desde: Optional[date] = Query(None, description="Filtra planes con fecha_proximo_mantenimiento >= vence_desde"),
+    vence_hasta: Optional[date] = Query(None, description="Filtra planes con fecha_proximo_mantenimiento <= vence_hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
@@ -39,6 +45,9 @@ async def get_planes_mantenimiento(
         tipo_mantenimiento=tipo_mantenimiento,
         es_activo=es_activo,
         buscar=buscar,
+        empresa_id=empresa_id,
+        vence_desde=vence_desde,
+        vence_hasta=vence_hasta,
     )
 
 
@@ -72,5 +81,39 @@ async def put_plan_mantenimiento(
 ):
     try:
         return await update_plan_mantenimiento(current_user.cliente_id, plan_mantenimiento_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch(
+    "/{plan_mantenimiento_id}/activar",
+    response_model=PlanMantenimientoRead,
+    tags=["MNT - Planes Mantenimiento"],
+)
+async def patch_activar_plan_mantenimiento(
+    plan_mantenimiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.activar")),
+):
+    """Activa el plan de mantenimiento (es_activo=1). Idempotente."""
+    try:
+        return await activar_plan_mantenimiento(current_user.cliente_id, plan_mantenimiento_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch(
+    "/{plan_mantenimiento_id}/desactivar",
+    response_model=PlanMantenimientoRead,
+    tags=["MNT - Planes Mantenimiento"],
+)
+async def patch_desactivar_plan_mantenimiento(
+    plan_mantenimiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.desactivar")),
+):
+    """Desactiva el plan de mantenimiento (es_activo=0, baja lógica). Idempotente."""
+    try:
+        return await desactivar_plan_mantenimiento(current_user.cliente_id, plan_mantenimiento_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

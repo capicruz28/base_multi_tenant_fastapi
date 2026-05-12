@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_parametros.py
 """Endpoints ORG - Parámetros del sistema. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -15,6 +15,11 @@ from app.modules.org.application.services import parametro_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+_EMPRESA_ID_SCOPE_DESC = (
+    "Ámbito empresa para validar el registro: si se informa, acepta parámetros globales "
+    "(empresa_id NULL en BD) o de esa empresa; excluye parámetros de otra empresa."
+)
 
 
 @router.get("", response_model=list[ParametroRead], summary="Listar parámetros")
@@ -35,9 +40,32 @@ async def listar_parametros(
     )
 
 
+@router.post(
+    "/{parametro_id}/reactivar",
+    response_model=ParametroRead,
+    summary="Reactivar parámetro",
+)
+async def reactivar_parametro(
+    parametro_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.actualizar")),
+):
+    """Marca el parámetro como activo (es_activo = True) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await parametro_service.reactivar_parametro_servicio(
+            client_id=client_id,
+            parametro_id=parametro_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
 @router.get("/{parametro_id}", response_model=ParametroRead, summary="Detalle parámetro")
 async def detalle_parametro(
     parametro_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.leer")),
 ):
     client_id = current_user.cliente_id
@@ -45,6 +73,7 @@ async def detalle_parametro(
         return await parametro_service.get_parametro_servicio(
             client_id=client_id,
             parametro_id=parametro_id,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -65,7 +94,8 @@ async def crear_parametro(
 @router.put("/{parametro_id}", response_model=ParametroRead, summary="Actualizar parámetro")
 async def actualizar_parametro(
     parametro_id: UUID,
-    data: ParametroUpdate,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    data: ParametroUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.actualizar")),
 ):
     client_id = current_user.cliente_id
@@ -74,6 +104,7 @@ async def actualizar_parametro(
             client_id=client_id,
             parametro_id=parametro_id,
             data=data,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -86,6 +117,7 @@ async def actualizar_parametro(
 )
 async def eliminar_parametro(
     parametro_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.eliminar")),
 ):
     """Marca un parámetro como inactivo (baja lógica) dentro del tenant."""
@@ -94,6 +126,7 @@ async def eliminar_parametro(
         await parametro_service.delete_parametro_servicio(
             client_id=client_id,
             parametro_id=parametro_id,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

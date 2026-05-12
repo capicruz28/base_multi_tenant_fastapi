@@ -10,6 +10,10 @@ from app.modules.hcm.application.services import (
     get_planilla_by_id,
     create_planilla,
     update_planilla,
+    calcular_planilla,
+    aprobar_planilla,
+    marcar_pagada_planilla,
+    cerrar_planilla,
 )
 from app.modules.hcm.presentation.schemas import PlanillaCreate, PlanillaUpdate, PlanillaRead
 from app.core.exceptions import NotFoundError
@@ -70,5 +74,85 @@ async def put_planilla(
 ):
     try:
         return await update_planilla(current_user.cliente_id, planilla_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{planilla_id}/calcular",
+    response_model=PlanillaRead,
+    tags=["HCM - Planillas"],
+    summary="Calcular planilla (borrador → calculada)",
+)
+async def post_calcular_planilla(
+    planilla_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.calcular")
+    ),
+):
+    try:
+        return await calcular_planilla(current_user.cliente_id, planilla_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{planilla_id}/aprobar",
+    response_model=PlanillaRead,
+    tags=["HCM - Planillas"],
+    summary="Aprobar planilla (calculada → aprobada)",
+)
+async def post_aprobar_planilla(
+    planilla_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")
+    ),
+):
+    try:
+        return await aprobar_planilla(
+            current_user.cliente_id,
+            planilla_id,
+            aprobado_por_usuario_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{planilla_id}/marcar-pagada",
+    response_model=PlanillaRead,
+    tags=["HCM - Planillas"],
+    summary="Marcar planilla como pagada (aprobada → pagada)",
+)
+async def post_marcar_pagada_planilla(
+    planilla_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.marcar-pagada")
+    ),
+):
+    try:
+        return await marcar_pagada_planilla(current_user.cliente_id, planilla_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{planilla_id}/cerrar",
+    response_model=PlanillaRead,
+    tags=["HCM - Planillas"],
+    summary="Cerrar planilla (pagada → cerrada)",
+)
+async def post_cerrar_planilla(
+    planilla_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.cerrar")
+    ),
+):
+    try:
+        return await cerrar_planilla(current_user.cliente_id, planilla_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

@@ -564,7 +564,17 @@ class MovimientoCreate(BaseModel):
     total_items: Optional[int] = 0
     total_cantidad: Optional[Decimal] = Field(0, ge=0)
     total_costo: Optional[Decimal] = Field(0, ge=0)
-    moneda: Optional[str] = "PEN"
+    # Alineado a BD: inv_movimiento.moneda_id (FK cat_moneda.moneda_id)
+    moneda_id: Optional[UUID] = Field(
+        None,
+        description="ID de moneda (cat_moneda.moneda_id). Preferido.",
+    )
+    # Compatibilidad legacy: antes se enviaba 'PEN', 'USD', etc.
+    moneda: Optional[str] = Field(
+        "PEN",
+        description="(Legacy) Código de moneda. Usar moneda_id.",
+        max_length=10,
+    )
     estado: Optional[str] = Field("borrador", max_length=20)
     requiere_autorizacion: Optional[bool] = False
     autorizado_por_usuario_id: Optional[UUID] = None
@@ -591,7 +601,15 @@ class MovimientoUpdate(BaseModel):
     total_items: Optional[int] = None
     total_cantidad: Optional[Decimal] = None
     total_costo: Optional[Decimal] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = Field(
+        None,
+        description="ID de moneda (cat_moneda.moneda_id). Preferido.",
+    )
+    moneda: Optional[str] = Field(
+        None,
+        description="(Legacy) Código de moneda. Usar moneda_id.",
+        max_length=10,
+    )
     estado: Optional[str] = Field(None, max_length=20)
     requiere_autorizacion: Optional[bool] = None
     autorizado_por_usuario_id: Optional[UUID] = None
@@ -621,6 +639,8 @@ class MovimientoRead(BaseModel):
     total_items: Optional[int] = None
     total_cantidad: Optional[Decimal] = None
     total_costo: Optional[Decimal] = None
+    moneda_id: Optional[UUID] = None
+    # Nota: algunos queries pueden retornar código de moneda (legacy/consulta).
     moneda: Optional[str] = None
     estado: str
     requiere_autorizacion: Optional[bool] = None
@@ -720,7 +740,16 @@ class MovimientoDetalleBase(BaseModel):
     unidad_medida_id: UUID
     cantidad_base: Decimal
     costo_unitario: Optional[Decimal] = None
-    moneda: Optional[str] = "PEN"
+    # Alineado a BD: inv_movimiento_detalle.moneda_id (FK cat_moneda.moneda_id)
+    moneda_id: Optional[UUID] = Field(
+        None,
+        description="ID de moneda (cat_moneda.moneda_id). Preferido.",
+    )
+    moneda: Optional[str] = Field(
+        "PEN",
+        description="(Legacy) Código de moneda. Usar moneda_id.",
+        max_length=10,
+    )
     lote: Optional[str] = Field(None, max_length=50)
     fecha_vencimiento: Optional[date] = None
     numero_serie: Optional[str] = Field(None, max_length=100)
@@ -737,7 +766,15 @@ class MovimientoDetalleUpdate(BaseModel):
     unidad_medida_id: Optional[UUID] = None
     cantidad_base: Optional[Decimal] = None
     costo_unitario: Optional[Decimal] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = Field(
+        None,
+        description="ID de moneda (cat_moneda.moneda_id). Preferido.",
+    )
+    moneda: Optional[str] = Field(
+        None,
+        description="(Legacy) Código de moneda. Usar moneda_id.",
+        max_length=10,
+    )
     lote: Optional[str] = Field(None, max_length=50)
     fecha_vencimiento: Optional[date] = None
     numero_serie: Optional[str] = Field(None, max_length=100)
@@ -755,6 +792,7 @@ class MovimientoDetalleRead(BaseModel):
     unidad_medida_id: UUID
     cantidad_base: Decimal
     costo_unitario: Optional[Decimal] = None
+    moneda_id: Optional[UUID] = None
     moneda: Optional[str] = None
     lote: Optional[str] = None
     fecha_vencimiento: Optional[date] = None

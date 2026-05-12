@@ -4,12 +4,15 @@ from app.modules.hcm.application.services.empleado_service import (
     get_empleado_by_id,
     create_empleado,
     update_empleado,
+    desactivar_empleado,
+    activar_empleado,
 )
 from app.modules.hcm.application.services.contrato_service import (
     list_contratos,
     get_contrato_by_id,
     create_contrato,
     update_contrato,
+    rescindir_contrato,
 )
 from app.modules.hcm.application.services.concepto_planilla_service import (
     list_conceptos_planilla,
@@ -22,6 +25,10 @@ from app.modules.hcm.application.services.planilla_service import (
     get_planilla_by_id,
     create_planilla,
     update_planilla,
+    calcular_planilla,
+    aprobar_planilla,
+    marcar_pagada_planilla,
+    cerrar_planilla,
 )
 from app.modules.hcm.application.services.planilla_empleado_service import (
     list_planilla_empleados,
@@ -59,10 +66,13 @@ __all__ = [
     "get_empleado_by_id",
     "create_empleado",
     "update_empleado",
+    "desactivar_empleado",
+    "activar_empleado",
     "list_contratos",
     "get_contrato_by_id",
     "create_contrato",
     "update_contrato",
+    "rescindir_contrato",
     "list_conceptos_planilla",
     "get_concepto_planilla_by_id",
     "create_concepto_planilla",
@@ -71,6 +81,10 @@ __all__ = [
     "get_planilla_by_id",
     "create_planilla",
     "update_planilla",
+    "calcular_planilla",
+    "aprobar_planilla",
+    "marcar_pagada_planilla",
+    "cerrar_planilla",
     "list_planilla_empleados",
     "get_planilla_empleado_by_id",
     "create_planilla_empleado",

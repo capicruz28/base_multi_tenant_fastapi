@@ -34,13 +34,16 @@ async def list_flujo_trabajo(
     return await execute_query(q, client_id=client_id)
 
 
-async def get_flujo_trabajo_by_id(client_id: UUID, flujo_id: UUID) -> Optional[Dict[str, Any]]:
-    q = select(WflFlujoTrabajoTable).where(
-        and_(
-            WflFlujoTrabajoTable.c.cliente_id == client_id,
-            WflFlujoTrabajoTable.c.flujo_id == flujo_id,
-        )
-    )
+async def get_flujo_trabajo_by_id(
+    client_id: UUID, flujo_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    conds = [
+        WflFlujoTrabajoTable.c.cliente_id == client_id,
+        WflFlujoTrabajoTable.c.flujo_id == flujo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(WflFlujoTrabajoTable.c.empresa_id == empresa_id)
+    q = select(WflFlujoTrabajoTable).where(and_(*conds))
     rows = await execute_query(q, client_id=client_id)
     return rows[0] if rows else None
 
@@ -51,23 +54,29 @@ async def create_flujo_trabajo(client_id: UUID, data: Dict[str, Any]) -> Dict[st
     payload["cliente_id"] = client_id
     payload.setdefault("flujo_id", uuid4())
     await execute_insert(insert(WflFlujoTrabajoTable).values(**payload), client_id=client_id)
-    return await get_flujo_trabajo_by_id(client_id, payload["flujo_id"])
+    return await get_flujo_trabajo_by_id(
+        client_id, payload["flujo_id"], payload.get("empresa_id")
+    )
 
 
 async def update_flujo_trabajo(
-    client_id: UUID, flujo_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    flujo_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     payload = {
         k: v for k, v in data.items()
         if k in _COLUMNS and k not in ("flujo_id", "cliente_id")
     }
     if not payload:
-        return await get_flujo_trabajo_by_id(client_id, flujo_id)
-    stmt = update(WflFlujoTrabajoTable).where(
-        and_(
-            WflFlujoTrabajoTable.c.cliente_id == client_id,
-            WflFlujoTrabajoTable.c.flujo_id == flujo_id,
-        )
-    ).values(**payload)
+        return await get_flujo_trabajo_by_id(client_id, flujo_id, empresa_id)
+    conds = [
+        WflFlujoTrabajoTable.c.cliente_id == client_id,
+        WflFlujoTrabajoTable.c.flujo_id == flujo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(WflFlujoTrabajoTable.c.empresa_id == empresa_id)
+    stmt = update(WflFlujoTrabajoTable).where(and_(*conds)).values(**payload)
     await execute_update(stmt, client_id=client_id)
-    return await get_flujo_trabajo_by_id(client_id, flujo_id)
+    return await get_flujo_trabajo_by_id(client_id, flujo_id, empresa_id)

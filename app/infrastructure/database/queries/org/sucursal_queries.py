@@ -30,15 +30,26 @@ async def list_sucursales(
     return await execute_query(query, client_id=client_id)
 
 
+def _sucursal_id_conditions(
+    client_id: UUID, sucursal_id: UUID, empresa_id: Optional[UUID]
+):
+    conds = [
+        OrgSucursalTable.c.cliente_id == client_id,
+        OrgSucursalTable.c.sucursal_id == sucursal_id,
+    ]
+    if empresa_id is not None:
+        conds.append(OrgSucursalTable.c.empresa_id == empresa_id)
+    return and_(*conds)
+
+
 async def get_sucursal_by_id(
-    client_id: UUID, sucursal_id: UUID
+    client_id: UUID,
+    sucursal_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Obtiene una sucursal por id. Exige cliente_id."""
+    """Obtiene una sucursal por id. Exige cliente_id; opcionalmente restringe por empresa_id."""
     query = select(OrgSucursalTable).where(
-        and_(
-            OrgSucursalTable.c.cliente_id == client_id,
-            OrgSucursalTable.c.sucursal_id == sucursal_id,
-        )
+        _sucursal_id_conditions(client_id, sucursal_id, empresa_id)
     )
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
@@ -52,29 +63,27 @@ async def create_sucursal(client_id: UUID, data: Dict[str, Any]) -> Dict[str, An
     payload.setdefault("sucursal_id", uuid4())
     stmt = insert(OrgSucursalTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_sucursal_by_id(client_id, payload["sucursal_id"])
+    return await get_sucursal_by_id(client_id, payload["sucursal_id"], None)
 
 
 async def update_sucursal(
-    client_id: UUID, sucursal_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    sucursal_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Actualiza una sucursal. WHERE incluye cliente_id."""
+    """Actualiza una sucursal. WHERE incluye cliente_id y opcionalmente empresa_id."""
     payload = {
         k: v for k, v in data.items()
         if k in _COLUMNS and k not in ("sucursal_id", "cliente_id")
     }
     if not payload:
-        return await get_sucursal_by_id(client_id, sucursal_id)
+        return await get_sucursal_by_id(client_id, sucursal_id, empresa_id)
     payload["fecha_actualizacion"] = datetime.utcnow()
     stmt = (
         update(OrgSucursalTable)
-        .where(
-            and_(
-                OrgSucursalTable.c.cliente_id == client_id,
-                OrgSucursalTable.c.sucursal_id == sucursal_id,
-            )
-        )
+        .where(_sucursal_id_conditions(client_id, sucursal_id, empresa_id))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_sucursal_by_id(client_id, sucursal_id)
+    return await get_sucursal_by_id(client_id, sucursal_id, empresa_id)

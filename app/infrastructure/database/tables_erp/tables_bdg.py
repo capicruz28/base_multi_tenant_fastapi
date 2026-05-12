@@ -53,7 +53,7 @@ BdgPresupuestoDetalleTable = Table(
     Column("empresa_id", UNIQUEIDENTIFIER, ForeignKey("org_empresa.empresa_id", ondelete="NO ACTION"), nullable=False),
     Column("presupuesto_id", UNIQUEIDENTIFIER, ForeignKey("bdg_presupuesto.presupuesto_id", ondelete="NO ACTION"), nullable=False),
     Column("cuenta_id", UNIQUEIDENTIFIER, ForeignKey("fin_plan_cuentas.cuenta_id", ondelete="NO ACTION"), nullable=False),
-    Column("centro_costo_id", UNIQUEIDENTIFIER, ForeignKey("org_centro_costo.centro_costo_id", ondelete="SET NULL"), nullable=True),
+    Column("centro_costo_id", UNIQUEIDENTIFIER, ForeignKey("org_centro_costo.centro_costo_id", ondelete="NO ACTION"), nullable=True),
     Column("mes", Integer, nullable=True),
     Column("monto_presupuestado", Numeric(18, 2), nullable=False),
     Column("monto_ejecutado", Numeric(18, 2), nullable=True, server_default="0"),

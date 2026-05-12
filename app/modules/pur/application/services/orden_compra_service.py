@@ -22,6 +22,10 @@ from app.modules.pur.presentation.schemas import (
 )
 
 
+def _estado_oc_norm(estado: Optional[str]) -> str:
+    return (estado or "").strip().lower()
+
+
 def _row_to_read(row: dict) -> OrdenCompraRead:
     return OrdenCompraRead(**row)
 
@@ -86,6 +90,8 @@ async def update_orden_compra_servicio(
     if not row:
         raise NotFoundError(detail="Orden de compra no encontrada")
     payload = data.model_dump(exclude_unset=True)
+    if payload and _estado_oc_norm(row.get("estado")) != "borrador":
+        raise ValueError("Solo se puede editar la orden de compra en estado borrador")
     updated = await update_orden_compra(client_id=client_id, orden_compra_id=orden_compra_id, data=payload)
     return _row_to_read(updated)
 
@@ -98,8 +104,10 @@ async def aprobar_orden_compra_servicio(
     row = await get_orden_compra_by_id(client_id=client_id, orden_compra_id=orden_compra_id)
     if not row:
         raise NotFoundError(detail="Orden de compra no encontrada")
-    if row.get("estado") != "borrador":
-        raise ValueError("Solo se puede aprobar una orden de compra en estado borrador")
+    if _estado_oc_norm(row.get("estado")) not in ("borrador", "emitida"):
+        raise ValueError(
+            "Solo se puede aprobar una orden de compra en estado borrador o emitida"
+        )
 
     # Protección adicional: no permitir aprobación sin detalle.
     empresa_id = row.get("empresa_id")
@@ -130,8 +138,32 @@ async def anular_orden_compra_servicio(
     row = await get_orden_compra_by_id(client_id=client_id, orden_compra_id=orden_compra_id)
     if not row:
         raise NotFoundError(detail="Orden de compra no encontrada")
-    payload = {"estado": "anulada", "motivo_anulacion": motivo_anulacion or ""}
+    st = _estado_oc_norm(row.get("estado"))
+    if st in ("completa", "anulada"):
+        raise ValueError("No se puede anular la orden de compra en su estado actual")
+    payload = {
+        "estado": "anulada",
+        "motivo_anulacion": motivo_anulacion or "",
+        "fecha_anulacion": datetime.utcnow(),
+    }
     updated = await update_orden_compra(
         client_id=client_id, orden_compra_id=orden_compra_id, data=payload
+    )
+    return _row_to_read(updated)
+
+
+async def emitir_orden_compra_servicio(
+    client_id: UUID,
+    orden_compra_id: UUID,
+) -> OrdenCompraRead:
+    row = await get_orden_compra_by_id(client_id=client_id, orden_compra_id=orden_compra_id)
+    if not row:
+        raise NotFoundError(detail="Orden de compra no encontrada")
+    if _estado_oc_norm(row.get("estado")) != "borrador":
+        raise ValueError("Solo se puede emitir una orden de compra en estado borrador")
+    updated = await update_orden_compra(
+        client_id=client_id,
+        orden_compra_id=orden_compra_id,
+        data={"estado": "emitida"},
     )
     return _row_to_read(updated)

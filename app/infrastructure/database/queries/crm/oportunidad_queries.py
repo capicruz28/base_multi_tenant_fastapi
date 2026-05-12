@@ -62,7 +62,9 @@ async def list_oportunidades(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_oportunidad_by_id(client_id: UUID, oportunidad_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_oportunidad_by_id(
+    client_id: UUID, oportunidad_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
     """Obtiene una oportunidad por id."""
     query = select(CrmOportunidadTable).where(
         and_(
@@ -70,6 +72,8 @@ async def get_oportunidad_by_id(client_id: UUID, oportunidad_id: UUID) -> Option
             CrmOportunidadTable.c.oportunidad_id == oportunidad_id,
         )
     )
+    if empresa_id:
+        query = query.where(CrmOportunidadTable.c.empresa_id == empresa_id)
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 

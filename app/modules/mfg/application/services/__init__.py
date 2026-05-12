@@ -16,6 +16,8 @@ from app.modules.mfg.application.services.lista_materiales_service import (
     get_lista_materiales_by_id,
     create_lista_materiales,
     update_lista_materiales,
+    aprobar_lista_materiales,
+    anular_lista_materiales,
 )
 from app.modules.mfg.application.services.lista_materiales_detalle_service import (
     list_lista_materiales_detalles,
@@ -28,6 +30,8 @@ from app.modules.mfg.application.services.ruta_fabricacion_service import (
     get_ruta_fabricacion_by_id,
     create_ruta_fabricacion,
     update_ruta_fabricacion,
+    aprobar_ruta_fabricacion,
+    anular_ruta_fabricacion,
 )
 from app.modules.mfg.application.services.ruta_fabricacion_detalle_service import (
     list_ruta_fabricacion_detalles,
@@ -40,6 +44,11 @@ from app.modules.mfg.application.services.orden_produccion_service import (
     get_orden_produccion_by_id,
     create_orden_produccion,
     update_orden_produccion,
+    liberar_orden_produccion,
+    iniciar_orden_produccion,
+    finalizar_orden_produccion,
+    cerrar_orden_produccion,
+    anular_orden_produccion,
 )
 from app.modules.mfg.application.services.orden_produccion_operacion_service import (
     list_orden_produccion_operaciones,
@@ -67,6 +76,8 @@ __all__ = [
     "get_lista_materiales_by_id",
     "create_lista_materiales",
     "update_lista_materiales",
+    "aprobar_lista_materiales",
+    "anular_lista_materiales",
     "list_lista_materiales_detalles",
     "get_lista_materiales_detalle_by_id",
     "create_lista_materiales_detalle",
@@ -75,6 +86,8 @@ __all__ = [
     "get_ruta_fabricacion_by_id",
     "create_ruta_fabricacion",
     "update_ruta_fabricacion",
+    "aprobar_ruta_fabricacion",
+    "anular_ruta_fabricacion",
     "list_ruta_fabricacion_detalles",
     "get_ruta_fabricacion_detalle_by_id",
     "create_ruta_fabricacion_detalle",
@@ -83,6 +96,11 @@ __all__ = [
     "get_orden_produccion_by_id",
     "create_orden_produccion",
     "update_orden_produccion",
+    "liberar_orden_produccion",
+    "iniciar_orden_produccion",
+    "finalizar_orden_produccion",
+    "cerrar_orden_produccion",
+    "anular_orden_produccion",
     "list_orden_produccion_operaciones",
     "get_orden_produccion_operacion_by_id",
     "create_orden_produccion_operacion",

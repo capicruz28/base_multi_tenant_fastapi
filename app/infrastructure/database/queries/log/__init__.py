@@ -26,6 +26,7 @@ from app.infrastructure.database.queries.log.guia_remision_queries import (
     get_guia_remision_by_id,
     create_guia_remision,
     update_guia_remision,
+    anular_guia_remision,
     list_guia_remision_detalles,
     get_guia_remision_detalle_by_id,
     create_guia_remision_detalle,
@@ -36,6 +37,8 @@ from app.infrastructure.database.queries.log.despacho_queries import (
     get_despacho_by_id,
     create_despacho,
     update_despacho,
+    completar_despacho,
+    anular_despacho,
     list_despacho_guias,
     get_despacho_guia_by_id,
     create_despacho_guia,
@@ -63,6 +66,7 @@ __all__ = [
     "get_guia_remision_by_id",
     "create_guia_remision",
     "update_guia_remision",
+    "anular_guia_remision",
     # Detalles de Guía
     "list_guia_remision_detalles",
     "get_guia_remision_detalle_by_id",
@@ -73,6 +77,8 @@ __all__ = [
     "get_despacho_by_id",
     "create_despacho",
     "update_despacho",
+    "completar_despacho",
+    "anular_despacho",
     # Despacho-Guía
     "list_despacho_guias",
     "get_despacho_guia_by_id",

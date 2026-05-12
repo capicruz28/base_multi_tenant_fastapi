@@ -145,6 +145,7 @@ class EmpleadoRead(BaseModel):
     apellido_paterno: str
     apellido_materno: str
     nombres: str
+    nombre_completo: Optional[str] = None
     fecha_nacimiento: date
     sexo: str
     estado_civil: Optional[str]
@@ -222,6 +223,7 @@ class ContratoCreate(BaseModel):
     cargo_descripcion: Optional[str] = Field(None, max_length=150)
     remuneracion_basica: Decimal = Field(..., ge=0)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     tipo_remuneracion: Optional[str] = Field("mensual", max_length=20)
     horas_semanales: Optional[Decimal] = Field(48, ge=0)
     dias_laborables: Optional[int] = Field(6, ge=1, le=7)
@@ -255,6 +257,7 @@ class ContratoUpdate(BaseModel):
     cargo_descripcion: Optional[str] = None
     remuneracion_basica: Optional[Decimal] = Field(None, ge=0)
     moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     tipo_remuneracion: Optional[str] = None
     horas_semanales: Optional[Decimal] = None
     dias_laborables: Optional[int] = None
@@ -273,6 +276,13 @@ class ContratoUpdate(BaseModel):
     clausulas_especiales: Optional[str] = None
 
 
+class ContratoRescindirRequest(BaseModel):
+    """Body opcional para rescisión de contrato."""
+
+    fecha_rescision: Optional[date] = None
+    motivo_rescision: Optional[str] = Field(None, max_length=500)
+
+
 class ContratoRead(BaseModel):
     contrato_id: UUID
     cliente_id: UUID
@@ -289,6 +299,7 @@ class ContratoRead(BaseModel):
     cargo_descripcion: Optional[str]
     remuneracion_basica: Decimal
     moneda: Optional[str]
+    moneda_id: Optional[UUID]
     tipo_remuneracion: Optional[str]
     horas_semanales: Optional[Decimal]
     dias_laborables: Optional[int]
@@ -360,6 +371,7 @@ class ConceptoPlanillaUpdate(BaseModel):
     afecto_vacaciones: Optional[bool] = None
     codigo_plame: Optional[str] = None
     cuenta_contable: Optional[str] = None
+    es_concepto_sistema: Optional[bool] = None
     es_activo: Optional[bool] = None
 
 
@@ -412,6 +424,8 @@ class PlanillaCreate(BaseModel):
     total_neto: Optional[Decimal] = Field(0, ge=0)
     total_aportes_empleador: Optional[Decimal] = Field(0, ge=0)
     centro_costo_id: Optional[UUID] = None
+    moneda_id: Optional[UUID] = None
+    tipo_cambio: Optional[Decimal] = Field(default=Decimal("1"), ge=0)
     estado: Optional[str] = Field("borrador", max_length=20)
     observaciones: Optional[str] = None
 
@@ -429,6 +443,8 @@ class PlanillaUpdate(BaseModel):
     total_neto: Optional[Decimal] = None
     total_aportes_empleador: Optional[Decimal] = None
     centro_costo_id: Optional[UUID] = None
+    moneda_id: Optional[UUID] = None
+    tipo_cambio: Optional[Decimal] = Field(None, ge=0)
     estado: Optional[str] = None
     fecha_aprobacion: Optional[datetime] = None
     aprobado_por_usuario_id: Optional[UUID] = None
@@ -452,7 +468,10 @@ class PlanillaRead(BaseModel):
     total_descuentos: Optional[Decimal]
     total_neto: Optional[Decimal]
     total_aportes_empleador: Optional[Decimal]
+    total_planilla: Optional[Decimal] = None
     centro_costo_id: Optional[UUID]
+    moneda_id: Optional[UUID]
+    tipo_cambio: Optional[Decimal]
     estado: Optional[str]
     fecha_aprobacion: Optional[datetime]
     aprobado_por_usuario_id: Optional[UUID]
@@ -520,6 +539,7 @@ class PlanillaEmpleadoUpdate(BaseModel):
 class PlanillaEmpleadoRead(BaseModel):
     planilla_empleado_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     planilla_id: UUID
     empleado_id: UUID
     cargo_descripcion: Optional[str]
@@ -537,6 +557,7 @@ class PlanillaEmpleadoRead(BaseModel):
     total_descuentos: Optional[Decimal]
     total_neto: Optional[Decimal]
     total_aportes_empleador: Optional[Decimal]
+    neto_pagar: Optional[Decimal] = None
     fecha_pago: Optional[datetime]
     pagado: Optional[bool]
     metodo_pago: Optional[str]
@@ -573,6 +594,7 @@ class PlanillaDetalleUpdate(BaseModel):
 class PlanillaDetalleRead(BaseModel):
     planilla_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     planilla_empleado_id: UUID
     concepto_id: UUID
     tipo_concepto: str
@@ -633,6 +655,7 @@ class AsistenciaRead(BaseModel):
     empresa_id: UUID
     empleado_id: UUID
     fecha: date
+    dia_semana: Optional[int] = None
     hora_entrada: Optional[time]
     hora_salida: Optional[time]
     hora_entrada_refrigerio: Optional[time]
@@ -696,6 +719,7 @@ class VacacionesRead(BaseModel):
     fecha_fin_periodo: date
     dias_ganados: Optional[int]
     dias_tomados: Optional[int]
+    dias_pendientes: Optional[int] = None
     fecha_inicio_programada: Optional[date]
     fecha_fin_programada: Optional[date]
     fecha_inicio_real: Optional[date]
@@ -720,6 +744,7 @@ class PrestamoCreate(BaseModel):
     tipo_prestamo: str = Field(..., max_length=30)
     monto_prestamo: Decimal = Field(..., ge=0)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     fecha_prestamo: Optional[date] = None
     numero_cuotas: int = Field(..., ge=1)
     monto_cuota: Decimal = Field(..., ge=0)
@@ -737,6 +762,7 @@ class PrestamoUpdate(BaseModel):
     tipo_prestamo: Optional[str] = None
     monto_prestamo: Optional[Decimal] = None
     moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     numero_cuotas: Optional[int] = None
     monto_cuota: Optional[Decimal] = None
     cuotas_pagadas: Optional[int] = None
@@ -758,10 +784,12 @@ class PrestamoRead(BaseModel):
     tipo_prestamo: str
     monto_prestamo: Decimal
     moneda: Optional[str]
+    moneda_id: Optional[UUID]
     fecha_prestamo: date
     numero_cuotas: int
     monto_cuota: Decimal
     cuotas_pagadas: Optional[int]
+    cuotas_pendientes: Optional[int] = None
     saldo_pendiente: Optional[Decimal]
     aplica_interes: Optional[bool]
     tasa_interes_mensual: Optional[Decimal]

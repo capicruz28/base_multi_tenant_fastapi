@@ -10,9 +10,13 @@ from app.modules.mps.application.services import (
     get_plan_produccion_by_id,
     create_plan_produccion,
     update_plan_produccion,
+    aprobar_plan_produccion,
+    ejecutar_plan_produccion,
+    cerrar_plan_produccion,
+    anular_plan_produccion,
 )
 from app.modules.mps.presentation.schemas import PlanProduccionCreate, PlanProduccionUpdate, PlanProduccionRead
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 
 MODULE_CODE = "mps"
 RESOURCE_CODE = "plan_produccion"
@@ -52,6 +56,7 @@ async def get_plan_produccion(
 async def post_plan_produccion(
     data: PlanProduccionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
     return await create_plan_produccion(current_user.cliente_id, data)
 
@@ -67,3 +72,77 @@ async def put_plan_produccion(
         return await update_plan_produccion(current_user.cliente_id, plan_produccion_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_produccion_id}/aprobar",
+    response_model=PlanProduccionRead,
+    tags=["MPS - Plan de Producción"],
+)
+async def post_plan_produccion_aprobar(
+    plan_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")),
+):
+    try:
+        return await aprobar_plan_produccion(current_user.cliente_id, plan_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_produccion_id}/ejecutar",
+    response_model=PlanProduccionRead,
+    tags=["MPS - Plan de Producción"],
+)
+async def post_plan_produccion_ejecutar(
+    plan_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.ejecutar")),
+):
+    try:
+        return await ejecutar_plan_produccion(current_user.cliente_id, plan_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_produccion_id}/cerrar",
+    response_model=PlanProduccionRead,
+    tags=["MPS - Plan de Producción"],
+)
+async def post_plan_produccion_cerrar(
+    plan_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.cerrar")),
+):
+    try:
+        return await cerrar_plan_produccion(current_user.cliente_id, plan_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_produccion_id}/anular",
+    response_model=PlanProduccionRead,
+    tags=["MPS - Plan de Producción"],
+)
+async def post_plan_produccion_anular(
+    plan_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+):
+    try:
+        return await anular_plan_produccion(current_user.cliente_id, plan_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

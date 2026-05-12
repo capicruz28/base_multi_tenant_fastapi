@@ -30,15 +30,26 @@ async def list_centros_costo(
     return await execute_query(query, client_id=client_id)
 
 
+def _centro_costo_id_conditions(
+    client_id: UUID, centro_costo_id: UUID, empresa_id: Optional[UUID]
+):
+    conds = [
+        OrgCentroCostoTable.c.cliente_id == client_id,
+        OrgCentroCostoTable.c.centro_costo_id == centro_costo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(OrgCentroCostoTable.c.empresa_id == empresa_id)
+    return and_(*conds)
+
+
 async def get_centro_costo_by_id(
-    client_id: UUID, centro_costo_id: UUID
+    client_id: UUID,
+    centro_costo_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Obtiene un centro de costo por id. Exige cliente_id."""
+    """Obtiene un centro de costo por id. Exige cliente_id; opcionalmente restringe por empresa_id."""
     query = select(OrgCentroCostoTable).where(
-        and_(
-            OrgCentroCostoTable.c.cliente_id == client_id,
-            OrgCentroCostoTable.c.centro_costo_id == centro_costo_id,
-        )
+        _centro_costo_id_conditions(client_id, centro_costo_id, empresa_id)
     )
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
@@ -52,29 +63,27 @@ async def create_centro_costo(client_id: UUID, data: Dict[str, Any]) -> Dict[str
     payload.setdefault("centro_costo_id", uuid4())
     stmt = insert(OrgCentroCostoTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_centro_costo_by_id(client_id, payload["centro_costo_id"])
+    return await get_centro_costo_by_id(client_id, payload["centro_costo_id"], None)
 
 
 async def update_centro_costo(
-    client_id: UUID, centro_costo_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    centro_costo_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Actualiza un centro de costo. WHERE incluye cliente_id."""
+    """Actualiza un centro de costo. WHERE incluye cliente_id y opcionalmente empresa_id."""
     payload = {
         k: v for k, v in data.items()
         if k in _COLUMNS and k not in ("centro_costo_id", "cliente_id")
     }
     if not payload:
-        return await get_centro_costo_by_id(client_id, centro_costo_id)
+        return await get_centro_costo_by_id(client_id, centro_costo_id, empresa_id)
     payload["fecha_actualizacion"] = datetime.utcnow()
     stmt = (
         update(OrgCentroCostoTable)
-        .where(
-            and_(
-                OrgCentroCostoTable.c.cliente_id == client_id,
-                OrgCentroCostoTable.c.centro_costo_id == centro_costo_id,
-            )
-        )
+        .where(_centro_costo_id_conditions(client_id, centro_costo_id, empresa_id))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_centro_costo_by_id(client_id, centro_costo_id)
+    return await get_centro_costo_by_id(client_id, centro_costo_id, empresa_id)

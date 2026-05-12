@@ -9,6 +9,7 @@ from app.infrastructure.database.queries.pos import (
     get_punto_venta_by_id as _get_punto_venta_by_id,
     create_punto_venta as _create_punto_venta,
     update_punto_venta as _update_punto_venta,
+    set_punto_venta_activo as _set_punto_venta_activo,
 )
 from app.modules.pos.presentation.schemas import (
     PuntoVentaCreate,
@@ -38,9 +39,13 @@ async def list_puntos_venta(
     return [PuntoVentaRead(**row) for row in rows]
 
 
-async def get_punto_venta_by_id(client_id: UUID, punto_venta_id: UUID) -> PuntoVentaRead:
+async def get_punto_venta_by_id(
+    client_id: UUID,
+    punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> PuntoVentaRead:
     """Obtiene un punto de venta por id."""
-    row = await _get_punto_venta_by_id(client_id, punto_venta_id)
+    row = await _get_punto_venta_by_id(client_id, punto_venta_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Punto de venta {punto_venta_id} no encontrado")
     return PuntoVentaRead(**row)
@@ -53,11 +58,44 @@ async def create_punto_venta(client_id: UUID, data: PuntoVentaCreate) -> PuntoVe
 
 
 async def update_punto_venta(
-    client_id: UUID, punto_venta_id: UUID, data: PuntoVentaUpdate
+    client_id: UUID,
+    punto_venta_id: UUID,
+    data: PuntoVentaUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> PuntoVentaRead:
     """Actualiza un punto de venta."""
     row = await _update_punto_venta(
-        client_id, punto_venta_id, data.model_dump(exclude_none=True)
+        client_id,
+        punto_venta_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Punto de venta {punto_venta_id} no encontrado")
+    return PuntoVentaRead(**row)
+
+
+async def delete_punto_venta_logico(
+    client_id: UUID,
+    punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> None:
+    """Baja lógica (es_activo = 0)."""
+    row = await _set_punto_venta_activo(
+        client_id, punto_venta_id, False, empresa_id=empresa_id
+    )
+    if not row:
+        raise NotFoundError(f"Punto de venta {punto_venta_id} no encontrado")
+
+
+async def reactivar_punto_venta(
+    client_id: UUID,
+    punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> PuntoVentaRead:
+    """Reactiva un punto de venta (es_activo = 1)."""
+    row = await _set_punto_venta_activo(
+        client_id, punto_venta_id, True, empresa_id=empresa_id
     )
     if not row:
         raise NotFoundError(f"Punto de venta {punto_venta_id} no encontrado")

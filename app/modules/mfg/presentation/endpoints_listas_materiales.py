@@ -10,6 +10,8 @@ from app.modules.mfg.application.services import (
     get_lista_materiales_by_id,
     create_lista_materiales,
     update_lista_materiales,
+    aprobar_lista_materiales,
+    anular_lista_materiales,
 )
 from app.modules.mfg.presentation.schemas import (
     ListaMaterialesCreate,
@@ -67,5 +69,41 @@ async def post_lista_materiales(data: ListaMaterialesCreate, current_user: Usuar
 async def put_lista_materiales(bom_id: UUID, data: ListaMaterialesUpdate, current_user: UsuarioReadWithRoles = Depends(get_current_active_user)):
     try:
         return await update_lista_materiales(current_user.cliente_id, bom_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{bom_id}/aprobar",
+    response_model=ListaMaterialesRead,
+    tags=["MFG - Listas de Materiales (BOM)"],
+    dependencies=[Depends(require_permission("mfg.lista_materiales.aprobar"))],
+)
+async def post_aprobar_lista_materiales(
+    bom_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await aprobar_lista_materiales(
+            client_id=current_user.cliente_id,
+            bom_id=bom_id,
+            aprobado_por_usuario_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{bom_id}/anular",
+    response_model=ListaMaterialesRead,
+    tags=["MFG - Listas de Materiales (BOM)"],
+    dependencies=[Depends(require_permission("mfg.lista_materiales.anular"))],
+)
+async def post_anular_lista_materiales(
+    bom_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await anular_lista_materiales(client_id=current_user.cliente_id, bom_id=bom_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

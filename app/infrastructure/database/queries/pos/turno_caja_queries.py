@@ -11,11 +11,13 @@ from app.infrastructure.database.tables_erp import PosTurnoCajaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in PosTurnoCajaTable.c}
+_SKIP_ON_WRITE = frozenset({"turno_id", "cliente_id", "diferencia", "total_ingresos"})
 
 
 async def list_turnos_caja(
     client_id: UUID,
     punto_venta_id: Optional[UUID] = None,
+    empresa_id: Optional[UUID] = None,
     estado: Optional[str] = None,
     cajero_usuario_id: Optional[UUID] = None,
     fecha_desde: Optional[datetime] = None,
@@ -25,6 +27,8 @@ async def list_turnos_caja(
     query = select(PosTurnoCajaTable).where(
         PosTurnoCajaTable.c.cliente_id == client_id
     )
+    if empresa_id:
+        query = query.where(PosTurnoCajaTable.c.empresa_id == empresa_id)
     if punto_venta_id:
         query = query.where(PosTurnoCajaTable.c.punto_venta_id == punto_venta_id)
     if estado:
@@ -39,14 +43,19 @@ async def list_turnos_caja(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_turno_caja_by_id(client_id: UUID, turno_id: UUID) -> Optional[Dict[str, Any]]:
-    """Obtiene un turno de caja por id."""
-    query = select(PosTurnoCajaTable).where(
-        and_(
-            PosTurnoCajaTable.c.cliente_id == client_id,
-            PosTurnoCajaTable.c.turno_id == turno_id,
-        )
-    )
+async def get_turno_caja_by_id(
+    client_id: UUID,
+    turno_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Obtiene un turno de caja por id. Si empresa_id se informa, debe coincidir."""
+    cond = [
+        PosTurnoCajaTable.c.cliente_id == client_id,
+        PosTurnoCajaTable.c.turno_id == turno_id,
+    ]
+    if empresa_id is not None:
+        cond.append(PosTurnoCajaTable.c.empresa_id == empresa_id)
+    query = select(PosTurnoCajaTable).where(and_(*cond))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -63,24 +72,29 @@ async def create_turno_caja(client_id: UUID, data: Dict[str, Any]) -> Dict[str, 
 
 
 async def update_turno_caja(
-    client_id: UUID, turno_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    turno_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza un turno de caja (ej. cierre)."""
     payload = {
-        k: v for k, v in data.items()
-        if k in _COLUMNS and k not in ("turno_id", "cliente_id")
+        k: v
+        for k, v in data.items()
+        if k in _COLUMNS and k not in _SKIP_ON_WRITE
     }
     if not payload:
-        return await get_turno_caja_by_id(client_id, turno_id)
+        return await get_turno_caja_by_id(client_id, turno_id, empresa_id=empresa_id)
+    cond = [
+        PosTurnoCajaTable.c.cliente_id == client_id,
+        PosTurnoCajaTable.c.turno_id == turno_id,
+    ]
+    if empresa_id is not None:
+        cond.append(PosTurnoCajaTable.c.empresa_id == empresa_id)
     stmt = (
         update(PosTurnoCajaTable)
-        .where(
-            and_(
-                PosTurnoCajaTable.c.cliente_id == client_id,
-                PosTurnoCajaTable.c.turno_id == turno_id,
-            )
-        )
+        .where(and_(*cond))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_turno_caja_by_id(client_id, turno_id)
+    return await get_turno_caja_by_id(client_id, turno_id, empresa_id=empresa_id)

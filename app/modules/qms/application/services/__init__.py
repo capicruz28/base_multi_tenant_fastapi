@@ -28,12 +28,17 @@ from app.modules.qms.application.services.inspeccion_service import (
     get_inspeccion_detalle_by_id,
     create_inspeccion_detalle,
     update_inspeccion_detalle,
+    aprobar_inspeccion,
+    procesar_inspeccion,
+    anular_inspeccion,
 )
 from app.modules.qms.application.services.no_conformidad_service import (
     list_no_conformidades,
     get_no_conformidad_by_id,
     create_no_conformidad,
     update_no_conformidad,
+    cerrar_no_conformidad,
+    cancelar_no_conformidad,
 )
 
 __all__ = [
@@ -60,9 +65,14 @@ __all__ = [
     "get_inspeccion_detalle_by_id",
     "create_inspeccion_detalle",
     "update_inspeccion_detalle",
+    "aprobar_inspeccion",
+    "procesar_inspeccion",
+    "anular_inspeccion",
     # No Conformidades
     "list_no_conformidades",
     "get_no_conformidad_by_id",
     "create_no_conformidad",
     "update_no_conformidad",
+    "cerrar_no_conformidad",
+    "cancelar_no_conformidad",
 ]

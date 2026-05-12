@@ -38,8 +38,12 @@ async def list_reporte(
     return [ReporteRead(**dict(r)) for r in rows]
 
 
-async def get_reporte_by_id(client_id: UUID, reporte_id: UUID) -> ReporteRead:
-    row = await _get(client_id, reporte_id)
+async def get_reporte_by_id(
+    client_id: UUID,
+    reporte_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> ReporteRead:
+    row = await _get(client_id, reporte_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Reporte no encontrado")
     return ReporteRead(**dict(row))
@@ -52,10 +56,13 @@ async def create_reporte(client_id: UUID, data: ReporteCreate) -> ReporteRead:
 
 
 async def update_reporte(
-    client_id: UUID, reporte_id: UUID, data: ReporteUpdate
+    client_id: UUID,
+    reporte_id: UUID,
+    data: ReporteUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> ReporteRead:
     dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, reporte_id, dump)
+    row = await _update(client_id, reporte_id, dump, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Reporte no encontrado")
     return ReporteRead(**dict(row))

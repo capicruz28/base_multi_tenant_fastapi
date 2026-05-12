@@ -4,13 +4,15 @@ Filtro tenant estricto: todas las operaciones usan cliente_id.
 """
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from datetime import datetime, date
-from sqlalchemy import select, insert, update, and_
+from datetime import date
+from sqlalchemy import select, insert, update, and_, func
 
 from app.infrastructure.database.tables_erp import InvbillComprobanteTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in InvbillComprobanteTable.c}
+# Columna calculada / solo lectura en BD: no insertar manualmente.
+_EXCLUDE_INSERT = frozenset({"numero_completo"})
 
 
 async def list_comprobantes(
@@ -48,14 +50,19 @@ async def list_comprobantes(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_comprobante_by_id(client_id: UUID, comprobante_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_comprobante_by_id(
+    client_id: UUID,
+    comprobante_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene un comprobante por id. Exige cliente_id para no cruzar tenants."""
-    query = select(InvbillComprobanteTable).where(
-        and_(
-            InvbillComprobanteTable.c.cliente_id == client_id,
-            InvbillComprobanteTable.c.comprobante_id == comprobante_id,
-        )
-    )
+    conds = [
+        InvbillComprobanteTable.c.cliente_id == client_id,
+        InvbillComprobanteTable.c.comprobante_id == comprobante_id,
+    ]
+    if empresa_id is not None:
+        conds.append(InvbillComprobanteTable.c.empresa_id == empresa_id)
+    query = select(InvbillComprobanteTable).where(and_(*conds))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -63,7 +70,11 @@ async def get_comprobante_by_id(client_id: UUID, comprobante_id: UUID) -> Option
 async def create_comprobante(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta un comprobante. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
-    payload = {k: v for k, v in data.items() if k in _COLUMNS}
+    payload = {
+        k: v
+        for k, v in data.items()
+        if k in _COLUMNS and k not in _EXCLUDE_INSERT
+    }
     payload["cliente_id"] = client_id
     payload.setdefault("comprobante_id", uuid4())
     stmt = insert(InvbillComprobanteTable).values(**payload)
@@ -72,24 +83,84 @@ async def create_comprobante(client_id: UUID, data: Dict[str, Any]) -> Dict[str,
 
 
 async def update_comprobante(
-    client_id: UUID, comprobante_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    comprobante_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza un comprobante. WHERE incluye cliente_id y comprobante_id."""
     payload = {
-        k: v for k, v in data.items()
-        if k in _COLUMNS and k not in ("comprobante_id", "cliente_id")
+        k: v
+        for k, v in data.items()
+        if k in _COLUMNS and k not in ("comprobante_id", "cliente_id") and k not in _EXCLUDE_INSERT
     }
+    conds = [
+        InvbillComprobanteTable.c.cliente_id == client_id,
+        InvbillComprobanteTable.c.comprobante_id == comprobante_id,
+    ]
+    if empresa_id is not None:
+        conds.append(InvbillComprobanteTable.c.empresa_id == empresa_id)
     if not payload:
-        return await get_comprobante_by_id(client_id, comprobante_id)
+        return await get_comprobante_by_id(client_id, comprobante_id, empresa_id)
     stmt = (
         update(InvbillComprobanteTable)
-        .where(
-            and_(
-                InvbillComprobanteTable.c.cliente_id == client_id,
-                InvbillComprobanteTable.c.comprobante_id == comprobante_id,
-            )
-        )
+        .where(and_(*conds))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_comprobante_by_id(client_id, comprobante_id)
+    return await get_comprobante_by_id(client_id, comprobante_id, empresa_id)
+
+
+async def anular_comprobante(
+    client_id: UUID,
+    comprobante_id: UUID,
+    motivo_anulacion: str,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Marca comprobante como anulado (no debe estar ya anulado)."""
+    estado_col = InvbillComprobanteTable.c.estado
+    conds = [
+        InvbillComprobanteTable.c.cliente_id == client_id,
+        InvbillComprobanteTable.c.comprobante_id == comprobante_id,
+        func.lower(func.coalesce(estado_col, "")) != "anulado",
+    ]
+    if empresa_id is not None:
+        conds.append(InvbillComprobanteTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(InvbillComprobanteTable)
+        .where(and_(*conds))
+        .values(
+            estado="anulado",
+            fecha_anulacion=func.getdate(),
+            motivo_anulacion=motivo_anulacion,
+        )
+    )
+    res = await execute_update(stmt, client_id=client_id)
+    if not res.get("rows_affected"):
+        return None
+    return await get_comprobante_by_id(client_id, comprobante_id, empresa_id)
+
+
+async def procesar_comprobante(
+    client_id: UUID,
+    comprobante_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Pasa comprobante de borrador a emitido (preparación emisión; sin integración SUNAT)."""
+    estado_col = InvbillComprobanteTable.c.estado
+    conds = [
+        InvbillComprobanteTable.c.cliente_id == client_id,
+        InvbillComprobanteTable.c.comprobante_id == comprobante_id,
+        func.lower(func.coalesce(estado_col, "")) == "borrador",
+    ]
+    if empresa_id is not None:
+        conds.append(InvbillComprobanteTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(InvbillComprobanteTable)
+        .where(and_(*conds))
+        .values(estado="emitido")
+    )
+    res = await execute_update(stmt, client_id=client_id)
+    if not res.get("rows_affected"):
+        return None
+    return await get_comprobante_by_id(client_id, comprobante_id, empresa_id)

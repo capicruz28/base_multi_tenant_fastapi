@@ -1,6 +1,7 @@
 """Servicio aplicacion bdg_presupuesto. Convierte anio <-> año y calcula porcentaje_ejecucion."""
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 from decimal import Decimal
 from app.infrastructure.database.queries.bdg import (
     list_presupuesto as _list,
@@ -13,7 +14,11 @@ from app.modules.bdg.presentation.schemas import (
     PresupuestoUpdate,
     PresupuestoRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceError
+
+
+def _estado_norm(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
 
 
 def _row_to_read(row: dict) -> dict:
@@ -55,8 +60,12 @@ async def list_presupuesto(
     return [PresupuestoRead(**_row_to_read(r)) for r in rows]
 
 
-async def get_presupuesto_by_id(client_id: UUID, presupuesto_id: UUID) -> PresupuestoRead:
-    row = await _get(client_id, presupuesto_id)
+async def get_presupuesto_by_id(
+    client_id: UUID,
+    presupuesto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> PresupuestoRead:
+    row = await _get(client_id, presupuesto_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Presupuesto no encontrado")
     return PresupuestoRead(**_row_to_read(row))
@@ -64,15 +73,105 @@ async def get_presupuesto_by_id(client_id: UUID, presupuesto_id: UUID) -> Presup
 
 async def create_presupuesto(client_id: UUID, data: PresupuestoCreate) -> PresupuestoRead:
     dump = data.model_dump(exclude_none=True)
+    dump["estado"] = "borrador"
+    dump["monto_total_ejecutado"] = Decimal("0")
+    dump.pop("fecha_aprobacion", None)
     row = await _create(client_id, _dump_to_db(dump))
     return PresupuestoRead(**_row_to_read(row))
 
 
 async def update_presupuesto(
-    client_id: UUID, presupuesto_id: UUID, data: PresupuestoUpdate
+    client_id: UUID,
+    presupuesto_id: UUID,
+    data: PresupuestoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> PresupuestoRead:
-    dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, presupuesto_id, dump)
+    current = await _get(client_id, presupuesto_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Presupuesto no encontrado")
+    if _estado_norm(current.get("estado")) != "borrador":
+        raise ServiceError(
+            status_code=400,
+            detail="Solo se pueden actualizar presupuestos en estado borrador.",
+            internal_code="BDG_PRESUPUESTO_NOT_BORRADOR",
+        )
+    dump = _dump_to_db(data.model_dump(exclude_none=True))
+    row = await _update(client_id, presupuesto_id, dump, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError("Presupuesto no encontrado")
+    return PresupuestoRead(**_row_to_read(row))
+
+
+async def aprobar_presupuesto(
+    client_id: UUID,
+    presupuesto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> PresupuestoRead:
+    current = await _get(client_id, presupuesto_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Presupuesto no encontrado")
+    if _estado_norm(current.get("estado")) != "borrador":
+        raise ServiceError(
+            status_code=400,
+            detail="Solo se pueden aprobar presupuestos en estado borrador.",
+            internal_code="BDG_PRESUPUESTO_APROBAR_INVALIDO",
+        )
+    row = await _update(
+        client_id,
+        presupuesto_id,
+        {"estado": "aprobado", "fecha_aprobacion": datetime.utcnow()},
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError("Presupuesto no encontrado")
+    return PresupuestoRead(**_row_to_read(row))
+
+
+async def procesar_presupuesto(
+    client_id: UUID,
+    presupuesto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> PresupuestoRead:
+    current = await _get(client_id, presupuesto_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Presupuesto no encontrado")
+    if _estado_norm(current.get("estado")) != "aprobado":
+        raise ServiceError(
+            status_code=400,
+            detail="Solo se pueden procesar presupuestos en estado aprobado.",
+            internal_code="BDG_PRESUPUESTO_PROCESAR_INVALIDO",
+        )
+    row = await _update(
+        client_id,
+        presupuesto_id,
+        {"estado": "vigente"},
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError("Presupuesto no encontrado")
+    return PresupuestoRead(**_row_to_read(row))
+
+
+async def anular_presupuesto(
+    client_id: UUID,
+    presupuesto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> PresupuestoRead:
+    current = await _get(client_id, presupuesto_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError("Presupuesto no encontrado")
+    if _estado_norm(current.get("estado")) not in {"borrador", "aprobado"}:
+        raise ServiceError(
+            status_code=400,
+            detail="Solo se pueden anular presupuestos en estado borrador o aprobado.",
+            internal_code="BDG_PRESUPUESTO_ANULAR_INVALIDO",
+        )
+    row = await _update(
+        client_id,
+        presupuesto_id,
+        {"estado": "anulado"},
+        empresa_id=empresa_id,
+    )
     if not row:
         raise NotFoundError("Presupuesto no encontrado")
     return PresupuestoRead(**_row_to_read(row))

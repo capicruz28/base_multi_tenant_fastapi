@@ -4,7 +4,7 @@ Schemas Pydantic para el módulo PRC (Gestión de Precios y Promociones).
 Todos los Create/Update excluyen cliente_id; se asigna desde contexto en backend.
 ✅ Campos esenciales incluidos desde el inicio.
 """
-from typing import Optional, Any
+from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
@@ -20,7 +20,7 @@ class ListaPrecioCreate(BaseModel):
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     tipo_lista: Optional[str] = Field("general", max_length=30)  # 'general', 'mayorista', 'minorista', 'distribuidor', 'corporativo'
-    moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: UUID
     fecha_vigencia_desde: date
     fecha_vigencia_hasta: Optional[date] = None
     incluye_igv: Optional[bool] = True
@@ -36,7 +36,7 @@ class ListaPrecioUpdate(BaseModel):
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     tipo_lista: Optional[str] = Field(None, max_length=30)
-    moneda: Optional[str] = Field(None, max_length=3)
+    moneda_id: Optional[UUID] = None
     fecha_vigencia_desde: Optional[date] = None
     fecha_vigencia_hasta: Optional[date] = None
     incluye_igv: Optional[bool] = None
@@ -55,7 +55,7 @@ class ListaPrecioRead(BaseModel):
     nombre: str
     descripcion: Optional[str]
     tipo_lista: Optional[str]
-    moneda: Optional[str]
+    moneda_id: UUID
     fecha_vigencia_desde: date
     fecha_vigencia_hasta: Optional[date]
     incluye_igv: Optional[bool]
@@ -77,6 +77,7 @@ class ListaPrecioRead(BaseModel):
 # ============================================================================
 class ListaPrecioDetalleCreate(BaseModel):
     lista_precio_id: UUID
+    empresa_id: UUID
     producto_id: UUID
     precio_unitario: Decimal = Field(..., ge=0)
     unidad_medida_id: UUID
@@ -103,6 +104,7 @@ class ListaPrecioDetalleUpdate(BaseModel):
 class ListaPrecioDetalleRead(BaseModel):
     lista_precio_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     lista_precio_id: UUID
     producto_id: UUID
     precio_unitario: Decimal

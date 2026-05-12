@@ -68,6 +68,9 @@ from app.infrastructure.database.queries.inv.inventario_fisico_detalle_queries i
 from app.infrastructure.database.queries.inv.kardex_queries import (
     list_kardex,
 )
+from app.infrastructure.database.queries.inv.moneda_queries import (
+    get_moneda_by_codigo,
+)
 
 __all__ = [
     # Categorías
@@ -124,4 +127,6 @@ __all__ = [
     "update_inventario_fisico_detalle",
     # Kardex
     "list_kardex",
+    # Moneda (cat_moneda)
+    "get_moneda_by_codigo",
 ]

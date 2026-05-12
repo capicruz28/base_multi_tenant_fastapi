@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_cargos.py
 """Endpoints ORG - Cargos. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -11,6 +11,10 @@ from app.modules.org.application.services import cargo_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+_EMPRESA_ID_SCOPE_DESC = (
+    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
+)
 
 
 @router.get("", response_model=list[CargoRead], summary="Listar cargos")
@@ -29,9 +33,32 @@ async def listar_cargos(
     )
 
 
+@router.post(
+    "/{cargo_id}/reactivar",
+    response_model=CargoRead,
+    summary="Reactivar cargo",
+)
+async def reactivar_cargo(
+    cargo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.actualizar")),
+):
+    """Marca el cargo como activo (es_activo = True) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await cargo_service.reactivar_cargo_servicio(
+            client_id=client_id,
+            cargo_id=cargo_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
 @router.get("/{cargo_id}", response_model=CargoRead, summary="Detalle cargo")
 async def detalle_cargo(
     cargo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.leer")),
 ):
     client_id = current_user.cliente_id
@@ -39,6 +66,7 @@ async def detalle_cargo(
         return await cargo_service.get_cargo_servicio(
             client_id=client_id,
             cargo_id=cargo_id,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -56,7 +84,8 @@ async def crear_cargo(
 @router.put("/{cargo_id}", response_model=CargoRead, summary="Actualizar cargo")
 async def actualizar_cargo(
     cargo_id: UUID,
-    data: CargoUpdate,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    data: CargoUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.actualizar")),
 ):
     client_id = current_user.cliente_id
@@ -65,6 +94,7 @@ async def actualizar_cargo(
             client_id=client_id,
             cargo_id=cargo_id,
             data=data,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -77,6 +107,7 @@ async def actualizar_cargo(
 )
 async def eliminar_cargo(
     cargo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.eliminar")),
 ):
     """Marca un cargo como inactivo (baja lógica) dentro del tenant."""
@@ -85,6 +116,7 @@ async def eliminar_cargo(
         await cargo_service.delete_cargo_servicio(
             client_id=client_id,
             cargo_id=cargo_id,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

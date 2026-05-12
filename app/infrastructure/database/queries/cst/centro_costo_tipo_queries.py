@@ -31,13 +31,16 @@ async def list_centro_costo_tipo(
     return await execute_query(q, client_id=client_id)
 
 
-async def get_centro_costo_tipo_by_id(client_id: UUID, cc_tipo_id: UUID) -> Optional[Dict[str, Any]]:
-    q = select(CstCentroCostoTipoTable).where(
-        and_(
-            CstCentroCostoTipoTable.c.cliente_id == client_id,
-            CstCentroCostoTipoTable.c.cc_tipo_id == cc_tipo_id,
-        )
-    )
+async def get_centro_costo_tipo_by_id(
+    client_id: UUID, cc_tipo_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    conds = [
+        CstCentroCostoTipoTable.c.cliente_id == client_id,
+        CstCentroCostoTipoTable.c.cc_tipo_id == cc_tipo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(CstCentroCostoTipoTable.c.empresa_id == empresa_id)
+    q = select(CstCentroCostoTipoTable).where(and_(*conds))
     rows = await execute_query(q, client_id=client_id)
     return rows[0] if rows else None
 
@@ -52,16 +55,20 @@ async def create_centro_costo_tipo(client_id: UUID, data: Dict[str, Any]) -> Dic
 
 
 async def update_centro_costo_tipo(
-    client_id: UUID, cc_tipo_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    cc_tipo_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     payload = {k: v for k, v in data.items() if k in _COLUMNS and k not in ("cc_tipo_id", "cliente_id")}
     if not payload:
-        return await get_centro_costo_tipo_by_id(client_id, cc_tipo_id)
-    stmt = update(CstCentroCostoTipoTable).where(
-        and_(
-            CstCentroCostoTipoTable.c.cliente_id == client_id,
-            CstCentroCostoTipoTable.c.cc_tipo_id == cc_tipo_id,
-        )
-    ).values(**payload)
+        return await get_centro_costo_tipo_by_id(client_id, cc_tipo_id, empresa_id)
+    conds = [
+        CstCentroCostoTipoTable.c.cliente_id == client_id,
+        CstCentroCostoTipoTable.c.cc_tipo_id == cc_tipo_id,
+    ]
+    if empresa_id is not None:
+        conds.append(CstCentroCostoTipoTable.c.empresa_id == empresa_id)
+    stmt = update(CstCentroCostoTipoTable).where(and_(*conds)).values(**payload)
     await execute_update(stmt, client_id=client_id)
-    return await get_centro_costo_tipo_by_id(client_id, cc_tipo_id)
+    return await get_centro_costo_tipo_by_id(client_id, cc_tipo_id, empresa_id)

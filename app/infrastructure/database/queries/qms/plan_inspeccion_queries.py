@@ -97,28 +97,38 @@ async def update_plan_inspeccion(
 
 
 async def list_plan_inspeccion_detalles(
-    client_id: UUID, plan_inspeccion_id: UUID
+    client_id: UUID,
+    plan_inspeccion_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> List[Dict[str, Any]]:
     """Lista detalles de un plan de inspección."""
-    query = select(QmsPlanInspeccionDetalleTable).where(
-        and_(
-            QmsPlanInspeccionDetalleTable.c.cliente_id == client_id,
-            QmsPlanInspeccionDetalleTable.c.plan_inspeccion_id == plan_inspeccion_id,
-        )
-    ).order_by(QmsPlanInspeccionDetalleTable.c.orden)
+    filters = [
+        QmsPlanInspeccionDetalleTable.c.cliente_id == client_id,
+        QmsPlanInspeccionDetalleTable.c.plan_inspeccion_id == plan_inspeccion_id,
+    ]
+    if empresa_id is not None:
+        filters.append(QmsPlanInspeccionDetalleTable.c.empresa_id == empresa_id)
+    query = (
+        select(QmsPlanInspeccionDetalleTable)
+        .where(and_(*filters))
+        .order_by(QmsPlanInspeccionDetalleTable.c.orden)
+    )
     return await execute_query(query, client_id=client_id)
 
 
 async def get_plan_inspeccion_detalle_by_id(
-    client_id: UUID, plan_detalle_id: UUID
+    client_id: UUID,
+    plan_detalle_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene un detalle por id."""
-    query = select(QmsPlanInspeccionDetalleTable).where(
-        and_(
-            QmsPlanInspeccionDetalleTable.c.cliente_id == client_id,
-            QmsPlanInspeccionDetalleTable.c.plan_detalle_id == plan_detalle_id,
-        )
-    )
+    filters = [
+        QmsPlanInspeccionDetalleTable.c.cliente_id == client_id,
+        QmsPlanInspeccionDetalleTable.c.plan_detalle_id == plan_detalle_id,
+    ]
+    if empresa_id is not None:
+        filters.append(QmsPlanInspeccionDetalleTable.c.empresa_id == empresa_id)
+    query = select(QmsPlanInspeccionDetalleTable).where(and_(*filters))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -131,7 +141,11 @@ async def create_plan_inspeccion_detalle(client_id: UUID, data: Dict[str, Any]) 
     payload.setdefault("plan_detalle_id", uuid4())
     stmt = insert(QmsPlanInspeccionDetalleTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_plan_inspeccion_detalle_by_id(client_id, payload["plan_detalle_id"])
+    return await get_plan_inspeccion_detalle_by_id(
+        client_id,
+        payload["plan_detalle_id"],
+        empresa_id=payload.get("empresa_id"),
+    )
 
 
 async def update_plan_inspeccion_detalle(
@@ -140,7 +154,7 @@ async def update_plan_inspeccion_detalle(
     """Actualiza un detalle de plan."""
     payload = {
         k: v for k, v in data.items()
-        if k in _COLUMNS_DETALLE and k not in ("plan_detalle_id", "cliente_id")
+        if k in _COLUMNS_DETALLE and k not in ("plan_detalle_id", "cliente_id", "empresa_id")
     }
     if not payload:
         return await get_plan_inspeccion_detalle_by_id(client_id, plan_detalle_id)

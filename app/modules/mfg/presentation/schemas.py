@@ -218,6 +218,7 @@ class ListaMaterialesDetalleUpdate(BaseModel):
 class ListaMaterialesDetalleRead(BaseModel):
     bom_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     bom_id: UUID
     producto_componente_id: UUID
     cantidad: Decimal
@@ -309,6 +310,7 @@ class RutaFabricacionDetalleUpdate(BaseModel):
 class RutaFabricacionDetalleRead(BaseModel):
     ruta_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     ruta_id: UUID
     secuencia: int
     operacion_id: UUID
@@ -345,7 +347,7 @@ class OrdenProduccionCreate(BaseModel):
     costo_materiales: Optional[Decimal] = Field(0, ge=0)
     costo_mano_obra: Optional[Decimal] = Field(0, ge=0)
     costo_cif: Optional[Decimal] = Field(0, ge=0)
-    moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: UUID
     centro_costo_id: Optional[UUID] = None
     estado: Optional[str] = Field("borrador", max_length=20)
     responsable_usuario_id: Optional[UUID] = None
@@ -374,6 +376,7 @@ class OrdenProduccionUpdate(BaseModel):
     costo_materiales: Optional[Decimal] = None
     costo_mano_obra: Optional[Decimal] = None
     costo_cif: Optional[Decimal] = None
+    moneda_id: Optional[UUID] = None
     centro_costo_id: Optional[UUID] = None
     estado: Optional[str] = None
     responsable_usuario_id: Optional[UUID] = None
@@ -395,6 +398,7 @@ class OrdenProduccionRead(BaseModel):
     cantidad_planeada: Decimal
     cantidad_producida: Optional[Decimal]
     cantidad_defectuosa: Optional[Decimal]
+    cantidad_pendiente: Optional[Decimal] = None
     unidad_medida_id: UUID
     almacen_destino_id: Optional[UUID]
     prioridad: Optional[int]
@@ -406,7 +410,8 @@ class OrdenProduccionRead(BaseModel):
     costo_materiales: Optional[Decimal]
     costo_mano_obra: Optional[Decimal]
     costo_cif: Optional[Decimal]
-    moneda: Optional[str]
+    costo_total: Optional[Decimal] = None
+    moneda_id: UUID
     centro_costo_id: Optional[UUID]
     estado: Optional[str]
     responsable_usuario_id: Optional[UUID]
@@ -468,6 +473,7 @@ class OrdenProduccionOperacionUpdate(BaseModel):
 class OrdenProduccionOperacionRead(BaseModel):
     op_operacion_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     orden_produccion_id: UUID
     ruta_detalle_id: Optional[UUID]
     operacion_id: UUID
@@ -523,14 +529,17 @@ class ConsumoMaterialesUpdate(BaseModel):
 class ConsumoMaterialesRead(BaseModel):
     consumo_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     orden_produccion_id: UUID
     producto_id: UUID
     cantidad_planificada: Decimal
     cantidad_consumida: Decimal
+    diferencia: Optional[Decimal] = None
     unidad_medida_id: UUID
     lote: Optional[str]
     almacen_origen_id: Optional[UUID]
     costo_unitario: Optional[Decimal]
+    costo_total: Optional[Decimal] = None
     movimiento_inventario_id: Optional[UUID]
     observaciones: Optional[str]
     fecha_consumo: datetime

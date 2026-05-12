@@ -5,6 +5,10 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import date
 
+from datetime import datetime as dt
+
+from fastapi import HTTPException, status
+
 from app.infrastructure.database.queries.crm import (
     list_oportunidades as _list_oportunidades,
     get_oportunidad_by_id as _get_oportunidad_by_id,
@@ -15,8 +19,15 @@ from app.modules.crm.presentation.schemas import (
     OportunidadCreate,
     OportunidadUpdate,
     OportunidadRead,
+    OportunidadMarcarGanada,
+    OportunidadMarcarPerdida,
+    OportunidadCancelar,
 )
 from app.core.exceptions import NotFoundError
+
+
+def _estado_norm(v: Optional[str]) -> str:
+    return (v or "").strip().lower()
 
 
 async def list_oportunidades(
@@ -51,9 +62,11 @@ async def list_oportunidades(
     return [OportunidadRead(**row) for row in rows]
 
 
-async def get_oportunidad_by_id(client_id: UUID, oportunidad_id: UUID) -> OportunidadRead:
+async def get_oportunidad_by_id(
+    client_id: UUID, oportunidad_id: UUID, empresa_id: Optional[UUID] = None
+) -> OportunidadRead:
     """Obtiene una oportunidad por id."""
-    row = await _get_oportunidad_by_id(client_id, oportunidad_id)
+    row = await _get_oportunidad_by_id(client_id, oportunidad_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
     return OportunidadRead(**row)
@@ -75,3 +88,111 @@ async def update_oportunidad(
     if not row:
         raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
     return OportunidadRead(**row)
+
+
+async def marcar_oportunidad_ganada(
+    client_id: UUID,
+    oportunidad_id: UUID,
+    data: OportunidadMarcarGanada,
+    empresa_id: Optional[UUID] = None,
+) -> OportunidadRead:
+    row = await _get_oportunidad_by_id(client_id, oportunidad_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
+
+    estado = _estado_norm(row.get("estado"))
+    if estado == "ganada":
+        return OportunidadRead(**row)
+    if estado != "abierta":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede marcar como ganada una oportunidad en estado '{row.get('estado')}'",
+        )
+
+    payload = {
+        "estado": "ganada",
+        "motivo_ganada": data.motivo_ganada,
+        "observaciones": data.observaciones,
+        "fecha_cierre_real": data.fecha_cierre_real or date.today(),
+        "fecha_cambio_etapa": dt.utcnow(),
+    }
+    if (row.get("etapa") or "").strip() and (row.get("etapa") or "").strip().lower() != "cierre":
+        payload["etapa_anterior"] = row.get("etapa")
+        payload["etapa"] = "cierre"
+
+    updated = await _update_oportunidad(client_id, oportunidad_id, {k: v for k, v in payload.items() if v is not None})
+    if not updated:
+        raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
+    return OportunidadRead(**updated)
+
+
+async def marcar_oportunidad_perdida(
+    client_id: UUID,
+    oportunidad_id: UUID,
+    data: OportunidadMarcarPerdida,
+    empresa_id: Optional[UUID] = None,
+) -> OportunidadRead:
+    row = await _get_oportunidad_by_id(client_id, oportunidad_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
+
+    estado = _estado_norm(row.get("estado"))
+    if estado == "perdida":
+        return OportunidadRead(**row)
+    if estado != "abierta":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede marcar como perdida una oportunidad en estado '{row.get('estado')}'",
+        )
+
+    payload = {
+        "estado": "perdida",
+        "motivo_perdida": data.motivo_perdida,
+        "competidor": data.competidor,
+        "observaciones": data.observaciones,
+        "fecha_cierre_real": data.fecha_cierre_real or date.today(),
+        "fecha_cambio_etapa": dt.utcnow(),
+    }
+    if (row.get("etapa") or "").strip() and (row.get("etapa") or "").strip().lower() != "cierre":
+        payload["etapa_anterior"] = row.get("etapa")
+        payload["etapa"] = "cierre"
+
+    updated = await _update_oportunidad(client_id, oportunidad_id, {k: v for k, v in payload.items() if v is not None})
+    if not updated:
+        raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
+    return OportunidadRead(**updated)
+
+
+async def cancelar_oportunidad(
+    client_id: UUID,
+    oportunidad_id: UUID,
+    data: OportunidadCancelar,
+    empresa_id: Optional[UUID] = None,
+) -> OportunidadRead:
+    row = await _get_oportunidad_by_id(client_id, oportunidad_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
+
+    estado = _estado_norm(row.get("estado"))
+    if estado == "cancelada":
+        return OportunidadRead(**row)
+    if estado != "abierta":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede cancelar una oportunidad en estado '{row.get('estado')}'",
+        )
+
+    payload = {
+        "estado": "cancelada",
+        "observaciones": data.observaciones,
+        "fecha_cierre_real": data.fecha_cierre_real or date.today(),
+        "fecha_cambio_etapa": dt.utcnow(),
+    }
+    if (row.get("etapa") or "").strip() and (row.get("etapa") or "").strip().lower() != "cierre":
+        payload["etapa_anterior"] = row.get("etapa")
+        payload["etapa"] = "cierre"
+
+    updated = await _update_oportunidad(client_id, oportunidad_id, {k: v for k, v in payload.items() if v is not None})
+    if not updated:
+        raise NotFoundError(f"Oportunidad {oportunidad_id} no encontrada")
+    return OportunidadRead(**updated)

@@ -8,7 +8,12 @@ from datetime import date
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
-from app.modules.pur.presentation.schemas import OrdenCompraCreate, OrdenCompraUpdate, OrdenCompraRead
+from app.modules.pur.presentation.schemas import (
+    OrdenCompraCreate,
+    OrdenCompraUpdate,
+    OrdenCompraRead,
+    PurMotivoAnulacionBody,
+)
 from app.modules.pur.application.services import orden_compra_service
 from app.core.exceptions import NotFoundError
 
@@ -50,23 +55,6 @@ async def listar_ordenes_compra(
     )
 
 
-@router.get("/{orden_compra_id}", response_model=OrdenCompraRead, summary="Detalle orden de compra")
-async def detalle_orden_compra(
-    orden_compra_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
-):
-    """Detalle de una orden de compra. Solo del tenant del usuario."""
-    client_id = current_user.cliente_id
-    try:
-        return await orden_compra_service.get_orden_compra_servicio(
-            client_id=client_id,
-            orden_compra_id=orden_compra_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-
-
 @router.post("", response_model=OrdenCompraRead, status_code=status.HTTP_201_CREATED, summary="Crear orden de compra")
 async def crear_orden_compra(
     data: OrdenCompraCreate,
@@ -95,6 +83,8 @@ async def actualizar_orden_compra(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/{orden_compra_id}/aprobar", response_model=OrdenCompraRead, summary="Aprobar orden de compra")
@@ -103,7 +93,7 @@ async def aprobar_orden_compra(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Aprueba la orden de compra. Solo en estado borrador."""
+    """Aprueba la orden de compra. Estados permitidos: borrador o emitida."""
     client_id = current_user.cliente_id
     try:
         return await orden_compra_service.aprobar_orden_compra_servicio(
@@ -117,21 +107,59 @@ async def aprobar_orden_compra(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/{orden_compra_id}/anular", response_model=OrdenCompraRead, summary="Anular orden de compra")
-async def anular_orden_compra(
+@router.post("/{orden_compra_id}/emitir", response_model=OrdenCompraRead, summary="Emitir orden de compra")
+async def emitir_orden_compra(
     orden_compra_id: UUID,
-    body: Optional[dict] = Body(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Anula la orden de compra. Body: { \"motivo_anulacion\": \"...\" }."""
+    """Pasa la OC de borrador a emitida."""
     client_id = current_user.cliente_id
-    motivo_anulacion = (body or {}).get("motivo_anulacion", "") or ""
+    try:
+        return await orden_compra_service.emitir_orden_compra_servicio(
+            client_id=client_id,
+            orden_compra_id=orden_compra_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{orden_compra_id}/anular", response_model=OrdenCompraRead, summary="Anular orden de compra")
+async def anular_orden_compra(
+    orden_compra_id: UUID,
+    body: Optional[PurMotivoAnulacionBody] = Body(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Anula la orden de compra. Body opcional: motivo_anulacion (JSON vacío permitido)."""
+    client_id = current_user.cliente_id
+    body_data = body or PurMotivoAnulacionBody()
     try:
         return await orden_compra_service.anular_orden_compra_servicio(
             client_id=client_id,
             orden_compra_id=orden_compra_id,
-            motivo_anulacion=motivo_anulacion,
+            motivo_anulacion=body_data.motivo_anulacion or "",
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{orden_compra_id}", response_model=OrdenCompraRead, summary="Detalle orden de compra")
+async def detalle_orden_compra(
+    orden_compra_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+):
+    """Detalle de una orden de compra. Solo del tenant del usuario."""
+    client_id = current_user.cliente_id
+    try:
+        return await orden_compra_service.get_orden_compra_servicio(
+            client_id=client_id,
+            orden_compra_id=orden_compra_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

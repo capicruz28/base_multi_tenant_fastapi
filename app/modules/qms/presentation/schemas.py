@@ -141,6 +141,7 @@ class PlanInspeccionRead(BaseModel):
 # PLAN DE INSPECCIÓN DETALLE
 # ============================================================================
 class PlanInspeccionDetalleCreate(BaseModel):
+    empresa_id: Optional[UUID] = None
     plan_inspeccion_id: UUID
     parametro_calidad_id: UUID
     orden: Optional[int] = Field(0, ge=0)
@@ -165,6 +166,7 @@ class PlanInspeccionDetalleUpdate(BaseModel):
 class PlanInspeccionDetalleRead(BaseModel):
     plan_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     plan_inspeccion_id: UUID
     parametro_calidad_id: UUID
     orden: Optional[int]
@@ -280,6 +282,7 @@ class InspeccionRead(BaseModel):
 # INSPECCIÓN DETALLE
 # ============================================================================
 class InspeccionDetalleCreate(BaseModel):
+    empresa_id: Optional[UUID] = None
     inspeccion_id: UUID
     parametro_calidad_id: UUID
     valor_medido: Optional[Decimal] = None
@@ -303,6 +306,7 @@ class InspeccionDetalleUpdate(BaseModel):
 class InspeccionDetalleRead(BaseModel):
     inspeccion_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     inspeccion_id: UUID
     parametro_calidad_id: UUID
     valor_medido: Optional[Decimal]

@@ -8,7 +8,28 @@ from typing import Optional, Any
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+
+
+# ============================================================================
+# Bodies de acciones (tipado; compatible con JSON vacío {} o campos omitidos)
+# ============================================================================
+class PurMotivoRechazoBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    motivo_rechazo: str = Field("", max_length=500)
+
+
+class PurMotivoAnulacionBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    motivo_anulacion: str = Field("", max_length=500)
+
+
+class SolicitudAnularBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    motivo: str = Field("", max_length=500)
 
 
 # ============================================================================
@@ -371,6 +392,8 @@ class SolicitudCompraDetalleRead(BaseModel):
     unidad_medida_id: UUID
     precio_referencial: Optional[Decimal] = None
     cantidad_atendida: Optional[Decimal] = None
+    total_referencial: Optional[Decimal] = None
+    cantidad_pendiente: Optional[Decimal] = None
     observaciones: Optional[str] = None
     fecha_creacion: Optional[datetime] = None
 
@@ -494,6 +517,8 @@ class CotizacionDetalleRead(BaseModel):
     unidad_medida_id: UUID
     precio_unitario: Decimal
     descuento_porcentaje: Optional[Decimal] = None
+    precio_neto: Optional[Decimal] = None
+    total: Optional[Decimal] = None
     tiempo_entrega_dias: Optional[int] = None
     observaciones: Optional[str] = None
     fecha_creacion: Optional[datetime] = None
@@ -649,7 +674,12 @@ class OrdenCompraDetalleRead(BaseModel):
     unidad_medida_id: UUID
     precio_unitario: Decimal
     descuento_porcentaje: Optional[Decimal] = None
+    precio_neto: Optional[Decimal] = None
+    subtotal: Optional[Decimal] = None
+    igv: Optional[Decimal] = None
+    total: Optional[Decimal] = None
     cantidad_recepcionada: Optional[Decimal] = None
+    cantidad_pendiente: Optional[Decimal] = None
     observaciones: Optional[str] = None
     especificaciones: Optional[str] = None
     fecha_creacion: Optional[datetime] = None
@@ -786,6 +816,8 @@ class RecepcionDetalleRead(BaseModel):
     lote: Optional[str] = None
     fecha_vencimiento: Optional[date] = None
     precio_unitario: Optional[Decimal] = None
+    diferencia: Optional[Decimal] = None
+    total: Optional[Decimal] = None
     ubicacion_almacen: Optional[str] = None
     observaciones: Optional[str] = None
     motivo_diferencia: Optional[str] = None

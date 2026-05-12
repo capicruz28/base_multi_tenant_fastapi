@@ -40,6 +40,29 @@ async def procesar_movimiento(
 
 
 @router.post(
+    "/{movimiento_id}/autorizar",
+    response_model=MovimientoRead,
+    summary="Autorizar movimiento",
+)
+async def autorizar_movimiento(
+    movimiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
+    ),
+):
+    client_id = current_user.cliente_id
+    try:
+        return await movimiento_proceso_service.autorizar_movimiento_servicio(
+            client_id=client_id,
+            movimiento_id=movimiento_id,
+            usuario_autorizado_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
     "/{movimiento_id}/anular",
     response_model=MovimientoRead,
     summary="Anular movimiento (solo si no está procesado)",

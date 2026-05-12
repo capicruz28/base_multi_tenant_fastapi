@@ -40,7 +40,7 @@ class ClienteCreate(BaseModel):
     sitio_web: Optional[str] = Field(None, max_length=255)
     condicion_pago_defecto: Optional[str] = Field("contado", max_length=50)
     dias_credito_defecto: Optional[int] = 0
-    moneda_preferida: Optional[str] = "PEN"
+    moneda_preferida: UUID
     lista_precio_id: Optional[UUID] = None
     limite_credito: Optional[Decimal] = None
     saldo_pendiente: Optional[Decimal] = Field(0, ge=0)
@@ -82,7 +82,7 @@ class ClienteUpdate(BaseModel):
     sitio_web: Optional[str] = Field(None, max_length=255)
     condicion_pago_defecto: Optional[str] = Field(None, max_length=50)
     dias_credito_defecto: Optional[int] = None
-    moneda_preferida: Optional[str] = None
+    moneda_preferida: Optional[UUID] = None
     lista_precio_id: Optional[UUID] = None
     limite_credito: Optional[Decimal] = None
     saldo_pendiente: Optional[Decimal] = None
@@ -127,7 +127,7 @@ class ClienteRead(BaseModel):
     sitio_web: Optional[str]
     condicion_pago_defecto: Optional[str]
     dias_credito_defecto: Optional[int]
-    moneda_preferida: Optional[str]
+    moneda_preferida: UUID
     lista_precio_id: Optional[UUID]
     limite_credito: Optional[Decimal]
     saldo_pendiente: Optional[Decimal]
@@ -291,7 +291,7 @@ class CotizacionCreate(BaseModel):
     condicion_pago: str = Field(..., max_length=50)
     dias_credito: Optional[int] = 0
     tiempo_entrega_dias: Optional[int] = None
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
     tipo_cambio: Optional[Decimal] = Field(1, ge=0)
     subtotal: Optional[Decimal] = Field(0, ge=0)
     descuento_global: Optional[Decimal] = Field(0, ge=0)
@@ -322,7 +322,7 @@ class CotizacionUpdate(BaseModel):
     condicion_pago: Optional[str] = Field(None, max_length=50)
     dias_credito: Optional[int] = None
     tiempo_entrega_dias: Optional[int] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal] = None
     subtotal: Optional[Decimal] = None
     descuento_global: Optional[Decimal] = None
@@ -356,7 +356,7 @@ class CotizacionRead(BaseModel):
     condicion_pago: str
     dias_credito: Optional[int]
     tiempo_entrega_dias: Optional[int]
-    moneda: Optional[str]
+    moneda_id: UUID
     tipo_cambio: Optional[Decimal]
     subtotal: Optional[Decimal]
     descuento_global: Optional[Decimal]
@@ -406,18 +406,27 @@ class CotizacionDetalleUpdate(BaseModel):
 class CotizacionDetalleRead(BaseModel):
     cotizacion_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     cotizacion_id: UUID
     producto_id: UUID
     cantidad: Decimal
     unidad_medida_id: UUID
     precio_unitario: Decimal
     descuento_porcentaje: Optional[Decimal]
+    precio_neto: Optional[Decimal] = None
+    subtotal: Optional[Decimal] = None
+    igv: Optional[Decimal] = None
+    total: Optional[Decimal] = None
     tiempo_entrega_dias: Optional[int]
     observaciones: Optional[str]
     fecha_creacion: datetime
 
     class Config:
         from_attributes = True
+
+
+class CotizacionRechazarBody(BaseModel):
+    motivo_rechazo: Optional[str] = Field(None, max_length=500)
 
 
 # ============================================================================
@@ -439,7 +448,7 @@ class PedidoCreate(BaseModel):
     vendedor_nombre: Optional[str] = Field(None, max_length=150)
     condicion_pago: str = Field(..., max_length=50)
     dias_credito: Optional[int] = 0
-    moneda: Optional[str] = "PEN"
+    moneda_id: UUID
     tipo_cambio: Optional[Decimal] = Field(1, ge=0)
     subtotal: Optional[Decimal] = Field(0, ge=0)
     descuento_global: Optional[Decimal] = Field(0, ge=0)
@@ -474,7 +483,7 @@ class PedidoUpdate(BaseModel):
     vendedor_nombre: Optional[str] = Field(None, max_length=150)
     condicion_pago: Optional[str] = Field(None, max_length=50)
     dias_credito: Optional[int] = None
-    moneda: Optional[str] = None
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal] = None
     subtotal: Optional[Decimal] = None
     descuento_global: Optional[Decimal] = None
@@ -512,7 +521,7 @@ class PedidoRead(BaseModel):
     vendedor_nombre: Optional[str]
     condicion_pago: str
     dias_credito: Optional[int]
-    moneda: Optional[str]
+    moneda_id: UUID
     tipo_cambio: Optional[Decimal]
     subtotal: Optional[Decimal]
     descuento_global: Optional[Decimal]
@@ -537,6 +546,11 @@ class PedidoRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CotizacionConvertirPedidoResponse(BaseModel):
+    cotizacion: CotizacionRead
+    pedido: PedidoRead
 
 
 # ============================================================================
@@ -570,13 +584,19 @@ class PedidoDetalleUpdate(BaseModel):
 class PedidoDetalleRead(BaseModel):
     pedido_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     pedido_id: UUID
     producto_id: UUID
     cantidad_pedida: Decimal
     unidad_medida_id: UUID
     precio_unitario: Decimal
     descuento_porcentaje: Optional[Decimal]
+    precio_neto: Optional[Decimal] = None
+    subtotal: Optional[Decimal] = None
+    igv: Optional[Decimal] = None
+    total: Optional[Decimal] = None
     cantidad_despachada: Optional[Decimal]
+    cantidad_pendiente: Optional[Decimal] = None
     cantidad_facturada: Optional[Decimal]
     almacen_origen_id: Optional[UUID]
     observaciones: Optional[str]
@@ -584,3 +604,7 @@ class PedidoDetalleRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PedidoAnularBody(BaseModel):
+    motivo_anulacion: Optional[str] = Field(None, max_length=500)

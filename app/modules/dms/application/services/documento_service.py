@@ -4,8 +4,13 @@ from uuid import UUID
 from app.infrastructure.database.queries.dms import (
     list_documento as _list,
     get_documento_by_id as _get,
+    get_documento_by_id_empresa as _get_empresa,
     create_documento as _create,
     update_documento as _update,
+    update_documento_empresa as _update_empresa,
+    archivar_documento as _archivar,
+    restaurar_documento as _restaurar,
+    eliminar_documento as _eliminar,
 )
 from app.modules.dms.presentation.schemas import (
     DocumentoCreate,
@@ -61,6 +66,15 @@ async def get_documento_by_id(client_id: UUID, documento_id: UUID) -> DocumentoR
     return DocumentoRead(**_row_to_read(row))
 
 
+async def get_documento_by_id_empresa(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> DocumentoRead:
+    row = await _get_empresa(client_id, documento_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError("Documento no encontrado")
+    return DocumentoRead(**_row_to_read(row))
+
+
 async def create_documento(client_id: UUID, data: DocumentoCreate) -> DocumentoRead:
     dump = data.model_dump(exclude_none=True)
     row = await _create(client_id, _dump_to_db(dump))
@@ -74,4 +88,46 @@ async def update_documento(
     row = await _update(client_id, documento_id, _dump_to_db(dump))
     if not row:
         raise NotFoundError("Documento no encontrado")
+    return DocumentoRead(**_row_to_read(row))
+
+
+async def update_documento_empresa(
+    client_id: UUID,
+    documento_id: UUID,
+    data: DocumentoUpdate,
+    empresa_id: Optional[UUID] = None,
+) -> DocumentoRead:
+    dump = data.model_dump(exclude_none=True)
+    row = await _update_empresa(
+        client_id, documento_id, _dump_to_db(dump), empresa_id=empresa_id
+    )
+    if not row:
+        raise NotFoundError("Documento no encontrado")
+    return DocumentoRead(**_row_to_read(row))
+
+
+async def archivar_documento(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> DocumentoRead:
+    row = await _archivar(client_id, documento_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError("Documento no encontrado o transición no permitida")
+    return DocumentoRead(**_row_to_read(row))
+
+
+async def restaurar_documento(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> DocumentoRead:
+    row = await _restaurar(client_id, documento_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError("Documento no encontrado o transición no permitida")
+    return DocumentoRead(**_row_to_read(row))
+
+
+async def eliminar_documento(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> DocumentoRead:
+    row = await _eliminar(client_id, documento_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError("Documento no encontrado o transición no permitida")
     return DocumentoRead(**_row_to_read(row))

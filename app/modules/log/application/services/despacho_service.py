@@ -11,6 +11,8 @@ from app.infrastructure.database.queries.log import (
     get_despacho_by_id as _get_despacho_by_id,
     create_despacho as _create_despacho,
     update_despacho as _update_despacho,
+    completar_despacho as _completar_despacho,
+    anular_despacho as _anular_despacho,
     list_despacho_guias as _list_despacho_guias,
     get_despacho_guia_by_id as _get_despacho_guia_by_id,
     create_despacho_guia as _create_despacho_guia,
@@ -25,6 +27,7 @@ from app.modules.log.presentation.schemas import (
     DespachoGuiaRead,
 )
 from app.core.exceptions import NotFoundError
+from app.core.exceptions import ValidationError
 
 
 async def list_despachos(
@@ -51,9 +54,13 @@ async def list_despachos(
     return [DespachoRead(**row) for row in rows]
 
 
-async def get_despacho_by_id(client_id: UUID, despacho_id: UUID) -> DespachoRead:
+async def get_despacho_by_id(
+    client_id: UUID,
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> DespachoRead:
     """Obtiene un despacho por id. Lanza NotFoundError si no existe."""
-    row = await _get_despacho_by_id(client_id, despacho_id)
+    row = await _get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Despacho {despacho_id} no encontrado")
     return DespachoRead(**row)
@@ -66,12 +73,64 @@ async def create_despacho(client_id: UUID, data: DespachoCreate) -> DespachoRead
 
 
 async def update_despacho(
-    client_id: UUID, despacho_id: UUID, data: DespachoUpdate
+    client_id: UUID,
+    despacho_id: UUID,
+    data: DespachoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> DespachoRead:
-    """Actualiza un despacho. Lanza NotFoundError si no existe."""
+    """Actualiza un despacho. Solo editable en estado 'borrador'."""
+    current = await _get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError(f"Despacho {despacho_id} no encontrado")
+    if (current.get("estado") or "").lower() != "borrador":
+        raise ValidationError("Solo se puede editar un despacho en estado borrador.")
+
     row = await _update_despacho(
-        client_id, despacho_id, data.model_dump(exclude_none=True)
+        client_id,
+        despacho_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
     )
+    if not row:
+        raise NotFoundError(f"Despacho {despacho_id} no encontrado")
+    return DespachoRead(**row)
+
+
+async def completar_despacho(
+    client_id: UUID,
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> DespachoRead:
+    """Transición: completa el despacho (estado='completado')."""
+    current = await _get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError(f"Despacho {despacho_id} no encontrado")
+    estado = (current.get("estado") or "").lower()
+    if estado == "completado":
+        return DespachoRead(**current)
+    if estado == "cancelado":
+        raise ValidationError("No se puede completar un despacho cancelado.")
+    row = await _completar_despacho(client_id, despacho_id, empresa_id=empresa_id)
+    if not row:
+        raise NotFoundError(f"Despacho {despacho_id} no encontrado")
+    return DespachoRead(**row)
+
+
+async def anular_despacho(
+    client_id: UUID,
+    despacho_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> DespachoRead:
+    """Transición: anula/cancela el despacho (estado='cancelado')."""
+    current = await _get_despacho_by_id(client_id, despacho_id, empresa_id=empresa_id)
+    if not current:
+        raise NotFoundError(f"Despacho {despacho_id} no encontrado")
+    estado = (current.get("estado") or "").lower()
+    if estado == "cancelado":
+        return DespachoRead(**current)
+    if estado == "completado":
+        raise ValidationError("No se puede anular un despacho completado.")
+    row = await _anular_despacho(client_id, despacho_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Despacho {despacho_id} no encontrado")
     return DespachoRead(**row)

@@ -16,21 +16,18 @@ class PresupuestoCreate(BaseModel):
     anio: int = Field(..., ge=2000, le=2100)
     tipo_presupuesto: Optional[str] = Field("anual", max_length=20)
     monto_total_presupuestado: Optional[Decimal] = Field(0, ge=0)
-    monto_total_ejecutado: Optional[Decimal] = Field(0, ge=0)
     estado: Optional[str] = Field("borrador", max_length=20)
     fecha_aprobacion: Optional[datetime] = None
     observaciones: Optional[str] = None
-    usuario_creacion_id: Optional[UUID] = None
 
 
 class PresupuestoUpdate(BaseModel):
     codigo_presupuesto: Optional[str] = None
     nombre: Optional[str] = None
+    anio: Optional[int] = Field(None, ge=2000, le=2100)
     tipo_presupuesto: Optional[str] = None
     monto_total_presupuestado: Optional[Decimal] = None
     monto_total_ejecutado: Optional[Decimal] = None
-    estado: Optional[str] = None
-    fecha_aprobacion: Optional[datetime] = None
     observaciones: Optional[str] = None
 
 
@@ -79,6 +76,7 @@ class PresupuestoDetalleUpdate(BaseModel):
 class PresupuestoDetalleRead(BaseModel):
     presupuesto_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     presupuesto_id: UUID
     cuenta_id: UUID
     centro_costo_id: Optional[UUID]

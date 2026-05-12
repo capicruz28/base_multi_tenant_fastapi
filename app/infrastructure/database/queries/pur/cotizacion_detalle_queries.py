@@ -14,6 +14,8 @@ from app.infrastructure.database.queries_async import (
 )
 
 _COLUMNS = {c.name for c in PurCotizacionDetalleTable.c}
+_COMPUTED = frozenset({"precio_neto", "total"})
+_WRITABLE_COLUMNS = _COLUMNS - _COMPUTED
 
 
 async def list_cotizaciones_detalle(
@@ -57,7 +59,7 @@ async def create_cotizacion_detalle(client_id: UUID, data: Dict[str, Any]) -> Di
     """Inserta una línea de cotización. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
 
-    payload = {k: v for k, v in data.items() if k in _COLUMNS}
+    payload = {k: v for k, v in data.items() if k in _WRITABLE_COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("cotizacion_detalle_id", uuid4())
     stmt = insert(PurCotizacionDetalleTable).values(**payload)
@@ -72,7 +74,7 @@ async def update_cotizacion_detalle(
     payload = {
         k: v
         for k, v in data.items()
-        if k in _COLUMNS
+        if k in _WRITABLE_COLUMNS
         and k
         not in (
             "cotizacion_detalle_id",

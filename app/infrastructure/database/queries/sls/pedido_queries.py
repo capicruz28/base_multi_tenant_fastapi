@@ -91,3 +91,27 @@ async def update_pedido(
     )
     await execute_update(stmt, client_id=client_id)
     return await get_pedido_by_id(client_id, pedido_id)
+
+
+async def update_pedido_estado(
+    client_id: UUID,
+    pedido_id: UUID,
+    estado: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Actualiza estado de pedido (y campos extra) respetando tenant."""
+    payload: Dict[str, Any] = {"estado": estado, "fecha_actualizacion": datetime.utcnow()}
+    if extra:
+        payload.update({k: v for k, v in extra.items() if k in _COLUMNS})
+    stmt = (
+        update(SlsPedidoTable)
+        .where(
+            and_(
+                SlsPedidoTable.c.cliente_id == client_id,
+                SlsPedidoTable.c.pedido_id == pedido_id,
+            )
+        )
+        .values(**payload)
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_pedido_by_id(client_id, pedido_id)

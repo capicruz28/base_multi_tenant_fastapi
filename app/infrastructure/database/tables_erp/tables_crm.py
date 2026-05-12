@@ -11,6 +11,7 @@ from sqlalchemy import (
     Table, Column, Integer, String, Boolean, DateTime, Date,
     ForeignKey, Text, Index, UniqueConstraint, Numeric, MetaData
 )
+from sqlalchemy.schema import Computed
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.sql import func
 
@@ -35,7 +36,12 @@ CrmCampanaTable = Table(
     Column("fecha_fin", Date, nullable=True),
     Column("presupuesto", Numeric(18, 2), nullable=True),
     Column("gasto_real", Numeric(18, 2), nullable=True, server_default="0"),
-    Column("moneda", String(3), nullable=True, server_default="PEN"),
+    Column(
+        "moneda_id",
+        UNIQUEIDENTIFIER,
+        ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"),
+        nullable=False,
+    ),
     Column("responsable_usuario_id", UNIQUEIDENTIFIER, nullable=True),
     Column("responsable_nombre", String(150), nullable=True),
     Column("total_contactos", Integer, nullable=True, server_default="0"),
@@ -112,8 +118,18 @@ CrmOportunidadTable = Table(
     Column("vendedor_nombre", String(150), nullable=True),
     Column("campana_id", UNIQUEIDENTIFIER, ForeignKey("crm_campana.campana_id", ondelete="SET NULL"), nullable=True),
     Column("monto_estimado", Numeric(18, 2), nullable=False),
-    Column("moneda", String(3), nullable=True, server_default="PEN"),
+    Column(
+        "moneda_id",
+        UNIQUEIDENTIFIER,
+        ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"),
+        nullable=False,
+    ),
     Column("probabilidad_cierre", Numeric(5, 2), nullable=True, server_default="50"),
+    Column(
+        "valor_ponderado",
+        Numeric(18, 2),
+        Computed("monto_estimado * probabilidad_cierre / 100", persisted=True),
+    ),
     Column("fecha_apertura", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_cierre_estimada", Date, nullable=True),
     Column("fecha_cierre_real", Date, nullable=True),

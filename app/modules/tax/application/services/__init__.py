@@ -4,6 +4,9 @@ from app.modules.tax.application.services.libro_electronico_service import (
     get_libro_electronico_by_id,
     create_libro_electronico,
     update_libro_electronico,
+    marcar_generado_libro_electronico,
+    registrar_envio_libro_electronico,
+    anular_libro_electronico,
 )
 
 __all__ = [
@@ -11,4 +14,7 @@ __all__ = [
     "get_libro_electronico_by_id",
     "create_libro_electronico",
     "update_libro_electronico",
+    "marcar_generado_libro_electronico",
+    "registrar_envio_libro_electronico",
+    "anular_libro_electronico",
 ]

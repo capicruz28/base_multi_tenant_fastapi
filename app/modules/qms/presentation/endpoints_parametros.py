@@ -82,3 +82,37 @@ async def put_parametro_calidad(
         return await update_parametro_calidad(current_user.cliente_id, parametro_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{parametro_id}/activar", response_model=ParametroCalidadRead, tags=["QMS - Parámetros de Calidad"])
+async def post_parametro_calidad_activar(
+    parametro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.activar")),
+):
+    """Activa un parámetro de calidad (borrado lógico)."""
+    try:
+        return await update_parametro_calidad(
+            current_user.cliente_id,
+            parametro_id,
+            ParametroCalidadUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{parametro_id}/desactivar", response_model=ParametroCalidadRead, tags=["QMS - Parámetros de Calidad"])
+async def post_parametro_calidad_desactivar(
+    parametro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.desactivar")),
+):
+    """Desactiva un parámetro de calidad (borrado lógico)."""
+    try:
+        return await update_parametro_calidad(
+            current_user.cliente_id,
+            parametro_id,
+            ParametroCalidadUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

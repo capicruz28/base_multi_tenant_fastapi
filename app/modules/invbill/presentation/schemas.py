@@ -71,6 +71,10 @@ class SerieComprobanteRead(BaseModel):
         from_attributes = True
 
 
+class SerieComprobanteDesactivarBody(BaseModel):
+    motivo_baja: Optional[str] = Field(None, max_length=255)
+
+
 # ============================================================================
 # COMPROBANTE
 # ============================================================================
@@ -94,6 +98,7 @@ class ComprobanteCreate(BaseModel):
     tipo_nota: Optional[str] = Field(None, max_length=2)
     motivo_nota: Optional[str] = Field(None, max_length=500)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal] = Field(1, ge=0)
     subtotal_gravado: Optional[Decimal] = Field(0, ge=0)
     subtotal_exonerado: Optional[Decimal] = Field(0, ge=0)
@@ -123,7 +128,7 @@ class ComprobanteCreate(BaseModel):
     cdr_fecha: Optional[datetime] = None
     xml_comprobante: Optional[str] = None
     pdf_url: Optional[str] = Field(None, max_length=500)
-    estado: Optional[str] = Field("emitido", max_length=20)
+    estado: Optional[str] = Field("borrador", max_length=20)
     fecha_anulacion: Optional[datetime] = None
     motivo_anulacion: Optional[str] = Field(None, max_length=500)
     observaciones: Optional[str] = None
@@ -194,6 +199,7 @@ class ComprobanteRead(BaseModel):
     tipo_comprobante: str
     serie: str
     numero: str
+    numero_completo: Optional[str] = None
     fecha_emision: date
     fecha_vencimiento: Optional[date]
     hora_emision: Optional[time]
@@ -209,6 +215,7 @@ class ComprobanteRead(BaseModel):
     tipo_nota: Optional[str]
     motivo_nota: Optional[str]
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal]
     subtotal_gravado: Optional[Decimal]
     subtotal_exonerado: Optional[Decimal]
@@ -251,6 +258,10 @@ class ComprobanteRead(BaseModel):
         from_attributes = True
 
 
+class ComprobanteAnularBody(BaseModel):
+    motivo_anulacion: str = Field(..., min_length=1, max_length=500)
+
+
 # ============================================================================
 # COMPROBANTE DETALLE
 # ============================================================================
@@ -290,6 +301,7 @@ class ComprobanteDetalleUpdate(BaseModel):
 class ComprobanteDetalleRead(BaseModel):
     comprobante_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     comprobante_id: UUID
     item: int
     producto_id: Optional[UUID]
@@ -300,6 +312,10 @@ class ComprobanteDetalleRead(BaseModel):
     unidad_medida_id: Optional[UUID]
     precio_unitario: Decimal
     descuento_unitario: Optional[Decimal]
+    precio_venta_unitario: Optional[Decimal] = None
+    valor_venta: Optional[Decimal] = None
+    igv: Optional[Decimal] = None
+    total_item: Optional[Decimal] = None
     tipo_afectacion_igv: str
     porcentaje_igv: Optional[Decimal]
     codigo_producto_sunat: Optional[str]

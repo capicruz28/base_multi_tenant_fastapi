@@ -47,14 +47,19 @@ async def list_vehiculos(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_vehiculo_by_id(client_id: UUID, vehiculo_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_vehiculo_by_id(
+    client_id: UUID,
+    vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene un vehículo por id. Exige cliente_id para no cruzar tenants."""
-    query = select(LogVehiculoTable).where(
-        and_(
-            LogVehiculoTable.c.cliente_id == client_id,
-            LogVehiculoTable.c.vehiculo_id == vehiculo_id,
-        )
-    )
+    filters = [
+        LogVehiculoTable.c.cliente_id == client_id,
+        LogVehiculoTable.c.vehiculo_id == vehiculo_id,
+    ]
+    if empresa_id:
+        filters.append(LogVehiculoTable.c.empresa_id == empresa_id)
+    query = select(LogVehiculoTable).where(and_(*filters))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -71,7 +76,10 @@ async def create_vehiculo(client_id: UUID, data: Dict[str, Any]) -> Dict[str, An
 
 
 async def update_vehiculo(
-    client_id: UUID, vehiculo_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    vehiculo_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza un vehículo. WHERE incluye cliente_id y vehiculo_id."""
     payload = {
@@ -79,16 +87,17 @@ async def update_vehiculo(
         if k in _COLUMNS and k not in ("vehiculo_id", "cliente_id")
     }
     if not payload:
-        return await get_vehiculo_by_id(client_id, vehiculo_id)
+        return await get_vehiculo_by_id(client_id, vehiculo_id, empresa_id=empresa_id)
+    filters = [
+        LogVehiculoTable.c.cliente_id == client_id,
+        LogVehiculoTable.c.vehiculo_id == vehiculo_id,
+    ]
+    if empresa_id:
+        filters.append(LogVehiculoTable.c.empresa_id == empresa_id)
     stmt = (
         update(LogVehiculoTable)
-        .where(
-            and_(
-                LogVehiculoTable.c.cliente_id == client_id,
-                LogVehiculoTable.c.vehiculo_id == vehiculo_id,
-            )
-        )
+        .where(and_(*filters))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_vehiculo_by_id(client_id, vehiculo_id)
+    return await get_vehiculo_by_id(client_id, vehiculo_id, empresa_id=empresa_id)

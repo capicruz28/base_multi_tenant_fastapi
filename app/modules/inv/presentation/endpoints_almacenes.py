@@ -80,3 +80,47 @@ async def actualizar_almacen(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{almacen_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) almacén",
+)
+async def eliminar_almacen(
+    almacen_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Marca un almacén como inactivo (es_activo = 0) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await almacen_service.update_almacen_servicio(
+            client_id=client_id,
+            almacen_id=almacen_id,
+            data=AlmacenUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{almacen_id}/reactivar",
+    response_model=AlmacenRead,
+    summary="Reactivar almacén",
+)
+async def reactivar_almacen(
+    almacen_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva un almacén previamente dado de baja dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await almacen_service.update_almacen_servicio(
+            client_id=client_id,
+            almacen_id=almacen_id,
+            data=AlmacenUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

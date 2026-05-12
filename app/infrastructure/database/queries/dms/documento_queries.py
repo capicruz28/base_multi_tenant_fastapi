@@ -2,6 +2,7 @@
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy.sql import func
 from app.infrastructure.database.tables_erp import DmsDocumentoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
@@ -55,6 +56,21 @@ async def get_documento_by_id(client_id: UUID, documento_id: UUID) -> Optional[D
     return rows[0] if rows else None
 
 
+async def get_documento_by_id_empresa(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    q = select(DmsDocumentoTable).where(
+        and_(
+            DmsDocumentoTable.c.cliente_id == client_id,
+            DmsDocumentoTable.c.documento_id == documento_id,
+        )
+    )
+    if empresa_id:
+        q = q.where(DmsDocumentoTable.c.empresa_id == empresa_id)
+    rows = await execute_query(q, client_id=client_id)
+    return rows[0] if rows else None
+
+
 async def create_documento(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     from uuid import uuid4
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
@@ -81,3 +97,85 @@ async def update_documento(
     ).values(**payload)
     await execute_update(stmt, client_id=client_id)
     return await get_documento_by_id(client_id, documento_id)
+
+
+async def update_documento_empresa(
+    client_id: UUID,
+    documento_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    payload = {
+        k: v for k, v in data.items()
+        if k in _COLUMNS and k not in ("documento_id", "cliente_id")
+    }
+    if not payload:
+        return await get_documento_by_id_empresa(client_id, documento_id, empresa_id=empresa_id)
+    where_parts = [
+        DmsDocumentoTable.c.cliente_id == client_id,
+        DmsDocumentoTable.c.documento_id == documento_id,
+    ]
+    if empresa_id:
+        where_parts.append(DmsDocumentoTable.c.empresa_id == empresa_id)
+    stmt = update(DmsDocumentoTable).where(and_(*where_parts)).values(**payload)
+    await execute_update(stmt, client_id=client_id)
+    return await get_documento_by_id_empresa(client_id, documento_id, empresa_id=empresa_id)
+
+
+async def transition_estado_documento(
+    client_id: UUID,
+    documento_id: UUID,
+    nuevo_estado: str,
+    estados_origen: List[str],
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    where_parts = [
+        DmsDocumentoTable.c.cliente_id == client_id,
+        DmsDocumentoTable.c.documento_id == documento_id,
+        DmsDocumentoTable.c.estado.in_(estados_origen),
+    ]
+    if empresa_id:
+        where_parts.append(DmsDocumentoTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(DmsDocumentoTable)
+        .where(and_(*where_parts))
+        .values(estado=nuevo_estado, fecha_modificacion=func.now())
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_documento_by_id_empresa(client_id, documento_id, empresa_id=empresa_id)
+
+
+async def archivar_documento(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    return await transition_estado_documento(
+        client_id=client_id,
+        documento_id=documento_id,
+        nuevo_estado="archivado",
+        estados_origen=["activo"],
+        empresa_id=empresa_id,
+    )
+
+
+async def restaurar_documento(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    return await transition_estado_documento(
+        client_id=client_id,
+        documento_id=documento_id,
+        nuevo_estado="activo",
+        estados_origen=["archivado"],
+        empresa_id=empresa_id,
+    )
+
+
+async def eliminar_documento(
+    client_id: UUID, documento_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
+    return await transition_estado_documento(
+        client_id=client_id,
+        documento_id=documento_id,
+        nuevo_estado="eliminado",
+        estados_origen=["activo", "archivado"],
+        empresa_id=empresa_id,
+    )

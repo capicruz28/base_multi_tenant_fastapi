@@ -1,7 +1,7 @@
 """Endpoints tax libro electrónico."""
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -10,11 +10,15 @@ from app.modules.tax.application.services import (
     get_libro_electronico_by_id,
     create_libro_electronico,
     update_libro_electronico,
+    marcar_generado_libro_electronico,
+    registrar_envio_libro_electronico,
+    anular_libro_electronico,
 )
 from app.modules.tax.presentation.schemas import (
     LibroElectronicoCreate,
     LibroElectronicoUpdate,
     LibroElectronicoRead,
+    LibroElectronicoRegistrarEnvio,
 )
 from app.core.exceptions import NotFoundError
 
@@ -74,5 +78,56 @@ async def put_libro_electronico(
 ):
     try:
         return await update_libro_electronico(current_user.cliente_id, libro_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{libro_id}/marcar-generado",
+    response_model=LibroElectronicoRead,
+    summary="Marcar libro como generado (borrador → generado)",
+)
+async def post_marcar_generado(
+    libro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    try:
+        return await marcar_generado_libro_electronico(current_user.cliente_id, libro_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{libro_id}/registrar-envio",
+    response_model=LibroElectronicoRead,
+    summary="Registrar envío a SUNAT (generado → enviado)",
+)
+async def post_registrar_envio(
+    libro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    body: Optional[LibroElectronicoRegistrarEnvio] = Body(None),
+):
+    try:
+        return await registrar_envio_libro_electronico(
+            current_user.cliente_id, libro_id, body or LibroElectronicoRegistrarEnvio()
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{libro_id}/anular",
+    response_model=LibroElectronicoRead,
+    summary="Anular libro electrónico",
+)
+async def post_anular_libro_electronico(
+    libro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    try:
+        return await anular_libro_electronico(current_user.cliente_id, libro_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

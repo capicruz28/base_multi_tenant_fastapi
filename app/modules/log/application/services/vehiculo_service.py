@@ -41,9 +41,13 @@ async def list_vehiculos(
     return [VehiculoRead(**row) for row in rows]
 
 
-async def get_vehiculo_by_id(client_id: UUID, vehiculo_id: UUID) -> VehiculoRead:
+async def get_vehiculo_by_id(
+    client_id: UUID,
+    vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> VehiculoRead:
     """Obtiene un vehículo por id. Lanza NotFoundError si no existe."""
-    row = await _get_vehiculo_by_id(client_id, vehiculo_id)
+    row = await _get_vehiculo_by_id(client_id, vehiculo_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Vehículo {vehiculo_id} no encontrado")
     return VehiculoRead(**row)
@@ -56,11 +60,54 @@ async def create_vehiculo(client_id: UUID, data: VehiculoCreate) -> VehiculoRead
 
 
 async def update_vehiculo(
-    client_id: UUID, vehiculo_id: UUID, data: VehiculoUpdate
+    client_id: UUID,
+    vehiculo_id: UUID,
+    data: VehiculoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> VehiculoRead:
     """Actualiza un vehículo. Lanza NotFoundError si no existe."""
     row = await _update_vehiculo(
-        client_id, vehiculo_id, data.model_dump(exclude_none=True)
+        client_id,
+        vehiculo_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Vehículo {vehiculo_id} no encontrado")
+    return VehiculoRead(**row)
+
+
+async def delete_vehiculo(
+    client_id: UUID,
+    vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> None:
+    """
+    Baja lógica (es_activo = False).
+    """
+    row = await _update_vehiculo(
+        client_id,
+        vehiculo_id,
+        {"es_activo": False},
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Vehículo {vehiculo_id} no encontrado")
+
+
+async def reactivar_vehiculo(
+    client_id: UUID,
+    vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> VehiculoRead:
+    """
+    Reactiva (es_activo = True).
+    """
+    row = await _update_vehiculo(
+        client_id,
+        vehiculo_id,
+        {"es_activo": True},
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(f"Vehículo {vehiculo_id} no encontrado")

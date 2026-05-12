@@ -1,6 +1,6 @@
 # app/modules/pur/presentation/endpoints_cotizaciones.py
 """Endpoints PUR - Cotizaciones. client_id siempre desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from uuid import UUID
 from typing import Optional
 from datetime import date
@@ -8,7 +8,12 @@ from datetime import date
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
-from app.modules.pur.presentation.schemas import CotizacionCreate, CotizacionUpdate, CotizacionRead
+from app.modules.pur.presentation.schemas import (
+    CotizacionCreate,
+    CotizacionUpdate,
+    CotizacionRead,
+    PurMotivoRechazoBody,
+)
 from app.modules.pur.application.services import cotizacion_service
 from app.core.exceptions import NotFoundError
 
@@ -50,23 +55,6 @@ async def listar_cotizaciones(
     )
 
 
-@router.get("/{cotizacion_id}", response_model=CotizacionRead, summary="Detalle cotización")
-async def detalle_cotizacion(
-    cotizacion_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
-):
-    """Detalle de una cotización. Solo del tenant del usuario."""
-    client_id = current_user.cliente_id
-    try:
-        return await cotizacion_service.get_cotizacion_servicio(
-            client_id=client_id,
-            cotizacion_id=cotizacion_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-
-
 @router.post("", response_model=CotizacionRead, status_code=status.HTTP_201_CREATED, summary="Crear cotización")
 async def crear_cotizacion(
     data: CotizacionCreate,
@@ -95,6 +83,49 @@ async def actualizar_cotizacion(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{cotizacion_id}/aceptar", response_model=CotizacionRead, summary="Aceptar cotización")
+async def aceptar_cotizacion(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Pasa la cotización a estado aceptada (desde pendiente, recibida o evaluada)."""
+    client_id = current_user.cliente_id
+    try:
+        return await cotizacion_service.aceptar_cotizacion_servicio(
+            client_id=client_id,
+            cotizacion_id=cotizacion_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{cotizacion_id}/rechazar", response_model=CotizacionRead, summary="Rechazar cotización")
+async def rechazar_cotizacion(
+    cotizacion_id: UUID,
+    body: Optional[PurMotivoRechazoBody] = Body(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Pasa la cotización a estado rechazada. Body opcional: motivo_rechazo."""
+    client_id = current_user.cliente_id
+    body_data = body or PurMotivoRechazoBody()
+    try:
+        return await cotizacion_service.rechazar_cotizacion_servicio(
+            client_id=client_id,
+            cotizacion_id=cotizacion_id,
+            motivo_rechazo=body_data.motivo_rechazo or None,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/{cotizacion_id}/marcar-ganadora", response_model=CotizacionRead, summary="Marcar cotización ganadora")
@@ -107,6 +138,23 @@ async def marcar_ganadora_cotizacion(
     client_id = current_user.cliente_id
     try:
         return await cotizacion_service.marcar_ganadora_cotizacion_servicio(
+            client_id=client_id,
+            cotizacion_id=cotizacion_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/{cotizacion_id}", response_model=CotizacionRead, summary="Detalle cotización")
+async def detalle_cotizacion(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+):
+    """Detalle de una cotización. Solo del tenant del usuario."""
+    client_id = current_user.cliente_id
+    try:
+        return await cotizacion_service.get_cotizacion_servicio(
             client_id=client_id,
             cotizacion_id=cotizacion_id,
         )

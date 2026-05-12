@@ -23,6 +23,10 @@ RESOURCE_CODE = "proyecto"
 
 router = APIRouter()
 
+_EMPRESA_ID_SCOPE_DESC = (
+    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
+)
+
 
 @router.get("", response_model=List[ProyectoRead])
 async def get_proyectos(
@@ -45,11 +49,16 @@ async def get_proyectos(
 @router.get("/{proyecto_id}", response_model=ProyectoRead)
 async def get_proyecto(
     proyecto_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
-        return await get_proyecto_by_id(current_user.cliente_id, proyecto_id)
+        return await get_proyecto_by_id(
+            current_user.cliente_id,
+            proyecto_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -67,10 +76,16 @@ async def post_proyecto(
 async def put_proyecto(
     proyecto_id: UUID,
     data: ProyectoUpdate,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
-        return await update_proyecto(current_user.cliente_id, proyecto_id, data)
+        return await update_proyecto(
+            current_user.cliente_id,
+            proyecto_id,
+            data,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

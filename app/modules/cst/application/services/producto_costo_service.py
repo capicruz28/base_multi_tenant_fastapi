@@ -1,4 +1,5 @@
 """Servicio aplicación cst_producto_costo. Convierte anio <-> año y calcula costo_total/costo_unitario."""
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 from decimal import Decimal
@@ -54,8 +55,10 @@ async def list_producto_costo(
     return [ProductoCostoRead(**_row_to_read(r)) for r in rows]
 
 
-async def get_producto_costo_by_id(client_id: UUID, producto_costo_id: UUID) -> ProductoCostoRead:
-    row = await _get(client_id, producto_costo_id)
+async def get_producto_costo_by_id(
+    client_id: UUID, producto_costo_id: UUID, empresa_id: Optional[UUID] = None
+) -> ProductoCostoRead:
+    row = await _get(client_id, producto_costo_id, empresa_id)
     if not row:
         raise NotFoundError(f"Producto costo {producto_costo_id} no encontrado")
     return ProductoCostoRead(**_row_to_read(row))
@@ -68,10 +71,15 @@ async def create_producto_costo(client_id: UUID, data: ProductoCostoCreate) -> P
 
 
 async def update_producto_costo(
-    client_id: UUID, producto_costo_id: UUID, data: ProductoCostoUpdate
+    client_id: UUID,
+    producto_costo_id: UUID,
+    data: ProductoCostoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> ProductoCostoRead:
     dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, producto_costo_id, dump)
+    if dump.get("fecha_calculo") is None:
+        dump["fecha_calculo"] = datetime.now(timezone.utc).replace(tzinfo=None)
+    row = await _update(client_id, producto_costo_id, _dump_to_db(dump), empresa_id)
     if not row:
         raise NotFoundError(f"Producto costo {producto_costo_id} no encontrado")
     return ProductoCostoRead(**_row_to_read(row))

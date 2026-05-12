@@ -10,6 +10,7 @@ from app.infrastructure.database.queries.mps.plan_produccion_queries import (
     get_plan_produccion_by_id,
     create_plan_produccion,
     update_plan_produccion,
+    set_plan_produccion_estado,
 )
 from app.infrastructure.database.queries.mps.plan_produccion_detalle_queries import (
     list_plan_produccion_detalle,
@@ -27,6 +28,7 @@ __all__ = [
     "get_plan_produccion_by_id",
     "create_plan_produccion",
     "update_plan_produccion",
+    "set_plan_produccion_estado",
     "list_plan_produccion_detalle",
     "get_plan_produccion_detalle_by_id",
     "create_plan_produccion_detalle",

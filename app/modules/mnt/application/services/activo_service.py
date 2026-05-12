@@ -65,3 +65,28 @@ async def update_activo(client_id: UUID, activo_id: UUID, data: ActivoUpdate) ->
     if not row:
         raise NotFoundError(f"Activo {activo_id} no encontrado")
     return ActivoRead(**_row_to_read(row))
+
+
+async def _set_activo_es_activo(
+    client_id: UUID, activo_id: UUID, nuevo_estado: bool
+) -> ActivoRead:
+    """Baja/alta lógica del activo (idempotente)."""
+    current = await _get(client_id, activo_id)
+    if not current:
+        raise NotFoundError(f"Activo {activo_id} no encontrado")
+    if bool(current.get("es_activo")) == nuevo_estado:
+        return ActivoRead(**_row_to_read(current))
+    row = await _update(client_id, activo_id, {"es_activo": nuevo_estado})
+    if not row:
+        raise NotFoundError(f"Activo {activo_id} no encontrado")
+    return ActivoRead(**_row_to_read(row))
+
+
+async def activar_activo(client_id: UUID, activo_id: UUID) -> ActivoRead:
+    """Activa el activo (es_activo=1). Idempotente."""
+    return await _set_activo_es_activo(client_id, activo_id, True)
+
+
+async def desactivar_activo(client_id: UUID, activo_id: UUID) -> ActivoRead:
+    """Desactiva el activo (es_activo=0, baja lógica). Idempotente."""
+    return await _set_activo_es_activo(client_id, activo_id, False)

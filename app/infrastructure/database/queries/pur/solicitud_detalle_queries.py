@@ -14,6 +14,8 @@ from app.infrastructure.database.queries_async import (
 )
 
 _COLUMNS = {c.name for c in PurSolicitudCompraDetalleTable.c}
+_COMPUTED = frozenset({"total_referencial", "cantidad_pendiente"})
+_WRITABLE_COLUMNS = _COLUMNS - _COMPUTED
 
 
 async def list_solicitudes_detalle(
@@ -59,7 +61,7 @@ async def create_solicitud_detalle(client_id: UUID, data: Dict[str, Any]) -> Dic
     """Inserta una línea de solicitud de compra. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
 
-    payload = {k: v for k, v in data.items() if k in _COLUMNS}
+    payload = {k: v for k, v in data.items() if k in _WRITABLE_COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("solicitud_detalle_id", uuid4())
     stmt = insert(PurSolicitudCompraDetalleTable).values(**payload)
@@ -74,7 +76,7 @@ async def update_solicitud_detalle(
     payload = {
         k: v
         for k, v in data.items()
-        if k in _COLUMNS
+        if k in _WRITABLE_COLUMNS
         and k
         not in (
             "solicitud_detalle_id",

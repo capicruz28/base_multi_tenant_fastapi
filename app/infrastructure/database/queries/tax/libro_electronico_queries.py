@@ -54,14 +54,52 @@ async def create_libro_electronico(client_id: UUID, data: Dict[str, Any]) -> Dic
 async def update_libro_electronico(
     client_id: UUID, libro_id: UUID, data: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
-    payload = {k: v for k, v in data.items() if k in _COLUMNS and k not in ("libro_id", "cliente_id")}
+    """Actualiza columnas editables solo si el registro está en estado borrador."""
+    payload = {
+        k: v
+        for k, v in data.items()
+        if k in _COLUMNS and k not in ("libro_id", "cliente_id", "estado")
+    }
     if not payload:
         return await get_libro_electronico_by_id(client_id, libro_id)
     stmt = update(TaxLibroElectronicoTable).where(
         and_(
             TaxLibroElectronicoTable.c.cliente_id == client_id,
             TaxLibroElectronicoTable.c.libro_id == libro_id,
+            TaxLibroElectronicoTable.c.estado == "borrador",
         )
     ).values(**payload)
-    await execute_update(stmt, client_id=client_id)
+    result = await execute_update(stmt, client_id=client_id)
+    if result.get("rows_affected", 0) == 0:
+        return None
+    return await get_libro_electronico_by_id(client_id, libro_id)
+
+
+async def transition_libro_electronico_estado(
+    client_id: UUID,
+    libro_id: UUID,
+    from_estados: frozenset,
+    set_values: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """
+    Cambia estado (y columnas adicionales permitidas) solo si estado actual ∈ from_estados.
+    Retorna la fila actualizada o None si no hubo coincidencia.
+    """
+    payload = {
+        k: v
+        for k, v in set_values.items()
+        if k in _COLUMNS and k not in ("libro_id", "cliente_id")
+    }
+    if not payload:
+        return await get_libro_electronico_by_id(client_id, libro_id)
+    stmt = update(TaxLibroElectronicoTable).where(
+        and_(
+            TaxLibroElectronicoTable.c.cliente_id == client_id,
+            TaxLibroElectronicoTable.c.libro_id == libro_id,
+            TaxLibroElectronicoTable.c.estado.in_(from_estados),
+        )
+    ).values(**payload)
+    result = await execute_update(stmt, client_id=client_id)
+    if result.get("rows_affected", 0) == 0:
+        return None
     return await get_libro_electronico_by_id(client_id, libro_id)

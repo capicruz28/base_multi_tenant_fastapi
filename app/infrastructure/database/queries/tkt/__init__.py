@@ -4,6 +4,10 @@ from app.infrastructure.database.queries.tkt.ticket_queries import (
     get_ticket_by_id,
     create_ticket,
     update_ticket,
+    assign_ticket_transition,
+    iniciar_ticket_transition,
+    resolver_ticket_transition,
+    cerrar_ticket_transition,
 )
 
 __all__ = [
@@ -11,4 +15,8 @@ __all__ = [
     "get_ticket_by_id",
     "create_ticket",
     "update_ticket",
+    "assign_ticket_transition",
+    "iniciar_ticket_transition",
+    "resolver_ticket_transition",
+    "cerrar_ticket_transition",
 ]

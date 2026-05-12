@@ -26,6 +26,10 @@ from app.modules.wms.application.services.tarea_service import (
     get_tarea_by_id,
     create_tarea,
     update_tarea,
+    asignar_tarea,
+    iniciar_tarea,
+    completar_tarea,
+    cancelar_tarea,
 )
 
 __all__ = [
@@ -49,4 +53,8 @@ __all__ = [
     "get_tarea_by_id",
     "create_tarea",
     "update_tarea",
+    "asignar_tarea",
+    "iniciar_tarea",
+    "completar_tarea",
+    "cancelar_tarea",
 ]

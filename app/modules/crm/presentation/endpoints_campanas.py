@@ -55,12 +55,13 @@ async def get_campanas(
 @router.get("/{campana_id}", response_model=CampanaRead, tags=["CRM - Campañas"])
 async def get_campana(
     campana_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una campaña por id."""
     try:
-        return await get_campana_by_id(current_user.cliente_id, campana_id)
+        return await get_campana_by_id(current_user.cliente_id, campana_id, empresa_id=empresa_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

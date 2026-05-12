@@ -15,6 +15,7 @@ from app.modules.log.application.services import (
     get_guia_remision_by_id,
     create_guia_remision,
     update_guia_remision,
+    anular_guia_remision,
     list_guia_remision_detalles,
     get_guia_remision_detalle_by_id,
     create_guia_remision_detalle,
@@ -29,6 +30,7 @@ from app.modules.log.presentation.schemas import (
     GuiaRemisionDetalleRead,
 )
 from app.core.exceptions import NotFoundError
+from app.core.exceptions import ValidationError
 
 router = APIRouter()
 
@@ -69,12 +71,17 @@ async def get_guias_remision(
 @router.get("/{guia_remision_id}", response_model=GuiaRemisionRead, tags=["LOG - Guías de Remisión"])
 async def get_guia_remision(
     guia_remision_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una guía de remisión por id."""
     try:
-        return await get_guia_remision_by_id(current_user.cliente_id, guia_remision_id)
+        return await get_guia_remision_by_id(
+            current_user.cliente_id,
+            guia_remision_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -93,14 +100,47 @@ async def post_guia_remision(
 async def put_guia_remision(
     guia_remision_id: UUID,
     data: GuiaRemisionUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una guía de remisión."""
     try:
-        return await update_guia_remision(current_user.cliente_id, guia_remision_id, data)
+        return await update_guia_remision(
+            current_user.cliente_id,
+            guia_remision_id,
+            data,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{guia_remision_id}/anular",
+    response_model=GuiaRemisionRead,
+    status_code=status.HTTP_200_OK,
+    tags=["LOG - Guías de Remisión"],
+)
+async def post_anular_guia_remision(
+    guia_remision_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Anula una guía de remisión."""
+    try:
+        return await anular_guia_remision(
+            current_user.cliente_id,
+            guia_remision_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 # ============================================================================

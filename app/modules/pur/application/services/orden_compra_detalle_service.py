@@ -11,6 +11,7 @@ from app.infrastructure.database.queries.pur import (
     get_orden_compra_detalle_by_id,
     create_orden_compra_detalle,
     update_orden_compra_detalle,
+    get_orden_compra_by_id,
 )
 from app.modules.pur.presentation.schemas import (
     OrdenCompraDetalleCreate,
@@ -18,9 +19,26 @@ from app.modules.pur.presentation.schemas import (
     OrdenCompraDetalleRead,
 )
 
+_EDITABLE_OC = frozenset({"borrador"})
+
 
 def _row_to_read(row: dict) -> OrdenCompraDetalleRead:
     return OrdenCompraDetalleRead(**row)
+
+def _norm_estado(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+async def _require_oc_editable(
+    *, client_id: UUID, orden_compra_id: UUID, not_found_detail: str
+) -> None:
+    cab = await get_orden_compra_by_id(client_id=client_id, orden_compra_id=orden_compra_id)
+    if not cab:
+        raise NotFoundError(detail=not_found_detail)
+    if _norm_estado(cab.get("estado")) not in _EDITABLE_OC:
+        raise ValueError(
+            "No se puede modificar el detalle: la orden de compra no está en estado editable"
+        )
 
 
 async def list_ordenes_compra_detalle_servicio(
@@ -56,6 +74,11 @@ async def create_orden_compra_detalle_servicio(
     data: OrdenCompraDetalleCreate,
 ) -> OrdenCompraDetalleRead:
     await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+    await _require_oc_editable(
+        client_id=client_id,
+        orden_compra_id=data.orden_compra_id,
+        not_found_detail="Orden de compra no encontrada",
+    )
     payload = data.model_dump()
     row = await create_orden_compra_detalle(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -72,6 +95,11 @@ async def update_orden_compra_detalle_servicio(
     )
     if not row:
         raise NotFoundError(detail="Detalle de orden de compra no encontrado")
+    await _require_oc_editable(
+        client_id=client_id,
+        orden_compra_id=row["orden_compra_id"],
+        not_found_detail="Orden de compra no encontrada",
+    )
     payload = data.model_dump(exclude_unset=True)
     updated = await update_orden_compra_detalle(
         client_id=client_id,

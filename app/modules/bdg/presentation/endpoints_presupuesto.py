@@ -10,6 +10,9 @@ from app.modules.bdg.application.services import (
     get_presupuesto_by_id,
     create_presupuesto,
     update_presupuesto,
+    aprobar_presupuesto,
+    procesar_presupuesto,
+    anular_presupuesto,
 )
 from app.modules.bdg.presentation.schemas import (
     PresupuestoCreate,
@@ -74,5 +77,41 @@ async def put_presupuesto(
 ):
     try:
         return await update_presupuesto(current_user.cliente_id, presupuesto_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{presupuesto_id}/aprobar", response_model=PresupuestoRead)
+async def post_aprobar_presupuesto(
+    presupuesto_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")),
+):
+    try:
+        return await aprobar_presupuesto(current_user.cliente_id, presupuesto_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{presupuesto_id}/procesar", response_model=PresupuestoRead)
+async def post_procesar_presupuesto(
+    presupuesto_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.procesar")),
+):
+    try:
+        return await procesar_presupuesto(current_user.cliente_id, presupuesto_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{presupuesto_id}/anular", response_model=PresupuestoRead)
+async def post_anular_presupuesto(
+    presupuesto_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+):
+    try:
+        return await anular_presupuesto(current_user.cliente_id, presupuesto_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

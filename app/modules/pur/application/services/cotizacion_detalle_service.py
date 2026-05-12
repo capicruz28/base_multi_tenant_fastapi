@@ -11,6 +11,7 @@ from app.infrastructure.database.queries.pur import (
     get_cotizacion_detalle_by_id,
     create_cotizacion_detalle,
     update_cotizacion_detalle,
+    get_cotizacion_by_id,
 )
 from app.modules.pur.presentation.schemas import (
     CotizacionDetalleCreate,
@@ -18,9 +19,26 @@ from app.modules.pur.presentation.schemas import (
     CotizacionDetalleRead,
 )
 
+_EDITABLE_COTIZACION = frozenset({"pendiente"})
+
 
 def _row_to_read(row: dict) -> CotizacionDetalleRead:
     return CotizacionDetalleRead(**row)
+
+def _norm_estado(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+async def _require_cotizacion_editable(
+    *, client_id: UUID, cotizacion_id: UUID, not_found_detail: str
+) -> None:
+    cab = await get_cotizacion_by_id(client_id=client_id, cotizacion_id=cotizacion_id)
+    if not cab:
+        raise NotFoundError(detail=not_found_detail)
+    if _norm_estado(cab.get("estado")) not in _EDITABLE_COTIZACION:
+        raise ValueError(
+            "No se puede modificar el detalle: la cotización no está en estado editable"
+        )
 
 
 async def list_cotizaciones_detalle_servicio(
@@ -55,6 +73,11 @@ async def create_cotizacion_detalle_servicio(
     data: CotizacionDetalleCreate,
 ) -> CotizacionDetalleRead:
     await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+    await _require_cotizacion_editable(
+        client_id=client_id,
+        cotizacion_id=data.cotizacion_id,
+        not_found_detail="Cotización no encontrada",
+    )
     payload = data.model_dump()
     row = await create_cotizacion_detalle(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -70,6 +93,11 @@ async def update_cotizacion_detalle_servicio(
     )
     if not row:
         raise NotFoundError(detail="Detalle de cotización no encontrado")
+    await _require_cotizacion_editable(
+        client_id=client_id,
+        cotizacion_id=row["cotizacion_id"],
+        not_found_detail="Cotización no encontrada",
+    )
     payload = data.model_dump(exclude_unset=True)
     updated = await update_cotizacion_detalle(
         client_id=client_id,

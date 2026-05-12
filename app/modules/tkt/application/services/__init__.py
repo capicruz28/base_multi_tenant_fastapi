@@ -4,6 +4,10 @@ from app.modules.tkt.application.services.ticket_service import (
     get_ticket_by_id,
     create_ticket,
     update_ticket,
+    assign_ticket,
+    iniciar_ticket,
+    resolver_ticket,
+    cerrar_ticket,
 )
 
 __all__ = [
@@ -11,4 +15,8 @@ __all__ = [
     "get_ticket_by_id",
     "create_ticket",
     "update_ticket",
+    "assign_ticket",
+    "iniciar_ticket",
+    "resolver_ticket",
+    "cerrar_ticket",
 ]

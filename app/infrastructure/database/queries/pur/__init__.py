@@ -26,6 +26,7 @@ from app.infrastructure.database.queries.pur.solicitud_queries import (
     get_solicitud_by_id,
     create_solicitud,
     update_solicitud,
+    update_solicitud_anular,
 )
 from app.infrastructure.database.queries.pur.solicitud_detalle_queries import (
     list_solicitudes_detalle,
@@ -92,6 +93,7 @@ __all__ = [
     "get_solicitud_by_id",
     "create_solicitud",
     "update_solicitud",
+    "update_solicitud_anular",
     "list_solicitudes_detalle",
     "get_solicitud_detalle_by_id",
     "create_solicitud_detalle",

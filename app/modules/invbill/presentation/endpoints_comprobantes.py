@@ -15,13 +15,16 @@ from app.modules.invbill.application.services import (
     get_comprobante_by_id,
     create_comprobante,
     update_comprobante,
+    anular_comprobante,
+    procesar_comprobante,
 )
 from app.modules.invbill.presentation.schemas import (
     ComprobanteCreate,
     ComprobanteUpdate,
     ComprobanteRead,
+    ComprobanteAnularBody,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceError
 
 MODULE_CODE = "inv_bill"
 RESOURCE_CODE = "comprobante"
@@ -59,12 +62,15 @@ async def get_comprobantes(
 @router.get("/{comprobante_id}", response_model=ComprobanteRead, tags=["INV_BILL - Comprobantes"])
 async def get_comprobante(
     comprobante_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un comprobante por id."""
     try:
-        return await get_comprobante_by_id(current_user.cliente_id, comprobante_id)
+        return await get_comprobante_by_id(
+            current_user.cliente_id, comprobante_id, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -79,15 +85,68 @@ async def post_comprobante(
     return await create_comprobante(current_user.cliente_id, data)
 
 
+@router.post(
+    "/{comprobante_id}/anular",
+    response_model=ComprobanteRead,
+    tags=["INV_BILL - Comprobantes"],
+)
+async def post_anular_comprobante(
+    comprobante_id: UUID,
+    body: ComprobanteAnularBody,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+):
+    """Anula un comprobante (requiere motivo)."""
+    try:
+        return await anular_comprobante(
+            current_user.cliente_id,
+            comprobante_id,
+            body.motivo_anulacion,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{comprobante_id}/procesar",
+    response_model=ComprobanteRead,
+    tags=["INV_BILL - Comprobantes"],
+)
+async def post_procesar_comprobante(
+    comprobante_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.procesar")),
+):
+    """Pasa el comprobante de borrador a emitido (sin integración SUNAT en esta fase)."""
+    try:
+        return await procesar_comprobante(
+            current_user.cliente_id, comprobante_id, empresa_id=empresa_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
 @router.put("/{comprobante_id}", response_model=ComprobanteRead, tags=["INV_BILL - Comprobantes"])
 async def put_comprobante(
     comprobante_id: UUID,
     data: ComprobanteUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un comprobante."""
     try:
-        return await update_comprobante(current_user.cliente_id, comprobante_id, data)
+        return await update_comprobante(
+            current_user.cliente_id, comprobante_id, data, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

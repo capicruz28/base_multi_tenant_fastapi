@@ -63,12 +63,13 @@ async def get_actividades(
 @router.get("/{actividad_id}", response_model=ActividadRead, tags=["CRM - Actividades"])
 async def get_actividad(
     actividad_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una actividad por id."""
     try:
-        return await get_actividad_by_id(current_user.cliente_id, actividad_id)
+        return await get_actividad_by_id(current_user.cliente_id, actividad_id, empresa_id=empresa_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

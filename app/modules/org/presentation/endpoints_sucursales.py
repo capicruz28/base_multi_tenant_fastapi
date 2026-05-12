@@ -1,6 +1,6 @@
 # app/modules/org/presentation/endpoints_sucursales.py
 """Endpoints ORG - Sucursales. client_id desde current_user.cliente_id."""
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
@@ -11,6 +11,10 @@ from app.modules.org.application.services import sucursal_service
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
+
+_EMPRESA_ID_SCOPE_DESC = (
+    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
+)
 
 
 @router.get("", response_model=list[SucursalRead], summary="Listar sucursales")
@@ -29,9 +33,32 @@ async def listar_sucursales(
     )
 
 
+@router.post(
+    "/{sucursal_id}/reactivar",
+    response_model=SucursalRead,
+    summary="Reactivar sucursal",
+)
+async def reactivar_sucursal(
+    sucursal_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
+):
+    """Marca la sucursal como activa (es_activo = True) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await sucursal_service.reactivar_sucursal_servicio(
+            client_id=client_id,
+            sucursal_id=sucursal_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
 @router.get("/{sucursal_id}", response_model=SucursalRead, summary="Detalle sucursal")
 async def detalle_sucursal(
     sucursal_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.leer")),
 ):
     client_id = current_user.cliente_id
@@ -39,6 +66,7 @@ async def detalle_sucursal(
         return await sucursal_service.get_sucursal_servicio(
             client_id=client_id,
             sucursal_id=sucursal_id,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -56,7 +84,8 @@ async def crear_sucursal(
 @router.put("/{sucursal_id}", response_model=SucursalRead, summary="Actualizar sucursal")
 async def actualizar_sucursal(
     sucursal_id: UUID,
-    data: SucursalUpdate,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    data: SucursalUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
 ):
     client_id = current_user.cliente_id
@@ -65,6 +94,7 @@ async def actualizar_sucursal(
             client_id=client_id,
             sucursal_id=sucursal_id,
             data=data,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -77,6 +107,7 @@ async def actualizar_sucursal(
 )
 async def eliminar_sucursal(
     sucursal_id: UUID,
+    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.eliminar")),
 ):
     """Marca una sucursal como inactiva (baja lógica) dentro del tenant."""
@@ -85,6 +116,7 @@ async def eliminar_sucursal(
         await sucursal_service.delete_sucursal_servicio(
             client_id=client_id,
             sucursal_id=sucursal_id,
+            empresa_id=empresa_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

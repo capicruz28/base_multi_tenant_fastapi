@@ -30,6 +30,7 @@ router = APIRouter()
 
 @router.get("", response_model=List[StockUbicacionRead], tags=["WMS - Stock por Ubicación"])
 async def get_stock_ubicaciones(
+    empresa_id: UUID = Query(...),
     almacen_id: Optional[UUID] = Query(None),
     ubicacion_id: Optional[UUID] = Query(None),
     producto_id: Optional[UUID] = Query(None),
@@ -41,6 +42,7 @@ async def get_stock_ubicaciones(
     """Lista stock por ubicación del tenant."""
     return await list_stock_ubicaciones(
         client_id=current_user.cliente_id,
+        empresa_id=empresa_id,
         almacen_id=almacen_id,
         ubicacion_id=ubicacion_id,
         producto_id=producto_id,
@@ -52,35 +54,46 @@ async def get_stock_ubicaciones(
 @router.get("/{stock_ubicacion_id}", response_model=StockUbicacionRead, tags=["WMS - Stock por Ubicación"])
 async def get_stock_ubicacion(
     stock_ubicacion_id: UUID,
+    empresa_id: UUID = Query(...),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un stock por ubicación por id."""
     try:
-        return await get_stock_ubicacion_by_id(current_user.cliente_id, stock_ubicacion_id)
+        return await get_stock_ubicacion_by_id(current_user.cliente_id, empresa_id, stock_ubicacion_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("", response_model=StockUbicacionRead, status_code=status.HTTP_201_CREATED, tags=["WMS - Stock por Ubicación"])
+@router.post(
+    "",
+    response_model=StockUbicacionRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["WMS - Stock por Ubicación"],
+    deprecated=True,
+)
 async def post_stock_ubicacion(
     data: StockUbicacionCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea un stock por ubicación."""
+    """Crea un stock por ubicación. Uso interno (derivado de procesos de inventario)."""
     return await create_stock_ubicacion(current_user.cliente_id, data)
 
 
-@router.put("/{stock_ubicacion_id}", response_model=StockUbicacionRead, tags=["WMS - Stock por Ubicación"])
+@router.put("/{stock_ubicacion_id}", response_model=StockUbicacionRead, tags=["WMS - Stock por Ubicación"], deprecated=True)
 async def put_stock_ubicacion(
     stock_ubicacion_id: UUID,
     data: StockUbicacionUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza un stock por ubicación."""
+    """Actualiza un stock por ubicación. Uso interno (derivado de procesos de inventario)."""
+    empresa_id_final = data.empresa_id or empresa_id
+    if empresa_id_final is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empresa_id es requerido")
     try:
-        return await update_stock_ubicacion(current_user.cliente_id, stock_ubicacion_id, data)
+        return await update_stock_ubicacion(current_user.cliente_id, empresa_id_final, stock_ubicacion_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

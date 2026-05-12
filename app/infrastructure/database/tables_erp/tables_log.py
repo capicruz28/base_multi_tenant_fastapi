@@ -16,6 +16,7 @@ from sqlalchemy.sql import func
 
 # Usar la misma metadata_erp que tables_org
 from app.infrastructure.database.tables_erp.tables_org import metadata_erp
+from app.infrastructure.database.tables_erp.tables_org import CatMonedaTable
 
 # ============================================================================
 # TABLA: log_transportista
@@ -38,7 +39,12 @@ LogTransportistaTable = Table(
     Column("direccion", String(255), nullable=True),
     Column("tarifa_km", Numeric(10, 2), nullable=True),
     Column("tarifa_hora", Numeric(10, 2), nullable=True),
-    Column("moneda_tarifa", String(3), nullable=True, server_default="PEN"),
+    Column(
+        "moneda_tarifa",
+        UNIQUEIDENTIFIER,
+        ForeignKey(f"{CatMonedaTable.name}.moneda_id", ondelete="NO ACTION"),
+        nullable=False,
+    ),
     Column("calificacion", Numeric(3, 2), nullable=True),
     Column("es_activo", Boolean, nullable=False, server_default="1"),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
@@ -106,7 +112,12 @@ LogRutaTable = Table(
     Column("tiempo_estimado_horas", Numeric(5, 2), nullable=True),
     Column("tipo_carretera", String(30), nullable=True),
     Column("costo_estimado", Numeric(12, 2), nullable=True),
-    Column("moneda", String(3), nullable=True, server_default="PEN"),
+    Column(
+        "moneda_id",
+        UNIQUEIDENTIFIER,
+        ForeignKey(f"{CatMonedaTable.name}.moneda_id", ondelete="NO ACTION"),
+        nullable=False,
+    ),
     Column("cantidad_peajes", Integer, nullable=True, server_default="0"),
     Column("costo_peajes", Numeric(10, 2), nullable=True, server_default="0"),
     Column("puntos_intermedios", Text, nullable=True),

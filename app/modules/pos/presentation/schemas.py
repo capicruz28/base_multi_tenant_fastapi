@@ -104,18 +104,10 @@ class TurnoCajaUpdate(BaseModel):
     fecha_cierre: Optional[datetime] = None
     monto_cierre_esperado: Optional[Decimal] = Field(None, ge=0)
     monto_cierre_real: Optional[Decimal] = Field(None, ge=0)
-    total_ventas: Optional[int] = Field(None, ge=0)
-    total_ventas_efectivo: Optional[Decimal] = Field(None, ge=0)
-    total_ventas_tarjeta: Optional[Decimal] = Field(None, ge=0)
-    total_ventas_transferencia: Optional[Decimal] = Field(None, ge=0)
-    total_ventas_otros: Optional[Decimal] = Field(None, ge=0)
     total_egresos: Optional[Decimal] = Field(None, ge=0)
-    total_facturas: Optional[int] = Field(None, ge=0)
-    total_boletas: Optional[int] = Field(None, ge=0)
-    total_notas_credito: Optional[int] = Field(None, ge=0)
-    estado: Optional[str] = Field(None, max_length=20)
     observaciones_cierre: Optional[str] = Field(None, max_length=500)
     cerrado_por_usuario_id: Optional[UUID] = None
+    estado: Optional[str] = Field(None, max_length=20)
 
 
 class TurnoCajaRead(BaseModel):
@@ -131,6 +123,8 @@ class TurnoCajaRead(BaseModel):
     fecha_cierre: Optional[datetime]
     monto_cierre_esperado: Optional[Decimal]
     monto_cierre_real: Optional[Decimal]
+    diferencia: Optional[Decimal] = None
+    total_ingresos: Optional[Decimal] = None
     total_ventas: Optional[int]
     total_ventas_efectivo: Optional[Decimal]
     total_ventas_tarjeta: Optional[Decimal]
@@ -165,6 +159,7 @@ class VentaCreate(BaseModel):
     cliente_documento_tipo: Optional[str] = Field(None, max_length=10)
     cliente_documento_numero: Optional[str] = Field(None, max_length=20)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     subtotal: Optional[Decimal] = Field(0, ge=0)
     descuento_global: Optional[Decimal] = Field(0, ge=0)
     igv: Optional[Decimal] = Field(0, ge=0)
@@ -211,11 +206,14 @@ class VentaRead(BaseModel):
     cliente_documento_tipo: Optional[str]
     cliente_documento_numero: Optional[str]
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     subtotal: Optional[Decimal]
     descuento_global: Optional[Decimal]
     igv: Optional[Decimal]
     total: Optional[Decimal]
     redondeo: Optional[Decimal]
+    total_cobrar: Optional[Decimal] = None
+    monto_cambio: Optional[Decimal] = None
     forma_pago: str
     monto_efectivo: Optional[Decimal]
     monto_tarjeta: Optional[Decimal]
@@ -262,9 +260,19 @@ class VentaDetalleUpdate(BaseModel):
     lote: Optional[str] = Field(None, max_length=50)
 
 
+class VentaAnularRequest(BaseModel):
+    motivo_anulacion: str = Field(..., min_length=1, max_length=500)
+
+
+class TurnoCajaCerrarRequest(BaseModel):
+    monto_cierre_real: Decimal = Field(..., ge=0)
+    observaciones_cierre: Optional[str] = Field(None, max_length=500)
+
+
 class VentaDetalleRead(BaseModel):
     venta_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     venta_id: UUID
     item: int
     producto_id: UUID
@@ -273,6 +281,11 @@ class VentaDetalleRead(BaseModel):
     unidad_medida_id: UUID
     precio_unitario: Decimal
     descuento_porcentaje: Optional[Decimal]
+    descuento_monto: Optional[Decimal] = None
+    precio_neto: Optional[Decimal] = None
+    subtotal: Optional[Decimal] = None
+    igv: Optional[Decimal] = None
+    total: Optional[Decimal] = None
     promocion_id: Optional[UUID]
     lote: Optional[str]
     fecha_creacion: datetime

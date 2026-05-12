@@ -58,7 +58,9 @@ async def list_actividades(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_actividad_by_id(client_id: UUID, actividad_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_actividad_by_id(
+    client_id: UUID, actividad_id: UUID, empresa_id: Optional[UUID] = None
+) -> Optional[Dict[str, Any]]:
     """Obtiene una actividad por id."""
     query = select(CrmActividadTable).where(
         and_(
@@ -66,6 +68,8 @@ async def get_actividad_by_id(client_id: UUID, actividad_id: UUID) -> Optional[D
             CrmActividadTable.c.actividad_id == actividad_id,
         )
     )
+    if empresa_id:
+        query = query.where(CrmActividadTable.c.empresa_id == empresa_id)
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 

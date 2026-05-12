@@ -4,6 +4,11 @@ from app.modules.mrp.application.services.plan_maestro_service import (
     get_plan_maestro_by_id,
     create_plan_maestro,
     update_plan_maestro,
+    calcular_plan_maestro,
+    aprobar_plan_maestro,
+    ejecutar_plan_maestro,
+    cerrar_plan_maestro,
+    anular_plan_maestro,
 )
 from app.modules.mrp.application.services.necesidad_bruta_service import (
     list_necesidad_bruta,
@@ -22,6 +27,9 @@ from app.modules.mrp.application.services.orden_sugerida_service import (
     get_orden_sugerida_by_id,
     create_orden_sugerida,
     update_orden_sugerida,
+    aprobar_orden_sugerida,
+    rechazar_orden_sugerida,
+    convertir_orden_sugerida,
 )
 
 __all__ = [
@@ -29,6 +37,11 @@ __all__ = [
     "get_plan_maestro_by_id",
     "create_plan_maestro",
     "update_plan_maestro",
+    "calcular_plan_maestro",
+    "aprobar_plan_maestro",
+    "ejecutar_plan_maestro",
+    "cerrar_plan_maestro",
+    "anular_plan_maestro",
     "list_necesidad_bruta",
     "get_necesidad_bruta_by_id",
     "create_necesidad_bruta",
@@ -41,4 +54,7 @@ __all__ = [
     "get_orden_sugerida_by_id",
     "create_orden_sugerida",
     "update_orden_sugerida",
+    "aprobar_orden_sugerida",
+    "rechazar_orden_sugerida",
+    "convertir_orden_sugerida",
 ]

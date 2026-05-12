@@ -3,7 +3,7 @@
 Schemas Pydantic para el módulo ORG (Organización).
 Todos los Create/Update excluyen cliente_id; se asigna desde contexto en backend.
 """
-from typing import Optional, Any
+from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
@@ -136,6 +136,8 @@ class EmpresaRead(BaseModel):
     fecha_inicio_operaciones: Optional[date] = None
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
+    usuario_creacion_id: Optional[UUID] = None
+    usuario_actualizacion_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -155,6 +157,7 @@ class CentroCostoCreate(BaseModel):
     permite_imputacion_directa: Optional[bool] = True
     responsable_usuario_id: Optional[UUID] = None
     responsable_nombre: Optional[str] = None
+    ruta_jerarquica: Optional[str] = Field(None, max_length=500)
     es_activo: Optional[bool] = True
     fecha_inicio_vigencia: Optional[date] = None
     fecha_fin_vigencia: Optional[date] = None
@@ -172,6 +175,7 @@ class CentroCostoUpdate(BaseModel):
     permite_imputacion_directa: Optional[bool] = None
     responsable_usuario_id: Optional[UUID] = None
     responsable_nombre: Optional[str] = None
+    ruta_jerarquica: Optional[str] = Field(None, max_length=500)
     es_activo: Optional[bool] = None
     fecha_inicio_vigencia: Optional[date] = None
     fecha_fin_vigencia: Optional[date] = None
@@ -198,6 +202,7 @@ class CentroCostoRead(BaseModel):
     fecha_fin_vigencia: Optional[date] = None
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
+    usuario_creacion_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -301,6 +306,7 @@ class SucursalRead(BaseModel):
     fecha_cierre: Optional[date] = None
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
+    usuario_creacion_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -315,7 +321,9 @@ class DepartamentoCreate(BaseModel):
     departamento_padre_id: Optional[UUID] = None
     nivel: Optional[int] = 1
     tipo_departamento: Optional[str] = None
+    jefe_departamento_usuario_id: Optional[UUID] = None
     jefe_nombre: Optional[str] = None
+    ruta_jerarquica: Optional[str] = Field(None, max_length=500)
     centro_costo_id: Optional[UUID] = None
     sucursal_id: Optional[UUID] = None
     es_activo: Optional[bool] = True
@@ -330,6 +338,7 @@ class DepartamentoUpdate(BaseModel):
     tipo_departamento: Optional[str] = None
     jefe_departamento_usuario_id: Optional[UUID] = None
     jefe_nombre: Optional[str] = None
+    ruta_jerarquica: Optional[str] = Field(None, max_length=500)
     centro_costo_id: Optional[UUID] = None
     sucursal_id: Optional[UUID] = None
     es_activo: Optional[bool] = None
@@ -353,6 +362,7 @@ class DepartamentoRead(BaseModel):
     es_activo: bool
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
+    usuario_creacion_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -417,6 +427,7 @@ class CargoRead(BaseModel):
     es_activo: bool
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
+    usuario_creacion_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -439,6 +450,8 @@ class ParametroCreate(BaseModel):
     es_editable: Optional[bool] = True
     es_obligatorio: Optional[bool] = False
     opciones_validas: Optional[str] = None
+    expresion_validacion: Optional[str] = Field(None, max_length=500)
+    mensaje_validacion: Optional[str] = Field(None, max_length=255)
     es_activo: Optional[bool] = True
 
 
@@ -483,6 +496,7 @@ class ParametroRead(BaseModel):
     es_activo: bool
     fecha_creacion: Optional[datetime] = None
     fecha_actualizacion: Optional[datetime] = None
+    usuario_actualizacion_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True

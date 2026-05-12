@@ -10,6 +10,7 @@ from app.infrastructure.database.queries.sls import (
     get_cliente_by_id as _get_cliente_by_id,
     create_cliente as _create_cliente,
     update_cliente as _update_cliente,
+    set_cliente_activo as _set_cliente_activo,
 )
 from app.modules.sls.presentation.schemas import ClienteCreate, ClienteUpdate, ClienteRead
 from app.core.exceptions import NotFoundError
@@ -54,6 +55,22 @@ async def update_cliente(
     row = await _update_cliente(
         client_id, cliente_venta_id, data.model_dump(exclude_none=True)
     )
+    if not row:
+        raise NotFoundError(f"Cliente {cliente_venta_id} no encontrado")
+    return ClienteRead(**row)
+
+
+async def baja_cliente(client_id: UUID, cliente_venta_id: UUID) -> ClienteRead:
+    """Baja lógica: es_activo = 0."""
+    row = await _set_cliente_activo(client_id=client_id, cliente_venta_id=cliente_venta_id, es_activo=False)
+    if not row:
+        raise NotFoundError(f"Cliente {cliente_venta_id} no encontrado")
+    return ClienteRead(**row)
+
+
+async def reactivar_cliente(client_id: UUID, cliente_venta_id: UUID) -> ClienteRead:
+    """Reactivar: es_activo = 1."""
+    row = await _set_cliente_activo(client_id=client_id, cliente_venta_id=cliente_venta_id, es_activo=True)
     if not row:
         raise NotFoundError(f"Cliente {cliente_venta_id} no encontrado")
     return ClienteRead(**row)

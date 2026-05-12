@@ -7,6 +7,95 @@
 -- USADO POR: Todos los módulos del sistema
 -- ============================================================================
 
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_moneda (GLOBAL)
+-- Descripción: Catálogo de monedas soportadas por la empresa
+-- Uso: Permite configurar diferentes monedas para operaciones financieras
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_moneda (
+    moneda_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    codigo NVARCHAR(3) NOT NULL,
+    nombre NVARCHAR(50) NOT NULL,
+    simbolo NVARCHAR(5) NOT NULL,
+    decimales INT DEFAULT 2,
+    es_activo BIT DEFAULT 1,
+    CONSTRAINT UQ_moneda_codigo UNIQUE (codigo)
+);
+
+CREATE INDEX IDX_moneda_activo ON cat_moneda(es_activo);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_pais (GLOBAL)
+-- Descripción: Catálogo de países soportados por la empresa
+-- Uso: Permite configurar diferentes países
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_pais (
+    pais_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    codigo_iso2 NVARCHAR(2) NOT NULL,
+    codigo_iso3 NVARCHAR(3) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
+    CONSTRAINT UQ_pais_iso2 UNIQUE (codigo_iso2)
+);
+
+CREATE INDEX IDX_pais_activo ON cat_pais(es_activo);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_departamento (GLOBAL)
+-- Descripción: Catálogo de departamentos soportados por la empresa
+-- Uso: Permite configurar diferentes departamentos
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_departamento (
+    departamento_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    pais_id UNIQUEIDENTIFIER NOT NULL,
+    codigo NVARCHAR(10) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    CONSTRAINT FK_depto_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION
+);
+
+CREATE INDEX IDX_depto_pais ON cat_departamento(pais_id);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_provincia (GLOBAL)
+-- Descripción: Catálogo de provincias soportadas por la empresa
+-- Uso: Permite configurar diferentes provincias
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_provincia (
+    provincia_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    departamento_id UNIQUEIDENTIFIER NOT NULL,
+    codigo NVARCHAR(10) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    CONSTRAINT FK_prov_depto FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION
+);
+
+CREATE INDEX IDX_prov_depto ON cat_provincia(departamento_id);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_distrito (GLOBAL)
+-- Descripción: Catálogo de distritos soportados por la empresa
+-- Uso: Permite configurar diferentes distritos
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_distrito (
+    distrito_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    provincia_id UNIQUEIDENTIFIER NOT NULL,
+    codigo NVARCHAR(10) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    ubigeo NVARCHAR(6) NOT NULL,
+    CONSTRAINT FK_dist_prov FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT UQ_ubigeo UNIQUE (ubigeo)
+);
+
+CREATE INDEX IDX_dist_prov ON cat_distrito(provincia_id);
+CREATE INDEX IDX_dist_ubigeo ON cat_distrito(ubigeo);
+
 -- -----------------------------------------------------------------------------
 -- Tabla: org_empresa
 -- Descripción: Datos maestros de la empresa/organización del cliente
@@ -28,10 +117,10 @@ CREATE TABLE org_empresa (
     
     -- Dirección fiscal
     direccion_fiscal NVARCHAR(255) NULL,
-    pais NVARCHAR(50) DEFAULT 'Perú',
-    departamento NVARCHAR(50) NULL,
-    provincia NVARCHAR(50) NULL,
-    distrito NVARCHAR(50) NULL,
+    pais_id UNIQUEIDENTIFIER NULL,
+    departamento_id UNIQUEIDENTIFIER NULL,
+    provincia_id UNIQUEIDENTIFIER NULL,
+    distrito_id UNIQUEIDENTIFIER NULL,
     codigo_postal NVARCHAR(10) NULL,
     ubigeo NVARCHAR(6) NULL,                                  -- Código ubigeo INEI (Perú)
     
@@ -46,9 +135,12 @@ CREATE TABLE org_empresa (
     representante_legal_nombre NVARCHAR(150) NULL,
     representante_legal_dni NVARCHAR(20) NULL,
     representante_legal_cargo NVARCHAR(50) NULL,
+
+    -- Multi-moneda
+    moneda_base_id UNIQUEIDENTIFIER NULL,                     -- Se llena DESPUÉS de crear monedas
+    maneja_multimoneda BIT DEFAULT 0,
     
     -- Configuración
-    moneda_base NVARCHAR(3) DEFAULT 'PEN',                    -- PEN, USD, EUR, etc (ISO 4217)
     zona_horaria NVARCHAR(50) DEFAULT 'America/Lima',         -- Timezone
     idioma_sistema NVARCHAR(5) DEFAULT 'es-PE',               -- es-PE, en-US, etc
     formato_fecha NVARCHAR(20) DEFAULT 'dd/MM/yyyy',
@@ -71,7 +163,17 @@ CREATE TABLE org_empresa (
     usuario_actualizacion_id UNIQUEIDENTIFIER NULL,
     
     CONSTRAINT UQ_org_empresa_cliente UNIQUE (cliente_id, codigo_empresa),
-    CONSTRAINT UQ_org_empresa_ruc UNIQUE (cliente_id, ruc)
+    CONSTRAINT UQ_org_empresa_ruc UNIQUE (cliente_id, ruc),
+    CONSTRAINT FK_empresa_moneda_base FOREIGN KEY (moneda_base_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_empresa_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_empresa_depto FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_empresa_prov FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_empresa_dist FOREIGN KEY (distrito_id) 
+        REFERENCES cat_distrito(distrito_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_org_empresa_cliente ON org_empresa(cliente_id, es_activo);
@@ -145,10 +247,10 @@ CREATE TABLE org_sucursal (
     -- Dirección
     direccion NVARCHAR(255) NULL,
     referencia NVARCHAR(255) NULL,
-    pais NVARCHAR(50) DEFAULT 'Perú',
-    departamento NVARCHAR(50) NULL,
-    provincia NVARCHAR(50) NULL,
-    distrito NVARCHAR(50) NULL,
+    pais_id UNIQUEIDENTIFIER NULL,
+    departamento_id UNIQUEIDENTIFIER NULL,
+    provincia_id UNIQUEIDENTIFIER NULL,
+    distrito_id UNIQUEIDENTIFIER NULL,
     ubigeo NVARCHAR(6) NULL,
     codigo_postal NVARCHAR(10) NULL,
     latitud DECIMAL(10,8) NULL,                               -- Para geolocalización
@@ -187,7 +289,15 @@ CREATE TABLE org_sucursal (
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT FK_sucursal_cc FOREIGN KEY (centro_costo_id) 
         REFERENCES org_centro_costo(centro_costo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_sucursal_codigo UNIQUE (cliente_id, empresa_id, codigo)
+    CONSTRAINT UQ_sucursal_codigo UNIQUE (cliente_id, empresa_id, codigo),
+    CONSTRAINT FK_sucursal_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_sucursal_depto FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_sucursal_prov FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_sucursal_dist FOREIGN KEY (distrito_id) 
+        REFERENCES cat_distrito(distrito_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_sucursal_empresa ON org_sucursal(empresa_id, es_activo);
@@ -271,7 +381,7 @@ CREATE TABLE org_cargo (
     -- Configuración salarial
     rango_salarial_min DECIMAL(12,2) NULL,                    -- Salario mínimo del cargo
     rango_salarial_max DECIMAL(12,2) NULL,                    -- Salario máximo del cargo
-    moneda_salarial NVARCHAR(3) DEFAULT 'PEN',
+    moneda_salarial UNIQUEIDENTIFIER NOT NULL,
     
     -- Requisitos (flexible para diferentes industrias)
     nivel_educacion_minimo NVARCHAR(50) NULL,                 -- 'secundaria', 'tecnico', 'universitario', 'posgrado'
@@ -290,7 +400,9 @@ CREATE TABLE org_cargo (
         REFERENCES org_departamento(departamento_id) ON DELETE NO ACTION,
     CONSTRAINT FK_cargo_jefe FOREIGN KEY (cargo_jefe_id) 
         REFERENCES org_cargo(cargo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_cargo_codigo UNIQUE (cliente_id, empresa_id, codigo)
+    CONSTRAINT UQ_cargo_codigo UNIQUE (cliente_id, empresa_id, codigo),
+    CONSTRAINT FK_cargo_moneda FOREIGN KEY (moneda_salarial)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_cargo_empresa ON org_cargo(empresa_id, es_activo);

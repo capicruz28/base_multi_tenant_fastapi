@@ -10,6 +10,8 @@ from app.modules.mfg.application.services import (
     get_ruta_fabricacion_by_id,
     create_ruta_fabricacion,
     update_ruta_fabricacion,
+    aprobar_ruta_fabricacion,
+    anular_ruta_fabricacion,
 )
 from app.modules.mfg.presentation.schemas import (
     RutaFabricacionCreate,
@@ -67,5 +69,37 @@ async def post_ruta_fabricacion(data: RutaFabricacionCreate, current_user: Usuar
 async def put_ruta_fabricacion(ruta_id: UUID, data: RutaFabricacionUpdate, current_user: UsuarioReadWithRoles = Depends(get_current_active_user)):
     try:
         return await update_ruta_fabricacion(current_user.cliente_id, ruta_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{ruta_id}/aprobar",
+    response_model=RutaFabricacionRead,
+    tags=["MFG - Rutas de Fabricación"],
+    dependencies=[Depends(require_permission("mfg.ruta_fabricacion.aprobar"))],
+)
+async def post_aprobar_ruta_fabricacion(
+    ruta_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await aprobar_ruta_fabricacion(client_id=current_user.cliente_id, ruta_id=ruta_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{ruta_id}/anular",
+    response_model=RutaFabricacionRead,
+    tags=["MFG - Rutas de Fabricación"],
+    dependencies=[Depends(require_permission("mfg.ruta_fabricacion.anular"))],
+)
+async def post_anular_ruta_fabricacion(
+    ruta_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await anular_ruta_fabricacion(client_id=current_user.cliente_id, ruta_id=ruta_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

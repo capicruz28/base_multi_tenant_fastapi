@@ -78,3 +78,23 @@ async def actualizar_contacto(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{contacto_id}/reactivar",
+    response_model=ContactoProveedorRead,
+    summary="Reactivar contacto de proveedor",
+)
+async def reactivar_contacto(
+    contacto_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    client_id = current_user.cliente_id
+    try:
+        return await contacto_service.reactivar_contacto_servicio(
+            client_id=client_id,
+            contacto_id=contacto_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

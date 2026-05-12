@@ -14,6 +14,10 @@ from app.infrastructure.database.queries_async import (
 )
 
 _COLUMNS = {c.name for c in PurOrdenCompraDetalleTable.c}
+_COMPUTED = frozenset(
+    {"precio_neto", "subtotal", "igv", "total", "cantidad_pendiente"}
+)
+_WRITABLE_COLUMNS = _COLUMNS - _COMPUTED
 
 
 async def list_ordenes_compra_detalle(
@@ -62,7 +66,7 @@ async def create_orden_compra_detalle(
     """Inserta una línea de orden de compra. cliente_id se fuerza desde contexto."""
     from uuid import uuid4
 
-    payload = {k: v for k, v in data.items() if k in _COLUMNS}
+    payload = {k: v for k, v in data.items() if k in _WRITABLE_COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("orden_compra_detalle_id", uuid4())
     stmt = insert(PurOrdenCompraDetalleTable).values(**payload)
@@ -79,7 +83,7 @@ async def update_orden_compra_detalle(
     payload = {
         k: v
         for k, v in data.items()
-        if k in _COLUMNS
+        if k in _WRITABLE_COLUMNS
         and k
         not in (
             "orden_compra_detalle_id",

@@ -64,6 +64,7 @@ class ProductoCostoUpdate(BaseModel):
     orden_produccion_id: Optional[UUID] = None
     metodo_costeo: Optional[str] = None
     observaciones: Optional[str] = None
+    fecha_calculo: Optional[datetime] = None
 
 
 class ProductoCostoRead(BaseModel):

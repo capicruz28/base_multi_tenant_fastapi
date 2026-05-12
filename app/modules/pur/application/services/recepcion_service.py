@@ -47,6 +47,10 @@ def _to_decimal(value, default="0") -> Decimal:
     return Decimal(str(value))
 
 
+def _estado_recepcion_norm(estado: Optional[str]) -> str:
+    return (estado or "").strip().lower()
+
+
 def _row_to_read(row: dict) -> RecepcionRead:
     return RecepcionRead(**row)
 
@@ -113,6 +117,8 @@ async def update_recepcion_servicio(
     if not row:
         raise NotFoundError(detail="Recepción no encontrada")
     payload = data.model_dump(exclude_unset=True)
+    if payload and _estado_recepcion_norm(row.get("estado")) != "borrador":
+        raise ValueError("Solo se puede editar la recepción en estado borrador")
     updated = await update_recepcion(client_id=client_id, recepcion_id=recepcion_id, data=payload)
     return _row_to_read(updated)
 
@@ -125,8 +131,11 @@ async def procesar_recepcion_servicio(
     row = await get_recepcion_by_id(client_id=client_id, recepcion_id=recepcion_id)
     if not row:
         raise NotFoundError(detail="Recepción no encontrada")
-    if row.get("estado") == "procesada":
+    st = _estado_recepcion_norm(row.get("estado"))
+    if st == "procesada":
         return _row_to_read(row)
+    if st != "borrador":
+        raise ValueError("Solo se puede procesar una recepción en estado borrador")
 
     detalle = await list_recepciones_detalle(
         client_id=client_id, recepcion_id=recepcion_id
@@ -273,4 +282,39 @@ async def procesar_recepcion_servicio(
             data=payload_oc,
         )
 
+    return _row_to_read(updated)
+
+
+async def anular_recepcion_servicio(
+    client_id: UUID,
+    recepcion_id: UUID,
+) -> RecepcionRead:
+    row = await get_recepcion_by_id(client_id=client_id, recepcion_id=recepcion_id)
+    if not row:
+        raise NotFoundError(detail="Recepción no encontrada")
+    st = _estado_recepcion_norm(row.get("estado"))
+    if st in ("procesada", "anulada"):
+        raise ValueError("No se puede anular la recepción en su estado actual")
+    updated = await update_recepcion(
+        client_id=client_id,
+        recepcion_id=recepcion_id,
+        data={"estado": "anulada"},
+    )
+    return _row_to_read(updated)
+
+
+async def aprobar_recepcion_servicio(
+    client_id: UUID,
+    recepcion_id: UUID,
+) -> RecepcionRead:
+    row = await get_recepcion_by_id(client_id=client_id, recepcion_id=recepcion_id)
+    if not row:
+        raise NotFoundError(detail="Recepción no encontrada")
+    if _estado_recepcion_norm(row.get("estado")) != "inspeccion":
+        raise ValueError("Solo se puede aprobar una recepción en estado inspección")
+    updated = await update_recepcion(
+        client_id=client_id,
+        recepcion_id=recepcion_id,
+        data={"estado": "aprobada"},
+    )
     return _row_to_read(updated)

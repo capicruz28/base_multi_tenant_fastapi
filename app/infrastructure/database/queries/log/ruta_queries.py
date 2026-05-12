@@ -41,14 +41,19 @@ async def list_rutas(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_ruta_by_id(client_id: UUID, ruta_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_ruta_by_id(
+    client_id: UUID,
+    ruta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene una ruta por id. Exige cliente_id para no cruzar tenants."""
-    query = select(LogRutaTable).where(
-        and_(
-            LogRutaTable.c.cliente_id == client_id,
-            LogRutaTable.c.ruta_id == ruta_id,
-        )
-    )
+    filters = [
+        LogRutaTable.c.cliente_id == client_id,
+        LogRutaTable.c.ruta_id == ruta_id,
+    ]
+    if empresa_id:
+        filters.append(LogRutaTable.c.empresa_id == empresa_id)
+    query = select(LogRutaTable).where(and_(*filters))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -65,7 +70,10 @@ async def create_ruta(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def update_ruta(
-    client_id: UUID, ruta_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    ruta_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza una ruta. WHERE incluye cliente_id y ruta_id."""
     payload = {
@@ -73,16 +81,17 @@ async def update_ruta(
         if k in _COLUMNS and k not in ("ruta_id", "cliente_id")
     }
     if not payload:
-        return await get_ruta_by_id(client_id, ruta_id)
+        return await get_ruta_by_id(client_id, ruta_id, empresa_id=empresa_id)
+    filters = [
+        LogRutaTable.c.cliente_id == client_id,
+        LogRutaTable.c.ruta_id == ruta_id,
+    ]
+    if empresa_id:
+        filters.append(LogRutaTable.c.empresa_id == empresa_id)
     stmt = (
         update(LogRutaTable)
-        .where(
-            and_(
-                LogRutaTable.c.cliente_id == client_id,
-                LogRutaTable.c.ruta_id == ruta_id,
-            )
-        )
+        .where(and_(*filters))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_ruta_by_id(client_id, ruta_id)
+    return await get_ruta_by_id(client_id, ruta_id, empresa_id=empresa_id)

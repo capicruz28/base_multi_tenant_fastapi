@@ -51,14 +51,19 @@ async def list_guias_remision(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_guia_remision_by_id(client_id: UUID, guia_remision_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_guia_remision_by_id(
+    client_id: UUID,
+    guia_remision_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene una guía de remisión por id. Exige cliente_id para no cruzar tenants."""
-    query = select(LogGuiaRemisionTable).where(
-        and_(
-            LogGuiaRemisionTable.c.cliente_id == client_id,
-            LogGuiaRemisionTable.c.guia_remision_id == guia_remision_id,
-        )
-    )
+    filters = [
+        LogGuiaRemisionTable.c.cliente_id == client_id,
+        LogGuiaRemisionTable.c.guia_remision_id == guia_remision_id,
+    ]
+    if empresa_id:
+        filters.append(LogGuiaRemisionTable.c.empresa_id == empresa_id)
+    query = select(LogGuiaRemisionTable).where(and_(*filters))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -75,7 +80,10 @@ async def create_guia_remision(client_id: UUID, data: Dict[str, Any]) -> Dict[st
 
 
 async def update_guia_remision(
-    client_id: UUID, guia_remision_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    guia_remision_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza una guía de remisión. WHERE incluye cliente_id y guia_remision_id."""
     payload = {
@@ -83,19 +91,47 @@ async def update_guia_remision(
         if k in _COLUMNS_GUIA and k not in ("guia_remision_id", "cliente_id")
     }
     if not payload:
-        return await get_guia_remision_by_id(client_id, guia_remision_id)
+        return await get_guia_remision_by_id(client_id, guia_remision_id, empresa_id=empresa_id)
+    filters = [
+        LogGuiaRemisionTable.c.cliente_id == client_id,
+        LogGuiaRemisionTable.c.guia_remision_id == guia_remision_id,
+    ]
+    if empresa_id:
+        filters.append(LogGuiaRemisionTable.c.empresa_id == empresa_id)
     stmt = (
         update(LogGuiaRemisionTable)
-        .where(
-            and_(
-                LogGuiaRemisionTable.c.cliente_id == client_id,
-                LogGuiaRemisionTable.c.guia_remision_id == guia_remision_id,
-            )
-        )
+        .where(and_(*filters))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_guia_remision_by_id(client_id, guia_remision_id)
+    return await get_guia_remision_by_id(client_id, guia_remision_id, empresa_id=empresa_id)
+
+
+async def anular_guia_remision(
+    client_id: UUID,
+    guia_remision_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Transición: marca guía como 'anulada' y setea fecha_anulacion.
+    El filtro siempre incluye cliente_id; opcionalmente empresa_id.
+    """
+    filters = [
+        LogGuiaRemisionTable.c.cliente_id == client_id,
+        LogGuiaRemisionTable.c.guia_remision_id == guia_remision_id,
+    ]
+    if empresa_id:
+        filters.append(LogGuiaRemisionTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(LogGuiaRemisionTable)
+        .where(and_(*filters))
+        .values(
+            estado="anulada",
+            fecha_anulacion=datetime.utcnow(),
+        )
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_guia_remision_by_id(client_id, guia_remision_id, empresa_id=empresa_id)
 
 
 # ============================================================================

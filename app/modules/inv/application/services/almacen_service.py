@@ -67,8 +67,6 @@ async def update_almacen_servicio(
     row = await get_almacen_by_id(client_id=client_id, almacen_id=almacen_id)
     if not row:
         raise NotFoundError(detail="Almacén no encontrado")
-    if data.empresa_id is not None:
-        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
     updated = await update_almacen(client_id=client_id, almacen_id=almacen_id, data=payload)
     return _row_to_read(updated)

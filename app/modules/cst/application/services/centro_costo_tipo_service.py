@@ -28,8 +28,10 @@ async def list_centro_costo_tipo(
     return [CentroCostoTipoRead(**dict(r)) for r in rows]
 
 
-async def get_centro_costo_tipo_by_id(client_id: UUID, cc_tipo_id: UUID) -> CentroCostoTipoRead:
-    row = await _get(client_id, cc_tipo_id)
+async def get_centro_costo_tipo_by_id(
+    client_id: UUID, cc_tipo_id: UUID, empresa_id: Optional[UUID] = None
+) -> CentroCostoTipoRead:
+    row = await _get(client_id, cc_tipo_id, empresa_id)
     if not row:
         raise NotFoundError("Tipo de centro de costo no encontrado")
     return CentroCostoTipoRead(**dict(row))
@@ -42,10 +44,35 @@ async def create_centro_costo_tipo(client_id: UUID, data: CentroCostoTipoCreate)
 
 
 async def update_centro_costo_tipo(
-    client_id: UUID, cc_tipo_id: UUID, data: CentroCostoTipoUpdate
+    client_id: UUID,
+    cc_tipo_id: UUID,
+    data: CentroCostoTipoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> CentroCostoTipoRead:
     dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, cc_tipo_id, dump)
+    row = await _update(client_id, cc_tipo_id, dump, empresa_id)
     if not row:
         raise NotFoundError("Tipo de centro de costo no encontrado")
     return CentroCostoTipoRead(**dict(row))
+
+
+async def deactivate_centro_costo_tipo(
+    client_id: UUID, cc_tipo_id: UUID, empresa_id: Optional[UUID] = None
+) -> None:
+    await update_centro_costo_tipo(
+        client_id,
+        cc_tipo_id,
+        CentroCostoTipoUpdate(es_activo=False),
+        empresa_id,
+    )
+
+
+async def reactivate_centro_costo_tipo(
+    client_id: UUID, cc_tipo_id: UUID, empresa_id: Optional[UUID] = None
+) -> CentroCostoTipoRead:
+    return await update_centro_costo_tipo(
+        client_id,
+        cc_tipo_id,
+        CentroCostoTipoUpdate(es_activo=True),
+        empresa_id,
+    )

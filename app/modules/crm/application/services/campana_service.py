@@ -41,9 +41,11 @@ async def list_campanas(
     return [CampanaRead(**row) for row in rows]
 
 
-async def get_campana_by_id(client_id: UUID, campana_id: UUID) -> CampanaRead:
+async def get_campana_by_id(
+    client_id: UUID, campana_id: UUID, empresa_id: Optional[UUID] = None
+) -> CampanaRead:
     """Obtiene una campaña por id."""
-    row = await _get_campana_by_id(client_id, campana_id)
+    row = await _get_campana_by_id(client_id, campana_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Campaña {campana_id} no encontrada")
     return CampanaRead(**row)

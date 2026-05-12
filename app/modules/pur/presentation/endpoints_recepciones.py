@@ -52,23 +52,6 @@ async def listar_recepciones(
     )
 
 
-@router.get("/{recepcion_id}", response_model=RecepcionRead, summary="Detalle recepción")
-async def detalle_recepcion(
-    recepcion_id: UUID,
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
-):
-    """Detalle de una recepción. Solo del tenant del usuario."""
-    client_id = current_user.cliente_id
-    try:
-        return await recepcion_service.get_recepcion_servicio(
-            client_id=client_id,
-            recepcion_id=recepcion_id,
-        )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-
-
 @router.post("", response_model=RecepcionRead, status_code=status.HTTP_201_CREATED, summary="Crear recepción")
 async def crear_recepcion(
     data: RecepcionCreate,
@@ -97,6 +80,46 @@ async def actualizar_recepcion(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{recepcion_id}/anular", response_model=RecepcionRead, summary="Anular recepción")
+async def anular_recepcion(
+    recepcion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Pasa la recepción a estado anulada (no procesada ni ya anulada)."""
+    client_id = current_user.cliente_id
+    try:
+        return await recepcion_service.anular_recepcion_servicio(
+            client_id=client_id,
+            recepcion_id=recepcion_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{recepcion_id}/aprobar", response_model=RecepcionRead, summary="Aprobar recepción tras inspección")
+async def aprobar_recepcion(
+    recepcion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Solo desde estado inspección pasa a aprobada."""
+    client_id = current_user.cliente_id
+    try:
+        return await recepcion_service.aprobar_recepcion_servicio(
+            client_id=client_id,
+            recepcion_id=recepcion_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/{recepcion_id}/procesar", response_model=RecepcionRead, summary="Procesar recepción")
@@ -112,6 +135,25 @@ async def procesar_recepcion(
             client_id=client_id,
             recepcion_id=recepcion_id,
             usuario_procesado_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{recepcion_id}", response_model=RecepcionRead, summary="Detalle recepción")
+async def detalle_recepcion(
+    recepcion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+):
+    """Detalle de una recepción. Solo del tenant del usuario."""
+    client_id = current_user.cliente_id
+    try:
+        return await recepcion_service.get_recepcion_servicio(
+            client_id=client_id,
+            recepcion_id=recepcion_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

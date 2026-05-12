@@ -464,6 +464,7 @@ class MenuItem(BaseModel):
     menu_id: UUID
     codigo: Optional[str] = None
     nombre: str
+    descripcion: Optional[str] = None
     icono: Optional[str] = None
     ruta: Optional[str] = None
     tipo_menu: str
@@ -499,6 +500,7 @@ class SeccionMenu(BaseModel):
     seccion_id: UUID
     codigo: str
     nombre: str
+    descripcion: Optional[str] = None
     icono: Optional[str] = None
     orden: int
     menus: List[MenuItem] = Field(default_factory=list)
@@ -509,6 +511,7 @@ class ModuloMenuResponse(BaseModel):
     modulo_id: UUID
     codigo: str
     nombre: str
+    descripcion: Optional[str] = None
     icono: Optional[str] = None
     color: str
     categoria: str

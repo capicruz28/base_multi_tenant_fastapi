@@ -8,13 +8,27 @@ from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_
 
 from app.infrastructure.database.tables_erp import WmsTareaTable
+from app.infrastructure.database.tables_erp import OrgEmpresaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in WmsTareaTable.c}
 
+async def _ensure_empresa_belongs_to_tenant(client_id: UUID, empresa_id: UUID) -> None:
+    query = select(OrgEmpresaTable.c.empresa_id).where(
+        and_(
+            OrgEmpresaTable.c.cliente_id == client_id,
+            OrgEmpresaTable.c.empresa_id == empresa_id,
+            OrgEmpresaTable.c.es_activo == True,
+        )
+    )
+    rows = await execute_query(query, client_id=client_id)
+    if not rows:
+        raise ValueError("Empresa no válida para el tenant autenticado")
+
 
 async def list_tareas(
     client_id: UUID,
+    empresa_id: UUID,
     almacen_id: Optional[UUID] = None,
     tipo_tarea: Optional[str] = None,
     estado: Optional[str] = None,
@@ -24,7 +38,10 @@ async def list_tareas(
 ) -> List[Dict[str, Any]]:
     """Lista tareas de almacén del tenant. Siempre filtra por cliente_id."""
     query = select(WmsTareaTable).where(
-        WmsTareaTable.c.cliente_id == client_id
+        and_(
+            WmsTareaTable.c.cliente_id == client_id,
+            WmsTareaTable.c.empresa_id == empresa_id,
+        )
     )
     if almacen_id:
         query = query.where(WmsTareaTable.c.almacen_id == almacen_id)
@@ -46,11 +63,12 @@ async def list_tareas(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_tarea_by_id(client_id: UUID, tarea_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_tarea_by_id(client_id: UUID, empresa_id: UUID, tarea_id: UUID) -> Optional[Dict[str, Any]]:
     """Obtiene una tarea por id. Exige cliente_id para no cruzar tenants."""
     query = select(WmsTareaTable).where(
         and_(
             WmsTareaTable.c.cliente_id == client_id,
+            WmsTareaTable.c.empresa_id == empresa_id,
             WmsTareaTable.c.tarea_id == tarea_id,
         )
     )
@@ -58,36 +76,40 @@ async def get_tarea_by_id(client_id: UUID, tarea_id: UUID) -> Optional[Dict[str,
     return rows[0] if rows else None
 
 
-async def create_tarea(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_tarea(client_id: UUID, empresa_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta una tarea. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
+    await _ensure_empresa_belongs_to_tenant(client_id=client_id, empresa_id=empresa_id)
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
+    payload["empresa_id"] = empresa_id
     payload.setdefault("tarea_id", uuid4())
     stmt = insert(WmsTareaTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_tarea_by_id(client_id, payload["tarea_id"])
+    return await get_tarea_by_id(client_id, empresa_id, payload["tarea_id"])
 
 
 async def update_tarea(
-    client_id: UUID, tarea_id: UUID, data: Dict[str, Any]
+    client_id: UUID, empresa_id: UUID, tarea_id: UUID, data: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
     """Actualiza una tarea. WHERE incluye cliente_id y tarea_id."""
+    await _ensure_empresa_belongs_to_tenant(client_id=client_id, empresa_id=empresa_id)
     payload = {
         k: v for k, v in data.items()
-        if k in _COLUMNS and k not in ("tarea_id", "cliente_id")
+        if k in _COLUMNS and k not in ("tarea_id", "cliente_id", "empresa_id")
     }
     if not payload:
-        return await get_tarea_by_id(client_id, tarea_id)
+        return await get_tarea_by_id(client_id, empresa_id, tarea_id)
     stmt = (
         update(WmsTareaTable)
         .where(
             and_(
                 WmsTareaTable.c.cliente_id == client_id,
+                WmsTareaTable.c.empresa_id == empresa_id,
                 WmsTareaTable.c.tarea_id == tarea_id,
             )
         )
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_tarea_by_id(client_id, tarea_id)
+    return await get_tarea_by_id(client_id, empresa_id, tarea_id)

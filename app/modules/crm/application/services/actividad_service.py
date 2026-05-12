@@ -49,9 +49,11 @@ async def list_actividades(
     return [ActividadRead(**row) for row in rows]
 
 
-async def get_actividad_by_id(client_id: UUID, actividad_id: UUID) -> ActividadRead:
+async def get_actividad_by_id(
+    client_id: UUID, actividad_id: UUID, empresa_id: Optional[UUID] = None
+) -> ActividadRead:
     """Obtiene una actividad por id."""
-    row = await _get_actividad_by_id(client_id, actividad_id)
+    row = await _get_actividad_by_id(client_id, actividad_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Actividad {actividad_id} no encontrada")
     return ActividadRead(**row)

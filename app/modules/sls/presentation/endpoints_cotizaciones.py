@@ -4,7 +4,7 @@ Endpoints FastAPI para sls_cotizacion.
 from typing import List, Optional
 from uuid import UUID
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi import status
 
 from app.api.deps import get_current_active_user
@@ -15,11 +15,21 @@ from app.modules.sls.application.services import (
     get_cotizacion_by_id,
     create_cotizacion,
     update_cotizacion,
+    get_detalle_cotizacion,
+    put_detalle_cotizacion,
+    enviar_cotizacion,
+    aceptar_cotizacion,
+    rechazar_cotizacion,
+    convertir_cotizacion_a_pedido,
 )
 from app.modules.sls.presentation.schemas import (
     CotizacionCreate,
     CotizacionUpdate,
     CotizacionRead,
+    CotizacionDetalleCreate,
+    CotizacionDetalleRead,
+    CotizacionRechazarBody,
+    CotizacionConvertirPedidoResponse,
 )
 from app.core.exceptions import NotFoundError
 
@@ -87,3 +97,65 @@ async def put_cotizacion(
         return await update_cotizacion(current_user.cliente_id, cotizacion_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/{cotizacion_id}/detalle", response_model=List[CotizacionDetalleRead], tags=["SLS - Cotizaciones"])
+async def get_cotizacion_detalle(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+):
+    """Obtiene el detalle (embebido) de una cotización."""
+    return await get_detalle_cotizacion(current_user.cliente_id, cotizacion_id)
+
+
+@router.put("/{cotizacion_id}/detalle", response_model=List[CotizacionDetalleRead], tags=["SLS - Cotizaciones"])
+async def put_cotizacion_detalle(
+    cotizacion_id: UUID,
+    items: List[CotizacionDetalleCreate] = Body(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reemplaza el detalle (embebido) de una cotización. Solo en borrador."""
+    return await put_detalle_cotizacion(current_user.cliente_id, cotizacion_id, items)
+
+
+@router.post("/{cotizacion_id}/enviar", response_model=CotizacionRead, tags=["SLS - Cotizaciones"])
+async def post_enviar_cotizacion(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    return await enviar_cotizacion(current_user.cliente_id, cotizacion_id)
+
+
+@router.post("/{cotizacion_id}/aceptar", response_model=CotizacionRead, tags=["SLS - Cotizaciones"])
+async def post_aceptar_cotizacion(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    return await aceptar_cotizacion(current_user.cliente_id, cotizacion_id)
+
+
+@router.post("/{cotizacion_id}/rechazar", response_model=CotizacionRead, tags=["SLS - Cotizaciones"])
+async def post_rechazar_cotizacion(
+    cotizacion_id: UUID,
+    body: CotizacionRechazarBody = Body(default_factory=CotizacionRechazarBody),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    return await rechazar_cotizacion(current_user.cliente_id, cotizacion_id, motivo=body.motivo_rechazo or "")
+
+
+@router.post(
+    "/{cotizacion_id}/convertir-a-pedido",
+    response_model=CotizacionConvertirPedidoResponse,
+    tags=["SLS - Cotizaciones"],
+)
+async def post_convertir_a_pedido(
+    cotizacion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    return await convertir_cotizacion_a_pedido(current_user.cliente_id, cotizacion_id)

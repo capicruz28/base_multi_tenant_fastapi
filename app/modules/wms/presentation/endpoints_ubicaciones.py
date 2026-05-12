@@ -30,6 +30,7 @@ router = APIRouter()
 
 @router.get("", response_model=List[UbicacionRead], tags=["WMS - Ubicaciones"])
 async def get_ubicaciones(
+    empresa_id: UUID = Query(...),
     almacen_id: Optional[UUID] = Query(None),
     zona_id: Optional[UUID] = Query(None),
     tipo_ubicacion: Optional[str] = Query(None),
@@ -43,6 +44,7 @@ async def get_ubicaciones(
     """Lista ubicaciones del tenant."""
     return await list_ubicaciones(
         client_id=current_user.cliente_id,
+        empresa_id=empresa_id,
         almacen_id=almacen_id,
         zona_id=zona_id,
         tipo_ubicacion=tipo_ubicacion,
@@ -56,12 +58,13 @@ async def get_ubicaciones(
 @router.get("/{ubicacion_id}", response_model=UbicacionRead, tags=["WMS - Ubicaciones"])
 async def get_ubicacion(
     ubicacion_id: UUID,
+    empresa_id: UUID = Query(...),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una ubicación por id."""
     try:
-        return await get_ubicacion_by_id(current_user.cliente_id, ubicacion_id)
+        return await get_ubicacion_by_id(current_user.cliente_id, empresa_id, ubicacion_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -85,11 +88,53 @@ async def post_ubicacion(
 async def put_ubicacion(
     ubicacion_id: UUID,
     data: UbicacionUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una ubicación."""
+    empresa_id_final = data.empresa_id or empresa_id
+    if empresa_id_final is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empresa_id es requerido")
     try:
-        return await update_ubicacion(current_user.cliente_id, ubicacion_id, data)
+        return await update_ubicacion(current_user.cliente_id, empresa_id_final, ubicacion_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{ubicacion_id}/activar", response_model=UbicacionRead, tags=["WMS - Ubicaciones"])
+async def post_ubicacion_activar(
+    ubicacion_id: UUID,
+    empresa_id: UUID = Query(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission("wms.ubicacion.actualizar")),
+):
+    """Activa una ubicación (es_activo = true)."""
+    try:
+        return await update_ubicacion(
+            current_user.cliente_id,
+            empresa_id,
+            ubicacion_id,
+            UbicacionUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{ubicacion_id}/desactivar", response_model=UbicacionRead, tags=["WMS - Ubicaciones"])
+async def post_ubicacion_desactivar(
+    ubicacion_id: UUID,
+    empresa_id: UUID = Query(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission("wms.ubicacion.actualizar")),
+):
+    """Desactiva una ubicación (es_activo = false)."""
+    try:
+        return await update_ubicacion(
+            current_user.cliente_id,
+            empresa_id,
+            ubicacion_id,
+            UbicacionUpdate(es_activo=False),
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

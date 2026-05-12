@@ -10,9 +10,14 @@ from app.modules.mrp.application.services import (
     get_plan_maestro_by_id,
     create_plan_maestro,
     update_plan_maestro,
+    calcular_plan_maestro,
+    aprobar_plan_maestro,
+    ejecutar_plan_maestro,
+    cerrar_plan_maestro,
+    anular_plan_maestro,
 )
 from app.modules.mrp.presentation.schemas import PlanMaestroCreate, PlanMaestroUpdate, PlanMaestroRead
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 
 MODULE_CODE = "mrp"
 RESOURCE_CODE = "plan_maestro"
@@ -68,3 +73,95 @@ async def put_plan_maestro(
         return await update_plan_maestro(current_user.cliente_id, plan_maestro_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_maestro_id}/calcular",
+    response_model=PlanMaestroRead,
+    tags=["MRP - Plan Maestro"],
+)
+async def post_plan_maestro_calcular(
+    plan_maestro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.calcular")),
+):
+    try:
+        return await calcular_plan_maestro(current_user.cliente_id, plan_maestro_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_maestro_id}/aprobar",
+    response_model=PlanMaestroRead,
+    tags=["MRP - Plan Maestro"],
+)
+async def post_plan_maestro_aprobar(
+    plan_maestro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")),
+):
+    try:
+        return await aprobar_plan_maestro(current_user.cliente_id, plan_maestro_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_maestro_id}/ejecutar",
+    response_model=PlanMaestroRead,
+    tags=["MRP - Plan Maestro"],
+)
+async def post_plan_maestro_ejecutar(
+    plan_maestro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.ejecutar")),
+):
+    try:
+        return await ejecutar_plan_maestro(current_user.cliente_id, plan_maestro_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_maestro_id}/cerrar",
+    response_model=PlanMaestroRead,
+    tags=["MRP - Plan Maestro"],
+)
+async def post_plan_maestro_cerrar(
+    plan_maestro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.cerrar")),
+):
+    try:
+        return await cerrar_plan_maestro(current_user.cliente_id, plan_maestro_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{plan_maestro_id}/anular",
+    response_model=PlanMaestroRead,
+    tags=["MRP - Plan Maestro"],
+)
+async def post_plan_maestro_anular(
+    plan_maestro_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+):
+    try:
+        return await anular_plan_maestro(current_user.cliente_id, plan_maestro_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

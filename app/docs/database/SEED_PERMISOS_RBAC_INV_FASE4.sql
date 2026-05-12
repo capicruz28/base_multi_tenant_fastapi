@@ -26,7 +26,8 @@ MERGE INTO permiso AS t
 USING (
     SELECT 'inv.categoria.leer'      AS codigo, 'Leer categorías'       AS nombre, 'Listar y ver categorías de productos'           AS descripcion, @modulo_inv_id AS modulo_id, 'categoria'        AS recurso, 'leer'       AS accion UNION ALL
     SELECT 'inv.categoria.crear',                 'Crear categorías',                 'Crear categorías de productos'                         , @modulo_inv_id          , 'categoria'        , 'crear'                  UNION ALL
-    SELECT 'inv.categoria.actualizar',            'Actualizar categorías',            'Editar categorías de productos'                         , @modulo_inv_id          , 'categoria'        , 'actualizar'
+    SELECT 'inv.categoria.actualizar',            'Actualizar categorías',            'Editar categorías de productos'                         , @modulo_inv_id          , 'categoria'        , 'actualizar'             UNION ALL
+    SELECT 'inv.categoria.eliminar',              'Eliminar categorías',              'Dar de baja lógica categorías de productos'              , @modulo_inv_id          , 'categoria'        , 'eliminar'
 ) AS s
 ON t.codigo = s.codigo
 WHEN NOT MATCHED BY TARGET THEN
@@ -41,7 +42,8 @@ MERGE INTO permiso AS t
 USING (
     SELECT 'inv.unidad_medida.leer'  AS codigo, 'Leer unidades de medida' AS nombre, 'Listar y ver unidades de medida de inventario' AS descripcion, @modulo_inv_id AS modulo_id, 'unidad_medida'    AS recurso, 'leer'       AS accion UNION ALL
     SELECT 'inv.unidad_medida.crear',              'Crear unidades de medida',              'Crear unidades de medida y conversiones'            , @modulo_inv_id          , 'unidad_medida'    , 'crear'                  UNION ALL
-    SELECT 'inv.unidad_medida.actualizar',         'Actualizar unidades de medida',         'Editar unidades de medida y conversiones'           , @modulo_inv_id          , 'unidad_medida'    , 'actualizar'
+    SELECT 'inv.unidad_medida.actualizar',         'Actualizar unidades de medida',         'Editar unidades de medida y conversiones'           , @modulo_inv_id          , 'unidad_medida'    , 'actualizar'             UNION ALL
+    SELECT 'inv.unidad_medida.eliminar',           'Eliminar unidades de medida',           'Dar de baja lógica unidades de medida'               , @modulo_inv_id          , 'unidad_medida'    , 'eliminar'
 ) AS s
 ON t.codigo = s.codigo
 WHEN NOT MATCHED BY TARGET THEN
@@ -72,7 +74,8 @@ MERGE INTO permiso AS t
 USING (
     SELECT 'inv.almacen.leer'        AS codigo, 'Leer almacenes'        AS nombre, 'Listar y ver almacenes físicos y virtuales'     AS descripcion, @modulo_inv_id AS modulo_id, 'almacen'          AS recurso, 'leer'       AS accion UNION ALL
     SELECT 'inv.almacen.crear',                   'Crear almacenes',                   'Crear almacenes físicos y virtuales'                 , @modulo_inv_id          , 'almacen'          , 'crear'                  UNION ALL
-    SELECT 'inv.almacen.actualizar',              'Actualizar almacenes',              'Editar datos de almacenes'                           , @modulo_inv_id          , 'almacen'          , 'actualizar'
+    SELECT 'inv.almacen.actualizar',              'Actualizar almacenes',              'Editar datos de almacenes'                           , @modulo_inv_id          , 'almacen'          , 'actualizar'             UNION ALL
+    SELECT 'inv.almacen.eliminar',                'Eliminar almacenes',                'Dar de baja lógica almacenes'                        , @modulo_inv_id          , 'almacen'          , 'eliminar'
 ) AS s
 ON t.codigo = s.codigo
 WHEN NOT MATCHED BY TARGET THEN
@@ -102,7 +105,8 @@ MERGE INTO permiso AS t
 USING (
     SELECT 'inv.tipo_movimiento.leer'   AS codigo, 'Leer tipos de movimiento'   AS nombre, 'Listar y ver tipos de movimiento de inventario'     AS descripcion, @modulo_inv_id AS modulo_id, 'tipo_movimiento'   AS recurso, 'leer'       AS accion UNION ALL
     SELECT 'inv.tipo_movimiento.crear',              'Crear tipos de movimiento',              'Crear tipos de movimiento (entrada/salida/ajuste)', @modulo_inv_id          , 'tipo_movimiento'   , 'crear'                  UNION ALL
-    SELECT 'inv.tipo_movimiento.actualizar',         'Actualizar tipos de movimiento',         'Editar tipos de movimiento'                         , @modulo_inv_id          , 'tipo_movimiento'   , 'actualizar'
+    SELECT 'inv.tipo_movimiento.actualizar',         'Actualizar tipos de movimiento',         'Editar tipos de movimiento'                         , @modulo_inv_id          , 'tipo_movimiento'   , 'actualizar'             UNION ALL
+    SELECT 'inv.tipo_movimiento.eliminar',           'Eliminar tipos de movimiento',           'Dar de baja lógica tipos de movimiento'             , @modulo_inv_id          , 'tipo_movimiento'   , 'eliminar'
 ) AS s
 ON t.codigo = s.codigo
 WHEN NOT MATCHED BY TARGET THEN

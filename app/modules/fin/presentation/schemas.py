@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ============================================================================
@@ -116,6 +116,7 @@ class PeriodoContableRead(BaseModel):
     empresa_id: UUID
     año: int
     mes: int
+    nombre_periodo: str
     fecha_inicio: date
     fecha_fin: date
     estado: str
@@ -123,6 +124,15 @@ class PeriodoContableRead(BaseModel):
     cerrado_por_usuario_id: Optional[UUID]
     observaciones: Optional[str]
     fecha_creacion: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _nombre_periodo_desde_bd_o_año_mes(cls, data: object) -> object:
+        if isinstance(data, dict) and data.get("nombre_periodo") is None:
+            año, mes = data.get("año"), data.get("mes")
+            if año is not None and mes is not None:
+                data["nombre_periodo"] = f"{año}-{int(mes):02d}"
+        return data
 
     class Config:
         from_attributes = True
@@ -143,6 +153,7 @@ class AsientoContableCreate(BaseModel):
     documento_origen_numero: Optional[str] = Field(None, max_length=30)
     glosa: str = Field(..., max_length=500)
     moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal] = Field(1, ge=0)
     total_debe: Optional[Decimal] = Field(0, ge=0)
     total_haber: Optional[Decimal] = Field(0, ge=0)
@@ -162,6 +173,7 @@ class AsientoContableUpdate(BaseModel):
     documento_origen_numero: Optional[str] = Field(None, max_length=30)
     glosa: Optional[str] = Field(None, max_length=500)
     moneda: Optional[str] = Field(None, max_length=3)
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal] = Field(None, ge=0)
     total_debe: Optional[Decimal] = Field(None, ge=0)
     total_haber: Optional[Decimal] = Field(None, ge=0)
@@ -188,9 +200,12 @@ class AsientoContableRead(BaseModel):
     documento_origen_numero: Optional[str]
     glosa: str
     moneda: Optional[str]
+    moneda_id: Optional[UUID] = None
     tipo_cambio: Optional[Decimal]
     total_debe: Optional[Decimal]
     total_haber: Optional[Decimal]
+    diferencia: Optional[Decimal] = None
+    esta_cuadrado: Optional[bool] = None
     estado: str
     requiere_aprobacion: Optional[bool]
     aprobado_por_usuario_id: Optional[UUID]
@@ -245,9 +260,14 @@ class AsientoDetalleUpdate(BaseModel):
     fecha_vencimiento: Optional[date] = None
 
 
+class AsientoAnularBody(BaseModel):
+    motivo_anulacion: str = Field(..., min_length=1, max_length=500)
+
+
 class AsientoDetalleRead(BaseModel):
     asiento_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     asiento_id: UUID
     item: int
     cuenta_id: UUID

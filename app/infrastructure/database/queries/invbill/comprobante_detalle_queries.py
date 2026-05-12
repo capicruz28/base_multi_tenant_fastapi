@@ -11,6 +11,10 @@ from app.infrastructure.database.tables_erp import InvbillComprobanteTable, Invb
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in InvbillComprobanteDetalleTable.c}
+# Columnas calculadas en BD: no insertar desde API.
+_DETALLE_EXCLUDE_INSERT = frozenset(
+    {"precio_venta_unitario", "valor_venta", "igv", "total_item"}
+)
 
 
 async def list_comprobante_detalles(
@@ -42,7 +46,11 @@ async def get_comprobante_detalle_by_id(client_id: UUID, comprobante_detalle_id:
 async def create_comprobante_detalle(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta un detalle. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
-    payload = {k: v for k, v in data.items() if k in _COLUMNS}
+    payload = {
+        k: v
+        for k, v in data.items()
+        if k in _COLUMNS and k not in _DETALLE_EXCLUDE_INSERT
+    }
     payload["cliente_id"] = client_id
     payload.setdefault("comprobante_detalle_id", uuid4())
     # Fase 5: empresa_id es obligatorio; derivarlo desde el comprobante (cabecera)
@@ -67,8 +75,11 @@ async def update_comprobante_detalle(
 ) -> Optional[Dict[str, Any]]:
     """Actualiza un detalle. WHERE incluye cliente_id y comprobante_detalle_id."""
     payload = {
-        k: v for k, v in data.items()
-        if k in _COLUMNS and k not in ("comprobante_detalle_id", "cliente_id")
+        k: v
+        for k, v in data.items()
+        if k in _COLUMNS
+        and k not in ("comprobante_detalle_id", "cliente_id")
+        and k not in _DETALLE_EXCLUDE_INSERT
     }
     if not payload:
         return await get_comprobante_detalle_by_id(client_id, comprobante_detalle_id)

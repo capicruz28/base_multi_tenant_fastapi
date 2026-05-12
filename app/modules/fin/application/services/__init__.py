@@ -8,18 +8,24 @@ from app.modules.fin.application.services.plan_cuentas_service import (
     get_cuenta_by_id,
     create_cuenta,
     update_cuenta,
+    desactivar_cuenta,
+    reactivar_cuenta,
 )
 from app.modules.fin.application.services.periodo_contable_service import (
     list_periodos_contables,
     get_periodo_contable_by_id,
     create_periodo_contable,
     update_periodo_contable,
+    cerrar_periodo_contable,
 )
 from app.modules.fin.application.services.asiento_contable_service import (
     list_asientos_contables,
     get_asiento_contable_by_id,
     create_asiento_contable,
     update_asiento_contable,
+    aprobar_asiento_contable,
+    registrar_asiento_contable,
+    anular_asiento_contable,
     list_asiento_detalles,
     get_asiento_detalle_by_id,
     create_asiento_detalle,
@@ -32,16 +38,22 @@ __all__ = [
     "get_cuenta_by_id",
     "create_cuenta",
     "update_cuenta",
+    "desactivar_cuenta",
+    "reactivar_cuenta",
     # Periodos Contables
     "list_periodos_contables",
     "get_periodo_contable_by_id",
     "create_periodo_contable",
     "update_periodo_contable",
+    "cerrar_periodo_contable",
     # Asientos Contables
     "list_asientos_contables",
     "get_asiento_contable_by_id",
     "create_asiento_contable",
     "update_asiento_contable",
+    "aprobar_asiento_contable",
+    "registrar_asiento_contable",
+    "anular_asiento_contable",
     # Detalles de Asiento
     "list_asiento_detalles",
     "get_asiento_detalle_by_id",

@@ -94,3 +94,24 @@ async def actualizar_proveedor(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{proveedor_id}/reactivar",
+    response_model=ProveedorRead,
+    summary="Reactivar proveedor",
+)
+async def reactivar_proveedor(
+    proveedor_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Marca el proveedor como activo (es_activo) y estado operativo."""
+    client_id = current_user.cliente_id
+    try:
+        return await proveedor_service.reactivar_proveedor_servicio(
+            client_id=client_id,
+            proveedor_id=proveedor_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

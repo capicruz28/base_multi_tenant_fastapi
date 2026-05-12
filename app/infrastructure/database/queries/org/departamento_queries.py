@@ -30,15 +30,26 @@ async def list_departamentos(
     return await execute_query(query, client_id=client_id)
 
 
+def _departamento_id_conditions(
+    client_id: UUID, departamento_id: UUID, empresa_id: Optional[UUID]
+):
+    conds = [
+        OrgDepartamentoTable.c.cliente_id == client_id,
+        OrgDepartamentoTable.c.departamento_id == departamento_id,
+    ]
+    if empresa_id is not None:
+        conds.append(OrgDepartamentoTable.c.empresa_id == empresa_id)
+    return and_(*conds)
+
+
 async def get_departamento_by_id(
-    client_id: UUID, departamento_id: UUID
+    client_id: UUID,
+    departamento_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Obtiene un departamento por id. Exige cliente_id."""
+    """Obtiene un departamento por id. Exige cliente_id; opcionalmente restringe por empresa_id."""
     query = select(OrgDepartamentoTable).where(
-        and_(
-            OrgDepartamentoTable.c.cliente_id == client_id,
-            OrgDepartamentoTable.c.departamento_id == departamento_id,
-        )
+        _departamento_id_conditions(client_id, departamento_id, empresa_id)
     )
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
@@ -52,29 +63,27 @@ async def create_departamento(client_id: UUID, data: Dict[str, Any]) -> Dict[str
     payload.setdefault("departamento_id", uuid4())
     stmt = insert(OrgDepartamentoTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_departamento_by_id(client_id, payload["departamento_id"])
+    return await get_departamento_by_id(client_id, payload["departamento_id"], None)
 
 
 async def update_departamento(
-    client_id: UUID, departamento_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    departamento_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Actualiza un departamento. WHERE incluye cliente_id."""
+    """Actualiza un departamento. WHERE incluye cliente_id y opcionalmente empresa_id."""
     payload = {
         k: v for k, v in data.items()
         if k in _COLUMNS and k not in ("departamento_id", "cliente_id")
     }
     if not payload:
-        return await get_departamento_by_id(client_id, departamento_id)
+        return await get_departamento_by_id(client_id, departamento_id, empresa_id)
     payload["fecha_actualizacion"] = datetime.utcnow()
     stmt = (
         update(OrgDepartamentoTable)
-        .where(
-            and_(
-                OrgDepartamentoTable.c.cliente_id == client_id,
-                OrgDepartamentoTable.c.departamento_id == departamento_id,
-            )
-        )
+        .where(_departamento_id_conditions(client_id, departamento_id, empresa_id))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_departamento_by_id(client_id, departamento_id)
+    return await get_departamento_by_id(client_id, departamento_id, empresa_id)

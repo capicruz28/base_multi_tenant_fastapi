@@ -88,3 +88,27 @@ async def update_cotizacion(
     )
     await execute_update(stmt, client_id=client_id)
     return await get_cotizacion_by_id(client_id, cotizacion_id)
+
+
+async def update_cotizacion_estado(
+    client_id: UUID,
+    cotizacion_id: UUID,
+    estado: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Actualiza estado de cotización (y campos extra) respetando tenant."""
+    payload: Dict[str, Any] = {"estado": estado, "fecha_actualizacion": datetime.utcnow()}
+    if extra:
+        payload.update({k: v for k, v in extra.items() if k in _COLUMNS})
+    stmt = (
+        update(SlsCotizacionTable)
+        .where(
+            and_(
+                SlsCotizacionTable.c.cliente_id == client_id,
+                SlsCotizacionTable.c.cotizacion_id == cotizacion_id,
+            )
+        )
+        .values(**payload)
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_cotizacion_by_id(client_id, cotizacion_id)

@@ -42,14 +42,19 @@ async def list_puntos_venta(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_punto_venta_by_id(client_id: UUID, punto_venta_id: UUID) -> Optional[Dict[str, Any]]:
-    """Obtiene un punto de venta por id."""
-    query = select(PosPuntoVentaTable).where(
-        and_(
-            PosPuntoVentaTable.c.cliente_id == client_id,
-            PosPuntoVentaTable.c.punto_venta_id == punto_venta_id,
-        )
-    )
+async def get_punto_venta_by_id(
+    client_id: UUID,
+    punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Obtiene un punto de venta por id. Si empresa_id se informa, debe coincidir."""
+    cond = [
+        PosPuntoVentaTable.c.cliente_id == client_id,
+        PosPuntoVentaTable.c.punto_venta_id == punto_venta_id,
+    ]
+    if empresa_id is not None:
+        cond.append(PosPuntoVentaTable.c.empresa_id == empresa_id)
+    query = select(PosPuntoVentaTable).where(and_(*cond))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -66,24 +71,51 @@ async def create_punto_venta(client_id: UUID, data: Dict[str, Any]) -> Dict[str,
 
 
 async def update_punto_venta(
-    client_id: UUID, punto_venta_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    punto_venta_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     """Actualiza un punto de venta."""
     payload = {
-        k: v for k, v in data.items()
+        k: v
+        for k, v in data.items()
         if k in _COLUMNS and k not in ("punto_venta_id", "cliente_id")
     }
     if not payload:
-        return await get_punto_venta_by_id(client_id, punto_venta_id)
+        return await get_punto_venta_by_id(client_id, punto_venta_id, empresa_id=empresa_id)
+    cond = [
+        PosPuntoVentaTable.c.cliente_id == client_id,
+        PosPuntoVentaTable.c.punto_venta_id == punto_venta_id,
+    ]
+    if empresa_id is not None:
+        cond.append(PosPuntoVentaTable.c.empresa_id == empresa_id)
     stmt = (
         update(PosPuntoVentaTable)
-        .where(
-            and_(
-                PosPuntoVentaTable.c.cliente_id == client_id,
-                PosPuntoVentaTable.c.punto_venta_id == punto_venta_id,
-            )
-        )
+        .where(and_(*cond))
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_punto_venta_by_id(client_id, punto_venta_id)
+    return await get_punto_venta_by_id(client_id, punto_venta_id, empresa_id=empresa_id)
+
+
+async def set_punto_venta_activo(
+    client_id: UUID,
+    punto_venta_id: UUID,
+    es_activo: bool,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Marca es_activo en punto de venta, con validación opcional de empresa."""
+    cond = [
+        PosPuntoVentaTable.c.cliente_id == client_id,
+        PosPuntoVentaTable.c.punto_venta_id == punto_venta_id,
+    ]
+    if empresa_id is not None:
+        cond.append(PosPuntoVentaTable.c.empresa_id == empresa_id)
+    stmt = (
+        update(PosPuntoVentaTable)
+        .where(and_(*cond))
+        .values(es_activo=es_activo)
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_punto_venta_by_id(client_id, punto_venta_id, empresa_id=empresa_id)

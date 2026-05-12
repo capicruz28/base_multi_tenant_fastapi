@@ -8,6 +8,8 @@ from app.modules.prc.application.services.lista_precio_service import (
     get_lista_precio_by_id,
     create_lista_precio,
     update_lista_precio,
+    desactivar_lista_precio,
+    reactivar_lista_precio,
     list_lista_precio_detalles,
     get_lista_precio_detalle_by_id,
     create_lista_precio_detalle,
@@ -18,6 +20,8 @@ from app.modules.prc.application.services.promocion_service import (
     get_promocion_by_id,
     create_promocion,
     update_promocion,
+    desactivar_promocion,
+    reactivar_promocion,
 )
 
 __all__ = [
@@ -26,6 +30,8 @@ __all__ = [
     "get_lista_precio_by_id",
     "create_lista_precio",
     "update_lista_precio",
+    "desactivar_lista_precio",
+    "reactivar_lista_precio",
     # Detalles de Lista de Precio
     "list_lista_precio_detalles",
     "get_lista_precio_detalle_by_id",
@@ -36,4 +42,6 @@ __all__ = [
     "get_promocion_by_id",
     "create_promocion",
     "update_promocion",
+    "desactivar_promocion",
+    "reactivar_promocion",
 ]

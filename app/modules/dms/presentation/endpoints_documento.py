@@ -8,8 +8,13 @@ from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.dms.application.services import (
     list_documento,
     get_documento_by_id,
+    get_documento_by_id_empresa,
     create_documento,
     update_documento,
+    update_documento_empresa,
+    archivar_documento,
+    restaurar_documento,
+    eliminar_documento,
 )
 from app.modules.dms.presentation.schemas import (
     DocumentoCreate,
@@ -50,11 +55,14 @@ async def get_documentos(
 @router.get("/{documento_id}", response_model=DocumentoRead)
 async def get_documento(
     documento_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission("dms.documento.leer")),
 ):
     try:
-        return await get_documento_by_id(current_user.cliente_id, documento_id)
+        return await get_documento_by_id_empresa(
+            current_user.cliente_id, documento_id, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -72,10 +80,58 @@ async def post_documento(
 async def put_documento(
     documento_id: UUID,
     data: DocumentoUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission("dms.documento.actualizar")),
 ):
     try:
-        return await update_documento(current_user.cliente_id, documento_id, data)
+        return await update_documento_empresa(
+            current_user.cliente_id, documento_id, data, empresa_id=empresa_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{documento_id}/archivar", response_model=DocumentoRead)
+async def post_documento_archivar(
+    documento_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("dms.documento.actualizar")),
+):
+    try:
+        return await archivar_documento(
+            current_user.cliente_id, documento_id, empresa_id=empresa_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{documento_id}/restaurar", response_model=DocumentoRead)
+async def post_documento_restaurar(
+    documento_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("dms.documento.actualizar")),
+):
+    try:
+        return await restaurar_documento(
+            current_user.cliente_id, documento_id, empresa_id=empresa_id
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete("/{documento_id}", response_model=DocumentoRead)
+async def delete_documento(
+    documento_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("dms.documento.eliminar")),
+):
+    try:
+        return await eliminar_documento(
+            current_user.cliente_id, documento_id, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

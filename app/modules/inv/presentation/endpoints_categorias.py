@@ -78,3 +78,47 @@ async def actualizar_categoria(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{categoria_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) categoría",
+)
+async def eliminar_categoria(
+    categoria_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Marca una categoría como inactiva (es_activo = 0) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await categoria_service.update_categoria_servicio(
+            client_id=client_id,
+            categoria_id=categoria_id,
+            data=CategoriaUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{categoria_id}/reactivar",
+    response_model=CategoriaRead,
+    summary="Reactivar categoría",
+)
+async def reactivar_categoria(
+    categoria_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva una categoría previamente dada de baja dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await categoria_service.update_categoria_servicio(
+            client_id=client_id,
+            categoria_id=categoria_id,
+            data=CategoriaUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

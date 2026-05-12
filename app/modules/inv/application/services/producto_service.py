@@ -71,8 +71,6 @@ async def update_producto_servicio(
     row = await get_producto_by_id(client_id=client_id, producto_id=producto_id)
     if not row:
         raise NotFoundError(detail="Producto no encontrado")
-    if data.empresa_id is not None:
-        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
     updated = await update_producto(client_id=client_id, producto_id=producto_id, data=payload)
     return _row_to_read(updated)

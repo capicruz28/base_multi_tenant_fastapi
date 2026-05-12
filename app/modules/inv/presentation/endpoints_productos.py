@@ -84,3 +84,47 @@ async def actualizar_producto(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{producto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) producto",
+)
+async def eliminar_producto(
+    producto_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Marca un producto como inactivo (es_activo = 0) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await producto_service.update_producto_servicio(
+            client_id=client_id,
+            producto_id=producto_id,
+            data=ProductoUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{producto_id}/reactivar",
+    response_model=ProductoRead,
+    summary="Reactivar producto",
+)
+async def reactivar_producto(
+    producto_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva un producto previamente dado de baja dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await producto_service.update_producto_servicio(
+            client_id=client_id,
+            producto_id=producto_id,
+            data=ProductoUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

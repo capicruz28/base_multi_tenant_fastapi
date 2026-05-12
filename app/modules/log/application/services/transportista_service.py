@@ -35,9 +35,13 @@ async def list_transportistas(
     return [TransportistaRead(**row) for row in rows]
 
 
-async def get_transportista_by_id(client_id: UUID, transportista_id: UUID) -> TransportistaRead:
+async def get_transportista_by_id(
+    client_id: UUID,
+    transportista_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> TransportistaRead:
     """Obtiene un transportista por id. Lanza NotFoundError si no existe."""
-    row = await _get_transportista_by_id(client_id, transportista_id)
+    row = await _get_transportista_by_id(client_id, transportista_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Transportista {transportista_id} no encontrado")
     return TransportistaRead(**row)
@@ -50,11 +54,54 @@ async def create_transportista(client_id: UUID, data: TransportistaCreate) -> Tr
 
 
 async def update_transportista(
-    client_id: UUID, transportista_id: UUID, data: TransportistaUpdate
+    client_id: UUID,
+    transportista_id: UUID,
+    data: TransportistaUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> TransportistaRead:
     """Actualiza un transportista. Lanza NotFoundError si no existe."""
     row = await _update_transportista(
-        client_id, transportista_id, data.model_dump(exclude_none=True)
+        client_id,
+        transportista_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Transportista {transportista_id} no encontrado")
+    return TransportistaRead(**row)
+
+
+async def delete_transportista(
+    client_id: UUID,
+    transportista_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> None:
+    """
+    Baja lógica (es_activo = False).
+    """
+    row = await _update_transportista(
+        client_id,
+        transportista_id,
+        {"es_activo": False},
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Transportista {transportista_id} no encontrado")
+
+
+async def reactivar_transportista(
+    client_id: UUID,
+    transportista_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> TransportistaRead:
+    """
+    Reactiva (es_activo = True).
+    """
+    row = await _update_transportista(
+        client_id,
+        transportista_id,
+        {"es_activo": True},
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(f"Transportista {transportista_id} no encontrado")

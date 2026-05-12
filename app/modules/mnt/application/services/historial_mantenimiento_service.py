@@ -1,6 +1,7 @@
 """Servicio aplicación mnt_historial_mantenimiento."""
 from typing import List, Optional
 from uuid import UUID
+from datetime import date
 from app.infrastructure.database.queries.mnt import (
     list_historial_mantenimiento as _list,
     get_historial_mantenimiento_by_id as _get,
@@ -20,12 +21,18 @@ async def list_historial_mantenimiento(
     activo_id: Optional[UUID] = None,
     orden_trabajo_id: Optional[UUID] = None,
     tipo_mantenimiento: Optional[str] = None,
+    empresa_id: Optional[UUID] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
 ) -> List[HistorialMantenimientoRead]:
     rows = await _list(
         client_id=client_id,
         activo_id=activo_id,
         orden_trabajo_id=orden_trabajo_id,
         tipo_mantenimiento=tipo_mantenimiento,
+        empresa_id=empresa_id,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
     return [HistorialMantenimientoRead(**r) for r in rows]
 

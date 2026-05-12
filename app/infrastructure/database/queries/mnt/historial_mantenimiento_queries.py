@@ -1,6 +1,7 @@
 """Queries para mnt_historial_mantenimiento. Filtro tenant: cliente_id."""
 from typing import List, Dict, Any, Optional
 from uuid import UUID
+from datetime import date
 from sqlalchemy import select, insert, update, and_
 from app.infrastructure.database.tables_erp import MntActivoTable, MntHistorialMantenimientoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -13,14 +14,23 @@ async def list_historial_mantenimiento(
     activo_id: Optional[UUID] = None,
     orden_trabajo_id: Optional[UUID] = None,
     tipo_mantenimiento: Optional[str] = None,
+    empresa_id: Optional[UUID] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
     q = select(MntHistorialMantenimientoTable).where(MntHistorialMantenimientoTable.c.cliente_id == client_id)
+    if empresa_id:
+        q = q.where(MntHistorialMantenimientoTable.c.empresa_id == empresa_id)
     if activo_id:
         q = q.where(MntHistorialMantenimientoTable.c.activo_id == activo_id)
     if orden_trabajo_id:
         q = q.where(MntHistorialMantenimientoTable.c.orden_trabajo_id == orden_trabajo_id)
     if tipo_mantenimiento:
         q = q.where(MntHistorialMantenimientoTable.c.tipo_mantenimiento == tipo_mantenimiento)
+    if fecha_desde:
+        q = q.where(MntHistorialMantenimientoTable.c.fecha_mantenimiento >= fecha_desde)
+    if fecha_hasta:
+        q = q.where(MntHistorialMantenimientoTable.c.fecha_mantenimiento <= fecha_hasta)
     q = q.order_by(MntHistorialMantenimientoTable.c.fecha_mantenimiento.desc())
     return await execute_query(q, client_id=client_id)
 

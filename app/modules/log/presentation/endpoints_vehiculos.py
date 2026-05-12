@@ -14,6 +14,8 @@ from app.modules.log.application.services import (
     get_vehiculo_by_id,
     create_vehiculo,
     update_vehiculo,
+    delete_vehiculo,
+    reactivar_vehiculo,
 )
 from app.modules.log.presentation.schemas import (
     VehiculoCreate,
@@ -54,12 +56,17 @@ async def get_vehiculos(
 @router.get("/{vehiculo_id}", response_model=VehiculoRead, tags=["LOG - Vehículos"])
 async def get_vehiculo(
     vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un vehículo por id."""
     try:
-        return await get_vehiculo_by_id(current_user.cliente_id, vehiculo_id)
+        return await get_vehiculo_by_id(
+            current_user.cliente_id,
+            vehiculo_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -78,11 +85,61 @@ async def post_vehiculo(
 async def put_vehiculo(
     vehiculo_id: UUID,
     data: VehiculoUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un vehículo."""
     try:
-        return await update_vehiculo(current_user.cliente_id, vehiculo_id, data)
+        return await update_vehiculo(
+            current_user.cliente_id,
+            vehiculo_id,
+            data,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{vehiculo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["LOG - Vehículos"],
+)
+async def delete_vehiculo_endpoint(
+    vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Baja lógica de vehículo (es_activo = 0)."""
+    try:
+        await delete_vehiculo(
+            current_user.cliente_id,
+            vehiculo_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{vehiculo_id}/reactivar",
+    response_model=VehiculoRead,
+    tags=["LOG - Vehículos"],
+)
+async def reactivar_vehiculo_endpoint(
+    vehiculo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva vehículo (es_activo = 1)."""
+    try:
+        return await reactivar_vehiculo(
+            current_user.cliente_id,
+            vehiculo_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

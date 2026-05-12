@@ -11,6 +11,11 @@ from app.modules.mfg.application.services import (
     get_orden_produccion_by_id,
     create_orden_produccion,
     update_orden_produccion,
+    liberar_orden_produccion,
+    iniciar_orden_produccion,
+    finalizar_orden_produccion,
+    cerrar_orden_produccion,
+    anular_orden_produccion,
 )
 from app.modules.mfg.presentation.schemas import (
     OrdenProduccionCreate,
@@ -72,5 +77,85 @@ async def put_orden_produccion(
 ):
     try:
         return await update_orden_produccion(current_user.cliente_id, orden_produccion_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{orden_produccion_id}/liberar",
+    response_model=OrdenProduccionRead,
+    tags=["MFG - Ordenes de Produccion"],
+)
+async def post_liberar_orden_produccion(
+    orden_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("mfg.orden_produccion.liberar")),
+):
+    try:
+        return await liberar_orden_produccion(current_user.cliente_id, orden_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{orden_produccion_id}/iniciar",
+    response_model=OrdenProduccionRead,
+    tags=["MFG - Ordenes de Produccion"],
+)
+async def post_iniciar_orden_produccion(
+    orden_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("mfg.orden_produccion.iniciar")),
+):
+    try:
+        return await iniciar_orden_produccion(current_user.cliente_id, orden_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{orden_produccion_id}/finalizar",
+    response_model=OrdenProduccionRead,
+    tags=["MFG - Ordenes de Produccion"],
+)
+async def post_finalizar_orden_produccion(
+    orden_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("mfg.orden_produccion.finalizar")),
+):
+    try:
+        return await finalizar_orden_produccion(current_user.cliente_id, orden_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{orden_produccion_id}/cerrar",
+    response_model=OrdenProduccionRead,
+    tags=["MFG - Ordenes de Produccion"],
+)
+async def post_cerrar_orden_produccion(
+    orden_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("mfg.orden_produccion.cerrar")),
+):
+    try:
+        return await cerrar_orden_produccion(current_user.cliente_id, orden_produccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{orden_produccion_id}/anular",
+    response_model=OrdenProduccionRead,
+    tags=["MFG - Ordenes de Produccion"],
+)
+async def post_anular_orden_produccion(
+    orden_produccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission("mfg.orden_produccion.anular")),
+):
+    try:
+        return await anular_orden_produccion(current_user.cliente_id, orden_produccion_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

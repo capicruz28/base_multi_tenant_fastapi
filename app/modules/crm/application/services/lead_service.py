@@ -42,9 +42,11 @@ async def list_leads(
     return [LeadRead(**row) for row in rows]
 
 
-async def get_lead_by_id(client_id: UUID, lead_id: UUID) -> LeadRead:
+async def get_lead_by_id(
+    client_id: UUID, lead_id: UUID, empresa_id: Optional[UUID] = None
+) -> LeadRead:
     """Obtiene un lead por id."""
-    row = await _get_lead_by_id(client_id, lead_id)
+    row = await _get_lead_by_id(client_id, lead_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Lead {lead_id} no encontrado")
     return LeadRead(**row)

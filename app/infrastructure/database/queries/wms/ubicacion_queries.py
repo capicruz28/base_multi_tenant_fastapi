@@ -8,13 +8,27 @@ from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_
 
 from app.infrastructure.database.tables_erp import WmsUbicacionTable
+from app.infrastructure.database.tables_erp import OrgEmpresaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in WmsUbicacionTable.c}
 
+async def _ensure_empresa_belongs_to_tenant(client_id: UUID, empresa_id: UUID) -> None:
+    query = select(OrgEmpresaTable.c.empresa_id).where(
+        and_(
+            OrgEmpresaTable.c.cliente_id == client_id,
+            OrgEmpresaTable.c.empresa_id == empresa_id,
+            OrgEmpresaTable.c.es_activo == True,
+        )
+    )
+    rows = await execute_query(query, client_id=client_id)
+    if not rows:
+        raise ValueError("Empresa no válida para el tenant autenticado")
+
 
 async def list_ubicaciones(
     client_id: UUID,
+    empresa_id: UUID,
     almacen_id: Optional[UUID] = None,
     zona_id: Optional[UUID] = None,
     tipo_ubicacion: Optional[str] = None,
@@ -25,7 +39,10 @@ async def list_ubicaciones(
 ) -> List[Dict[str, Any]]:
     """Lista ubicaciones del tenant. Siempre filtra por cliente_id."""
     query = select(WmsUbicacionTable).where(
-        WmsUbicacionTable.c.cliente_id == client_id
+        and_(
+            WmsUbicacionTable.c.cliente_id == client_id,
+            WmsUbicacionTable.c.empresa_id == empresa_id,
+        )
     )
     if almacen_id:
         query = query.where(WmsUbicacionTable.c.almacen_id == almacen_id)
@@ -50,11 +67,12 @@ async def list_ubicaciones(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_ubicacion_by_id(client_id: UUID, ubicacion_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_ubicacion_by_id(client_id: UUID, empresa_id: UUID, ubicacion_id: UUID) -> Optional[Dict[str, Any]]:
     """Obtiene una ubicación por id. Exige cliente_id para no cruzar tenants."""
     query = select(WmsUbicacionTable).where(
         and_(
             WmsUbicacionTable.c.cliente_id == client_id,
+            WmsUbicacionTable.c.empresa_id == empresa_id,
             WmsUbicacionTable.c.ubicacion_id == ubicacion_id,
         )
     )
@@ -62,36 +80,40 @@ async def get_ubicacion_by_id(client_id: UUID, ubicacion_id: UUID) -> Optional[D
     return rows[0] if rows else None
 
 
-async def create_ubicacion(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_ubicacion(client_id: UUID, empresa_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta una ubicación. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
+    await _ensure_empresa_belongs_to_tenant(client_id=client_id, empresa_id=empresa_id)
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
+    payload["empresa_id"] = empresa_id
     payload.setdefault("ubicacion_id", uuid4())
     stmt = insert(WmsUbicacionTable).values(**payload)
     await execute_insert(stmt, client_id=client_id)
-    return await get_ubicacion_by_id(client_id, payload["ubicacion_id"])
+    return await get_ubicacion_by_id(client_id, empresa_id, payload["ubicacion_id"])
 
 
 async def update_ubicacion(
-    client_id: UUID, ubicacion_id: UUID, data: Dict[str, Any]
+    client_id: UUID, empresa_id: UUID, ubicacion_id: UUID, data: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
     """Actualiza una ubicación. WHERE incluye cliente_id y ubicacion_id."""
+    await _ensure_empresa_belongs_to_tenant(client_id=client_id, empresa_id=empresa_id)
     payload = {
         k: v for k, v in data.items()
-        if k in _COLUMNS and k not in ("ubicacion_id", "cliente_id")
+        if k in _COLUMNS and k not in ("ubicacion_id", "cliente_id", "empresa_id")
     }
     if not payload:
-        return await get_ubicacion_by_id(client_id, ubicacion_id)
+        return await get_ubicacion_by_id(client_id, empresa_id, ubicacion_id)
     stmt = (
         update(WmsUbicacionTable)
         .where(
             and_(
                 WmsUbicacionTable.c.cliente_id == client_id,
+                WmsUbicacionTable.c.empresa_id == empresa_id,
                 WmsUbicacionTable.c.ubicacion_id == ubicacion_id,
             )
         )
         .values(**payload)
     )
     await execute_update(stmt, client_id=client_id)
-    return await get_ubicacion_by_id(client_id, ubicacion_id)
+    return await get_ubicacion_by_id(client_id, empresa_id, ubicacion_id)

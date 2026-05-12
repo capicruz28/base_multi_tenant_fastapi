@@ -23,7 +23,12 @@ from app.modules.qms.presentation.schemas import (
     InspeccionDetalleUpdate,
     InspeccionDetalleRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ConflictError, ValidationError
+
+_INSPECCION_EDITABLE_RESULTADOS = {"pendiente"}
+_INSPECCION_ESTADOS_APROBADO = "aprobado"
+_INSPECCION_ESTADOS_PROCESADO = "procesado"
+_INSPECCION_ESTADOS_ANULADO = "anulado"
 
 
 async def list_inspecciones(
@@ -70,6 +75,18 @@ async def update_inspeccion(
     client_id: UUID, inspeccion_id: UUID, data: InspeccionUpdate
 ) -> InspeccionRead:
     """Actualiza una inspección."""
+    current_row = await _get_inspeccion_by_id(client_id, inspeccion_id)
+    if not current_row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    if (current_row.get("resultado") or "pendiente") not in _INSPECCION_EDITABLE_RESULTADOS:
+        raise ConflictError("La inspección ya no es editable en su estado actual")
+
+    # Campos controlados por transiciones (no por PUT genérico)
+    if data.resultado is not None:
+        raise ValidationError("No se permite modificar 'resultado' por este endpoint")
+    if data.aprobado_por_usuario_id is not None or data.fecha_aprobacion is not None:
+        raise ValidationError("No se permite modificar campos de aprobación por este endpoint")
+
     row = await _update_inspeccion(
         client_id, inspeccion_id, data.model_dump(exclude_none=True)
     )
@@ -82,7 +99,14 @@ async def list_inspeccion_detalles(
     client_id: UUID, inspeccion_id: UUID
 ) -> List[InspeccionDetalleRead]:
     """Lista detalles de una inspección."""
-    rows = await _list_inspeccion_detalles(client_id, inspeccion_id)
+    inspeccion_row = await _get_inspeccion_by_id(client_id, inspeccion_id)
+    if not inspeccion_row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    rows = await _list_inspeccion_detalles(
+        client_id,
+        inspeccion_id,
+        empresa_id=inspeccion_row.get("empresa_id"),
+    )
     return [InspeccionDetalleRead(**row) for row in rows]
 
 
@@ -100,7 +124,15 @@ async def create_inspeccion_detalle(
     client_id: UUID, data: InspeccionDetalleCreate
 ) -> InspeccionDetalleRead:
     """Crea un detalle de inspección."""
-    row = await _create_inspeccion_detalle(client_id, data.model_dump(exclude_none=True))
+    inspeccion_row = await _get_inspeccion_by_id(client_id, data.inspeccion_id)
+    if not inspeccion_row:
+        raise NotFoundError(f"Inspección {data.inspeccion_id} no encontrada")
+    if (inspeccion_row.get("resultado") or "pendiente") not in _INSPECCION_EDITABLE_RESULTADOS:
+        raise ConflictError("No se puede modificar el detalle: la inspección ya no es editable")
+
+    payload = data.model_dump(exclude_none=True)
+    payload["empresa_id"] = inspeccion_row.get("empresa_id")
+    row = await _create_inspeccion_detalle(client_id, payload)
     return InspeccionDetalleRead(**row)
 
 
@@ -108,9 +140,69 @@ async def update_inspeccion_detalle(
     client_id: UUID, inspeccion_detalle_id: UUID, data: InspeccionDetalleUpdate
 ) -> InspeccionDetalleRead:
     """Actualiza un detalle de inspección."""
+    current_row = await _get_inspeccion_detalle_by_id(client_id, inspeccion_detalle_id)
+    if not current_row:
+        raise NotFoundError(f"Detalle de inspección {inspeccion_detalle_id} no encontrado")
+
+    inspeccion_row = await _get_inspeccion_by_id(client_id, current_row["inspeccion_id"])
+    if not inspeccion_row:
+        raise NotFoundError(f"Inspección {current_row['inspeccion_id']} no encontrada")
+    if (inspeccion_row.get("resultado") or "pendiente") not in _INSPECCION_EDITABLE_RESULTADOS:
+        raise ConflictError("No se puede modificar el detalle: la inspección ya no es editable")
+
     row = await _update_inspeccion_detalle(
         client_id, inspeccion_detalle_id, data.model_dump(exclude_none=True)
     )
     if not row:
         raise NotFoundError(f"Detalle de inspección {inspeccion_detalle_id} no encontrado")
     return InspeccionDetalleRead(**row)
+
+
+async def aprobar_inspeccion(
+    client_id: UUID,
+    inspeccion_id: UUID,
+    aprobado_por_usuario_id: UUID,
+    fecha_aprobacion: Optional[datetime] = None,
+) -> InspeccionRead:
+    inspeccion_row = await _get_inspeccion_by_id(client_id, inspeccion_id)
+    if not inspeccion_row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    if (inspeccion_row.get("resultado") or "pendiente") != "pendiente":
+        raise ConflictError("Solo se puede aprobar una inspección en estado pendiente")
+
+    payload = {
+        "resultado": _INSPECCION_ESTADOS_APROBADO,
+        "aprobado_por_usuario_id": aprobado_por_usuario_id,
+        "fecha_aprobacion": fecha_aprobacion or datetime.utcnow(),
+    }
+    row = await _update_inspeccion(client_id, inspeccion_id, payload)
+    if not row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    return InspeccionRead(**row)
+
+
+async def procesar_inspeccion(client_id: UUID, inspeccion_id: UUID) -> InspeccionRead:
+    inspeccion_row = await _get_inspeccion_by_id(client_id, inspeccion_id)
+    if not inspeccion_row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    if (inspeccion_row.get("resultado") or "pendiente") != _INSPECCION_ESTADOS_APROBADO:
+        raise ConflictError("Solo se puede procesar una inspección aprobada")
+
+    row = await _update_inspeccion(client_id, inspeccion_id, {"resultado": _INSPECCION_ESTADOS_PROCESADO})
+    if not row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    return InspeccionRead(**row)
+
+
+async def anular_inspeccion(client_id: UUID, inspeccion_id: UUID) -> InspeccionRead:
+    inspeccion_row = await _get_inspeccion_by_id(client_id, inspeccion_id)
+    if not inspeccion_row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    resultado = inspeccion_row.get("resultado") or "pendiente"
+    if resultado in {_INSPECCION_ESTADOS_PROCESADO, _INSPECCION_ESTADOS_ANULADO}:
+        raise ConflictError("No se puede anular una inspección procesada o ya anulada")
+
+    row = await _update_inspeccion(client_id, inspeccion_id, {"resultado": _INSPECCION_ESTADOS_ANULADO})
+    if not row:
+        raise NotFoundError(f"Inspección {inspeccion_id} no encontrada")
+    return InspeccionRead(**row)

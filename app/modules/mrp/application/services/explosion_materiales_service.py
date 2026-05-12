@@ -13,7 +13,7 @@ from app.modules.mrp.presentation.schemas import (
     ExplosionMaterialesUpdate,
     ExplosionMaterialesRead,
 )
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 
 
 def _enrich_explosion_row(row: dict) -> dict:
@@ -51,6 +51,11 @@ async def get_explosion_materiales_by_id(client_id: UUID, explosion_id: UUID) ->
 
 
 async def create_explosion_materiales(client_id: UUID, data: ExplosionMaterialesCreate) -> ExplosionMaterialesRead:
+    # Tabla derivada: no debe ser escrita manualmente vía API.
+    raise ValidationError(
+        detail="La explosión de materiales es un resultado derivado (read-only). Escritura permitida solo para procesos internos controlados.",
+        internal_code="DERIVED_TABLE_READ_ONLY",
+    )
     row = await _create(client_id, data.model_dump(exclude_none=True))
     return ExplosionMaterialesRead(**_enrich_explosion_row(dict(row)))
 
@@ -58,6 +63,11 @@ async def create_explosion_materiales(client_id: UUID, data: ExplosionMateriales
 async def update_explosion_materiales(
     client_id: UUID, explosion_id: UUID, data: ExplosionMaterialesUpdate
 ) -> ExplosionMaterialesRead:
+    # Tabla derivada: no debe ser editada manualmente vía API.
+    raise ValidationError(
+        detail="La explosión de materiales es un resultado derivado (read-only). Edición permitida solo para procesos internos controlados.",
+        internal_code="DERIVED_TABLE_READ_ONLY",
+    )
     row = await _update(client_id, explosion_id, data.model_dump(exclude_none=True))
     if not row:
         raise NotFoundError(f"Explosión materiales {explosion_id} no encontrada")

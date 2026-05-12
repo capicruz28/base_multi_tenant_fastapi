@@ -1,7 +1,7 @@
 """Endpoints FastAPI para hcm_contrato."""
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -10,8 +10,14 @@ from app.modules.hcm.application.services import (
     get_contrato_by_id,
     create_contrato,
     update_contrato,
+    rescindir_contrato,
 )
-from app.modules.hcm.presentation.schemas import ContratoCreate, ContratoUpdate, ContratoRead
+from app.modules.hcm.presentation.schemas import (
+    ContratoCreate,
+    ContratoUpdate,
+    ContratoRead,
+    ContratoRescindirRequest,
+)
 from app.core.exceptions import NotFoundError
 
 router = APIRouter()
@@ -68,5 +74,32 @@ async def put_contrato(
 ):
     try:
         return await update_contrato(current_user.cliente_id, contrato_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{contrato_id}/rescindir",
+    response_model=ContratoRead,
+    tags=["HCM - Contratos"],
+    summary="Rescindir contrato",
+)
+async def post_rescindir_contrato(
+    contrato_id: UUID,
+    data: Optional[ContratoRescindirRequest] = Body(default=None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.rescindir")
+    ),
+):
+    try:
+        fecha_r = data.fecha_rescision if data else None
+        motivo_r = data.motivo_rescision if data else None
+        return await rescindir_contrato(
+            current_user.cliente_id,
+            contrato_id,
+            fecha_rescision=fecha_r,
+            motivo_rescision=motivo_r,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

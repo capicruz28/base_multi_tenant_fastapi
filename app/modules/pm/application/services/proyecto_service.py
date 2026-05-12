@@ -32,8 +32,12 @@ async def list_proyecto(
     return [ProyectoRead(**dict(r)) for r in rows]
 
 
-async def get_proyecto_by_id(client_id: UUID, proyecto_id: UUID) -> ProyectoRead:
-    row = await _get(client_id, proyecto_id)
+async def get_proyecto_by_id(
+    client_id: UUID,
+    proyecto_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> ProyectoRead:
+    row = await _get(client_id, proyecto_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Proyecto no encontrado")
     return ProyectoRead(**dict(row))
@@ -46,10 +50,13 @@ async def create_proyecto(client_id: UUID, data: ProyectoCreate) -> ProyectoRead
 
 
 async def update_proyecto(
-    client_id: UUID, proyecto_id: UUID, data: ProyectoUpdate
+    client_id: UUID,
+    proyecto_id: UUID,
+    data: ProyectoUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> ProyectoRead:
     dump = data.model_dump(exclude_none=True)
-    row = await _update(client_id, proyecto_id, dump)
+    row = await _update(client_id, proyecto_id, dump, empresa_id=empresa_id)
     if not row:
         raise NotFoundError("Proyecto no encontrado")
     return ProyectoRead(**dict(row))

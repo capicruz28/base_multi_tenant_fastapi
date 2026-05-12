@@ -58,6 +58,7 @@ InvbillComprobanteTable = Table(
     Column("tipo_comprobante", String(2), nullable=False),
     Column("serie", String(4), nullable=False),
     Column("numero", String(10), nullable=False),
+    Column("numero_completo", String(30), nullable=True),
     Column("fecha_emision", Date, nullable=False, server_default=func.cast(func.getdate(), Date)),
     Column("fecha_vencimiento", Date, nullable=True),
     Column("hora_emision", Time, nullable=True, server_default=func.cast(func.getdate(), Time)),
@@ -73,6 +74,12 @@ InvbillComprobanteTable = Table(
     Column("tipo_nota", String(2), nullable=True),
     Column("motivo_nota", String(500), nullable=True),
     Column("moneda", String(3), nullable=True, server_default="PEN"),
+    Column(
+        "moneda_id",
+        UNIQUEIDENTIFIER,
+        ForeignKey("cat_moneda.moneda_id", ondelete="NO ACTION"),
+        nullable=True,
+    ),
     Column("tipo_cambio", Numeric(10, 4), nullable=True, server_default="1"),
     Column("subtotal_gravado", Numeric(18, 2), nullable=True, server_default="0"),
     Column("subtotal_exonerado", Numeric(18, 2), nullable=True, server_default="0"),
@@ -116,6 +123,7 @@ Index("IDX_comp_empresa", InvbillComprobanteTable.c.empresa_id, InvbillComproban
 Index("IDX_comp_cliente", InvbillComprobanteTable.c.cliente_venta_id, InvbillComprobanteTable.c.estado)
 Index("IDX_comp_estado_sunat", InvbillComprobanteTable.c.estado_sunat)
 Index("IDX_comp_fecha", InvbillComprobanteTable.c.fecha_emision)
+Index("IDX_comp_numero", InvbillComprobanteTable.c.numero_completo)
 
 # ============================================================================
 # TABLA: invbill_comprobante_detalle (Fase 4: empresa_id + FK + índice)
@@ -136,8 +144,12 @@ InvbillComprobanteDetalleTable = Table(
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=True),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
     Column("descuento_unitario", Numeric(18, 4), nullable=True, server_default="0"),
+    Column("precio_venta_unitario", Numeric(18, 4), nullable=True),
+    Column("valor_venta", Numeric(18, 2), nullable=True),
     Column("tipo_afectacion_igv", String(2), nullable=False),
     Column("porcentaje_igv", Numeric(5, 2), nullable=True, server_default="18"),
+    Column("igv", Numeric(18, 2), nullable=True),
+    Column("total_item", Numeric(18, 2), nullable=True),
     Column("codigo_producto_sunat", String(10), nullable=True),
     Column("lote", String(50), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),

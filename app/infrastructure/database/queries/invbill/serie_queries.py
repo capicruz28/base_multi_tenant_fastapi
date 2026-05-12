@@ -33,14 +33,19 @@ async def list_series(
     return await execute_query(query, client_id=client_id)
 
 
-async def get_serie_by_id(client_id: UUID, serie_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_serie_by_id(
+    client_id: UUID,
+    serie_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene una serie por id. Exige cliente_id para no cruzar tenants."""
-    query = select(InvbillSerieComprobanteTable).where(
-        and_(
-            InvbillSerieComprobanteTable.c.cliente_id == client_id,
-            InvbillSerieComprobanteTable.c.serie_id == serie_id,
-        )
-    )
+    conds = [
+        InvbillSerieComprobanteTable.c.cliente_id == client_id,
+        InvbillSerieComprobanteTable.c.serie_id == serie_id,
+    ]
+    if empresa_id is not None:
+        conds.append(InvbillSerieComprobanteTable.c.empresa_id == empresa_id)
+    query = select(InvbillSerieComprobanteTable).where(and_(*conds))
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 

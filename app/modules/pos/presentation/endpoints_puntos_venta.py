@@ -14,6 +14,8 @@ from app.modules.pos.application.services import (
     get_punto_venta_by_id,
     create_punto_venta,
     update_punto_venta,
+    delete_punto_venta_logico,
+    reactivar_punto_venta,
 )
 from app.modules.pos.presentation.schemas import (
     PuntoVentaCreate,
@@ -49,15 +51,67 @@ async def get_puntos_venta(
     )
 
 
+@router.post(
+    "/{punto_venta_id}/reactivar",
+    response_model=PuntoVentaRead,
+    tags=["POS - Puntos de Venta"],
+    summary="Reactivar punto de venta",
+)
+async def post_reactivar_punto_venta(
+    punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    try:
+        return await reactivar_punto_venta(
+            current_user.cliente_id,
+            punto_venta_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{punto_venta_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["POS - Puntos de Venta"],
+    summary="Baja lógica de punto de venta",
+)
+async def delete_punto_venta(
+    punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    try:
+        await delete_punto_venta_logico(
+            current_user.cliente_id,
+            punto_venta_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
 @router.get("/{punto_venta_id}", response_model=PuntoVentaRead, tags=["POS - Puntos de Venta"])
 async def get_punto_venta(
     punto_venta_id: UUID,
+    empresa_id: Optional[UUID] = Query(
+        None,
+        description="Si se informa, la fila debe pertenecer a esta empresa.",
+    ),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un punto de venta por id."""
     try:
-        return await get_punto_venta_by_id(current_user.cliente_id, punto_venta_id)
+        return await get_punto_venta_by_id(
+            current_user.cliente_id,
+            punto_venta_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -76,11 +130,20 @@ async def post_punto_venta(
 async def put_punto_venta(
     punto_venta_id: UUID,
     data: PuntoVentaUpdate,
+    empresa_id: Optional[UUID] = Query(
+        None,
+        description="Si se informa, la fila debe pertenecer a esta empresa.",
+    ),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un punto de venta."""
     try:
-        return await update_punto_venta(current_user.cliente_id, punto_venta_id, data)
+        return await update_punto_venta(
+            current_user.cliente_id,
+            punto_venta_id,
+            data,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

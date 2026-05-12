@@ -49,3 +49,15 @@ async def update_empleado(client_id: UUID, empleado_id: UUID, data: EmpleadoUpda
     if not row:
         raise NotFoundError(f"Empleado {empleado_id} no encontrado")
     return EmpleadoRead(**row)
+
+
+async def desactivar_empleado(client_id: UUID, empleado_id: UUID) -> EmpleadoRead:
+    return await update_empleado(
+        client_id, empleado_id, EmpleadoUpdate(es_activo=False)
+    )
+
+
+async def activar_empleado(client_id: UUID, empleado_id: UUID) -> EmpleadoRead:
+    return await update_empleado(
+        client_id, empleado_id, EmpleadoUpdate(es_activo=True)
+    )

@@ -37,9 +37,13 @@ async def list_rutas(
     return [RutaRead(**row) for row in rows]
 
 
-async def get_ruta_by_id(client_id: UUID, ruta_id: UUID) -> RutaRead:
+async def get_ruta_by_id(
+    client_id: UUID,
+    ruta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> RutaRead:
     """Obtiene una ruta por id. Lanza NotFoundError si no existe."""
-    row = await _get_ruta_by_id(client_id, ruta_id)
+    row = await _get_ruta_by_id(client_id, ruta_id, empresa_id=empresa_id)
     if not row:
         raise NotFoundError(f"Ruta {ruta_id} no encontrada")
     return RutaRead(**row)
@@ -52,11 +56,54 @@ async def create_ruta(client_id: UUID, data: RutaCreate) -> RutaRead:
 
 
 async def update_ruta(
-    client_id: UUID, ruta_id: UUID, data: RutaUpdate
+    client_id: UUID,
+    ruta_id: UUID,
+    data: RutaUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> RutaRead:
     """Actualiza una ruta. Lanza NotFoundError si no existe."""
     row = await _update_ruta(
-        client_id, ruta_id, data.model_dump(exclude_none=True)
+        client_id,
+        ruta_id,
+        data.model_dump(exclude_none=True),
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Ruta {ruta_id} no encontrada")
+    return RutaRead(**row)
+
+
+async def delete_ruta(
+    client_id: UUID,
+    ruta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> None:
+    """
+    Baja lógica (es_activo = False).
+    """
+    row = await _update_ruta(
+        client_id,
+        ruta_id,
+        {"es_activo": False},
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(f"Ruta {ruta_id} no encontrada")
+
+
+async def reactivar_ruta(
+    client_id: UUID,
+    ruta_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> RutaRead:
+    """
+    Reactiva (es_activo = True).
+    """
+    row = await _update_ruta(
+        client_id,
+        ruta_id,
+        {"es_activo": True},
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(f"Ruta {ruta_id} no encontrada")

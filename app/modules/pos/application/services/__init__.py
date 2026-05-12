@@ -7,18 +7,22 @@ from app.modules.pos.application.services.punto_venta_service import (
     get_punto_venta_by_id,
     create_punto_venta,
     update_punto_venta,
+    delete_punto_venta_logico,
+    reactivar_punto_venta,
 )
 from app.modules.pos.application.services.turno_caja_service import (
     list_turnos_caja,
     get_turno_caja_by_id,
     create_turno_caja,
     update_turno_caja,
+    cerrar_turno_caja,
 )
 from app.modules.pos.application.services.venta_service import (
     list_ventas,
     get_venta_by_id,
     create_venta,
     update_venta,
+    anular_venta,
 )
 from app.modules.pos.application.services.venta_detalle_service import (
     list_venta_detalles,
@@ -32,14 +36,18 @@ __all__ = [
     "get_punto_venta_by_id",
     "create_punto_venta",
     "update_punto_venta",
+    "delete_punto_venta_logico",
+    "reactivar_punto_venta",
     "list_turnos_caja",
     "get_turno_caja_by_id",
     "create_turno_caja",
     "update_turno_caja",
+    "cerrar_turno_caja",
     "list_ventas",
     "get_venta_by_id",
     "create_venta",
     "update_venta",
+    "anular_venta",
     "list_venta_detalles",
     "get_venta_detalle_by_id",
     "create_venta_detalle",

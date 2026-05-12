@@ -7,6 +7,8 @@ from app.infrastructure.database.queries_async import execute_query, execute_ins
 
 _COLUMNS = {c.name for c in MpsPlanProduccionTable.c}
 
+_ESTADOS_VALIDOS = {"borrador", "aprobado", "ejecutado", "cerrado", "anulado"}
+
 
 async def list_plan_produccion(
     client_id: UUID,
@@ -60,5 +62,21 @@ async def update_plan_produccion(
             MpsPlanProduccionTable.c.plan_produccion_id == plan_produccion_id,
         )
     ).values(**payload)
+    await execute_update(stmt, client_id=client_id)
+    return await get_plan_produccion_by_id(client_id, plan_produccion_id)
+
+
+async def set_plan_produccion_estado(
+    client_id: UUID, plan_produccion_id: UUID, nuevo_estado: str
+) -> Optional[Dict[str, Any]]:
+    estado_n = (nuevo_estado or "").strip().lower()
+    if estado_n not in _ESTADOS_VALIDOS:
+        raise ValueError(f"Estado inválido: {nuevo_estado}")
+    stmt = update(MpsPlanProduccionTable).where(
+        and_(
+            MpsPlanProduccionTable.c.cliente_id == client_id,
+            MpsPlanProduccionTable.c.plan_produccion_id == plan_produccion_id,
+        )
+    ).values(estado=estado_n)
     await execute_update(stmt, client_id=client_id)
     return await get_plan_produccion_by_id(client_id, plan_produccion_id)

@@ -4,6 +4,7 @@ from app.infrastructure.database.queries.mrp.plan_maestro_queries import (
     get_plan_maestro_by_id,
     create_plan_maestro,
     update_plan_maestro,
+    set_plan_maestro_estado,
 )
 from app.infrastructure.database.queries.mrp.necesidad_bruta_queries import (
     list_necesidad_bruta,
@@ -22,6 +23,7 @@ from app.infrastructure.database.queries.mrp.orden_sugerida_queries import (
     get_orden_sugerida_by_id,
     create_orden_sugerida,
     update_orden_sugerida,
+    set_orden_sugerida_estado,
 )
 
 __all__ = [
@@ -29,6 +31,7 @@ __all__ = [
     "get_plan_maestro_by_id",
     "create_plan_maestro",
     "update_plan_maestro",
+    "set_plan_maestro_estado",
     "list_necesidad_bruta",
     "get_necesidad_bruta_by_id",
     "create_necesidad_bruta",
@@ -41,4 +44,5 @@ __all__ = [
     "get_orden_sugerida_by_id",
     "create_orden_sugerida",
     "update_orden_sugerida",
+    "set_orden_sugerida_estado",
 ]

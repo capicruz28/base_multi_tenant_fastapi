@@ -171,11 +171,12 @@ CREATE TABLE inv_producto (
     costo_estandar DECIMAL(18,4) NULL,
     costo_ultima_compra DECIMAL(18,4) NULL,
     costo_promedio DECIMAL(18,4) NULL,
-    moneda_costo NVARCHAR(3) DEFAULT 'PEN',
+    moneda_costo UNIQUEIDENTIFIER NOT NULL,
+    
     
     -- Precios (PRC)
     precio_base_venta DECIMAL(18,4) NULL,
-    moneda_venta NVARCHAR(3) DEFAULT 'PEN',
+    moneda_venta UNIQUEIDENTIFIER NOT NULL,
     afecto_igv BIT DEFAULT 1,                                 -- Si está afecto a impuestos
     porcentaje_igv DECIMAL(5,2) DEFAULT 18.00,
     
@@ -212,7 +213,11 @@ CREATE TABLE inv_producto (
         REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
     CONSTRAINT FK_prod_um_venta FOREIGN KEY (unidad_medida_venta_id) 
         REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_prod_sku UNIQUE (cliente_id, empresa_id, codigo_sku)
+    CONSTRAINT UQ_prod_sku UNIQUE (cliente_id, empresa_id, codigo_sku),
+    CONSTRAINT FK_prod_moneda_costo FOREIGN KEY (moneda_costo)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_prod_moneda_venta FOREIGN KEY (moneda_venta)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_prod_empresa ON inv_producto(empresa_id, es_activo);
@@ -302,7 +307,7 @@ CREATE TABLE inv_stock (
     -- Valores
     costo_promedio DECIMAL(18,4) DEFAULT 0,                   -- Costo promedio unitario
     valor_total AS (cantidad_actual * costo_promedio) PERSISTED, -- Valor total del stock
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Control
     stock_minimo DECIMAL(18,4) NULL,                          -- Mínimo específico para este almacén
@@ -322,7 +327,9 @@ CREATE TABLE inv_stock (
         REFERENCES inv_producto(producto_id) ON DELETE NO ACTION,
     CONSTRAINT FK_stock_almacen FOREIGN KEY (almacen_id) 
         REFERENCES inv_almacen(almacen_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_stock_prod_alm UNIQUE (cliente_id, producto_id, almacen_id)
+    CONSTRAINT UQ_stock_prod_alm UNIQUE (cliente_id, producto_id, almacen_id),
+    CONSTRAINT FK_stock_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_stock_producto ON inv_stock(producto_id);
@@ -410,7 +417,7 @@ CREATE TABLE inv_movimiento (
     total_items INT DEFAULT 0,
     total_cantidad DECIMAL(18,4) DEFAULT 0,
     total_costo DECIMAL(18,4) DEFAULT 0,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Estado y control
     estado NVARCHAR(20) DEFAULT 'borrador',                   -- 'borrador', 'autorizado', 'procesado', 'anulado'
@@ -442,7 +449,9 @@ CREATE TABLE inv_movimiento (
         REFERENCES inv_almacen(almacen_id) ON DELETE NO ACTION,
     CONSTRAINT FK_mov_cc FOREIGN KEY (centro_costo_id) 
         REFERENCES org_centro_costo(centro_costo_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_mov_numero UNIQUE (cliente_id, empresa_id, numero_movimiento)
+    CONSTRAINT UQ_mov_numero UNIQUE (cliente_id, empresa_id, numero_movimiento),
+    CONSTRAINT FK_mov_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
 CREATE INDEX IDX_mov_empresa ON inv_movimiento(empresa_id, fecha_movimiento DESC);
@@ -463,6 +472,7 @@ CREATE INDEX IDX_mov_referencia ON inv_movimiento(modulo_origen, documento_refer
 CREATE TABLE inv_movimiento_detalle (
     movimiento_detalle_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
+    empresa_id UNIQUEIDENTIFIER NOT NULL,
     movimiento_id UNIQUEIDENTIFIER NOT NULL,
     producto_id UNIQUEIDENTIFIER NOT NULL,
     
@@ -474,7 +484,7 @@ CREATE TABLE inv_movimiento_detalle (
     -- Costos
     costo_unitario DECIMAL(18,4) DEFAULT 0,                   -- Costo por unidad
     costo_total AS (cantidad * costo_unitario) PERSISTED,
-    moneda NVARCHAR(3) DEFAULT 'PEN',
+    moneda_id UNIQUEIDENTIFIER NOT NULL,
     
     -- Lote y vencimiento (si aplica)
     lote NVARCHAR(50) NULL,
@@ -490,14 +500,19 @@ CREATE TABLE inv_movimiento_detalle (
     -- Auditoría
     fecha_creacion DATETIME DEFAULT GETDATE() NOT NULL,
     
+    CONSTRAINT FK_movdet_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT FK_movdet_movimiento FOREIGN KEY (movimiento_id) 
         REFERENCES inv_movimiento(movimiento_id) ON DELETE NO ACTION,
     CONSTRAINT FK_movdet_producto FOREIGN KEY (producto_id) 
         REFERENCES inv_producto(producto_id) ON DELETE NO ACTION,
     CONSTRAINT FK_movdet_um FOREIGN KEY (unidad_medida_id) 
-        REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION
+        REFERENCES inv_unidad_medida(unidad_medida_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_movdet_moneda FOREIGN KEY (moneda_id)
+        REFERENCES cat_moneda(moneda_id) ON DELETE NO ACTION
 );
 
+CREATE INDEX IDX_movdet_empresa ON inv_movimiento_detalle(empresa_id);
 CREATE INDEX IDX_movdet_movimiento ON inv_movimiento_detalle(movimiento_id);
 CREATE INDEX IDX_movdet_producto ON inv_movimiento_detalle(producto_id);
 CREATE INDEX IDX_movdet_lote ON inv_movimiento_detalle(lote) WHERE lote IS NOT NULL;
@@ -569,6 +584,7 @@ CREATE INDEX IDX_invfis_estado ON inv_inventario_fisico(estado);
 CREATE TABLE inv_inventario_fisico_detalle (
     inventario_fisico_detalle_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
+    empresa_id UNIQUEIDENTIFIER NOT NULL,
     inventario_fisico_id UNIQUEIDENTIFIER NOT NULL,
     producto_id UNIQUEIDENTIFIER NOT NULL,
     
@@ -601,12 +617,15 @@ CREATE TABLE inv_inventario_fisico_detalle (
     -- Auditoría
     fecha_creacion DATETIME DEFAULT GETDATE() NOT NULL,
     
+    CONSTRAINT FK_invfisdet_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT FK_invfisdet_invfis FOREIGN KEY (inventario_fisico_id) 
         REFERENCES inv_inventario_fisico(inventario_fisico_id) ON DELETE NO ACTION,
     CONSTRAINT FK_invfisdet_producto FOREIGN KEY (producto_id) 
         REFERENCES inv_producto(producto_id) ON DELETE NO ACTION
 );
 
+CREATE INDEX IDX_invfisdet_empresa ON inv_inventario_fisico_detalle(empresa_id);
 CREATE INDEX IDX_invfisdet_invfis ON inv_inventario_fisico_detalle(inventario_fisico_id);
 CREATE INDEX IDX_invfisdet_producto ON inv_inventario_fisico_detalle(producto_id);
 CREATE INDEX IDX_invfisdet_diferencias ON inv_inventario_fisico_detalle(inventario_fisico_id, cantidad_contada, cantidad_sistema);

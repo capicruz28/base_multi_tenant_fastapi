@@ -11,6 +11,7 @@ from app.infrastructure.database.queries.pur import (
     get_recepcion_detalle_by_id,
     create_recepcion_detalle,
     update_recepcion_detalle,
+    get_recepcion_by_id,
 )
 from app.modules.pur.presentation.schemas import (
     RecepcionDetalleCreate,
@@ -18,9 +19,26 @@ from app.modules.pur.presentation.schemas import (
     RecepcionDetalleRead,
 )
 
+_EDITABLE_RECEPCION = frozenset({"borrador"})
+
 
 def _row_to_read(row: dict) -> RecepcionDetalleRead:
     return RecepcionDetalleRead(**row)
+
+def _norm_estado(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
+
+async def _require_recepcion_editable(
+    *, client_id: UUID, recepcion_id: UUID, not_found_detail: str
+) -> None:
+    cab = await get_recepcion_by_id(client_id=client_id, recepcion_id=recepcion_id)
+    if not cab:
+        raise NotFoundError(detail=not_found_detail)
+    if _norm_estado(cab.get("estado")) not in _EDITABLE_RECEPCION:
+        raise ValueError(
+            "No se puede modificar el detalle: la recepción no está en estado editable"
+        )
 
 
 async def list_recepciones_detalle_servicio(
@@ -56,6 +74,11 @@ async def create_recepcion_detalle_servicio(
     data: RecepcionDetalleCreate,
 ) -> RecepcionDetalleRead:
     await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+    await _require_recepcion_editable(
+        client_id=client_id,
+        recepcion_id=data.recepcion_id,
+        not_found_detail="Recepción no encontrada",
+    )
     payload = data.model_dump()
     row = await create_recepcion_detalle(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -72,6 +95,11 @@ async def update_recepcion_detalle_servicio(
     )
     if not row:
         raise NotFoundError(detail="Detalle de recepción no encontrado")
+    await _require_recepcion_editable(
+        client_id=client_id,
+        recepcion_id=row["recepcion_id"],
+        not_found_detail="Recepción no encontrada",
+    )
     payload = data.model_dump(exclude_unset=True)
     updated = await update_recepcion_detalle(
         client_id=client_id,

@@ -14,6 +14,8 @@ from app.modules.log.application.services import (
     get_transportista_by_id,
     create_transportista,
     update_transportista,
+    delete_transportista,
+    reactivar_transportista,
 )
 from app.modules.log.presentation.schemas import (
     TransportistaCreate,
@@ -48,12 +50,17 @@ async def get_transportistas(
 @router.get("/{transportista_id}", response_model=TransportistaRead, tags=["LOG - Transportistas"])
 async def get_transportista(
     transportista_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene un transportista por id."""
     try:
-        return await get_transportista_by_id(current_user.cliente_id, transportista_id)
+        return await get_transportista_by_id(
+            current_user.cliente_id,
+            transportista_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -72,11 +79,61 @@ async def post_transportista(
 async def put_transportista(
     transportista_id: UUID,
     data: TransportistaUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza un transportista."""
     try:
-        return await update_transportista(current_user.cliente_id, transportista_id, data)
+        return await update_transportista(
+            current_user.cliente_id,
+            transportista_id,
+            data,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{transportista_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["LOG - Transportistas"],
+)
+async def delete_transportista_endpoint(
+    transportista_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Baja lógica de transportista (es_activo = 0)."""
+    try:
+        await delete_transportista(
+            current_user.cliente_id,
+            transportista_id,
+            empresa_id=empresa_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{transportista_id}/reactivar",
+    response_model=TransportistaRead,
+    tags=["LOG - Transportistas"],
+)
+async def reactivar_transportista_endpoint(
+    transportista_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva transportista (es_activo = 1)."""
+    try:
+        return await reactivar_transportista(
+            current_user.cliente_id,
+            transportista_id,
+            empresa_id=empresa_id,
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

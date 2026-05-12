@@ -68,3 +68,43 @@ async def put_centro_trabajo(centro_trabajo_id: UUID, data: CentroTrabajoUpdate,
         return await update_centro_trabajo(current_user.cliente_id, centro_trabajo_id, data)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{centro_trabajo_id}/activar",
+    response_model=CentroTrabajoRead,
+    tags=["MFG - Centros de Trabajo"],
+    dependencies=[Depends(require_permission("mfg.centro_trabajo.activar"))],
+)
+async def activar_centro_trabajo(
+    centro_trabajo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await update_centro_trabajo(
+            current_user.cliente_id,
+            centro_trabajo_id,
+            CentroTrabajoUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{centro_trabajo_id}/desactivar",
+    response_model=CentroTrabajoRead,
+    tags=["MFG - Centros de Trabajo"],
+    dependencies=[Depends(require_permission("mfg.centro_trabajo.desactivar"))],
+)
+async def desactivar_centro_trabajo(
+    centro_trabajo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    try:
+        return await update_centro_trabajo(
+            current_user.cliente_id,
+            centro_trabajo_id,
+            CentroTrabajoUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

@@ -15,6 +15,9 @@ from app.modules.qms.application.services import (
     get_inspeccion_by_id,
     create_inspeccion,
     update_inspeccion,
+    aprobar_inspeccion,
+    procesar_inspeccion,
+    anular_inspeccion,
     list_inspeccion_detalles,
     get_inspeccion_detalle_by_id,
     create_inspeccion_detalle,
@@ -96,6 +99,49 @@ async def put_inspeccion(
     """Actualiza una inspección."""
     try:
         return await update_inspeccion(current_user.cliente_id, inspeccion_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{inspeccion_id}/aprobar", response_model=InspeccionRead, tags=["QMS - Inspecciones"])
+async def post_inspeccion_aprobar(
+    inspeccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")),
+):
+    """Aprueba una inspección (transición de estado)."""
+    try:
+        return await aprobar_inspeccion(
+            client_id=current_user.cliente_id,
+            inspeccion_id=inspeccion_id,
+            aprobado_por_usuario_id=current_user.usuario_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{inspeccion_id}/procesar", response_model=InspeccionRead, tags=["QMS - Inspecciones"])
+async def post_inspeccion_procesar(
+    inspeccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.procesar")),
+):
+    """Procesa una inspección aprobada (transición de estado)."""
+    try:
+        return await procesar_inspeccion(current_user.cliente_id, inspeccion_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{inspeccion_id}/anular", response_model=InspeccionRead, tags=["QMS - Inspecciones"])
+async def post_inspeccion_anular(
+    inspeccion_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+):
+    """Anula una inspección (transición de estado)."""
+    try:
+        return await anular_inspeccion(current_user.cliente_id, inspeccion_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

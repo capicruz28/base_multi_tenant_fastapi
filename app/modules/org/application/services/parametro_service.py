@@ -3,7 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.infrastructure.database.queries.org import (
     list_parametros,
     get_parametro_by_id,
@@ -19,6 +19,14 @@ from app.modules.org.presentation.schemas import (
 
 def _row_to_read(row: dict) -> ParametroRead:
     return ParametroRead(**row)
+
+def _require_empresa_id(empresa_id: Optional[UUID]) -> UUID:
+    if empresa_id is None:
+        raise ValidationError(
+            detail="empresa_id es obligatorio para operar parámetros por ID.",
+            internal_code="MISSING_REQUIRED_FIELDS",
+        )
+    return empresa_id
 
 
 async def list_parametros_servicio(
@@ -50,10 +58,13 @@ async def list_parametros_servicio(
 async def get_parametro_servicio(
     client_id: UUID,
     parametro_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> ParametroRead:
+    empresa_id = _require_empresa_id(empresa_id)
     row = await get_parametro_by_id(
         client_id=client_id,
         parametro_id=parametro_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Parámetro no encontrado")
@@ -73,10 +84,13 @@ async def update_parametro_servicio(
     client_id: UUID,
     parametro_id: UUID,
     data: ParametroUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> ParametroRead:
+    empresa_id = _require_empresa_id(empresa_id)
     row = await get_parametro_by_id(
         client_id=client_id,
         parametro_id=parametro_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Parámetro no encontrado")
@@ -85,6 +99,7 @@ async def update_parametro_servicio(
         client_id=client_id,
         parametro_id=parametro_id,
         data=payload,
+        empresa_id=empresa_id,
     )
     return _row_to_read(updated)
 
@@ -92,13 +107,16 @@ async def update_parametro_servicio(
 async def delete_parametro_servicio(
     client_id: UUID,
     parametro_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> None:
     """
     Baja lógica de un parámetro (es_activo = False).
     """
+    empresa_id = _require_empresa_id(empresa_id)
     row = await get_parametro_by_id(
         client_id=client_id,
         parametro_id=parametro_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Parámetro no encontrado")
@@ -106,4 +124,27 @@ async def delete_parametro_servicio(
         client_id=client_id,
         parametro_id=parametro_id,
         data={"es_activo": False},
+        empresa_id=empresa_id,
     )
+
+
+async def reactivar_parametro_servicio(
+    client_id: UUID,
+    parametro_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> ParametroRead:
+    empresa_id = _require_empresa_id(empresa_id)
+    row = await get_parametro_by_id(
+        client_id=client_id,
+        parametro_id=parametro_id,
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(detail="Parámetro no encontrado")
+    updated = await update_parametro(
+        client_id=client_id,
+        parametro_id=parametro_id,
+        data={"es_activo": True},
+        empresa_id=empresa_id,
+    )
+    return _row_to_read(updated)

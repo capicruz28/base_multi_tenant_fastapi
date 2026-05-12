@@ -20,6 +20,9 @@ from app.modules.crm.application.services.oportunidad_service import (
     get_oportunidad_by_id,
     create_oportunidad,
     update_oportunidad,
+    marcar_oportunidad_ganada,
+    marcar_oportunidad_perdida,
+    cancelar_oportunidad,
 )
 from app.modules.crm.application.services.actividad_service import (
     list_actividades,
@@ -44,6 +47,9 @@ __all__ = [
     "get_oportunidad_by_id",
     "create_oportunidad",
     "update_oportunidad",
+    "marcar_oportunidad_ganada",
+    "marcar_oportunidad_perdida",
+    "cancelar_oportunidad",
     # Actividades
     "list_actividades",
     "get_actividad_by_id",

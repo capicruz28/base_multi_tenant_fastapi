@@ -3,7 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.infrastructure.database.queries.org import (
     list_sucursales,
     get_sucursal_by_id,
@@ -19,6 +19,14 @@ from app.modules.org.presentation.schemas import (
 
 def _row_to_read(row: dict) -> SucursalRead:
     return SucursalRead(**row)
+
+def _require_empresa_id(empresa_id: Optional[UUID]) -> UUID:
+    if empresa_id is None:
+        raise ValidationError(
+            detail="empresa_id es obligatorio para operar sucursales por ID.",
+            internal_code="MISSING_REQUIRED_FIELDS",
+        )
+    return empresa_id
 
 
 async def list_sucursales_servicio(
@@ -46,10 +54,13 @@ async def list_sucursales_servicio(
 async def get_sucursal_servicio(
     client_id: UUID,
     sucursal_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> SucursalRead:
+    empresa_id = _require_empresa_id(empresa_id)
     row = await get_sucursal_by_id(
         client_id=client_id,
         sucursal_id=sucursal_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Sucursal no encontrada")
@@ -69,10 +80,13 @@ async def update_sucursal_servicio(
     client_id: UUID,
     sucursal_id: UUID,
     data: SucursalUpdate,
+    empresa_id: Optional[UUID] = None,
 ) -> SucursalRead:
+    empresa_id = _require_empresa_id(empresa_id)
     row = await get_sucursal_by_id(
         client_id=client_id,
         sucursal_id=sucursal_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Sucursal no encontrada")
@@ -81,6 +95,7 @@ async def update_sucursal_servicio(
         client_id=client_id,
         sucursal_id=sucursal_id,
         data=payload,
+        empresa_id=empresa_id,
     )
     return _row_to_read(updated)
 
@@ -88,13 +103,16 @@ async def update_sucursal_servicio(
 async def delete_sucursal_servicio(
     client_id: UUID,
     sucursal_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> None:
     """
     Baja lógica de una sucursal (es_activo = False).
     """
+    empresa_id = _require_empresa_id(empresa_id)
     row = await get_sucursal_by_id(
         client_id=client_id,
         sucursal_id=sucursal_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Sucursal no encontrada")
@@ -102,4 +120,27 @@ async def delete_sucursal_servicio(
         client_id=client_id,
         sucursal_id=sucursal_id,
         data={"es_activo": False},
+        empresa_id=empresa_id,
     )
+
+
+async def reactivar_sucursal_servicio(
+    client_id: UUID,
+    sucursal_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> SucursalRead:
+    empresa_id = _require_empresa_id(empresa_id)
+    row = await get_sucursal_by_id(
+        client_id=client_id,
+        sucursal_id=sucursal_id,
+        empresa_id=empresa_id,
+    )
+    if not row:
+        raise NotFoundError(detail="Sucursal no encontrada")
+    updated = await update_sucursal(
+        client_id=client_id,
+        sucursal_id=sucursal_id,
+        data={"es_activo": True},
+        empresa_id=empresa_id,
+    )
+    return _row_to_read(updated)

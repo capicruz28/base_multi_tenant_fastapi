@@ -30,6 +30,7 @@ router = APIRouter()
 
 @router.get("", response_model=List[ZonaAlmacenRead], tags=["WMS - Zonas de Almacén"])
 async def get_zonas_almacen(
+    empresa_id: UUID = Query(...),
     almacen_id: Optional[UUID] = Query(None),
     tipo_zona: Optional[str] = Query(None),
     solo_activos: bool = Query(True),
@@ -40,6 +41,7 @@ async def get_zonas_almacen(
     """Lista zonas de almacén del tenant."""
     return await list_zonas_almacen(
         client_id=current_user.cliente_id,
+        empresa_id=empresa_id,
         almacen_id=almacen_id,
         tipo_zona=tipo_zona,
         solo_activos=solo_activos,
@@ -50,12 +52,13 @@ async def get_zonas_almacen(
 @router.get("/{zona_id}", response_model=ZonaAlmacenRead, tags=["WMS - Zonas de Almacén"])
 async def get_zona_almacen(
     zona_id: UUID,
+    empresa_id: UUID = Query(...),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     """Obtiene una zona de almacén por id."""
     try:
-        return await get_zona_almacen_by_id(current_user.cliente_id, zona_id)
+        return await get_zona_almacen_by_id(current_user.cliente_id, empresa_id, zona_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -79,11 +82,53 @@ async def post_zona_almacen(
 async def put_zona_almacen(
     zona_id: UUID,
     data: ZonaAlmacenUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     """Actualiza una zona de almacén."""
+    empresa_id_final = data.empresa_id or empresa_id
+    if empresa_id_final is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empresa_id es requerido")
     try:
-        return await update_zona_almacen(current_user.cliente_id, zona_id, data)
+        return await update_zona_almacen(current_user.cliente_id, empresa_id_final, zona_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{zona_id}/activar", response_model=ZonaAlmacenRead, tags=["WMS - Zonas de Almacén"])
+async def post_zona_activar(
+    zona_id: UUID,
+    empresa_id: UUID = Query(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission("wms.zona.actualizar")),
+):
+    """Activa una zona (es_activo = true)."""
+    try:
+        return await update_zona_almacen(
+            current_user.cliente_id,
+            empresa_id,
+            zona_id,
+            ZonaAlmacenUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{zona_id}/desactivar", response_model=ZonaAlmacenRead, tags=["WMS - Zonas de Almacén"])
+async def post_zona_desactivar(
+    zona_id: UUID,
+    empresa_id: UUID = Query(...),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission("wms.zona.actualizar")),
+):
+    """Desactiva una zona (es_activo = false)."""
+    try:
+        return await update_zona_almacen(
+            current_user.cliente_id,
+            empresa_id,
+            zona_id,
+            ZonaAlmacenUpdate(es_activo=False),
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

@@ -6,7 +6,9 @@ from app.infrastructure.database.queries.hcm import (
     get_planilla_detalle_by_id as _get,
     create_planilla_detalle as _create,
     update_planilla_detalle as _update,
+    get_planilla_empleado_by_id as _get_planilla_empleado,
 )
+from app.modules.hcm.application.services.planilla_service import ensure_planilla_borrador
 from app.modules.hcm.presentation.schemas import PlanillaDetalleCreate, PlanillaDetalleUpdate, PlanillaDetalleRead
 from app.core.exceptions import NotFoundError
 
@@ -36,6 +38,12 @@ async def get_planilla_detalle_by_id(
 async def create_planilla_detalle(
     client_id: UUID, data: PlanillaDetalleCreate
 ) -> PlanillaDetalleRead:
+    pe = await _get_planilla_empleado(client_id, data.planilla_empleado_id)
+    if not pe:
+        raise NotFoundError(
+            f"Planilla empleado {data.planilla_empleado_id} no encontrado"
+        )
+    await ensure_planilla_borrador(client_id, pe["planilla_id"])
     row = await _create(client_id, data.model_dump(exclude_none=True))
     return PlanillaDetalleRead(**row)
 
@@ -43,6 +51,15 @@ async def create_planilla_detalle(
 async def update_planilla_detalle(
     client_id: UUID, planilla_detalle_id: UUID, data: PlanillaDetalleUpdate
 ) -> PlanillaDetalleRead:
+    det = await _get(client_id, planilla_detalle_id)
+    if not det:
+        raise NotFoundError(f"Detalle de planilla {planilla_detalle_id} no encontrado")
+    pe = await _get_planilla_empleado(client_id, det["planilla_empleado_id"])
+    if not pe:
+        raise NotFoundError(
+            f"Planilla empleado {det['planilla_empleado_id']} no encontrado"
+        )
+    await ensure_planilla_borrador(client_id, pe["planilla_id"])
     row = await _update(client_id, planilla_detalle_id, data.model_dump(exclude_none=True))
     if not row:
         raise NotFoundError(f"Detalle de planilla {planilla_detalle_id} no encontrado")

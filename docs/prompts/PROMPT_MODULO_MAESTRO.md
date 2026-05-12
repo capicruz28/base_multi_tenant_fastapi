@@ -39,23 +39,28 @@ Para cada tabla encontrada, indica:
 
 ⚠ NO leas el archivo completo. Filtra solo las tablas del módulo.
 
-## Paso 1.2 — Leer los módulos de referencia
+## Paso 1.2 — Identificar patrón arquitectónico del proyecto
 
-Busca en el proyecto 2 módulos ya completamente implementados
-que sean del mismo tipo que [CODIGO] (maestro/transaccional).
-Identifica el patrón exacto que usan:
-- estructura de carpetas
-- nombres de archivos
-- cómo están organizados los routers, services, repositories
-- cómo se valida tenant
-- cómo se aplica RBAC
+Busca en el proyecto la estructura de carpetas y archivos
+de cualquier módulo existente para identificar:
+- estructura de carpetas (presentation, application, domain, infrastructure)
+- nombres de archivos convencionales usados
+- cómo se define un router (APIRouter, prefijos, tags)
+- cómo se valida tenant (cliente_id, empresa_id)
+- cómo se aplica RBAC (require_permission, patrón del permiso)
+
+⚠ NO uses la lógica ni los endpoints existentes como referencia.
+⚠ Solo extrae la estructura y los patrones técnicos, NO el contenido funcional.
+El contenido funcional lo define el prompt maestro y la BD, no el código actual.
 
 ## Paso 1.3 — Checkpoint obligatorio
 
 Antes de continuar, responde estas preguntas:
 1. ¿Cuántas tablas encontraste para el módulo [CODIGO]?
 2. ¿Qué tipo de módulo es? (maestro/transaccional/analítico)
-3. ¿Qué módulo de referencia usarás como patrón?
+3. ¿Qué módulo usarás como referencia de estructura técnica 
+   (carpetas, archivos, patrones de router/service/tenant/RBAC)?
+   Nota: se usa solo para estructura, no como referencia funcional.
 4. ¿Hay tablas derivadas que NO deben tener CRUD?
 
 ⛔ DETENTE AQUÍ. Espera confirmación antes de continuar.

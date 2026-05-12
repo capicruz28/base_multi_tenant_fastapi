@@ -4,6 +4,7 @@ from app.infrastructure.database.queries.tax.libro_electronico_queries import (
     get_libro_electronico_by_id,
     create_libro_electronico,
     update_libro_electronico,
+    transition_libro_electronico_estado,
 )
 
 __all__ = [
@@ -11,4 +12,5 @@ __all__ = [
     "get_libro_electronico_by_id",
     "create_libro_electronico",
     "update_libro_electronico",
+    "transition_libro_electronico_estado",
 ]

@@ -47,11 +47,14 @@ async def get_productos_costo(
 @router.get("/{producto_costo_id}", response_model=ProductoCostoRead)
 async def get_producto_costo(
     producto_costo_id: UUID,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
     try:
-        return await get_producto_costo_by_id(current_user.cliente_id, producto_costo_id)
+        return await get_producto_costo_by_id(
+            current_user.cliente_id, producto_costo_id, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -69,10 +72,13 @@ async def post_producto_costo(
 async def put_producto_costo(
     producto_costo_id: UUID,
     data: ProductoCostoUpdate,
+    empresa_id: Optional[UUID] = Query(None),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
     try:
-        return await update_producto_costo(current_user.cliente_id, producto_costo_id, data)
+        return await update_producto_costo(
+            current_user.cliente_id, producto_costo_id, data, empresa_id=empresa_id
+        )
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

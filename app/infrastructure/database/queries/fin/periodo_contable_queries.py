@@ -5,9 +5,9 @@ Filtro tenant estricto: todas las operaciones usan cliente_id.
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy import select, insert, update, and_, or_, func
 
-from app.infrastructure.database.tables_erp import FinPeriodoContableTable
+from app.infrastructure.database.tables_erp import FinPeriodoContableTable, FinAsientoContableTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in FinPeriodoContableTable.c}
@@ -78,6 +78,52 @@ async def update_periodo_contable(
             )
         )
         .values(**payload)
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_periodo_contable_by_id(client_id, periodo_id)
+
+
+async def count_asientos_borrador_en_periodo(
+    client_id: UUID,
+    periodo_id: UUID,
+) -> int:
+    """Cantidad de asientos en estado borrador para el periodo."""
+    q = (
+        select(func.count())
+        .select_from(FinAsientoContableTable)
+        .where(
+            and_(
+                FinAsientoContableTable.c.cliente_id == client_id,
+                FinAsientoContableTable.c.periodo_id == periodo_id,
+                FinAsientoContableTable.c.estado == "borrador",
+            )
+        )
+    )
+    rows = await execute_query(q, client_id=client_id)
+    if not rows:
+        return 0
+    return int(next(iter(rows[0].values())))
+
+
+async def cerrar_periodo_contable(
+    client_id: UUID,
+    periodo_id: UUID,
+    cerrado_por_usuario_id: UUID,
+) -> Optional[Dict[str, Any]]:
+    """Marca el periodo como cerrado con auditoría de cierre."""
+    stmt = (
+        update(FinPeriodoContableTable)
+        .where(
+            and_(
+                FinPeriodoContableTable.c.cliente_id == client_id,
+                FinPeriodoContableTable.c.periodo_id == periodo_id,
+            )
+        )
+        .values(
+            estado="cerrado",
+            fecha_cierre=datetime.utcnow(),
+            cerrado_por_usuario_id=cerrado_por_usuario_id,
+        )
     )
     await execute_update(stmt, client_id=client_id)
     return await get_periodo_contable_by_id(client_id, periodo_id)

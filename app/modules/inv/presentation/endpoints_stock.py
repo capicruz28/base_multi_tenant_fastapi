@@ -68,25 +68,36 @@ async def stock_por_producto_almacen(
     )
 
 
-@router.post("", response_model=StockRead, status_code=status.HTTP_201_CREATED, summary="Crear stock")
+@router.post(
+    "",
+    response_model=StockRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear stock (Interno)",
+    deprecated=True,
+)
 async def crear_stock(
     data: StockCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea un stock. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """(Interno) Crea un stock. Normalmente se actualiza por procesos (movimientos)."""
     client_id = current_user.cliente_id
     return await stock_service.create_stock_servicio(client_id=client_id, data=data)
 
 
-@router.put("/{stock_id}", response_model=StockRead, summary="Actualizar stock")
+@router.put(
+    "/{stock_id}",
+    response_model=StockRead,
+    summary="Actualizar stock (Interno)",
+    deprecated=True,
+)
 async def actualizar_stock(
     stock_id: UUID,
     data: StockUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza un stock. Solo del tenant del usuario."""
+    """(Interno) Actualiza un stock. Normalmente se actualiza por procesos (movimientos)."""
     client_id = current_user.cliente_id
     try:
         return await stock_service.update_stock_servicio(

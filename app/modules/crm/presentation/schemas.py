@@ -25,7 +25,7 @@ class CampanaCreate(BaseModel):
     fecha_fin: Optional[date] = None
     presupuesto: Optional[Decimal] = Field(None, ge=0)
     gasto_real: Optional[Decimal] = Field(0, ge=0)
-    moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: UUID
     responsable_usuario_id: Optional[UUID] = None
     responsable_nombre: Optional[str] = Field(None, max_length=150)
     estado: Optional[str] = Field("planificada", max_length=20)
@@ -42,7 +42,7 @@ class CampanaUpdate(BaseModel):
     fecha_fin: Optional[date] = None
     presupuesto: Optional[Decimal] = Field(None, ge=0)
     gasto_real: Optional[Decimal] = Field(None, ge=0)
-    moneda: Optional[str] = Field(None, max_length=3)
+    moneda_id: Optional[UUID] = None
     responsable_usuario_id: Optional[UUID] = None
     responsable_nombre: Optional[str] = Field(None, max_length=150)
     total_contactos: Optional[int] = Field(None, ge=0)
@@ -67,7 +67,7 @@ class CampanaRead(BaseModel):
     fecha_fin: Optional[date]
     presupuesto: Optional[Decimal]
     gasto_real: Optional[Decimal]
-    moneda: Optional[str]
+    moneda_id: UUID
     responsable_usuario_id: Optional[UUID]
     responsable_nombre: Optional[str]
     total_contactos: Optional[int]
@@ -188,7 +188,7 @@ class OportunidadCreate(BaseModel):
     vendedor_nombre: Optional[str] = Field(None, max_length=150)
     campana_id: Optional[UUID] = None
     monto_estimado: Decimal = Field(..., ge=0)
-    moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: UUID
     probabilidad_cierre: Optional[Decimal] = Field(50, ge=0, le=100)
     fecha_apertura: Optional[date] = None
     fecha_cierre_estimada: Optional[date] = None
@@ -212,7 +212,7 @@ class OportunidadUpdate(BaseModel):
     vendedor_nombre: Optional[str] = Field(None, max_length=150)
     campana_id: Optional[UUID] = None
     monto_estimado: Optional[Decimal] = Field(None, ge=0)
-    moneda: Optional[str] = Field(None, max_length=3)
+    moneda_id: Optional[UUID] = None
     probabilidad_cierre: Optional[Decimal] = Field(None, ge=0, le=100)
     fecha_apertura: Optional[date] = None
     fecha_cierre_estimada: Optional[date] = None
@@ -249,8 +249,9 @@ class OportunidadRead(BaseModel):
     vendedor_nombre: Optional[str]
     campana_id: Optional[UUID]
     monto_estimado: Decimal
-    moneda: Optional[str]
+    moneda_id: UUID
     probabilidad_cierre: Optional[Decimal]
+    valor_ponderado: Optional[Decimal]
     fecha_apertura: date
     fecha_cierre_estimada: Optional[date]
     fecha_cierre_real: Optional[date]
@@ -276,6 +277,24 @@ class OportunidadRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OportunidadMarcarGanada(BaseModel):
+    motivo_ganada: Optional[str] = Field(None, max_length=500)
+    observaciones: Optional[str] = None
+    fecha_cierre_real: Optional[date] = None
+
+
+class OportunidadMarcarPerdida(BaseModel):
+    motivo_perdida: Optional[str] = Field(None, max_length=500)
+    competidor: Optional[str] = Field(None, max_length=150)
+    observaciones: Optional[str] = None
+    fecha_cierre_real: Optional[date] = None
+
+
+class OportunidadCancelar(BaseModel):
+    observaciones: Optional[str] = None
+    fecha_cierre_real: Optional[date] = None
 
 
 # ============================================================================

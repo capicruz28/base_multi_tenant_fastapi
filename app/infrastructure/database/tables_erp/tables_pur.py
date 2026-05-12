@@ -11,6 +11,7 @@ from sqlalchemy import (
     Table, Column, Integer, String, Boolean, DateTime, Date,
     ForeignKey, Text, Index, UniqueConstraint, Numeric, MetaData
 )
+from sqlalchemy.schema import Computed
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.sql import func
 
@@ -187,6 +188,16 @@ PurSolicitudCompraDetalleTable = Table(
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
     Column("precio_referencial", Numeric(18, 4), nullable=True),
     Column("cantidad_atendida", Numeric(18, 4), nullable=True, server_default="0"),
+    Column(
+        "total_referencial",
+        Numeric(18, 4),
+        Computed("cantidad_solicitada * precio_referencial", persisted=True),
+    ),
+    Column(
+        "cantidad_pendiente",
+        Numeric(18, 4),
+        Computed("cantidad_solicitada - cantidad_atendida", persisted=True),
+    ),
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
 )
@@ -247,6 +258,21 @@ PurCotizacionDetalleTable = Table(
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
     Column("descuento_porcentaje", Numeric(5, 2), nullable=True, server_default="0"),
+    Column(
+        "precio_neto",
+        Numeric(18, 4),
+        Computed(
+            "precio_unitario * (1 - descuento_porcentaje / 100.0)", persisted=True
+        ),
+    ),
+    Column(
+        "total",
+        Numeric(18, 4),
+        Computed(
+            "cantidad * precio_unitario * (1 - descuento_porcentaje / 100.0)",
+            persisted=True,
+        ),
+    ),
     Column("tiempo_entrega_dias", Integer, nullable=True),
     Column("observaciones", String(500), nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
@@ -320,7 +346,43 @@ PurOrdenCompraDetalleTable = Table(
     Column("unidad_medida_id", UNIQUEIDENTIFIER, nullable=False),
     Column("precio_unitario", Numeric(18, 4), nullable=False),
     Column("descuento_porcentaje", Numeric(5, 2), nullable=True, server_default="0"),
+    Column(
+        "precio_neto",
+        Numeric(18, 4),
+        Computed(
+            "precio_unitario * (1 - descuento_porcentaje / 100.0)", persisted=True
+        ),
+    ),
+    Column(
+        "subtotal",
+        Numeric(18, 4),
+        Computed(
+            "cantidad_ordenada * precio_unitario * (1 - descuento_porcentaje / 100.0)",
+            persisted=True,
+        ),
+    ),
+    Column(
+        "igv",
+        Numeric(18, 4),
+        Computed(
+            "cantidad_ordenada * precio_unitario * (1 - descuento_porcentaje / 100.0) * 0.18",
+            persisted=True,
+        ),
+    ),
+    Column(
+        "total",
+        Numeric(18, 4),
+        Computed(
+            "cantidad_ordenada * precio_unitario * (1 - descuento_porcentaje / 100.0) * 1.18",
+            persisted=True,
+        ),
+    ),
     Column("cantidad_recepcionada", Numeric(18, 4), nullable=True, server_default="0"),
+    Column(
+        "cantidad_pendiente",
+        Numeric(18, 4),
+        Computed("cantidad_ordenada - cantidad_recepcionada", persisted=True),
+    ),
     Column("observaciones", String(500), nullable=True),
     Column("especificaciones", Text, nullable=True),
     Column("fecha_creacion", DateTime, nullable=False, server_default=func.getdate()),
@@ -386,6 +448,16 @@ PurRecepcionDetalleTable = Table(
     Column("lote", String(50), nullable=True),
     Column("fecha_vencimiento", Date, nullable=True),
     Column("precio_unitario", Numeric(18, 4), nullable=True, server_default="0"),
+    Column(
+        "diferencia",
+        Numeric(18, 4),
+        Computed("cantidad_recepcionada - cantidad_ordenada", persisted=True),
+    ),
+    Column(
+        "total",
+        Numeric(18, 4),
+        Computed("cantidad_recepcionada * precio_unitario", persisted=True),
+    ),
     Column("ubicacion_almacen", String(50), nullable=True),
     Column("observaciones", String(500), nullable=True),
     Column("motivo_diferencia", String(255), nullable=True),

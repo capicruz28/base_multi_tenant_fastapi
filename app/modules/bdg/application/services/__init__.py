@@ -4,6 +4,9 @@ from app.modules.bdg.application.services.presupuesto_service import (
     get_presupuesto_by_id,
     create_presupuesto,
     update_presupuesto,
+    aprobar_presupuesto,
+    procesar_presupuesto,
+    anular_presupuesto,
 )
 from app.modules.bdg.application.services.presupuesto_detalle_service import (
     list_presupuesto_detalle,
@@ -17,6 +20,9 @@ __all__ = [
     "get_presupuesto_by_id",
     "create_presupuesto",
     "update_presupuesto",
+    "aprobar_presupuesto",
+    "procesar_presupuesto",
+    "anular_presupuesto",
     "list_presupuesto_detalle",
     "get_presupuesto_detalle_by_id",
     "create_presupuesto_detalle",

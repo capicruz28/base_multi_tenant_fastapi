@@ -10,6 +10,7 @@ _COLUMNS = {c.name for c in BdgPresupuestoDetalleTable.c}
 
 async def list_presupuesto_detalle(
     client_id: UUID,
+    empresa_id: Optional[UUID] = None,
     presupuesto_id: Optional[UUID] = None,
     cuenta_id: Optional[UUID] = None,
     centro_costo_id: Optional[UUID] = None,
@@ -18,6 +19,8 @@ async def list_presupuesto_detalle(
     q = select(BdgPresupuestoDetalleTable).where(
         BdgPresupuestoDetalleTable.c.cliente_id == client_id
     )
+    if empresa_id:
+        q = q.where(BdgPresupuestoDetalleTable.c.empresa_id == empresa_id)
     if presupuesto_id:
         q = q.where(BdgPresupuestoDetalleTable.c.presupuesto_id == presupuesto_id)
     if cuenta_id:
@@ -35,7 +38,9 @@ async def list_presupuesto_detalle(
 
 
 async def get_presupuesto_detalle_by_id(
-    client_id: UUID, presupuesto_detalle_id: UUID
+    client_id: UUID,
+    presupuesto_detalle_id: UUID,
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     q = select(BdgPresupuestoDetalleTable).where(
         and_(
@@ -43,45 +48,60 @@ async def get_presupuesto_detalle_by_id(
             BdgPresupuestoDetalleTable.c.presupuesto_detalle_id == presupuesto_detalle_id,
         )
     )
+    if empresa_id:
+        q = q.where(BdgPresupuestoDetalleTable.c.empresa_id == empresa_id)
     rows = await execute_query(q, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_presupuesto_detalle(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_presupuesto_detalle(client_id: UUID, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     from uuid import uuid4
     payload = {k: v for k, v in data.items() if k in _COLUMNS}
     payload["cliente_id"] = client_id
     payload.setdefault("presupuesto_detalle_id", uuid4())
-    # Fase 5: empresa_id es obligatorio; derivarlo desde el presupuesto (cabecera)
     presupuesto_id = payload.get("presupuesto_id")
-    if presupuesto_id:
-        q = select(BdgPresupuestoTable.c.empresa_id).where(
-            and_(
-                BdgPresupuestoTable.c.cliente_id == client_id,
-                BdgPresupuestoTable.c.presupuesto_id == presupuesto_id,
-            )
+    if not presupuesto_id:
+        return None
+    q = select(BdgPresupuestoTable.c.empresa_id).where(
+        and_(
+            BdgPresupuestoTable.c.cliente_id == client_id,
+            BdgPresupuestoTable.c.presupuesto_id == presupuesto_id,
         )
-        rows = await execute_query(q, client_id=client_id)
-        if rows:
-            payload["empresa_id"] = rows[0]["empresa_id"]
+    )
+    rows = await execute_query(q, client_id=client_id)
+    if not rows:
+        return None
+    payload["empresa_id"] = rows[0]["empresa_id"]
     await execute_insert(insert(BdgPresupuestoDetalleTable).values(**payload), client_id=client_id)
     return await get_presupuesto_detalle_by_id(client_id, payload["presupuesto_detalle_id"])
 
 
 async def update_presupuesto_detalle(
-    client_id: UUID, presupuesto_detalle_id: UUID, data: Dict[str, Any]
+    client_id: UUID,
+    presupuesto_detalle_id: UUID,
+    data: Dict[str, Any],
+    empresa_id: Optional[UUID] = None,
 ) -> Optional[Dict[str, Any]]:
     payload = {
         k: v for k, v in data.items()
         if k in _COLUMNS and k not in ("presupuesto_detalle_id", "cliente_id")
     }
     if not payload:
-        return await get_presupuesto_detalle_by_id(client_id, presupuesto_detalle_id)
+        return await get_presupuesto_detalle_by_id(
+            client_id, presupuesto_detalle_id, empresa_id=empresa_id
+        )
+    filters = [
+        BdgPresupuestoDetalleTable.c.cliente_id == client_id,
+        BdgPresupuestoDetalleTable.c.presupuesto_detalle_id == presupuesto_detalle_id,
+    ]
+    if empresa_id:
+        filters.append(BdgPresupuestoDetalleTable.c.empresa_id == empresa_id)
     stmt = update(BdgPresupuestoDetalleTable).where(
         and_(
-            BdgPresupuestoDetalleTable.c.cliente_id == client_id,
-            BdgPresupuestoDetalleTable.c.presupuesto_detalle_id == presupuesto_detalle_id,
+            *filters
         )
     ).values(**payload)
     await execute_update(stmt, client_id=client_id)
-    return await get_presupuesto_detalle_by_id(client_id, presupuesto_detalle_id)
+    return await get_presupuesto_detalle_by_id(
+        client_id, presupuesto_detalle_id, empresa_id=empresa_id
+    )

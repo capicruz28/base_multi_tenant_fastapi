@@ -14,6 +14,8 @@ from app.modules.fin.application.services import (
     get_cuenta_by_id,
     create_cuenta,
     update_cuenta,
+    desactivar_cuenta,
+    reactivar_cuenta,
 )
 from app.modules.fin.presentation.schemas import (
     PlanCuentaCreate,
@@ -84,5 +86,41 @@ async def put_cuenta(
     """Actualiza una cuenta."""
     try:
         return await update_cuenta(current_user.cliente_id, cuenta_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{cuenta_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["FIN - Plan de Cuentas"],
+    summary="Baja lógica de cuenta (es_activo=0)",
+)
+async def delete_cuenta(
+    cuenta_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Marca la cuenta como inactiva dentro del tenant."""
+    try:
+        await desactivar_cuenta(current_user.cliente_id, cuenta_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{cuenta_id}/reactivar",
+    response_model=PlanCuentaRead,
+    tags=["FIN - Plan de Cuentas"],
+    summary="Reactivar cuenta del plan",
+)
+async def post_reactivar_cuenta(
+    cuenta_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva una cuenta previamente dada de baja."""
+    try:
+        return await reactivar_cuenta(current_user.cliente_id, cuenta_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

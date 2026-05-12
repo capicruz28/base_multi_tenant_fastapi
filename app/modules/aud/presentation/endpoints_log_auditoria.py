@@ -66,6 +66,6 @@ async def get_log_auditoria(
 async def post_log_auditoria(
     data: LogAuditoriaCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: UsuarioReadWithRoles = Depends(require_permission("aud.log.leer")),
+    _: UsuarioReadWithRoles = Depends(require_permission("aud.log.crear")),
 ):
     return await create_log_auditoria(current_user.cliente_id, data)

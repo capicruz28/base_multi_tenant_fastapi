@@ -1,6 +1,7 @@
 """Servicio aplicación mfg_centro_trabajo."""
 from typing import List, Optional
 from uuid import UUID
+from app.modules.org.application.services.empresa_service import get_empresa_servicio
 from app.infrastructure.database.queries.mfg import (
     list_centros_trabajo as _list,
     get_centro_trabajo_by_id as _get,
@@ -17,6 +18,8 @@ async def list_centros_trabajo(
     es_activo: Optional[bool] = None,
     buscar: Optional[str] = None,
 ) -> List[CentroTrabajoRead]:
+    if empresa_id is not None:
+        await get_empresa_servicio(client_id=client_id, empresa_id=empresa_id)
     rows = await _list(client_id=client_id, empresa_id=empresa_id, estado_centro=estado_centro, es_activo=es_activo, buscar=buscar)
     return [CentroTrabajoRead(**r) for r in rows]
 
@@ -27,6 +30,7 @@ async def get_centro_trabajo_by_id(client_id: UUID, centro_trabajo_id: UUID) -> 
     return CentroTrabajoRead(**row)
 
 async def create_centro_trabajo(client_id: UUID, data: CentroTrabajoCreate) -> CentroTrabajoRead:
+    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     row = await _create(client_id, data.model_dump(exclude_none=True))
     return CentroTrabajoRead(**row)
 

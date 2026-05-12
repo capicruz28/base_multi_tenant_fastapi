@@ -1,6 +1,7 @@
 """Servicio aplicación mfg_operacion."""
 from typing import List, Optional
 from uuid import UUID
+from app.modules.org.application.services.empresa_service import get_empresa_servicio
 from app.infrastructure.database.queries.mfg import (
     list_operaciones as _list,
     get_operacion_by_id as _get,
@@ -17,6 +18,8 @@ async def list_operaciones(
     es_activo: Optional[bool] = None,
     buscar: Optional[str] = None,
 ) -> List[OperacionRead]:
+    if empresa_id is not None:
+        await get_empresa_servicio(client_id=client_id, empresa_id=empresa_id)
     rows = await _list(client_id=client_id, empresa_id=empresa_id, centro_trabajo_id=centro_trabajo_id, es_activo=es_activo, buscar=buscar)
     return [OperacionRead(**r) for r in rows]
 
@@ -27,6 +30,7 @@ async def get_operacion_by_id(client_id: UUID, operacion_id: UUID) -> OperacionR
     return OperacionRead(**row)
 
 async def create_operacion(client_id: UUID, data: OperacionCreate) -> OperacionRead:
+    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
     row = await _create(client_id, data.model_dump(exclude_none=True))
     return OperacionRead(**row)
 

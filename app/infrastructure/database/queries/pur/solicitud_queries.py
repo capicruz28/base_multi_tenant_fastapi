@@ -5,13 +5,15 @@ Filtro tenant estricto: todas las operaciones usan cliente_id.
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime, date
-from sqlalchemy import select, insert, update, and_, asc, desc
+from sqlalchemy import select, insert, update, and_, asc, desc, func
 
 from app.infrastructure.database.tables_erp import PurSolicitudCompraTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in PurSolicitudCompraTable.c}
 
+# Estados desde los que se permite pasar a anulada (alineado con negocio PUR / OC / cotización).
+_ANULAR_SOLICITUD_ESTADOS_SQL = ("borrador", "pendiente_aprobacion", "aprobada")
 
 _SORT_COLUMNS_SOLICITUD = {"fecha_solicitud", "estado", "numero_solicitud", "fecha_creacion"}
 
@@ -93,6 +95,36 @@ async def update_solicitud(
             )
         )
         .values(**payload)
+    )
+    await execute_update(stmt, client_id=client_id)
+    return await get_solicitud_by_id(client_id, solicitud_id)
+
+
+async def update_solicitud_anular(
+    client_id: UUID,
+    solicitud_id: UUID,
+    motivo_rechazo: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Pasa la solicitud a anulada solo si el estado actual es anulable (borrador, pendiente_aprobacion, aprobada).
+    Evita condiciones de carrera respecto a procesada / rechazada / anulada u otros estados.
+    """
+    values: Dict[str, Any] = {
+        "estado": "anulada",
+        "fecha_actualizacion": datetime.utcnow(),
+    }
+    if motivo_rechazo:
+        values["motivo_rechazo"] = motivo_rechazo[:500]
+    stmt = (
+        update(PurSolicitudCompraTable)
+        .where(
+            and_(
+                PurSolicitudCompraTable.c.cliente_id == client_id,
+                PurSolicitudCompraTable.c.solicitud_id == solicitud_id,
+                func.lower(PurSolicitudCompraTable.c.estado).in_(_ANULAR_SOLICITUD_ESTADOS_SQL),
+            )
+        )
+        .values(**values)
     )
     await execute_update(stmt, client_id=client_id)
     return await get_solicitud_by_id(client_id, solicitud_id)

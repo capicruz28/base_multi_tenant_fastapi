@@ -10,6 +10,8 @@ from app.modules.mnt.application.services import (
     get_activo_by_id,
     create_activo,
     update_activo,
+    activar_activo,
+    desactivar_activo,
 )
 from app.modules.mnt.presentation.schemas import ActivoCreate, ActivoUpdate, ActivoRead
 from app.core.exceptions import NotFoundError
@@ -72,5 +74,31 @@ async def put_activo(
 ):
     try:
         return await update_activo(current_user.cliente_id, activo_id, data)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch("/{activo_id}/activar", response_model=ActivoRead, tags=["MNT - Activos"])
+async def patch_activar_activo(
+    activo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.activar")),
+):
+    """Activa el activo (es_activo=1, alta lógica). Idempotente."""
+    try:
+        return await activar_activo(current_user.cliente_id, activo_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch("/{activo_id}/desactivar", response_model=ActivoRead, tags=["MNT - Activos"])
+async def patch_desactivar_activo(
+    activo_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: None = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.desactivar")),
+):
+    """Desactiva el activo (es_activo=0, baja lógica). Idempotente."""
+    try:
+        return await desactivar_activo(current_user.cliente_id, activo_id)
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

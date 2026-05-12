@@ -66,3 +66,18 @@ async def update_contacto_servicio(
     payload = data.model_dump(exclude_unset=True)
     updated = await update_contacto(client_id=client_id, contacto_id=contacto_id, data=payload)
     return _row_to_read(updated)
+
+
+async def reactivar_contacto_servicio(
+    client_id: UUID,
+    contacto_id: UUID,
+) -> ContactoProveedorRead:
+    row = await get_contacto_by_id(client_id=client_id, contacto_id=contacto_id)
+    if not row:
+        raise NotFoundError(detail="Contacto no encontrado")
+    updated = await update_contacto(
+        client_id=client_id,
+        contacto_id=contacto_id,
+        data={"es_activo": True},
+    )
+    return _row_to_read(updated)

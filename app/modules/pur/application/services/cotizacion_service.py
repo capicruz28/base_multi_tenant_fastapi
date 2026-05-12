@@ -22,6 +22,10 @@ from app.modules.pur.presentation.schemas import (
 )
 
 
+def _estado_cot_norm(estado: Optional[str]) -> str:
+    return (estado or "").strip().lower()
+
+
 def _row_to_read(row: dict) -> CotizacionRead:
     return CotizacionRead(**row)
 
@@ -86,6 +90,8 @@ async def update_cotizacion_servicio(
     if not row:
         raise NotFoundError(detail="Cotización no encontrada")
     payload = data.model_dump(exclude_unset=True)
+    if payload and _estado_cot_norm(row.get("estado")) != "pendiente":
+        raise ValueError("Solo se puede editar la cotización en estado pendiente")
     updated = await update_cotizacion(client_id=client_id, cotizacion_id=cotizacion_id, data=payload)
     return _row_to_read(updated)
 
@@ -103,6 +109,47 @@ async def marcar_ganadora_cotizacion_servicio(
             client_id=client_id, solicitud_compra_id=solicitud_compra_id
         )
     payload = {"es_ganadora": True}
+    updated = await update_cotizacion(
+        client_id=client_id, cotizacion_id=cotizacion_id, data=payload
+    )
+    return _row_to_read(updated)
+
+
+async def aceptar_cotizacion_servicio(
+    client_id: UUID,
+    cotizacion_id: UUID,
+) -> CotizacionRead:
+    row = await get_cotizacion_by_id(client_id=client_id, cotizacion_id=cotizacion_id)
+    if not row:
+        raise NotFoundError(detail="Cotización no encontrada")
+    st = _estado_cot_norm(row.get("estado"))
+    if st not in ("pendiente", "recibida", "evaluada"):
+        raise ValueError(
+            "Solo se puede aceptar una cotización en estado pendiente, recibida o evaluada"
+        )
+    updated = await update_cotizacion(
+        client_id=client_id,
+        cotizacion_id=cotizacion_id,
+        data={"estado": "aceptada"},
+    )
+    return _row_to_read(updated)
+
+
+async def rechazar_cotizacion_servicio(
+    client_id: UUID,
+    cotizacion_id: UUID,
+    motivo_rechazo: Optional[str] = None,
+) -> CotizacionRead:
+    row = await get_cotizacion_by_id(client_id=client_id, cotizacion_id=cotizacion_id)
+    if not row:
+        raise NotFoundError(detail="Cotización no encontrada")
+    st = _estado_cot_norm(row.get("estado"))
+    if st in ("rechazada", "aceptada", "vencida"):
+        raise ValueError("No se puede rechazar la cotización en su estado actual")
+    payload = {
+        "estado": "rechazada",
+        "motivo_rechazo": (motivo_rechazo or "")[:500],
+    }
     updated = await update_cotizacion(
         client_id=client_id, cotizacion_id=cotizacion_id, data=payload
     )

@@ -123,3 +123,6 @@ WHEN NOT MATCHED BY TARGET THEN
 GO
 
 PRINT 'Seed permisos RBAC PUR (FASE 4) completado.';
+
+-- Nota (Fase 3 API): rutas nuevas POST …/anular, …/emitir, …/reactivar, …/aceptar, …/rechazar, …/aprobar
+-- reutilizan los mismos códigos pur.*.actualizar o pur.*.crear ya sembrados arriba; no se requieren permisos adicionales.

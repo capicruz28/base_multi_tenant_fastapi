@@ -8,12 +8,16 @@ from app.modules.invbill.application.services.serie_service import (
     get_serie_by_id,
     create_serie,
     update_serie,
+    activar_serie,
+    desactivar_serie,
 )
 from app.modules.invbill.application.services.comprobante_service import (
     list_comprobantes,
     get_comprobante_by_id,
     create_comprobante,
     update_comprobante,
+    anular_comprobante,
+    procesar_comprobante,
 )
 from app.modules.invbill.application.services.comprobante_detalle_service import (
     list_comprobante_detalles,
@@ -28,11 +32,15 @@ __all__ = [
     "get_serie_by_id",
     "create_serie",
     "update_serie",
+    "activar_serie",
+    "desactivar_serie",
     # Comprobantes
     "list_comprobantes",
     "get_comprobante_by_id",
     "create_comprobante",
     "update_comprobante",
+    "anular_comprobante",
+    "procesar_comprobante",
     # Detalles
     "list_comprobante_detalles",
     "get_comprobante_detalle_by_id",

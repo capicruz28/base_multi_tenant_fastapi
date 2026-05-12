@@ -78,3 +78,47 @@ async def actualizar_tipo_movimiento(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.delete(
+    "/{tipo_movimiento_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar (baja lógica) tipo de movimiento",
+)
+async def eliminar_tipo_movimiento(
+    tipo_movimiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+):
+    """Marca un tipo de movimiento como inactivo (es_activo = 0) dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        await tipo_movimiento_service.update_tipo_movimiento_servicio(
+            client_id=client_id,
+            tipo_movimiento_id=tipo_movimiento_id,
+            data=TipoMovimientoUpdate(es_activo=False),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{tipo_movimiento_id}/reactivar",
+    response_model=TipoMovimientoRead,
+    summary="Reactivar tipo de movimiento",
+)
+async def reactivar_tipo_movimiento(
+    tipo_movimiento_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """Reactiva un tipo de movimiento previamente dado de baja dentro del tenant."""
+    client_id = current_user.cliente_id
+    try:
+        return await tipo_movimiento_service.update_tipo_movimiento_servicio(
+            client_id=client_id,
+            tipo_movimiento_id=tipo_movimiento_id,
+            data=TipoMovimientoUpdate(es_activo=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

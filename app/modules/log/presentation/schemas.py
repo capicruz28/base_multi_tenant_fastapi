@@ -28,7 +28,7 @@ class TransportistaCreate(BaseModel):
     direccion: Optional[str] = Field(None, max_length=255)
     tarifa_km: Optional[Decimal] = Field(None, ge=0)
     tarifa_hora: Optional[Decimal] = Field(None, ge=0)
-    moneda_tarifa: Optional[str] = Field("PEN", max_length=3)
+    moneda_tarifa: UUID
     calificacion: Optional[Decimal] = Field(None, ge=0, le=5)
     es_activo: Optional[bool] = True
 
@@ -46,7 +46,7 @@ class TransportistaUpdate(BaseModel):
     direccion: Optional[str] = Field(None, max_length=255)
     tarifa_km: Optional[Decimal] = Field(None, ge=0)
     tarifa_hora: Optional[Decimal] = Field(None, ge=0)
-    moneda_tarifa: Optional[str] = Field(None, max_length=3)
+    moneda_tarifa: Optional[UUID] = None
     calificacion: Optional[Decimal] = Field(None, ge=0, le=5)
     es_activo: Optional[bool] = None
 
@@ -67,7 +67,7 @@ class TransportistaRead(BaseModel):
     direccion: Optional[str]
     tarifa_km: Optional[Decimal]
     tarifa_hora: Optional[Decimal]
-    moneda_tarifa: Optional[str]
+    moneda_tarifa: UUID
     calificacion: Optional[Decimal]
     es_activo: bool
     fecha_creacion: datetime
@@ -180,7 +180,7 @@ class RutaCreate(BaseModel):
     tiempo_estimado_horas: Optional[Decimal] = Field(None, ge=0)
     tipo_carretera: Optional[str] = Field(None, max_length=30)
     costo_estimado: Optional[Decimal] = Field(None, ge=0)
-    moneda: Optional[str] = Field("PEN", max_length=3)
+    moneda_id: UUID
     cantidad_peajes: Optional[int] = Field(0, ge=0)
     costo_peajes: Optional[Decimal] = Field(0, ge=0)
     puntos_intermedios: Optional[str] = None  # JSON string
@@ -199,7 +199,7 @@ class RutaUpdate(BaseModel):
     tiempo_estimado_horas: Optional[Decimal] = Field(None, ge=0)
     tipo_carretera: Optional[str] = Field(None, max_length=30)
     costo_estimado: Optional[Decimal] = Field(None, ge=0)
-    moneda: Optional[str] = Field(None, max_length=3)
+    moneda_id: Optional[UUID] = None
     cantidad_peajes: Optional[int] = Field(None, ge=0)
     costo_peajes: Optional[Decimal] = Field(None, ge=0)
     puntos_intermedios: Optional[str] = None
@@ -221,7 +221,7 @@ class RutaRead(BaseModel):
     tiempo_estimado_horas: Optional[Decimal]
     tipo_carretera: Optional[str]
     costo_estimado: Optional[Decimal]
-    moneda: Optional[str]
+    moneda_id: UUID
     cantidad_peajes: Optional[int]
     costo_peajes: Optional[Decimal]
     puntos_intermedios: Optional[str]
@@ -327,6 +327,7 @@ class GuiaRemisionRead(BaseModel):
     empresa_id: UUID
     serie: str
     numero: str
+    numero_completo: Optional[str] = None
     fecha_emision: date
     fecha_traslado: date
     tipo_guia: str
@@ -395,6 +396,7 @@ class GuiaRemisionDetalleUpdate(BaseModel):
 class GuiaRemisionDetalleRead(BaseModel):
     guia_detalle_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     guia_remision_id: UUID
     producto_id: UUID
     cantidad: Decimal
@@ -475,12 +477,14 @@ class DespachoRead(BaseModel):
     fecha_retorno: Optional[datetime]
     km_inicial: Optional[Decimal]
     km_final: Optional[Decimal]
+    km_recorrido: Optional[Decimal] = None
     total_guias: Optional[int]
     total_peso_kg: Optional[Decimal]
     total_bultos: Optional[int]
     costo_combustible: Optional[Decimal]
     costo_peajes: Optional[Decimal]
     otros_gastos: Optional[Decimal]
+    costo_total: Optional[Decimal] = None
     estado: str
     observaciones: Optional[str]
     incidencias: Optional[str]
@@ -519,6 +523,7 @@ class DespachoGuiaUpdate(BaseModel):
 class DespachoGuiaRead(BaseModel):
     despacho_guia_id: UUID
     cliente_id: UUID
+    empresa_id: UUID
     despacho_id: UUID
     guia_remision_id: UUID
     orden_entrega: Optional[int]
