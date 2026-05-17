@@ -1,200 +1,247 @@
-# Auditoría — Módulo ORG (Organización)
+# AUDITORÍA MÓDULO ORG — Organización (CORE - Obligatorio)
 
-**Código:** ORG  
-**Fuente de modelo de datos:** `docs/bd/ORG_TABLAS.sql` (solo tablas `org_*`).  
-**Metodología:** `docs/prompts/PROMPT_MODULO_MAESTRO.md` — Fase 2.
-
-**Inventario de código ORG**
-
-| Capa | Ubicación |
-|------|-----------|
-| Routers (presentation) | `app/modules/org/presentation/endpoints.py` (agregador), `endpoints_empresa.py`, `endpoints_sucursales.py`, `endpoints_centros_costo.py`, `endpoints_departamentos.py`, `endpoints_cargos.py`, `endpoints_parametros.py` |
-| Schemas | `app/modules/org/presentation/schemas.py` |
-| Servicios (application) | `app/modules/org/application/services/*.py` |
-| Consultas SQL (infraestructura) | `app/infrastructure/database/queries/org/*.py` |
-| Repositories dedicados (módulo ORG) | No hay carpeta `repositories` en ORG; persistencia vía queries en infraestructura |
-
-Prefijo API registrado: **`/org`** (`app/api/v1/api.py`).
+**Fecha:** 2026-05-12  
+**Módulo:** ORG — Organización  
+**Tipo:** CORE — Prerequisito para todos los módulos  
+**Stack:** FastAPI + SQL Server + SQLAlchemy Core  
 
 ---
 
-## 1. Tablas detectadas y su tipo
+## DIAGNÓSTICO GENERAL
 
-| Tabla | Tipo (prompt) |
-|-------|----------------|
-| `org_empresa` | Maestro |
-| `org_centro_costo` | Maestro |
-| `org_sucursal` | Maestro |
-| `org_departamento` | Maestro |
-| `org_cargo` | Maestro |
-| `org_parametro_sistema` | Maestro / configuración |
+🟢 **SALUDABLE**
 
-No hay tablas derivadas o analíticas en el alcance ORG de `ORG_TABLAS.sql`.
+El módulo ORG cubre sus 6 flujos principales de organización empresarial con CRUD completo
+(listar, detalle, crear, actualizar, desactivar, reactivar) para cada una de las 6 entidades
+confirmadas en BD. Tenant validado en todos los endpoints mediante `client_id = current_user.cliente_id`.
+RBAC aplicado consistentemente con el patrón `org.recurso.accion`. Los schemas están exactamente
+alineados con la BD — todos los campos NOT NULL sin default están presentes en los schemas de creación.
+Los catálogos globales (`cat_*`) están correctamente segregados en módulos separados.
 
----
+**El módulo cubre 6 de 6 flujos principales de organización SaaS.**
 
-## 2. Endpoints existentes
-
-Criterios: **tenant** = uso de `cliente_id` del usuario autenticado en servicio/query. **RBAC** = `require_permission(...)` en la ruta.
-
-Patrón ORG: en la mayoría de rutas la dependencia principal es `Depends(require_permission("org.<recurso>.<accion>"))`, que internamente resuelve el usuario activo (no siempre se declara `get_current_active_user` por separado, a diferencia de algunos módulos como INV).
-
-| Ruta (relativa al router del módulo) | Método | Entidad (tabla) | Tenant (`cliente_id`) | RBAC |
-|--------------------------------------|--------|-----------------|------------------------|------|
-| `/empresa` | GET | `org_empresa` | Sí | `org.empresa.leer` |
-| `/empresa/{empresa_id}` | GET | `org_empresa` | Sí | `org.empresa.leer` |
-| `/empresa` | POST | `org_empresa` | Sí | `org.empresa.crear` |
-| `/empresa/{empresa_id}` | PUT | `org_empresa` | Sí | `org.empresa.actualizar` |
-| `/empresa/{empresa_id}` | DELETE | `org_empresa` | Sí | `org.empresa.eliminar` |
-| `/empresa/{empresa_id}/reactivar` | POST | `org_empresa` | Sí | `org.empresa.actualizar` |
-| `/sucursales` | GET | `org_sucursal` | Sí | `org.sucursal.leer` |
-| `/sucursales/{sucursal_id}` | GET | `org_sucursal` | Sí | `org.sucursal.leer` |
-| `/sucursales` | POST | `org_sucursal` | Sí | `org.sucursal.crear` |
-| `/sucursales/{sucursal_id}` | PUT | `org_sucursal` | Sí | `org.sucursal.actualizar` |
-| `/sucursales/{sucursal_id}` | DELETE | `org_sucursal` | Sí | `org.sucursal.eliminar` |
-| `/centros-costo` | GET | `org_centro_costo` | Sí | `org.centro_costo.leer` |
-| `/centros-costo/{centro_costo_id}` | GET | `org_centro_costo` | Sí | `org.centro_costo.leer` |
-| `/centros-costo` | POST | `org_centro_costo` | Sí | `org.centro_costo.crear` |
-| `/centros-costo/{centro_costo_id}` | PUT | `org_centro_costo` | Sí | `org.centro_costo.actualizar` |
-| `/centros-costo/{centro_costo_id}` | DELETE | `org_centro_costo` | Sí | `org.centro_costo.eliminar` |
-| `/departamentos` | GET | `org_departamento` | Sí | `org.departamento.leer` |
-| `/departamentos/{departamento_id}` | GET | `org_departamento` | Sí | `org.departamento.leer` |
-| `/departamentos` | POST | `org_departamento` | Sí | `org.departamento.crear` |
-| `/departamentos/{departamento_id}` | PUT | `org_departamento` | Sí | `org.departamento.actualizar` |
-| `/departamentos/{departamento_id}` | DELETE | `org_departamento` | Sí | `org.departamento.eliminar` |
-| `/cargos` | GET | `org_cargo` | Sí | `org.cargo.leer` |
-| `/cargos/{cargo_id}` | GET | `org_cargo` | Sí | `org.cargo.leer` |
-| `/cargos` | POST | `org_cargo` | Sí | `org.cargo.crear` |
-| `/cargos/{cargo_id}` | PUT | `org_cargo` | Sí | `org.cargo.actualizar` |
-| `/cargos/{cargo_id}` | DELETE | `org_cargo` | Sí | `org.cargo.eliminar` |
-| `/parametros` | GET | `org_parametro_sistema` | Sí | `org.parametro.leer` |
-| `/parametros/{parametro_id}` | GET | `org_parametro_sistema` | Sí | `org.parametro.leer` |
-| `/parametros` | POST | `org_parametro_sistema` | Sí | `org.parametro.crear` |
-| `/parametros/{parametro_id}` | PUT | `org_parametro_sistema` | Sí | `org.parametro.actualizar` |
-| `/parametros/{parametro_id}` | DELETE | `org_parametro_sistema` | Sí | `org.parametro.eliminar` |
+Ajuste menor detectado: `empresa_id` se declara como `Optional` en los Query params de las
+operaciones by-ID (detalle, actualizar, eliminar, reactivar) para sucursal, centro_costo, departamento
+y cargo, pero el servicio de `org_cargo` lo exige obligatoriamente mediante `_require_empresa_id()`.
+Inconsistencia de contrato que puede causar `ValidationError` inesperado si el frontend no provee
+el parámetro. No impide el funcionamiento del módulo, pero debe corregirse.
 
 ---
 
-## 3. Brechas frente al estándar MAESTRO del prompt
+## TABLAS CRÍTICAS FALTANTES
 
-Estándar: crear, listar, detalle, actualizar, **activar/desactivar**.
-
-| Tabla | Crear | Listar | Detalle | Actualizar | Desactivar (lógico) | Reactivar (activar) |
-|-------|-------|--------|---------|------------|---------------------|---------------------|
-| `org_empresa` | Sí | Sí | Sí | Sí | Sí (`DELETE` → baja lógica) | Sí (`POST .../reactivar`) |
-| `org_sucursal` | Sí | Sí | Sí | Sí | Sí (`DELETE`) | **No** (solo reactivación vía `PUT` con `es_activo`, si el cliente lo envía) |
-| `org_centro_costo` | Sí | Sí | Sí | Sí | Sí (`DELETE`) | **No** (mismo comentario) |
-| `org_departamento` | Sí | Sí | Sí | Sí | Sí (`DELETE`) | **No** |
-| `org_cargo` | Sí | Sí | Sí | Sí | Sí (`DELETE`) | **No** |
-| `org_parametro_sistema` | Sí | Sí | Sí | Sí | Sí (`DELETE`) | **No** |
-
-**Conclusión:** Falta un simétrico explícito a empresa **reactivar** (o política documentada de “solo `PUT` + `es_activo`”) para sucursal, centro de costo, departamento, cargo y parámetro, si se quiere alinear al mismo patrón UX/API que `org_empresa`.
+Ninguna. La BD cubre todos los flujos principales.
 
 ---
 
-## 4. Endpoints faltantes sugeridos (opcional, Fase 3)
+## ENTIDADES Y CLASIFICACIÓN
 
-Si se desea paridad con `org_empresa` y permisos claros de “activar”:
-
-| Ruta sugerida | Método | Notas |
-|---------------|--------|--------|
-| `/org/sucursales/{sucursal_id}/reactivar` | POST | Misma semántica que empresa; permiso sugerido: `org.sucursal.actualizar` (o `org.sucursal.activar` si se agrega a RBAC). |
-| `/org/centros-costo/{centro_costo_id}/reactivar` | POST | Idem. |
-| `/org/departamentos/{departamento_id}/reactivar` | POST | Idem. |
-| `/org/cargos/{cargo_id}/reactivar` | POST | Idem. |
-| `/org/parametros/{parametro_id}/reactivar` | POST | Idem. |
-
-No se detectaron endpoints de escritura sobre vistas derivadas (no aplica).
-
----
-
-## 5. Campos en BD no cubiertos (o parcialmente) en schemas
-
-Comparación explícita contra columnas de `docs/bd/ORG_TABLAS.sql`. Los schemas **sí** alinean tipos UUID para `pais_id`, `moneda_base_id`, `moneda_salarial`, etc., con la definición actual del SQL de referencia.
-
-### 5.1 `org_empresa` ↔ `EmpresaCreate` / `EmpresaUpdate` / `EmpresaRead`
-
-| Columna BD | Observación |
-|--------------|-------------|
-| `usuario_creacion_id` | En **Read** no está expuesto en el schema (puede venir en fila SQL y descartarse al mapear). |
-| `usuario_actualizacion_id` | Igual: no está en **Read**. |
-
-Create/Update cubren el resto de columnas de negocio relevantes según el SQL (incl. `pais_id`, `moneda_base_id`, `maneja_multimoneda`).
-
-### 5.2 `org_centro_costo` ↔ `CentroCosto*`
-
-| Columna BD | Observación |
-|--------------|-------------|
-| `usuario_creacion_id` | No está en **Read**. |
-| `ruta_jerarquica` | En **Read** sí; en **Create** / **Update** no (aceptable si se calcula en backend; si la BD debe recibirse desde cliente, falta en escritura). |
-
-### 5.3 `org_sucursal` ↔ `Sucursal*`
-
-| Columna BD | Observación |
-|--------------|-------------|
-| `usuario_creacion_id` | No está en **Read**. |
-
-### 5.4 `org_departamento` ↔ `Departamento*`
-
-| Columna BD | Observación |
-|--------------|-------------|
-| `usuario_creacion_id` | No está en **Read**. |
-| `jefe_departamento_usuario_id` | En **Create** no está (sí en **Update** y **Read**). Si el alta debe fijar jefe por UUID, falta en Create. |
-
-### 5.5 `org_cargo` ↔ `Cargo*`
-
-| Columna BD | Observación |
-|--------------|-------------|
-| `usuario_creacion_id` | No está en **Read**. |
-
-`moneda_salarial` en BD es `UNIQUEIDENTIFIER NOT NULL`; el schema usa `UUID` — **coherente**.
-
-### 5.6 `org_parametro_sistema` ↔ `Parametro*`
-
-| Columna BD | Observación |
-|--------------|-------------|
-| `usuario_actualizacion_id` | No está en **Read**. |
-| `expresion_validacion`, `mensaje_validacion` | En **Update** sí; en **Create** no (la BD los admite; útil para alta con validación desde el inicio). |
-
-**Nota:** `ParametroUpdate` no permite cambiar `modulo_codigo`, `codigo_parametro` ni `empresa_id`; puede ser decisión de negocio (clave compuesta inmutable tras crear).
+| Entidad | Tipo | Tabla BD | Endpoints propios |
+|---|---|---|---|
+| Empresa | maestro | `org_empresa` | Sí — `/org/empresa` |
+| Sucursal | maestro | `org_sucursal` | Sí — `/org/sucursales` |
+| Centro de Costo | maestro | `org_centro_costo` | Sí — `/org/centros-costo` |
+| Departamento Org. | maestro | `org_departamento` | Sí — `/org/departamentos` |
+| Cargo / Puesto | maestro | `org_cargo` | Sí — `/org/cargos` |
+| Parámetro Sistema | maestro-config | `org_parametro_sistema` | Sí — `/org/parametros` |
+| Moneda | maestro global | `cat_moneda` | Sí — `/catalogos/monedas` (tenant read) + `/catalogos-globales/monedas` (superadmin write) |
+| País | maestro global | `cat_pais` | Sí — `/catalogos/paises` (tenant read) + `/catalogos-globales/paises` (superadmin write) |
+| Dpto. Geográfico | maestro global | `cat_departamento` | Sí — `/catalogos/departamentos` (tenant read) + `/catalogos-globales/departamentos` (superadmin write) |
+| Provincia | maestro global | `cat_provincia` | Sí — `/catalogos/provincias` (tenant read) + `/catalogos-globales/provincias` (superadmin write) |
+| Distrito | maestro global | `cat_distrito` | Sí — `/catalogos/distritos` (tenant read) + `/catalogos-globales/distritos` (superadmin write) |
 
 ---
 
-## 6. Problemas de tenant o RBAC
+## ENDPOINTS EXISTENTES
 
-### 6.1 Tenant (`cliente_id`)
+### org_empresa — `/org/empresa`
 
-- Todas las operaciones ORG revisadas pasan `client_id` desde el usuario autenticado hacia servicios y queries.
-- Las queries en `app/infrastructure/database/queries/org/*` filtran por `cliente_id` en listados y en `get_*_by_id`.
+| Ruta | Método | Tenant | RBAC | Clasificación |
+|---|---|---|---|---|
+| `/org/empresa` | GET | ✅ | ✅ org.empresa.leer | ✅ CORRECTO |
+| `/org/empresa/{empresa_id}` | GET | ✅ | ✅ org.empresa.leer | ✅ CORRECTO |
+| `/org/empresa` | POST | ✅ | ✅ org.empresa.crear | ✅ CORRECTO |
+| `/org/empresa/{empresa_id}` | PUT | ✅ | ✅ org.empresa.actualizar | ✅ CORRECTO |
+| `/org/empresa/{empresa_id}` | DELETE | ✅ | ✅ org.empresa.eliminar | ✅ CORRECTO |
+| `/org/empresa/{empresa_id}/reactivar` | POST | ✅ | ✅ org.empresa.actualizar | ✅ CORRECTO |
 
-### 6.2 `empresa_id` cuando la tabla lo tiene
+### org_sucursal — `/org/sucursales`
 
-- **Listados:** filtro opcional por query `empresa_id` donde aplica (sucursal, centro de costo, departamento, cargo, parámetro).
-- **Alta:** `empresa_id` viene en el body (excepto `org_empresa` y parámetros con `empresa_id` opcional).
-- **Detalle / actualización / baja por ID:** los `get_*_by_id` usan **`cliente_id` + clave primaria**, pero **no** exigen `empresa_id` en el `WHERE`.
+| Ruta | Método | Tenant | RBAC | Clasificación | Motivo |
+|---|---|---|---|---|---|
+| `/org/sucursales` | GET | ✅ | ✅ org.sucursal.leer | ✅ CORRECTO | |
+| `/org/sucursales/{sucursal_id}` | GET | ✅ | ✅ org.sucursal.leer | ⚠ INCOMPLETO | empresa_id declarado Optional; comportamiento del servicio no confirmado |
+| `/org/sucursales` | POST | ✅ | ✅ org.sucursal.crear | ✅ CORRECTO | |
+| `/org/sucursales/{sucursal_id}` | PUT | ✅ | ✅ org.sucursal.actualizar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/sucursales/{sucursal_id}` | DELETE | ✅ | ✅ org.sucursal.eliminar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/sucursales/{sucursal_id}/reactivar` | POST | ✅ | ✅ org.sucursal.actualizar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
 
-**Riesgo:** un `*_id` válido de otra empresa del mismo cliente sería accesible si se conociera el UUID (mismo `cliente_id`, distinta `empresa_id`). Para cumplir estrictamente “validar `empresa_id` cuando la tabla lo tenga”, habría que reforzar en servicio o query (p. ej. query param obligatorio `empresa_id` en GET/PUT/DELETE, o comprobar que la fila devuelta coincida con contexto de empresa activa).
+### org_centro_costo — `/org/centros-costo`
 
-### 6.3 RBAC
+| Ruta | Método | Tenant | RBAC | Clasificación | Motivo |
+|---|---|---|---|---|---|
+| `/org/centros-costo` | GET | ✅ | ✅ org.centro_costo.leer | ✅ CORRECTO | |
+| `/org/centros-costo/{centro_costo_id}` | GET | ✅ | ✅ org.centro_costo.leer | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/centros-costo` | POST | ✅ | ✅ org.centro_costo.crear | ✅ CORRECTO | |
+| `/org/centros-costo/{centro_costo_id}` | PUT | ✅ | ✅ org.centro_costo.actualizar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/centros-costo/{centro_costo_id}` | DELETE | ✅ | ✅ org.centro_costo.eliminar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/centros-costo/{centro_costo_id}/reactivar` | POST | ✅ | ✅ org.centro_costo.actualizar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
 
-- Patrón `org.<recurso>.<accion>` aplicado de forma consistente en los endpoints ORG listados.
-- La baja lógica usa permiso **`eliminar`**, no un permiso dedicado `desactivar`; coherente con el nombre de acción en código.
+### org_departamento — `/org/departamentos`
+
+| Ruta | Método | Tenant | RBAC | Clasificación | Motivo |
+|---|---|---|---|---|---|
+| `/org/departamentos` | GET | ✅ | ✅ org.departamento.leer | ✅ CORRECTO | |
+| `/org/departamentos/{departamento_id}` | GET | ✅ | ✅ org.departamento.leer | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/departamentos` | POST | ✅ | ✅ org.departamento.crear | ✅ CORRECTO | |
+| `/org/departamentos/{departamento_id}` | PUT | ✅ | ✅ org.departamento.actualizar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/departamentos/{departamento_id}` | DELETE | ✅ | ✅ org.departamento.eliminar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+| `/org/departamentos/{departamento_id}/reactivar` | POST | ✅ | ✅ org.departamento.actualizar | ⚠ INCOMPLETO | empresa_id contrato ambiguo |
+
+### org_cargo — `/org/cargos`
+
+| Ruta | Método | Tenant | RBAC | Clasificación | Motivo |
+|---|---|---|---|---|---|
+| `/org/cargos` | GET | ✅ | ✅ org.cargo.leer | ✅ CORRECTO | |
+| `/org/cargos/{cargo_id}` | GET | ✅ | ✅ org.cargo.leer | ⚠ INCOMPLETO | empresa_id Optional en endpoint pero `_require_empresa_id()` lo fuerza en servicio → ValidationError si no se provee (CONFIRMADO) |
+| `/org/cargos` | POST | ✅ | ✅ org.cargo.crear | ✅ CORRECTO | |
+| `/org/cargos/{cargo_id}` | PUT | ✅ | ✅ org.cargo.actualizar | ⚠ INCOMPLETO | mismo problema empresa_id (CONFIRMADO en cargo_service) |
+| `/org/cargos/{cargo_id}` | DELETE | ✅ | ✅ org.cargo.eliminar | ⚠ INCOMPLETO | mismo problema empresa_id (CONFIRMADO) |
+| `/org/cargos/{cargo_id}/reactivar` | POST | ✅ | ✅ org.cargo.actualizar | ⚠ INCOMPLETO | mismo problema empresa_id (CONFIRMADO) |
+
+### org_parametro_sistema — `/org/parametros`
+
+| Ruta | Método | Tenant | RBAC | Clasificación |
+|---|---|---|---|---|
+| `/org/parametros` | GET | ✅ | ✅ org.parametro.leer | ✅ CORRECTO |
+| `/org/parametros/{parametro_id}` | GET | ✅ | ✅ org.parametro.leer | ✅ CORRECTO |
+| `/org/parametros` | POST | ✅ | ✅ org.parametro.crear | ✅ CORRECTO |
+| `/org/parametros/{parametro_id}` | PUT | ✅ | ✅ org.parametro.actualizar | ✅ CORRECTO |
+| `/org/parametros/{parametro_id}` | DELETE | ✅ | ✅ org.parametro.eliminar | ✅ CORRECTO |
+| `/org/parametros/{parametro_id}/reactivar` | POST | ✅ | ✅ org.parametro.actualizar | ✅ CORRECTO |
+
+**Resumen:** 18 ✅ CORRECTO · 16 ⚠ INCOMPLETO · 0 🔴 DEPRECATED · 0 🔁 REEMPLAZAR
 
 ---
 
-## 7. Código u observaciones (no eliminar en auditoría)
+## ENDPOINTS A DEPRECAR
 
-- **Patrón de dependencias:** ORG usa con frecuencia solo `Depends(require_permission(...))` como “usuario actual”, frente al patrón `get_current_active_user` + `require_permission` de otros módulos. No es código obsoleto por sí solo; es variante válida si el tipo devuelto expone `cliente_id`.
-- **“Eliminar” = baja lógica:** implementación alineada con la regla de no borrar físicamente (`es_activo`).
-- **Documento anterior:** versiones antiguas de esta auditoría citaban discrepancias de BD (p. ej. texto `pais` vs `pais_id`) que **no** corresponden a `docs/bd/ORG_TABLAS.sql` actual; esta revisión las corrige.
+Ninguno. Todos los endpoints existentes tienen diseño arquitectónicamente válido para un SaaS ERP.
 
 ---
 
-## 8. Checkpoint Fase 2 (para confirmación antes de Fase 3)
+## ENDPOINTS FALTANTES A IMPLEMENTAR
 
-1. **Tablas ORG con cobertura API:** las 6 tablas maestras tienen flujo CRUD (vía REST) salvo la paridad de **reactivar** explícito (solo empresa hoy).  
-2. **Mayor brecha de reglas:** validación explícita de **`empresa_id`** en operaciones por ID frente a tablas que la incluyen.  
-3. **Mayor brecha de schemas:** campos de auditoría (`usuario_*`) y algunos opcionales en **Create** (departamento jefe, parámetros de validación).  
-4. **Infraestructura:** no hay capa `repositories` en el módulo ORG; las queries viven en `app/infrastructure/database/queries/org/`.
+Ninguno. Todas las operaciones del tipo maestro están implementadas para las 6 entidades `org_*`.
 
-⛔ **Detente aquí (Fase 2).** Tras tu confirmación, la Fase 3 debe implementar solo lo acordado a partir de este informe (schemas → queries/servicios → routers → seeds RBAC si aplica).
+Los catálogos globales (`cat_*`) ya tienen cobertura completa en módulos separados:
+- Lectura tenant: `GET /catalogos/monedas|paises|departamentos|provincias|distritos`
+- Escritura superadmin: CRUD completo en `GET|POST|PUT|DELETE /catalogos-globales/monedas|paises|...`
+
+---
+
+## CAMPOS FALTANTES EN SCHEMAS
+
+No hay campos faltantes en ningún schema del módulo ORG. Todos los schemas están completamente
+alineados con la BD real:
+
+| Entidad | Schema Create | Schema Read | Estado |
+|---|---|---|---|
+| org_empresa | EmpresaCreate | EmpresaRead | ✅ Completo |
+| org_sucursal | SucursalCreate | SucursalRead | ✅ Completo |
+| org_centro_costo | CentroCostoCreate | CentroCostoRead | ✅ Completo |
+| org_departamento | DepartamentoCreate | DepartamentoRead | ✅ Completo |
+| org_cargo | CargoCreate (moneda_salarial NOT NULL ✅) | CargoRead | ✅ Completo |
+| org_parametro_sistema | ParametroCreate | ParametroRead | ✅ Completo |
+
+---
+
+## PROBLEMAS DE TENANT O RBAC
+
+### Problema detectado: empresa_id — inconsistencia de contrato en operaciones by-ID
+
+**Afecta:** `org_cargo` (CONFIRMADO), potencialmente `org_sucursal`, `org_centro_costo`, `org_departamento` (pendiente verificar a nivel de servicio)
+
+**Descripción:**
+En las operaciones por ID (detalle, actualizar, eliminar, reactivar), `empresa_id` se declara
+como `Optional[UUID] = Query(None)` en el endpoint, pero en `cargo_service.py` se llama a
+`_require_empresa_id(empresa_id)` que lanza un `ValidationError` si el valor es `None`.
+
+Esto genera una inconsistencia entre el contrato declarado del endpoint (empresa_id es opcional)
+y el comportamiento real del servicio (empresa_id es obligatorio para operaciones by-ID).
+
+**Corrección en Fase 3:**
+Estandarizar el comportamiento. Opciones:
+1. Hacer `empresa_id` explícitamente requerido en los Query params de operaciones by-ID
+   (más honesto con el cliente)
+2. Eliminar `_require_empresa_id` y permitir que las queries funcionen solo con `cliente_id`
+   (empresa_id como scope restrictor opcional real)
+
+> Opción recomendada: **1** — ya que las entidades `org_sucursal`, `org_cargo`, `org_departamento`,
+> `org_centro_costo` pertenecen a una empresa específica y el frontend siempre debería conocer
+> el `empresa_id` en contexto.
+
+**Archivos afectados:**
+- `app/modules/org/presentation/endpoints_cargos.py` — GET/{id}, PUT/{id}, DELETE/{id}, POST/{id}/reactivar
+- `app/modules/org/application/services/cargo_service.py` — `_require_empresa_id`
+- Verificar también: `endpoints_sucursales.py`, `endpoints_centros_costo.py`, `endpoints_departamentos.py`
+  y sus respectivos servicios
+
+---
+
+## SEEDS RBAC FALTANTES
+
+No se encontró un archivo de seeds específico para el módulo ORG. Los siguientes 24 permisos
+deben existir en la tabla `permiso` (catálogo RBAC) para que los endpoints funcionen correctamente:
+
+| Código permiso | Recurso | Acción | Endpoint que lo requiere |
+|---|---|---|---|
+| `org.empresa.leer` | empresa | leer | GET /org/empresa, GET /org/empresa/{id} |
+| `org.empresa.crear` | empresa | crear | POST /org/empresa |
+| `org.empresa.actualizar` | empresa | actualizar | PUT /org/empresa/{id}, POST /org/empresa/{id}/reactivar |
+| `org.empresa.eliminar` | empresa | eliminar | DELETE /org/empresa/{id} |
+| `org.sucursal.leer` | sucursal | leer | GET /org/sucursales, GET /org/sucursales/{id} |
+| `org.sucursal.crear` | sucursal | crear | POST /org/sucursales |
+| `org.sucursal.actualizar` | sucursal | actualizar | PUT /org/sucursales/{id}, POST /org/sucursales/{id}/reactivar |
+| `org.sucursal.eliminar` | sucursal | eliminar | DELETE /org/sucursales/{id} |
+| `org.centro_costo.leer` | centro_costo | leer | GET /org/centros-costo, GET /org/centros-costo/{id} |
+| `org.centro_costo.crear` | centro_costo | crear | POST /org/centros-costo |
+| `org.centro_costo.actualizar` | centro_costo | actualizar | PUT /org/centros-costo/{id}, POST /org/centros-costo/{id}/reactivar |
+| `org.centro_costo.eliminar` | centro_costo | eliminar | DELETE /org/centros-costo/{id} |
+| `org.departamento.leer` | departamento | leer | GET /org/departamentos, GET /org/departamentos/{id} |
+| `org.departamento.crear` | departamento | crear | POST /org/departamentos |
+| `org.departamento.actualizar` | departamento | actualizar | PUT /org/departamentos/{id}, POST /org/departamentos/{id}/reactivar |
+| `org.departamento.eliminar` | departamento | eliminar | DELETE /org/departamentos/{id} |
+| `org.cargo.leer` | cargo | leer | GET /org/cargos, GET /org/cargos/{id} |
+| `org.cargo.crear` | cargo | crear | POST /org/cargos |
+| `org.cargo.actualizar` | cargo | actualizar | PUT /org/cargos/{id}, POST /org/cargos/{id}/reactivar |
+| `org.cargo.eliminar` | cargo | eliminar | DELETE /org/cargos/{id} |
+| `org.parametro.leer` | parametro | leer | GET /org/parametros, GET /org/parametros/{id} |
+| `org.parametro.crear` | parametro | crear | POST /org/parametros |
+| `org.parametro.actualizar` | parametro | actualizar | PUT /org/parametros/{id}, POST /org/parametros/{id}/reactivar |
+| `org.parametro.eliminar` | parametro | eliminar | DELETE /org/parametros/{id} |
+
+> Si estos permisos no existen en la tabla `permiso`, todos los endpoints del módulo ORG
+> devolverán 403 para usuarios normales. Un SuperAdmin o AdministradorTenant puede acceder
+> independientemente de la existencia del seed.
+
+---
+
+## RESUMEN EJECUTIVO
+
+| Categoría | Cantidad | Estado |
+|---|---|---|
+| Entidades `org_*` implementadas | 6/6 | ✅ Completo |
+| Endpoints totales | 36 | — |
+| Endpoints ✅ CORRECTO | 18 | ✅ |
+| Endpoints ⚠ INCOMPLETO | 16 | Corrección requerida |
+| Endpoints 🔴 DEPRECATED | 0 | — |
+| Endpoints 🔁 REEMPLAZAR | 0 | — |
+| Endpoints faltantes | 0 | ✅ Ninguno |
+| Campos faltantes en schemas | 0 | ✅ Ninguno |
+| Permisos RBAC a verificar en BD | 24 | ⚠ Verificar seeds |
+
+**Acción Fase 3:** Corregir la inconsistencia `empresa_id` en los 16 endpoints ⚠ INCOMPLETO.
+La corrección consiste en marcar `empresa_id` como parámetro requerido (no Optional) en las
+operaciones by-ID de `org_cargo`, `org_sucursal`, `org_centro_costo` y `org_departamento`,
+alineando el contrato del endpoint con el comportamiento real del servicio.

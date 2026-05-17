@@ -30,6 +30,26 @@ async def list_sucursales(
     return await execute_query(query, client_id=client_id)
 
 
+async def get_sucursal_by_codigo(
+    client_id: UUID,
+    empresa_id: UUID,
+    codigo: str,
+    exclude_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Lookup por codigo dentro del tenant+empresa. exclude_id omite el propio registro en UPDATE."""
+    query = select(OrgSucursalTable).where(
+        and_(
+            OrgSucursalTable.c.cliente_id == client_id,
+            OrgSucursalTable.c.empresa_id == empresa_id,
+            OrgSucursalTable.c.codigo == codigo,
+        )
+    )
+    if exclude_id is not None:
+        query = query.where(OrgSucursalTable.c.sucursal_id != exclude_id)
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
 def _sucursal_id_conditions(
     client_id: UUID, sucursal_id: UUID, empresa_id: Optional[UUID]
 ):

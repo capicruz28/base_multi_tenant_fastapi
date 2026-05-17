@@ -16,11 +16,6 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
-_EMPRESA_ID_SCOPE_DESC = (
-    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
-)
-
-
 @router.get("", response_model=list[CentroCostoRead], summary="Listar centros de costo")
 async def listar_centros_costo(
     empresa_id: Optional[UUID] = Query(None),
@@ -44,7 +39,7 @@ async def listar_centros_costo(
 )
 async def reactivar_centro_costo(
     centro_costo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del centro de costo."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.actualizar")),
 ):
     """Marca el centro de costo como activo (es_activo = True) dentro del tenant."""
@@ -62,7 +57,7 @@ async def reactivar_centro_costo(
 @router.get("/{centro_costo_id}", response_model=CentroCostoRead, summary="Detalle centro de costo")
 async def detalle_centro_costo(
     centro_costo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del centro de costo."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.leer")),
 ):
     client_id = current_user.cliente_id
@@ -91,7 +86,7 @@ async def crear_centro_costo(
 @router.put("/{centro_costo_id}", response_model=CentroCostoRead, summary="Actualizar centro de costo")
 async def actualizar_centro_costo(
     centro_costo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del centro de costo."),
     data: CentroCostoUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.actualizar")),
 ):
@@ -114,7 +109,7 @@ async def actualizar_centro_costo(
 )
 async def eliminar_centro_costo(
     centro_costo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del centro de costo."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.eliminar")),
 ):
     """Marca un centro de costo como inactivo (baja lógica) dentro del tenant."""

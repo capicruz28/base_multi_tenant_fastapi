@@ -68,6 +68,33 @@ async def get_parametro_by_id(
     return rows[0] if rows else None
 
 
+async def get_parametro_by_clave_natural(
+    client_id: UUID,
+    modulo_codigo: str,
+    codigo_parametro: str,
+    empresa_id: Optional[UUID] = None,
+    exclude_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Lookup por (cliente_id, empresa_id, modulo_codigo, codigo_parametro) alineado con UQ_parametro.
+    empresa_id None corresponde a filas con empresa_id NULL (ámbito cliente).
+    """
+    conds = [
+        OrgParametroSistemaTable.c.cliente_id == client_id,
+        OrgParametroSistemaTable.c.modulo_codigo == modulo_codigo,
+        OrgParametroSistemaTable.c.codigo_parametro == codigo_parametro,
+    ]
+    if empresa_id is None:
+        conds.append(OrgParametroSistemaTable.c.empresa_id.is_(None))
+    else:
+        conds.append(OrgParametroSistemaTable.c.empresa_id == empresa_id)
+    query = select(OrgParametroSistemaTable).where(and_(*conds))
+    if exclude_id is not None:
+        query = query.where(OrgParametroSistemaTable.c.parametro_id != exclude_id)
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
 async def create_parametro(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta un parámetro. cliente_id se fuerza desde contexto."""
     from uuid import uuid4

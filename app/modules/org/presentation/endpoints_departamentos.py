@@ -16,11 +16,6 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
-_EMPRESA_ID_SCOPE_DESC = (
-    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
-)
-
-
 @router.get("", response_model=list[DepartamentoRead], summary="Listar departamentos")
 async def listar_departamentos(
     empresa_id: Optional[UUID] = Query(None),
@@ -44,7 +39,7 @@ async def listar_departamentos(
 )
 async def reactivar_departamento(
     departamento_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del departamento."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.actualizar")),
 ):
     """Marca el departamento como activo (es_activo = True) dentro del tenant."""
@@ -62,7 +57,7 @@ async def reactivar_departamento(
 @router.get("/{departamento_id}", response_model=DepartamentoRead, summary="Detalle departamento")
 async def detalle_departamento(
     departamento_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del departamento."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.leer")),
 ):
     client_id = current_user.cliente_id
@@ -91,7 +86,7 @@ async def crear_departamento(
 @router.put("/{departamento_id}", response_model=DepartamentoRead, summary="Actualizar departamento")
 async def actualizar_departamento(
     departamento_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del departamento."),
     data: DepartamentoUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.actualizar")),
 ):
@@ -114,7 +109,7 @@ async def actualizar_departamento(
 )
 async def eliminar_departamento(
     departamento_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del departamento."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.departamento.eliminar")),
 ):
     """Marca un departamento como inactivo (baja lógica) dentro del tenant."""

@@ -74,6 +74,7 @@ async def detalle_inventario_fisico_detalle(
     response_model=InventarioFisicoDetalleRead,
     status_code=status.HTTP_201_CREATED,
     summary="Crear línea de inventario físico",
+    deprecated=True,
 )
 async def crear_inventario_fisico_detalle(
     data: InventarioFisicoDetalleCreate,
@@ -92,6 +93,7 @@ async def crear_inventario_fisico_detalle(
     "/{inventario_fisico_detalle_id}",
     response_model=InventarioFisicoDetalleRead,
     summary="Actualizar línea de inventario físico",
+    deprecated=True,
 )
 async def actualizar_inventario_fisico_detalle(
     inventario_fisico_detalle_id: UUID,

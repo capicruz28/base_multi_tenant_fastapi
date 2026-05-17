@@ -5,10 +5,12 @@ Servicio de Empresa (ORG). client_id siempre desde contexto, nunca desde body.
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.infrastructure.database.queries.org import (
     list_empresas,
     get_empresa_by_id,
+    get_empresa_by_codigo,
+    get_empresa_by_ruc,
     create_empresa,
     update_empresa,
 )
@@ -54,6 +56,14 @@ async def create_empresa_servicio(
     client_id: UUID,
     data: EmpresaCreate,
 ) -> EmpresaRead:
+    if await get_empresa_by_codigo(client_id, data.codigo_empresa):
+        raise ConflictError(
+            detail=f"Ya existe una empresa con el código '{data.codigo_empresa}' en este tenant.",
+        )
+    if await get_empresa_by_ruc(client_id, data.ruc):
+        raise ConflictError(
+            detail=f"Ya existe una empresa con el RUC '{data.ruc}' en este tenant.",
+        )
     payload = data.model_dump()
     row = await create_empresa(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -68,6 +78,16 @@ async def update_empresa_servicio(
     if not row:
         raise NotFoundError(detail="Empresa no encontrada")
     payload = data.model_dump(exclude_unset=True)
+    if "codigo_empresa" in payload:
+        if await get_empresa_by_codigo(client_id, payload["codigo_empresa"], exclude_id=empresa_id):
+            raise ConflictError(
+                detail=f"Ya existe una empresa con el código '{payload['codigo_empresa']}' en este tenant.",
+            )
+    if "ruc" in payload:
+        if await get_empresa_by_ruc(client_id, payload["ruc"], exclude_id=empresa_id):
+            raise ConflictError(
+                detail=f"Ya existe una empresa con el RUC '{payload['ruc']}' en este tenant.",
+            )
     updated = await update_empresa(client_id=client_id, empresa_id=empresa_id, data=payload)
     return _row_to_read(updated)
 

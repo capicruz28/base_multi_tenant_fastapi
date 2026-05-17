@@ -46,6 +46,7 @@ from app.infrastructure.database.queries.inv.movimiento_queries import (
     get_movimiento_by_id,
     create_movimiento,
     update_movimiento,
+    get_movimiento_con_detalles,
 )
 from app.infrastructure.database.queries.inv.movimiento_detalle_queries import (
     list_movimientos_detalle,
@@ -58,6 +59,7 @@ from app.infrastructure.database.queries.inv.inventario_fisico_queries import (
     get_inventario_fisico_by_id,
     create_inventario_fisico,
     update_inventario_fisico,
+    get_inventario_fisico_con_detalles,
 )
 from app.infrastructure.database.queries.inv.inventario_fisico_detalle_queries import (
     list_inventarios_fisicos_detalle,
@@ -110,6 +112,7 @@ __all__ = [
     "get_movimiento_by_id",
     "create_movimiento",
     "update_movimiento",
+    "get_movimiento_con_detalles",
     # Movimientos detalle
     "list_movimientos_detalle",
     "get_movimiento_detalle_by_id",
@@ -120,6 +123,7 @@ __all__ = [
     "get_inventario_fisico_by_id",
     "create_inventario_fisico",
     "update_inventario_fisico",
+    "get_inventario_fisico_con_detalles",
     # Inventario físico detalle
     "list_inventarios_fisicos_detalle",
     "get_inventario_fisico_detalle_by_id",

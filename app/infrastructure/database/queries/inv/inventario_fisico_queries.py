@@ -7,7 +7,7 @@ from uuid import UUID
 from datetime import datetime, date
 from sqlalchemy import select, insert, update, and_
 
-from app.infrastructure.database.tables_erp import InvInventarioFisicoTable
+from app.infrastructure.database.tables_erp import InvInventarioFisicoTable, InvInventarioFisicoDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in InvInventarioFisicoTable.c}
@@ -85,3 +85,30 @@ async def update_inventario_fisico(
     )
     await execute_update(stmt, client_id=client_id)
     return await get_inventario_fisico_by_id(client_id, inventario_fisico_id)
+
+
+async def get_inventario_fisico_con_detalles(
+    client_id: UUID, inventario_fisico_id: UUID
+) -> Optional[Dict[str, Any]]:
+    """
+    Retorna la cabecera del inventario físico con su lista de detalles embebida.
+    Resultado: dict con todos los campos del inventario físico + 'detalles': List[dict].
+    Retorna None si la cabecera no existe o no pertenece al tenant.
+    """
+    cabecera = await get_inventario_fisico_by_id(client_id, inventario_fisico_id)
+    if not cabecera:
+        return None
+
+    query_detalles = (
+        select(InvInventarioFisicoDetalleTable)
+        .where(
+            and_(
+                InvInventarioFisicoDetalleTable.c.cliente_id == client_id,
+                InvInventarioFisicoDetalleTable.c.inventario_fisico_id == inventario_fisico_id,
+            )
+        )
+        .order_by(InvInventarioFisicoDetalleTable.c.producto_id)
+    )
+    detalles = await execute_query(query_detalles, client_id=client_id)
+
+    return {**cabecera, "detalles": detalles}

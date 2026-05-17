@@ -7,7 +7,7 @@ from uuid import UUID
 from datetime import datetime, date
 from sqlalchemy import select, insert, update, and_
 
-from app.infrastructure.database.tables_erp import InvMovimientoTable
+from app.infrastructure.database.tables_erp import InvMovimientoTable, InvMovimientoDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 
 _COLUMNS = {c.name for c in InvMovimientoTable.c}
@@ -91,3 +91,30 @@ async def update_movimiento(
     )
     await execute_update(stmt, client_id=client_id)
     return await get_movimiento_by_id(client_id, movimiento_id)
+
+
+async def get_movimiento_con_detalles(
+    client_id: UUID, movimiento_id: UUID
+) -> Optional[Dict[str, Any]]:
+    """
+    Retorna la cabecera del movimiento con su lista de detalles embebida.
+    Resultado: dict con todos los campos del movimiento + 'detalles': List[dict].
+    Retorna None si la cabecera no existe o no pertenece al tenant.
+    """
+    cabecera = await get_movimiento_by_id(client_id, movimiento_id)
+    if not cabecera:
+        return None
+
+    query_detalles = (
+        select(InvMovimientoDetalleTable)
+        .where(
+            and_(
+                InvMovimientoDetalleTable.c.cliente_id == client_id,
+                InvMovimientoDetalleTable.c.movimiento_id == movimiento_id,
+            )
+        )
+        .order_by(InvMovimientoDetalleTable.c.fecha_creacion)
+    )
+    detalles = await execute_query(query_detalles, client_id=client_id)
+
+    return {**cabecera, "detalles": detalles}

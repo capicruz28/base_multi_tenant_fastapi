@@ -55,6 +55,26 @@ async def get_centro_costo_by_id(
     return rows[0] if rows else None
 
 
+async def get_centro_costo_by_codigo(
+    client_id: UUID,
+    empresa_id: UUID,
+    codigo: str,
+    exclude_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Lookup por codigo dentro de tenant+empresa. exclude_id omite el propio registro en UPDATE."""
+    query = select(OrgCentroCostoTable).where(
+        and_(
+            OrgCentroCostoTable.c.cliente_id == client_id,
+            OrgCentroCostoTable.c.empresa_id == empresa_id,
+            OrgCentroCostoTable.c.codigo == codigo,
+        )
+    )
+    if exclude_id is not None:
+        query = query.where(OrgCentroCostoTable.c.centro_costo_id != exclude_id)
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
 async def create_centro_costo(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta un centro de costo. cliente_id se fuerza desde contexto."""
     from uuid import uuid4

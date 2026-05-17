@@ -55,6 +55,26 @@ async def get_departamento_by_id(
     return rows[0] if rows else None
 
 
+async def get_departamento_by_codigo(
+    client_id: UUID,
+    empresa_id: UUID,
+    codigo: str,
+    exclude_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Lookup por codigo dentro de tenant+empresa. exclude_id omite el propio registro en UPDATE."""
+    query = select(OrgDepartamentoTable).where(
+        and_(
+            OrgDepartamentoTable.c.cliente_id == client_id,
+            OrgDepartamentoTable.c.empresa_id == empresa_id,
+            OrgDepartamentoTable.c.codigo == codigo,
+        )
+    )
+    if exclude_id is not None:
+        query = query.where(OrgDepartamentoTable.c.departamento_id != exclude_id)
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
 async def create_departamento(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta un departamento. cliente_id se fuerza desde contexto."""
     from uuid import uuid4

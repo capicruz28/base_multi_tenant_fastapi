@@ -7,11 +7,143 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.shared.validators import normalize_upper, normalize_lower, normalize_strip
+
+
+# ----- Mixins de normalización (solo Create / Update) -----
+
+class _EmpresaWriteMixin:
+    @field_validator(
+        "codigo_empresa",
+        "razon_social",
+        "ruc",
+        "direccion_fiscal",
+        "tipo_documento_tributario",
+        "codigo_ciiu",
+        "codigo_postal",
+        "ubigeo",
+        "representante_legal_dni",
+        mode="before",
+    )
+    @classmethod
+    def _upper_empresa(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "email_principal",
+        "email_facturacion",
+        "sitio_web",
+        "logo_url",
+        "logo_secundario_url",
+        "favicon_url",
+        mode="before",
+    )
+    @classmethod
+    def _lower_empresa(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_lower(v)
+
+    @field_validator(
+        "nombre_comercial",
+        "actividad_economica",
+        "rubro",
+        "tipo_empresa",
+        "telefono_principal",
+        "telefono_secundario",
+        "representante_legal_nombre",
+        "representante_legal_cargo",
+        "zona_horaria",
+        "idioma_sistema",
+        "formato_fecha",
+        "separador_miles",
+        "separador_decimales",
+        mode="before",
+    )
+    @classmethod
+    def _strip_empresa(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _CentroCostoWriteMixin:
+    @field_validator("codigo", "tipo_centro_costo", "ruta_jerarquica", mode="before")
+    @classmethod
+    def _upper_centro_costo(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("nombre", "descripcion", "categoria", "responsable_nombre", mode="before")
+    @classmethod
+    def _strip_centro_costo(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _SucursalWriteMixin:
+    @field_validator("codigo", "ubigeo", "codigo_postal", "tipo_sucursal", mode="before")
+    @classmethod
+    def _upper_sucursal(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _lower_sucursal(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_lower(v)
+
+    @field_validator(
+        "nombre",
+        "descripcion",
+        "direccion",
+        "referencia",
+        "telefono",
+        "horario_atencion",
+        "zona_horaria",
+        "responsable_nombre",
+        mode="before",
+    )
+    @classmethod
+    def _strip_sucursal(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _DepartamentoWriteMixin:
+    @field_validator("codigo", "ruta_jerarquica", mode="before")
+    @classmethod
+    def _upper_departamento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "nombre",
+        "descripcion",
+        "tipo_departamento",
+        "jefe_nombre",
+        mode="before",
+    )
+    @classmethod
+    def _strip_departamento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _CargoWriteMixin:
+    @field_validator("codigo", mode="before")
+    @classmethod
+    def _upper_cargo(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "nombre",
+        "descripcion",
+        "categoria",
+        "area_funcional",
+        "nivel_educacion_minimo",
+        "requisitos_especificos",
+        mode="before",
+    )
+    @classmethod
+    def _strip_cargo(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
 
 
 # ----- Empresa -----
-class EmpresaCreate(BaseModel):
+class EmpresaCreate(_EmpresaWriteMixin, BaseModel):
     codigo_empresa: str = Field(..., max_length=20)
     razon_social: str = Field(..., max_length=200)
     nombre_comercial: Optional[str] = Field(None, max_length=150)
@@ -52,7 +184,7 @@ class EmpresaCreate(BaseModel):
     fecha_inicio_operaciones: Optional[date] = None
 
 
-class EmpresaUpdate(BaseModel):
+class EmpresaUpdate(_EmpresaWriteMixin, BaseModel):
     codigo_empresa: Optional[str] = Field(None, max_length=20)
     razon_social: Optional[str] = Field(None, max_length=200)
     nombre_comercial: Optional[str] = None
@@ -144,7 +276,7 @@ class EmpresaRead(BaseModel):
 
 
 # ----- Centro de costo -----
-class CentroCostoCreate(BaseModel):
+class CentroCostoCreate(_CentroCostoWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -163,7 +295,7 @@ class CentroCostoCreate(BaseModel):
     fecha_fin_vigencia: Optional[date] = None
 
 
-class CentroCostoUpdate(BaseModel):
+class CentroCostoUpdate(_CentroCostoWriteMixin, BaseModel):
     codigo: Optional[str] = None
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
@@ -209,7 +341,7 @@ class CentroCostoRead(BaseModel):
 
 
 # ----- Sucursal -----
-class SucursalCreate(BaseModel):
+class SucursalCreate(_SucursalWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -241,7 +373,7 @@ class SucursalCreate(BaseModel):
     fecha_cierre: Optional[date] = None
 
 
-class SucursalUpdate(BaseModel):
+class SucursalUpdate(_SucursalWriteMixin, BaseModel):
     codigo: Optional[str] = None
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
@@ -313,7 +445,7 @@ class SucursalRead(BaseModel):
 
 
 # ----- Departamento -----
-class DepartamentoCreate(BaseModel):
+class DepartamentoCreate(_DepartamentoWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -329,7 +461,7 @@ class DepartamentoCreate(BaseModel):
     es_activo: Optional[bool] = True
 
 
-class DepartamentoUpdate(BaseModel):
+class DepartamentoUpdate(_DepartamentoWriteMixin, BaseModel):
     codigo: Optional[str] = None
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
@@ -369,7 +501,7 @@ class DepartamentoRead(BaseModel):
 
 
 # ----- Cargo -----
-class CargoCreate(BaseModel):
+class CargoCreate(_CargoWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -388,7 +520,7 @@ class CargoCreate(BaseModel):
     es_activo: Optional[bool] = True
 
 
-class CargoUpdate(BaseModel):
+class CargoUpdate(_CargoWriteMixin, BaseModel):
     codigo: Optional[str] = None
     nombre: Optional[str] = None
     descripcion: Optional[str] = None

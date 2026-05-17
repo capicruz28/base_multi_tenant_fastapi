@@ -4,17 +4,224 @@ Schemas Pydantic para el módulo INV (Inventarios).
 Todos los Create/Update excluyen cliente_id; se asigna desde contexto en backend.
 ✅ Campos esenciales incluidos desde el inicio.
 """
-from typing import Optional, Any
+from typing import Optional, Any, List
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.shared.validators import normalize_upper, normalize_lower, normalize_strip
+
+
+# ----- Mixins de normalización (solo Create / Update) -----
+
+class _CategoriaWriteMixin:
+    @field_validator(
+        "codigo",
+        "ruta_jerarquica",
+        "cuenta_contable_inventario",
+        "cuenta_contable_costo_venta",
+        "metodo_costeo_defecto",
+        mode="before",
+    )
+    @classmethod
+    def _upper_categoria(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("nombre", "descripcion", mode="before")
+    @classmethod
+    def _strip_categoria(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _UnidadMedidaWriteMixin:
+    @field_validator("codigo", "tipo_unidad", mode="before")
+    @classmethod
+    def _upper_unidad_medida(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("nombre", "simbolo", mode="before")
+    @classmethod
+    def _strip_unidad_medida(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _ProductoWriteMixin:
+    @field_validator(
+        "codigo_sku",
+        "codigo_barra",
+        "codigo_interno",
+        "codigo_fabricante",
+        "codigo_sunat",
+        "tipo_producto",
+        "subtipo_producto",
+        "tipo_afectacion_igv",
+        "metodo_costeo",
+        "estado",
+        mode="before",
+    )
+    @classmethod
+    def _upper_producto(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("imagen_principal_url", "ficha_tecnica_url", mode="before")
+    @classmethod
+    def _lower_producto(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_lower(v)
+
+    @field_validator(
+        "nombre",
+        "nombre_corto",
+        "descripcion",
+        "descripcion_corta",
+        "marca",
+        "modelo",
+        "linea_producto",
+        "color",
+        "talla",
+        "observaciones",
+        "especificaciones_tecnicas",
+        "atributos_personalizados",
+        "imagenes_adicionales",
+        mode="before",
+    )
+    @classmethod
+    def _strip_producto(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _AlmacenWriteMixin:
+    @field_validator("codigo", "tipo_almacen", mode="before")
+    @classmethod
+    def _upper_almacen(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "nombre",
+        "descripcion",
+        "direccion",
+        "responsable_nombre",
+        mode="before",
+    )
+    @classmethod
+    def _strip_almacen(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _TipoMovimientoWriteMixin:
+    @field_validator(
+        "codigo",
+        "clase_movimiento",
+        "cuenta_contable_debito",
+        "cuenta_contable_credito",
+        "tipo_documento_referencia",
+        mode="before",
+    )
+    @classmethod
+    def _upper_tipo_movimiento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("nombre", "descripcion", mode="before")
+    @classmethod
+    def _strip_tipo_movimiento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _MovimientoWriteMixin:
+    @field_validator(
+        "numero_movimiento",
+        "modulo_origen",
+        "documento_referencia_tipo",
+        "documento_referencia_numero",
+        "tercero_tipo",
+        "moneda",
+        "estado",
+        mode="before",
+    )
+    @classmethod
+    def _upper_movimiento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "tercero_nombre",
+        "observaciones",
+        "motivo_anulacion",
+        mode="before",
+    )
+    @classmethod
+    def _strip_movimiento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _MovimientoDetalleWriteMixin:
+    @field_validator(
+        "lote",
+        "numero_serie",
+        "ubicacion_almacen",
+        "moneda",
+        mode="before",
+    )
+    @classmethod
+    def _upper_movimiento_detalle(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("observaciones", mode="before")
+    @classmethod
+    def _strip_movimiento_detalle(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _StockWriteMixin:
+    @field_validator("ubicacion_almacen", mode="before")
+    @classmethod
+    def _upper_stock(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+
+class _InventarioFisicoWriteMixin:
+    @field_validator(
+        "numero_inventario",
+        "tipo_inventario",
+        "ubicacion_almacen",
+        "estado",
+        mode="before",
+    )
+    @classmethod
+    def _upper_inventario_fisico(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "descripcion",
+        "supervisor_nombre",
+        "observaciones",
+        mode="before",
+    )
+    @classmethod
+    def _strip_inventario_fisico(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
+
+
+class _InventarioFisicoDetalleWriteMixin:
+    @field_validator("lote", "ubicacion_almacen", "estado_conteo", mode="before")
+    @classmethod
+    def _upper_inventario_fisico_detalle(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator(
+        "contador_nombre",
+        "observaciones",
+        "motivo_diferencia",
+        mode="before",
+    )
+    @classmethod
+    def _strip_inventario_fisico_detalle(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_strip(v)
 
 
 # ============================================================================
 # CATEGORÍA DE PRODUCTO
 # ============================================================================
-class CategoriaCreate(BaseModel):
+class CategoriaCreate(_CategoriaWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -28,7 +235,7 @@ class CategoriaCreate(BaseModel):
     es_activo: Optional[bool] = True
 
 
-class CategoriaUpdate(BaseModel):
+class CategoriaUpdate(_CategoriaWriteMixin, BaseModel):
     codigo: Optional[str] = Field(None, max_length=20)
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
@@ -66,7 +273,7 @@ class CategoriaRead(BaseModel):
 # ============================================================================
 # UNIDAD DE MEDIDA
 # ============================================================================
-class UnidadMedidaCreate(BaseModel):
+class UnidadMedidaCreate(_UnidadMedidaWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=10)
     nombre: str = Field(..., max_length=50)
@@ -78,7 +285,7 @@ class UnidadMedidaCreate(BaseModel):
     es_activo: Optional[bool] = True
 
 
-class UnidadMedidaUpdate(BaseModel):
+class UnidadMedidaUpdate(_UnidadMedidaWriteMixin, BaseModel):
     codigo: Optional[str] = Field(None, max_length=10)
     nombre: Optional[str] = Field(None, max_length=50)
     simbolo: Optional[str] = Field(None, max_length=10)
@@ -112,7 +319,7 @@ class UnidadMedidaRead(BaseModel):
 # ============================================================================
 # PRODUCTO
 # ============================================================================
-class ProductoCreate(BaseModel):
+class ProductoCreate(_ProductoWriteMixin, BaseModel):
     empresa_id: UUID
     codigo_sku: str = Field(..., max_length=50)
     codigo_barra: Optional[str] = Field(None, max_length=50)
@@ -181,7 +388,7 @@ class ProductoCreate(BaseModel):
     observaciones: Optional[str] = None
 
 
-class ProductoUpdate(BaseModel):
+class ProductoUpdate(_ProductoWriteMixin, BaseModel):
     codigo_sku: Optional[str] = Field(None, max_length=50)
     codigo_barra: Optional[str] = Field(None, max_length=50)
     codigo_interno: Optional[str] = Field(None, max_length=30)
@@ -330,7 +537,7 @@ class ProductoRead(BaseModel):
 # ============================================================================
 # ALMACÉN
 # ============================================================================
-class AlmacenCreate(BaseModel):
+class AlmacenCreate(_AlmacenWriteMixin, BaseModel):
     empresa_id: UUID
     sucursal_id: Optional[UUID] = None
     codigo: str = Field(..., max_length=20)
@@ -351,7 +558,7 @@ class AlmacenCreate(BaseModel):
     es_activo: Optional[bool] = True
 
 
-class AlmacenUpdate(BaseModel):
+class AlmacenUpdate(_AlmacenWriteMixin, BaseModel):
     sucursal_id: Optional[UUID] = None
     codigo: Optional[str] = Field(None, max_length=20)
     nombre: Optional[str] = Field(None, max_length=100)
@@ -403,7 +610,7 @@ class AlmacenRead(BaseModel):
 # ============================================================================
 # STOCK
 # ============================================================================
-class StockCreate(BaseModel):
+class StockCreate(_StockWriteMixin, BaseModel):
     empresa_id: UUID
     producto_id: UUID
     almacen_id: UUID
@@ -421,7 +628,7 @@ class StockCreate(BaseModel):
     fecha_ultima_venta: Optional[datetime] = None
 
 
-class StockUpdate(BaseModel):
+class StockUpdate(_StockWriteMixin, BaseModel):
     cantidad_actual: Optional[Decimal] = None
     cantidad_reservada: Optional[Decimal] = None
     cantidad_transito: Optional[Decimal] = None
@@ -485,7 +692,7 @@ class KardexLineaRead(BaseModel):
 # ============================================================================
 # TIPO DE MOVIMIENTO
 # ============================================================================
-class TipoMovimientoCreate(BaseModel):
+class TipoMovimientoCreate(_TipoMovimientoWriteMixin, BaseModel):
     empresa_id: UUID
     codigo: str = Field(..., max_length=20)
     nombre: str = Field(..., max_length=100)
@@ -502,7 +709,7 @@ class TipoMovimientoCreate(BaseModel):
     es_tipo_sistema: Optional[bool] = False
 
 
-class TipoMovimientoUpdate(BaseModel):
+class TipoMovimientoUpdate(_TipoMovimientoWriteMixin, BaseModel):
     codigo: Optional[str] = Field(None, max_length=20)
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
@@ -546,7 +753,7 @@ class TipoMovimientoRead(BaseModel):
 # ============================================================================
 # MOVIMIENTO
 # ============================================================================
-class MovimientoCreate(BaseModel):
+class MovimientoCreate(_MovimientoWriteMixin, BaseModel):
     empresa_id: UUID
     numero_movimiento: str = Field(..., max_length=20)
     tipo_movimiento_id: UUID
@@ -584,7 +791,7 @@ class MovimientoCreate(BaseModel):
     centro_costo_id: Optional[UUID] = None
 
 
-class MovimientoUpdate(BaseModel):
+class MovimientoUpdate(_MovimientoWriteMixin, BaseModel):
     numero_movimiento: Optional[str] = Field(None, max_length=20)
     tipo_movimiento_id: Optional[UUID] = None
     fecha_movimiento: Optional[datetime] = None
@@ -662,7 +869,7 @@ class MovimientoRead(BaseModel):
 # ============================================================================
 # INVENTARIO FÍSICO
 # ============================================================================
-class InventarioFisicoCreate(BaseModel):
+class InventarioFisicoCreate(_InventarioFisicoWriteMixin, BaseModel):
     empresa_id: UUID
     numero_inventario: str = Field(..., max_length=20)
     fecha_inventario: date
@@ -681,7 +888,7 @@ class InventarioFisicoCreate(BaseModel):
     observaciones: Optional[str] = None
 
 
-class InventarioFisicoUpdate(BaseModel):
+class InventarioFisicoUpdate(_InventarioFisicoWriteMixin, BaseModel):
     numero_inventario: Optional[str] = Field(None, max_length=20)
     fecha_inventario: Optional[date] = None
     almacen_id: Optional[UUID] = None
@@ -757,11 +964,11 @@ class MovimientoDetalleBase(BaseModel):
     observaciones: Optional[str] = Field(None, max_length=500)
 
 
-class MovimientoDetalleCreate(MovimientoDetalleBase):
+class MovimientoDetalleCreate(_MovimientoDetalleWriteMixin, MovimientoDetalleBase):
     pass
 
 
-class MovimientoDetalleUpdate(BaseModel):
+class MovimientoDetalleUpdate(_MovimientoDetalleWriteMixin, BaseModel):
     cantidad: Optional[Decimal] = None
     unidad_medida_id: Optional[UUID] = None
     cantidad_base: Optional[Decimal] = None
@@ -792,6 +999,7 @@ class MovimientoDetalleRead(BaseModel):
     unidad_medida_id: UUID
     cantidad_base: Decimal
     costo_unitario: Optional[Decimal] = None
+    costo_total: Optional[Decimal] = None          # AS (cantidad * costo_unitario) PERSISTED
     moneda_id: Optional[UUID] = None
     moneda: Optional[str] = None
     lote: Optional[str] = None
@@ -826,11 +1034,13 @@ class InventarioFisicoDetalleBase(BaseModel):
     motivo_diferencia: Optional[str] = Field(None, max_length=500)
 
 
-class InventarioFisicoDetalleCreate(InventarioFisicoDetalleBase):
+class InventarioFisicoDetalleCreate(
+    _InventarioFisicoDetalleWriteMixin, InventarioFisicoDetalleBase
+):
     pass
 
 
-class InventarioFisicoDetalleUpdate(BaseModel):
+class InventarioFisicoDetalleUpdate(_InventarioFisicoDetalleWriteMixin, BaseModel):
     cantidad_sistema: Optional[Decimal] = None
     cantidad_contada: Optional[Decimal] = None
     lote: Optional[str] = Field(None, max_length=50)
@@ -853,10 +1063,12 @@ class InventarioFisicoDetalleRead(BaseModel):
     producto_id: UUID
     cantidad_sistema: Decimal
     cantidad_contada: Optional[Decimal] = None
+    diferencia: Optional[Decimal] = None           # AS (cantidad_contada - cantidad_sistema) PERSISTED
     lote: Optional[str] = None
     fecha_vencimiento: Optional[date] = None
     ubicacion_almacen: Optional[str] = None
     costo_unitario: Optional[Decimal] = None
+    valor_diferencia: Optional[Decimal] = None     # AS ((cantidad_contada - cantidad_sistema) * costo_unitario) PERSISTED
     estado_conteo: Optional[str] = None
     contador_usuario_id: Optional[UUID] = None
     contador_nombre: Optional[str] = None
@@ -867,3 +1079,95 @@ class InventarioFisicoDetalleRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# SCHEMAS CABECERA + DETALLE EMBEBIDO — MOVIMIENTO
+# ============================================================================
+
+class MovimientoDetalleCreateEmbebido(_MovimientoDetalleWriteMixin, BaseModel):
+    """Línea de movimiento para crear embebida en la cabecera.
+    No incluye movimiento_id ni empresa_id: se heredan de la cabecera."""
+    producto_id: UUID
+    cantidad: Decimal = Field(..., gt=0)
+    unidad_medida_id: UUID
+    cantidad_base: Decimal = Field(..., gt=0)
+    costo_unitario: Optional[Decimal] = Field(None, ge=0)
+    moneda_id: Optional[UUID] = Field(
+        None,
+        description="ID de moneda (cat_moneda.moneda_id). Preferido.",
+    )
+    moneda: Optional[str] = Field(
+        "PEN",
+        description="(Legacy) Código de moneda. Usar moneda_id.",
+        max_length=10,
+    )
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    numero_serie: Optional[str] = Field(None, max_length=100)
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    observaciones: Optional[str] = Field(None, max_length=500)
+
+
+class MovimientoConDetalleCreate(MovimientoCreate):
+    """Movimiento completo: cabecera + líneas obligatorias (mínimo 1)."""
+    detalles: List[MovimientoDetalleCreateEmbebido] = Field(
+        ..., min_length=1, description="Líneas del movimiento. Mínimo 1."
+    )
+
+
+class MovimientoConDetalleUpdate(MovimientoUpdate):
+    """Actualización de movimiento (solo en borrador) + reemplazo opcional de líneas.
+    Si 'detalles' se provee, reemplaza todas las líneas existentes."""
+    detalles: Optional[List[MovimientoDetalleCreateEmbebido]] = Field(
+        None, description="Si se provee, reemplaza todas las líneas existentes."
+    )
+
+
+class MovimientoConDetalleRead(MovimientoRead):
+    """Movimiento con sus líneas embebidas en la respuesta."""
+    detalles: List[MovimientoDetalleRead] = Field(default_factory=list)
+
+
+# ============================================================================
+# SCHEMAS CABECERA + DETALLE EMBEBIDO — INVENTARIO FÍSICO
+# ============================================================================
+
+class InventarioFisicoDetalleCreateEmbebido(_InventarioFisicoDetalleWriteMixin, BaseModel):
+    """Línea de inventario físico para crear embebida en la cabecera.
+    No incluye inventario_fisico_id ni empresa_id: se heredan de la cabecera."""
+    producto_id: UUID
+    cantidad_sistema: Decimal = Field(..., ge=0)
+    cantidad_contada: Optional[Decimal] = Field(None, ge=0)
+    lote: Optional[str] = Field(None, max_length=50)
+    fecha_vencimiento: Optional[date] = None
+    ubicacion_almacen: Optional[str] = Field(None, max_length=50)
+    costo_unitario: Optional[Decimal] = Field(None, ge=0)
+    estado_conteo: Optional[str] = Field("pendiente", max_length=20)
+    contador_usuario_id: Optional[UUID] = None
+    contador_nombre: Optional[str] = Field(None, max_length=150)
+    fecha_conteo: Optional[datetime] = None
+    observaciones: Optional[str] = Field(None, max_length=500)
+    motivo_diferencia: Optional[str] = Field(None, max_length=500)
+
+
+class InventarioFisicoConDetalleCreate(InventarioFisicoCreate):
+    """Inventario físico completo: cabecera + líneas opcionales al crear
+    (se pueden agregar durante el conteo)."""
+    detalles: List[InventarioFisicoDetalleCreateEmbebido] = Field(
+        default_factory=list,
+        description="Líneas de conteo. Se pueden añadir al crear o en PUT posterior.",
+    )
+
+
+class InventarioFisicoConDetalleUpdate(InventarioFisicoUpdate):
+    """Actualización de inventario físico + reemplazo opcional de líneas.
+    Si 'detalles' se provee, reemplaza todas las líneas existentes."""
+    detalles: Optional[List[InventarioFisicoDetalleCreateEmbebido]] = Field(
+        None, description="Si se provee, reemplaza todas las líneas existentes."
+    )
+
+
+class InventarioFisicoConDetalleRead(InventarioFisicoRead):
+    """Inventario físico con sus líneas de conteo embebidas en la respuesta."""
+    detalles: List[InventarioFisicoDetalleRead] = Field(default_factory=list)

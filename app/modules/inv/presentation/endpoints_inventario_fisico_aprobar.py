@@ -26,7 +26,7 @@ async def aprobar_inventario_fisico(
     data: AprobarInventarioFisicoRequest,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(
-        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")
     ),
 ):
     client_id = current_user.cliente_id

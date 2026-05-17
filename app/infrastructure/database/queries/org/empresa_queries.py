@@ -24,6 +24,42 @@ async def list_empresas(client_id: UUID, solo_activos: bool = True) -> List[Dict
     return await execute_query(query, client_id=client_id)
 
 
+async def get_empresa_by_codigo(
+    client_id: UUID,
+    codigo_empresa: str,
+    exclude_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Lookup por codigo_empresa dentro del tenant. exclude_id omite el propio registro en UPDATE."""
+    query = select(OrgEmpresaTable).where(
+        and_(
+            OrgEmpresaTable.c.cliente_id == client_id,
+            OrgEmpresaTable.c.codigo_empresa == codigo_empresa,
+        )
+    )
+    if exclude_id is not None:
+        query = query.where(OrgEmpresaTable.c.empresa_id != exclude_id)
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
+async def get_empresa_by_ruc(
+    client_id: UUID,
+    ruc: str,
+    exclude_id: Optional[UUID] = None,
+) -> Optional[Dict[str, Any]]:
+    """Lookup por RUC dentro del tenant. exclude_id omite el propio registro en UPDATE."""
+    query = select(OrgEmpresaTable).where(
+        and_(
+            OrgEmpresaTable.c.cliente_id == client_id,
+            OrgEmpresaTable.c.ruc == ruc,
+        )
+    )
+    if exclude_id is not None:
+        query = query.where(OrgEmpresaTable.c.empresa_id != exclude_id)
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
 async def get_empresa_by_id(client_id: UUID, empresa_id: UUID) -> Optional[Dict[str, Any]]:
     """Obtiene una empresa por id. Exige cliente_id para no cruzar tenants."""
     query = select(OrgEmpresaTable).where(

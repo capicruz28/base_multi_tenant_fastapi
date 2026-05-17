@@ -74,6 +74,7 @@ async def detalle_movimiento_detalle(
     response_model=MovimientoDetalleRead,
     status_code=status.HTTP_201_CREATED,
     summary="Crear línea de movimiento",
+    deprecated=True,
 )
 async def crear_movimiento_detalle(
     data: MovimientoDetalleCreate,
@@ -92,6 +93,7 @@ async def crear_movimiento_detalle(
     "/{movimiento_detalle_id}",
     response_model=MovimientoDetalleRead,
     summary="Actualizar línea de movimiento",
+    deprecated=True,
 )
 async def actualizar_movimiento_detalle(
     movimiento_detalle_id: UUID,

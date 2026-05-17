@@ -25,7 +25,7 @@ async def procesar_movimiento(
     movimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(
-        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.procesar")
     ),
 ):
     client_id = current_user.cliente_id
@@ -48,7 +48,7 @@ async def autorizar_movimiento(
     movimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(
-        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.autorizar")
     ),
 ):
     client_id = current_user.cliente_id
@@ -72,7 +72,7 @@ async def anular_movimiento(
     payload: MotivoAnulacion = Body(MotivoAnulacion()),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(
-        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
+        require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")
     ),
 ):
     client_id = current_user.cliente_id

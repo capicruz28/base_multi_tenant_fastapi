@@ -45,12 +45,20 @@ from app.modules.inv.application.services.movimiento_service import (
     get_movimiento_servicio,
     create_movimiento_servicio,
     update_movimiento_servicio,
+    get_movimiento_con_detalles_servicio,
+    create_movimiento_con_detalles_servicio,
+    update_movimiento_con_detalles_servicio,
 )
 from app.modules.inv.application.services.inventario_fisico_service import (
     list_inventarios_fisicos_servicio,
     get_inventario_fisico_servicio,
     create_inventario_fisico_servicio,
     update_inventario_fisico_servicio,
+    anular_inventario_fisico_servicio,
+    finalizar_inventario_fisico_servicio,
+    get_inventario_fisico_con_detalles_servicio,
+    create_inventario_fisico_con_detalles_servicio,
+    update_inventario_fisico_con_detalles_servicio,
 )
 from app.modules.inv.application.services.movimiento_detalle_service import (
     list_movimientos_detalle_servicio,
@@ -66,6 +74,7 @@ from app.modules.inv.application.services.inventario_fisico_detalle_service impo
 )
 from app.modules.inv.application.services.movimiento_proceso_service import (
     procesar_movimiento_servicio,
+    autorizar_movimiento_servicio,
     anular_movimiento_servicio,
 )
 from app.modules.inv.application.services.inventario_fisico_aprobacion_service import (
@@ -123,11 +132,21 @@ __all__ = [
     "get_movimiento_servicio",
     "create_movimiento_servicio",
     "update_movimiento_servicio",
+    # Movimientos con detalle embebido
+    "get_movimiento_con_detalles_servicio",
+    "create_movimiento_con_detalles_servicio",
+    "update_movimiento_con_detalles_servicio",
     # Inventario físico
     "list_inventarios_fisicos_servicio",
     "get_inventario_fisico_servicio",
     "create_inventario_fisico_servicio",
     "update_inventario_fisico_servicio",
+    "anular_inventario_fisico_servicio",
+    "finalizar_inventario_fisico_servicio",
+    # Inventario físico con detalle embebido
+    "get_inventario_fisico_con_detalles_servicio",
+    "create_inventario_fisico_con_detalles_servicio",
+    "update_inventario_fisico_con_detalles_servicio",
     # Movimiento detalle
     "list_movimientos_detalle_servicio",
     "get_movimiento_detalle_servicio",
@@ -140,6 +159,7 @@ __all__ = [
     "update_inventario_fisico_detalle_servicio",
     # Proceso movimiento
     "procesar_movimiento_servicio",
+    "autorizar_movimiento_servicio",
     "anular_movimiento_servicio",
     # Aprobación inventario físico
     "aprobar_inventario_fisico_servicio",

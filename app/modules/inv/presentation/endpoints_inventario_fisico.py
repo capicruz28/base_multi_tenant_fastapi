@@ -8,7 +8,14 @@ from datetime import date
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
-from app.modules.inv.presentation.schemas import InventarioFisicoCreate, InventarioFisicoUpdate, InventarioFisicoRead
+from app.modules.inv.presentation.schemas import (
+    InventarioFisicoCreate,
+    InventarioFisicoUpdate,
+    InventarioFisicoRead,
+    InventarioFisicoConDetalleCreate,
+    InventarioFisicoConDetalleUpdate,
+    InventarioFisicoConDetalleRead,
+)
 from app.modules.inv.application.services import inventario_fisico_service
 from app.core.exceptions import NotFoundError
 
@@ -95,7 +102,7 @@ async def actualizar_inventario_fisico(
 async def anular_inventario_fisico(
     inventario_fisico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
-    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
 ):
     """Anula un inventario físico dentro del tenant (cambia estado a 'anulado')."""
     client_id = current_user.cliente_id
@@ -103,6 +110,104 @@ async def anular_inventario_fisico(
         return await inventario_fisico_service.anular_inventario_fisico_servicio(
             client_id=client_id,
             inventario_fisico_id=inventario_fisico_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/{inventario_fisico_id}/finalizar",
+    response_model=InventarioFisicoRead,
+    summary="Finalizar conteo de inventario físico",
+)
+async def finalizar_inventario_fisico(
+    inventario_fisico_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.finalizar")),
+):
+    """
+    Cierra el conteo de un inventario físico (estado 'en_proceso' → 'finalizado').
+    Una vez finalizado, puede ser aprobado para generar el ajuste de stock.
+    """
+    client_id = current_user.cliente_id
+    try:
+        return await inventario_fisico_service.finalizar_inventario_fisico_servicio(
+            client_id=client_id,
+            inventario_fisico_id=inventario_fisico_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+# ============================================================================
+# ENDPOINTS CABECERA + DETALLE EMBEBIDO
+# ============================================================================
+
+@router.get(
+    "/{inventario_fisico_id}/con-detalle",
+    response_model=InventarioFisicoConDetalleRead,
+    summary="Detalle de inventario físico con líneas de conteo embebidas",
+)
+async def detalle_inventario_fisico_con_detalles(
+    inventario_fisico_id: UUID,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+):
+    """Retorna la cabecera del inventario físico con todas sus líneas de conteo embebidas."""
+    client_id = current_user.cliente_id
+    try:
+        return await inventario_fisico_service.get_inventario_fisico_con_detalles_servicio(
+            client_id=client_id,
+            inventario_fisico_id=inventario_fisico_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post(
+    "/con-detalle",
+    response_model=InventarioFisicoConDetalleRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear inventario físico con líneas de conteo embebidas (recomendado)",
+)
+async def crear_inventario_fisico_con_detalles(
+    data: InventarioFisicoConDetalleCreate,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
+):
+    """
+    Crea un inventario físico con sus líneas de conteo en una sola transacción atómica.
+    Las líneas son opcionales al crear y pueden añadirse/reemplazarse en PUT posterior.
+    """
+    client_id = current_user.cliente_id
+    return await inventario_fisico_service.create_inventario_fisico_con_detalles_servicio(
+        client_id=client_id,
+        data=data,
+    )
+
+
+@router.put(
+    "/{inventario_fisico_id}/con-detalle",
+    response_model=InventarioFisicoConDetalleRead,
+    summary="Actualizar inventario físico con reemplazo opcional de líneas de conteo",
+)
+async def actualizar_inventario_fisico_con_detalles(
+    inventario_fisico_id: UUID,
+    data: InventarioFisicoConDetalleUpdate,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+):
+    """
+    Actualiza un inventario físico (estados distintos a 'ajustado' y 'anulado').
+    Si se incluye 'detalles', reemplaza todas las líneas de conteo existentes (replace-all).
+    Si no se incluye 'detalles', solo actualiza los campos de la cabecera.
+    """
+    client_id = current_user.cliente_id
+    try:
+        return await inventario_fisico_service.update_inventario_fisico_con_detalles_servicio(
+            client_id=client_id,
+            inventario_fisico_id=inventario_fisico_id,
+            data=data,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

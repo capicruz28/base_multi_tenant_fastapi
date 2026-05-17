@@ -295,6 +295,7 @@ CREATE INDEX IDX_cliente_modulo_vencimiento ON cliente_modulo(fecha_vencimiento)
 CREATE TABLE usuario (
     usuario_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
+    empresa_default_id  UNIQUEIDENTIFIER NOT NULL,
     nombre_usuario NVARCHAR(100) NOT NULL,
     contrasena NVARCHAR(255) NOT NULL,
     nombre NVARCHAR(100) NULL,
@@ -325,25 +326,31 @@ CREATE TABLE usuario (
     
     CONSTRAINT FK_usuario_cliente FOREIGN KEY (cliente_id) 
         REFERENCES cliente(cliente_id) ON DELETE CASCADE,
+    CONSTRAINT FK_usuario_empresa_default FOREIGN KEY (empresa_default_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
     CONSTRAINT UQ_usuario_cliente_nombre UNIQUE (cliente_id, nombre_usuario)
 );
 
 -- Tabla: rol
 CREATE TABLE rol (
     rol_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    cliente_id UNIQUEIDENTIFIER NULL,                          -- NULL = Rol global del sistema
+    cliente_id UNIQUEIDENTIFIER NULL,                   -- NULL = Rol global del sistema
+    empresa_id UNIQUEIDENTIFIER NULL;                          
     codigo_rol NVARCHAR(30) NULL,
     nombre NVARCHAR(50) NOT NULL,
     descripcion NVARCHAR(255) NULL,
     es_rol_sistema BIT DEFAULT 0,
     nivel_acceso INT DEFAULT 1,
     es_activo BIT DEFAULT 1 NOT NULL,
+    es_admin_cliente BIT DEFAULT 0 NOT NULL,
     fecha_creacion DATETIME DEFAULT GETDATE() NOT NULL,
     fecha_actualizacion DATETIME NULL,
     
     CONSTRAINT FK_rol_cliente FOREIGN KEY (cliente_id) 
         REFERENCES cliente(cliente_id) ON DELETE CASCADE,
-    CONSTRAINT UQ_rol_cliente_nombre UNIQUE (cliente_id, nombre)
+    CONSTRAINT FK_rol_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
+    CONSTRAINT UQ_rol_cliente_empresa_nombre  UNIQUE (cliente_id, empresa_id,nombre)
 );
 
 -- Tabla: usuario_rol
@@ -352,6 +359,8 @@ CREATE TABLE usuario_rol (
     usuario_id UNIQUEIDENTIFIER NOT NULL,
     rol_id UNIQUEIDENTIFIER NOT NULL,
     cliente_id UNIQUEIDENTIFIER NOT NULL,                      -- Desnormalizado para queries rápidas
+    empresa_id UNIQUEIDENTIFIER NULL,
+    es_empresa_default BIT DEFAULT 0 NOT NULL
     fecha_asignacion DATETIME DEFAULT GETDATE() NOT NULL,
     fecha_expiracion DATETIME NULL,
     es_activo BIT DEFAULT 1 NOT NULL,
@@ -363,13 +372,16 @@ CREATE TABLE usuario_rol (
         REFERENCES rol(rol_id) ON DELETE NO ACTION,
     CONSTRAINT FK_usuario_rol_cliente FOREIGN KEY (cliente_id) 
         REFERENCES cliente(cliente_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_usuario_rol UNIQUE (usuario_id, rol_id)
+    CONSTRAINT FK_usuario_rol_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
+    CONSTRAINT UQ_usuario_rol_empresa UNIQUE (usuario_id, rol_id, empresa_id)
 );
 
 -- Tabla: rol_menu_permiso
 CREATE TABLE rol_menu_permiso (
     permiso_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
+    empresa_id UNIQUEIDENTIFIER NULL;
     rol_id UNIQUEIDENTIFIER NOT NULL,
     menu_id UNIQUEIDENTIFIER NOT NULL,
     puede_ver BIT DEFAULT 1 NOT NULL,
@@ -389,13 +401,16 @@ CREATE TABLE rol_menu_permiso (
         REFERENCES modulo_menu(menu_id) ON DELETE NO ACTION,
     CONSTRAINT FK_permiso_cliente FOREIGN KEY (cliente_id) 
         REFERENCES cliente(cliente_id) ON DELETE NO ACTION,
-    CONSTRAINT UQ_rol_menu UNIQUE (cliente_id, rol_id, menu_id)
+    CONSTRAINT FK_permiso_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
+    CONSTRAINT UQ_rol_menu_empresa  UNIQUE (cliente_id, empresa_id, rol_id, menu_id)
 );
 
 -- Tabla: refresh_tokens
 CREATE TABLE refresh_tokens (
     token_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
+    empresa_id UNIQUEIDENTIFIER NULL;
     usuario_id UNIQUEIDENTIFIER NOT NULL,
     token_hash VARCHAR(255) NOT NULL UNIQUE,
     expires_at DATETIME NOT NULL,
@@ -414,13 +429,16 @@ CREATE TABLE refresh_tokens (
     CONSTRAINT FK_refresh_token_cliente FOREIGN KEY (cliente_id) 
         REFERENCES cliente(cliente_id) ON DELETE CASCADE,
     CONSTRAINT FK_refresh_token_usuario FOREIGN KEY (usuario_id) 
-        REFERENCES usuario(usuario_id) ON DELETE NO ACTION
+        REFERENCES usuario(usuario_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_refresh_token_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION
 );
 
 -- Tabla: auth_audit_log
 CREATE TABLE auth_audit_log (
     log_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
+    empresa_id UNIQUEIDENTIFIER NULL;
     usuario_id UNIQUEIDENTIFIER NULL,
     evento NVARCHAR(50) NOT NULL,
     nombre_usuario_intento NVARCHAR(100) NULL,
@@ -437,7 +455,9 @@ CREATE TABLE auth_audit_log (
     CONSTRAINT FK_audit_cliente FOREIGN KEY (cliente_id) 
         REFERENCES cliente(cliente_id) ON DELETE CASCADE,
     CONSTRAINT FK_audit_usuario FOREIGN KEY (usuario_id) 
-        REFERENCES usuario(usuario_id) ON DELETE NO ACTION
+        REFERENCES usuario(usuario_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_audit_empresa FOREIGN KEY (empresa_id) 
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION
 );
 
 -- Índices para tablas operativas
@@ -448,26 +468,31 @@ CREATE INDEX IDX_usuario_referencia_externa ON usuario(referencia_externa_id) WH
 CREATE INDEX IDX_usuario_sincronizacion ON usuario(sincronizado_desde, fecha_ultima_sincronizacion);
 
 CREATE INDEX IDX_rol_cliente ON rol(cliente_id, es_activo);
+CREATE INDEX IDX_rol_empresa ON rol(empresa_id, es_activo) WHERE empresa_id IS NOT NULL;
 CREATE INDEX IDX_rol_codigo ON rol(codigo_rol) WHERE codigo_rol IS NOT NULL;
 
 CREATE INDEX IDX_usuario_rol_usuario ON usuario_rol(usuario_id, es_activo);
 CREATE INDEX IDX_usuario_rol_rol ON usuario_rol(rol_id, es_activo);
 CREATE INDEX IDX_usuario_rol_cliente ON usuario_rol(cliente_id);
+CREATE INDEX IDX_usuario_rol_empresa ON usuario_rol(empresa_id, es_activo) WHERE empresa_id IS NOT NULL;
 
 CREATE INDEX IDX_permiso_rol ON rol_menu_permiso(rol_id, puede_ver);
 CREATE INDEX IDX_permiso_menu ON rol_menu_permiso(menu_id);
 CREATE INDEX IDX_permiso_cliente ON rol_menu_permiso(cliente_id);
+CREATE INDEX IDX_permiso_empresa ON rol_menu_permiso(empresa_id) WHERE empresa_id IS NOT NULL;
 
 CREATE INDEX IDX_refresh_token_usuario_cliente ON refresh_tokens(usuario_id, cliente_id);
 CREATE INDEX IDX_refresh_token_active ON refresh_tokens(usuario_id, is_revoked, expires_at);
 CREATE INDEX IDX_refresh_token_cleanup ON refresh_tokens(expires_at, is_revoked);
 CREATE INDEX IDX_refresh_token_device ON refresh_tokens(device_id) WHERE device_id IS NOT NULL;
+CREATE INDEX IDX_refresh_token_empresa ON refresh_tokens(empresa_id) WHERE empresa_id IS NOT NULL;
 
 CREATE INDEX IDX_audit_cliente_fecha ON auth_audit_log(cliente_id, fecha_evento DESC);
 CREATE INDEX IDX_audit_usuario_fecha ON auth_audit_log(usuario_id, fecha_evento DESC) WHERE usuario_id IS NOT NULL;
 CREATE INDEX IDX_audit_evento ON auth_audit_log(evento, fecha_evento DESC);
 CREATE INDEX IDX_audit_exito ON auth_audit_log(exito, fecha_evento DESC);
 CREATE INDEX IDX_audit_ip ON auth_audit_log(ip_address, fecha_evento DESC) WHERE ip_address IS NOT NULL;
+CREATE INDEX IDX_audit_empresa ON auth_audit_log(empresa_id, fecha_evento DESC) WHERE empresa_id IS NOT NULL;
 
 -- ============================================================================
 -- SECCIÓN 4: AUDITORÍA Y SINCRONIZACIÓN

@@ -3,10 +3,11 @@
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.infrastructure.database.queries.org import (
     list_parametros,
     get_parametro_by_id,
+    get_parametro_by_clave_natural,
     create_parametro,
     update_parametro,
 )
@@ -75,6 +76,23 @@ async def create_parametro_servicio(
     client_id: UUID,
     data: ParametroCreate,
 ) -> ParametroRead:
+    if await get_parametro_by_clave_natural(
+        client_id,
+        modulo_codigo=data.modulo_codigo,
+        codigo_parametro=data.codigo_parametro,
+        empresa_id=data.empresa_id,
+    ):
+        if data.empresa_id is not None:
+            detail = (
+                f"Ya existe un parámetro con el código '{data.codigo_parametro}' "
+                f"en el módulo '{data.modulo_codigo}' para esta empresa."
+            )
+        else:
+            detail = (
+                f"Ya existe un parámetro con el código '{data.codigo_parametro}' "
+                f"en el módulo '{data.modulo_codigo}' a nivel de todo el cliente."
+            )
+        raise ConflictError(detail=detail)
     payload = data.model_dump()
     row = await create_parametro(client_id=client_id, data=payload)
     return _row_to_read(row)

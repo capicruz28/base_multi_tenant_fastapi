@@ -12,11 +12,6 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
-_EMPRESA_ID_SCOPE_DESC = (
-    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
-)
-
-
 @router.get("", response_model=list[CargoRead], summary="Listar cargos")
 async def listar_cargos(
     empresa_id: Optional[UUID] = Query(None),
@@ -40,7 +35,7 @@ async def listar_cargos(
 )
 async def reactivar_cargo(
     cargo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del cargo."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.actualizar")),
 ):
     """Marca el cargo como activo (es_activo = True) dentro del tenant."""
@@ -58,7 +53,7 @@ async def reactivar_cargo(
 @router.get("/{cargo_id}", response_model=CargoRead, summary="Detalle cargo")
 async def detalle_cargo(
     cargo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del cargo."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.leer")),
 ):
     client_id = current_user.cliente_id
@@ -84,7 +79,7 @@ async def crear_cargo(
 @router.put("/{cargo_id}", response_model=CargoRead, summary="Actualizar cargo")
 async def actualizar_cargo(
     cargo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del cargo."),
     data: CargoUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.actualizar")),
 ):
@@ -107,7 +102,7 @@ async def actualizar_cargo(
 )
 async def eliminar_cargo(
     cargo_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria del cargo."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.cargo.eliminar")),
 ):
     """Marca un cargo como inactivo (baja lógica) dentro del tenant."""

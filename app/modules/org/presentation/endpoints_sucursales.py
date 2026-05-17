@@ -12,11 +12,6 @@ from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
-_EMPRESA_ID_SCOPE_DESC = (
-    "Si se informa, la fila debe pertenecer a esta empresa además del tenant (cliente)."
-)
-
-
 @router.get("", response_model=list[SucursalRead], summary="Listar sucursales")
 async def listar_sucursales(
     empresa_id: Optional[UUID] = Query(None),
@@ -40,7 +35,7 @@ async def listar_sucursales(
 )
 async def reactivar_sucursal(
     sucursal_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
 ):
     """Marca la sucursal como activa (es_activo = True) dentro del tenant."""
@@ -58,7 +53,7 @@ async def reactivar_sucursal(
 @router.get("/{sucursal_id}", response_model=SucursalRead, summary="Detalle sucursal")
 async def detalle_sucursal(
     sucursal_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.leer")),
 ):
     client_id = current_user.cliente_id
@@ -84,7 +79,7 @@ async def crear_sucursal(
 @router.put("/{sucursal_id}", response_model=SucursalRead, summary="Actualizar sucursal")
 async def actualizar_sucursal(
     sucursal_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
     data: SucursalUpdate = Body(...),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
 ):
@@ -107,7 +102,7 @@ async def actualizar_sucursal(
 )
 async def eliminar_sucursal(
     sucursal_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.eliminar")),
 ):
     """Marca una sucursal como inactiva (baja lógica) dentro del tenant."""

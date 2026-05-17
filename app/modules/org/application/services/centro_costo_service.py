@@ -3,10 +3,11 @@
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.infrastructure.database.queries.org import (
     list_centros_costo,
     get_centro_costo_by_id,
+    get_centro_costo_by_codigo,
     create_centro_costo,
     update_centro_costo,
 )
@@ -71,6 +72,10 @@ async def create_centro_costo_servicio(
     client_id: UUID,
     data: CentroCostoCreate,
 ) -> CentroCostoRead:
+    if await get_centro_costo_by_codigo(client_id, data.empresa_id, data.codigo):
+        raise ConflictError(
+            detail=f"Ya existe un centro de costo con el código '{data.codigo}' en esta empresa.",
+        )
     payload = data.model_dump()
     row = await create_centro_costo(client_id=client_id, data=payload)
     return _row_to_read(row)
@@ -91,6 +96,11 @@ async def update_centro_costo_servicio(
     if not row:
         raise NotFoundError(detail="Centro de costo no encontrado")
     payload = data.model_dump(exclude_unset=True)
+    if "codigo" in payload:
+        if await get_centro_costo_by_codigo(client_id, empresa_id, payload["codigo"], exclude_id=centro_costo_id):
+            raise ConflictError(
+                detail=f"Ya existe un centro de costo con el código '{payload['codigo']}' en esta empresa.",
+            )
     updated = await update_centro_costo(
         client_id=client_id,
         centro_costo_id=centro_costo_id,
