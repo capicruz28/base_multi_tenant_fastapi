@@ -1,0 +1,101 @@
+{
+  "report": "RC1_ONBOARDING_MENU_SAAS_ALIGNMENT_VALIDATION",
+  "timestamp_utc": "2026-05-22T00:55:35Z",
+  "architecture": {
+    "tenant_admin": {
+      "routes_admin": "/admin/*",
+      "modules": ["ORG", "SYS_ADMIN"],
+      "menu_scope": ["ORG_*", "SYS_ADMIN.TENANT.*"],
+      "excluded": ["SYS_ADMIN.PLATFORM.*", "SYS_ADMIN.CATALOGOS.*", "INV", "CRM", "FIN"]
+    },
+    "erp_routes": "/app/{modulo}/* (runtime normalize + S021 catalog optional)",
+    "platform": "/super-admin/* (platform_admin only)"
+  },
+  "constraints_respected": [
+    "no auth/JWT changes",
+    "no permission_sync / onboarding_rbac changes",
+    "no frontend changes",
+    "no repair used for this tenant"
+  ],
+  "pipeline": {
+    "command": "python scripts/run_rc_validation_pipeline.py --full-staging --create-tenant",
+    "unit_tests": 28,
+    "unit_passed": true,
+    "health": true,
+    "smoke_passed": true,
+    "evidence_run": "RC1_MENU_SAAS_ALIGNMENT_PIPELINE.json"
+  },
+  "tenant_created": {
+    "cliente_id": "cae8635c-e62c-4553-a598-105f610bea54",
+    "subdominio": "smokerc3aad0984",
+    "username": "admin",
+    "password": "!9LajY%TY7Sb"
+  },
+  "sql_validation": {
+    "cliente_modulo": ["ORG", "SYS_ADMIN"],
+    "rol_permiso_admin": 45,
+    "rol_menu_permiso_admin": 9,
+    "expected_menu_grants": 9,
+    "menu_codigos": [
+      "ORG_CARGOS",
+      "ORG_CENTROS_COSTO",
+      "ORG_DEPARTAMENTOS",
+      "ORG_MI_EMPRESA",
+      "ORG_PARAMETROS",
+      "ORG_SUCURSALES",
+      "SYS_ADMIN.TENANT.ROLES",
+      "SYS_ADMIN.TENANT.SESSIONS",
+      "SYS_ADMIN.TENANT.USERS"
+    ],
+    "forbidden_grants_catalogos_platform": 0,
+    "duplicate_menu_keys": 0,
+    "onboarding_only_no_repair": true
+  },
+  "http_smoke": {
+    "passed": true,
+    "auth_menu": {
+      "modulo_codigos": ["ORG", "SYS_ADMIN"],
+      "checks": {
+        "ORG": true,
+        "SYS_ADMIN": true,
+        "no_platform_or_catalogos_menus": true,
+        "org_rutas_app_prefix": true
+      },
+      "forbidden_menu_codigos": [],
+      "org_rutas_sample": [
+        "/app/org/empresa",
+        "/app/org/sucursales",
+        "/app/org/departamentos",
+        "/app/org/cargos",
+        "/app/org/centros-costo",
+        "/app/org/parametros"
+      ]
+    },
+    "admin_tenant_rutas_sample": [
+      "/admin/usuarios",
+      "/admin/roles",
+      "/admin/sesiones"
+    ]
+  },
+  "implementation_summary": {
+    "files_changed": [
+      "app/modules/tenant/application/services/onboarding_menu_bootstrap_service.py",
+      "app/core/menu/menu_route_normalizer.py",
+      "app/modules/modulos/application/helpers/menu_transformer.py",
+      "app/modules/modulos/application/services/modulo_menu_service.py",
+      "scripts/repair_tenant_menu_grants.py",
+      "scripts/lib/http_smoke_runner.py",
+      "app/bootstrap_v2/02_catalog/S021__menu_routes_saas_alignment.sql"
+    ],
+    "elevated_menu_tenant_scope_filter": "ModuloMenuService filters PLATFORM/CATALOGOS for as_tenant_admin without changing access_level"
+  },
+  "legacy_repair_batch": {
+    "note": "Separate from this validation; repair pruned 5 CATALOGOS grants per tenant and set rmp=9",
+    "tenants_repaired": ["acme", "e2evalid01", "innova", "prueba", "smokerc69929718", "smokercd7a988ab", "smokercda37e4c0"]
+  },
+  "verdict": {
+    "status": "PASS",
+    "onboarding_saas_menu_aligned": true,
+    "repair_required_for_new_tenants": false
+  }
+}

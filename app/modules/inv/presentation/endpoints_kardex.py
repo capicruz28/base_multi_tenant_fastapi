@@ -1,5 +1,5 @@
 """Endpoints INV - Kardex (consulta)."""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from uuid import UUID
 from typing import Optional
 from datetime import date
@@ -8,7 +8,8 @@ from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import KardexLineaRead
-from app.infrastructure.database.queries.inv import list_kardex
+from app.modules.inv.application.services import kardex_service
+from app.core.exceptions import NotFoundError, AuthorizationError
 
 router = APIRouter()
 
@@ -18,7 +19,6 @@ RESOURCE_CODE = "movimiento"
 
 @router.get("", response_model=list[KardexLineaRead], summary="Kardex (líneas por producto/almacén)")
 async def obtener_kardex(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     producto_id: Optional[UUID] = Query(None, description="Filtrar por producto"),
     almacen_id: Optional[UUID] = Query(None, description="Filtrar por almacén (origen o destino)"),
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
@@ -26,14 +26,18 @@ async def obtener_kardex(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
+    """Kardex de la empresa activa en sesión (sin mezclar otras empresas del tenant)."""
     client_id = current_user.cliente_id
-    rows = await list_kardex(
-        client_id=client_id,
-        empresa_id=empresa_id,
-        producto_id=producto_id,
-        almacen_id=almacen_id,
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-    )
-    return [KardexLineaRead(**r) for r in rows]
-
+    try:
+        rows = await kardex_service.list_kardex_servicio(
+            client_id=client_id,
+            producto_id=producto_id,
+            almacen_id=almacen_id,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+        )
+        return rows
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

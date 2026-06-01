@@ -1,10 +1,10 @@
 # app/modules/inv/application/services/inventario_fisico_service.py
 """
 Servicio de Inventario Físico (INV). client_id siempre desde contexto, nunca desde body.
+Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID, uuid4
 from datetime import date, datetime
@@ -14,7 +14,11 @@ from sqlalchemy import select, insert, update, delete, and_
 
 from app.core.exceptions import NotFoundError
 from app.core.application.unit_of_work import unit_of_work
-from app.modules.org.application.services.empresa_service import get_empresa_servicio
+from app.core.tenant.company_scope import (
+    require_session_empresa_id,
+    enforce_body_empresa_matches_session,
+    ensure_empresa_in_tenant,
+)
 from app.infrastructure.database.tables_erp import (
     InvInventarioFisicoTable,
     InvInventarioFisicoDetalleTable,
@@ -25,6 +29,8 @@ from app.infrastructure.database.queries.inv import (
     create_inventario_fisico,
     update_inventario_fisico,
     get_inventario_fisico_con_detalles,
+    get_almacen_by_id,
+    get_producto_by_id,
 )
 from app.modules.inv.presentation.schemas import (
     InventarioFisicoCreate,
@@ -44,21 +50,86 @@ def _row_to_read(row: dict) -> InventarioFisicoRead:
     return InventarioFisicoRead(**row)
 
 
+def _inv_det_row_to_read(row: dict) -> InventarioFisicoDetalleRead:
+    return InventarioFisicoDetalleRead(**row)
+
+
+async def _validate_optional_list_filtros(
+    client_id: UUID,
+    empresa_id: UUID,
+    *,
+    almacen_id: Optional[UUID] = None,
+) -> None:
+    if almacen_id is not None:
+        alm = await get_almacen_by_id(
+            client_id=client_id,
+            almacen_id=almacen_id,
+            empresa_id=empresa_id,
+        )
+        if not alm:
+            raise NotFoundError(detail="Almacén no encontrado")
+
+
+async def _validate_cabecera_refs(
+    client_id: UUID,
+    empresa_id: UUID,
+    *,
+    almacen_id: UUID,
+) -> None:
+    alm = await get_almacen_by_id(
+        client_id=client_id,
+        almacen_id=almacen_id,
+        empresa_id=empresa_id,
+    )
+    if not alm:
+        raise NotFoundError(detail="Almacén no encontrado")
+
+
+async def _validate_detalle_productos(
+    client_id: UUID,
+    empresa_id: UUID,
+    detalles: list,
+) -> None:
+    for det in detalles:
+        producto_id = getattr(det, "producto_id", None) or det.get("producto_id")
+        if not producto_id:
+            continue
+        prod = await get_producto_by_id(
+            client_id=client_id,
+            producto_id=producto_id,
+            empresa_id=empresa_id,
+        )
+        if not prod:
+            raise NotFoundError(detail="Producto no encontrado")
+
+
+def _assert_editable_estado(row: dict) -> None:
+    estado_actual = (row.get("estado") or "").lower()
+    if estado_actual in ("ajustado", "anulado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede editar un inventario físico en estado '{row.get('estado')}'",
+        )
+
+
 async def list_inventarios_fisicos_servicio(
     client_id: UUID,
-    empresa_id: Optional[UUID] = None,
     almacen_id: Optional[UUID] = None,
     estado: Optional[str] = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
 ) -> List[InventarioFisicoRead]:
+    empresa_id = require_session_empresa_id()
+    await _validate_optional_list_filtros(
+        client_id, empresa_id, almacen_id=almacen_id
+    )
     rows = await list_inventarios_fisicos(
         client_id=client_id,
         empresa_id=empresa_id,
         almacen_id=almacen_id,
         estado=estado,
         fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta
+        fecha_hasta=fecha_hasta,
     )
     return [_row_to_read(r) for r in rows]
 
@@ -67,7 +138,12 @@ async def get_inventario_fisico_servicio(
     client_id: UUID,
     inventario_fisico_id: UUID,
 ) -> InventarioFisicoRead:
-    row = await get_inventario_fisico_by_id(client_id=client_id, inventario_fisico_id=inventario_fisico_id)
+    empresa_id = require_session_empresa_id()
+    row = await get_inventario_fisico_by_id(
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
+    )
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
     return _row_to_read(row)
@@ -77,8 +153,13 @@ async def create_inventario_fisico_servicio(
     client_id: UUID,
     data: InventarioFisicoCreate,
 ) -> InventarioFisicoRead:
-    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+    empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
+    await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
+    await _validate_cabecera_refs(
+        client_id, empresa_id, almacen_id=data.almacen_id
+    )
     payload = data.model_dump()
+    payload["empresa_id"] = empresa_id
     row = await create_inventario_fisico(client_id=client_id, data=payload)
     return _row_to_read(row)
 
@@ -88,21 +169,30 @@ async def update_inventario_fisico_servicio(
     inventario_fisico_id: UUID,
     data: InventarioFisicoUpdate,
 ) -> InventarioFisicoRead:
-    row = await get_inventario_fisico_by_id(client_id=client_id, inventario_fisico_id=inventario_fisico_id)
+    empresa_id = require_session_empresa_id()
+    row = await get_inventario_fisico_by_id(
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
+    )
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
-    # Lifecycle: impedir edición cuando ya fue ajustado o anulado
-    estado_actual = (row.get("estado") or "").lower()
-    if estado_actual in ("ajustado", "anulado"):
-        from fastapi import HTTPException, status
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede editar un inventario físico en estado '{row.get('estado')}'",
-        )
+    _assert_editable_estado(row)
     if data.empresa_id is not None:
-        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+        enforce_body_empresa_matches_session(data.empresa_id)
+    if data.almacen_id is not None:
+        await _validate_cabecera_refs(
+            client_id, empresa_id, almacen_id=data.almacen_id
+        )
     payload = data.model_dump(exclude_unset=True)
-    updated = await update_inventario_fisico(client_id=client_id, inventario_fisico_id=inventario_fisico_id, data=payload)
+    if "empresa_id" in payload:
+        del payload["empresa_id"]
+    updated = await update_inventario_fisico(
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        data=payload,
+        empresa_id=empresa_id,
+    )
     return _row_to_read(updated)
 
 
@@ -111,12 +201,12 @@ async def anular_inventario_fisico_servicio(
     client_id: UUID,
     inventario_fisico_id: UUID,
 ) -> InventarioFisicoRead:
-    """
-    Anula un inventario físico (cambia estado a 'anulado').
-    Regla conservadora:
-    - Si está 'ajustado' (ya generó ajuste), no se permite anular.
-    """
-    row = await get_inventario_fisico_by_id(client_id=client_id, inventario_fisico_id=inventario_fisico_id)
+    empresa_id = require_session_empresa_id()
+    row = await get_inventario_fisico_by_id(
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
+    )
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
     estado = (row.get("estado") or "").lower()
@@ -131,6 +221,7 @@ async def anular_inventario_fisico_servicio(
         client_id=client_id,
         inventario_fisico_id=inventario_fisico_id,
         data={"estado": "anulado"},
+        empresa_id=empresa_id,
     )
     return _row_to_read(updated)
 
@@ -140,12 +231,11 @@ async def finalizar_inventario_fisico_servicio(
     client_id: UUID,
     inventario_fisico_id: UUID,
 ) -> InventarioFisicoRead:
-    """
-    Finaliza el conteo de un inventario físico (estado 'en_proceso' → 'finalizado').
-    El inventario queda listo para ser aprobado y generar el ajuste de stock.
-    """
+    empresa_id = require_session_empresa_id()
     row = await get_inventario_fisico_by_id(
-        client_id=client_id, inventario_fisico_id=inventario_fisico_id
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
@@ -161,25 +251,20 @@ async def finalizar_inventario_fisico_servicio(
         client_id=client_id,
         inventario_fisico_id=inventario_fisico_id,
         data={"estado": "finalizado", "fecha_finalizacion": datetime.utcnow()},
+        empresa_id=empresa_id,
     )
     return _row_to_read(updated)
-
-
-# ============================================================================
-# FUNCIONES CABECERA + DETALLE EMBEBIDO
-# ============================================================================
-
-def _inv_det_row_to_read(row: dict) -> InventarioFisicoDetalleRead:
-    return InventarioFisicoDetalleRead(**row)
 
 
 async def get_inventario_fisico_con_detalles_servicio(
     client_id: UUID,
     inventario_fisico_id: UUID,
 ) -> InventarioFisicoConDetalleRead:
-    """Retorna cabecera + detalles. Lanza NotFoundError si no existe."""
+    empresa_id = require_session_empresa_id()
     combined = await get_inventario_fisico_con_detalles(
-        client_id=client_id, inventario_fisico_id=inventario_fisico_id
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
     )
     if not combined:
         raise NotFoundError(detail="Inventario físico no encontrado")
@@ -196,7 +281,6 @@ async def _insert_inventario_fisico_detalles(
     detalles: list,
     now: datetime,
 ) -> None:
-    """Inserta líneas de inventario físico dentro de una transacción UoW activa."""
     for det in detalles:
         values = {
             "inventario_fisico_detalle_id": uuid4(),
@@ -225,22 +309,23 @@ async def create_inventario_fisico_con_detalles_servicio(
     client_id: UUID,
     data: InventarioFisicoConDetalleCreate,
 ) -> InventarioFisicoConDetalleRead:
-    """
-    Crea un inventario físico con sus líneas de conteo en una sola transacción.
-    Las líneas son opcionales al crear (se pueden añadir/reemplazar en PUT posterior).
-    """
-    await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+    empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
+    await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
+    await _validate_cabecera_refs(
+        client_id, empresa_id, almacen_id=data.almacen_id
+    )
+    detalles_data = data.detalles
+    if detalles_data:
+        await _validate_detalle_productos(client_id, empresa_id, detalles_data)
 
     cab_payload = data.model_dump(exclude={"detalles"})
-    empresa_id = data.empresa_id
-    detalles_data = data.detalles
-
     now = datetime.utcnow()
     inventario_fisico_id = uuid4()
 
     cab_payload.update(
         inventario_fisico_id=inventario_fisico_id,
         cliente_id=client_id,
+        empresa_id=empresa_id,
     )
     cab_filtered = {k: v for k, v in cab_payload.items() if k in _INV_COLUMNS}
 
@@ -261,6 +346,7 @@ async def create_inventario_fisico_con_detalles_servicio(
             select(InvInventarioFisicoTable).where(
                 and_(
                     InvInventarioFisicoTable.c.cliente_id == client_id,
+                    InvInventarioFisicoTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
@@ -270,7 +356,9 @@ async def create_inventario_fisico_con_detalles_servicio(
             .where(
                 and_(
                     InvInventarioFisicoDetalleTable.c.cliente_id == client_id,
-                    InvInventarioFisicoDetalleTable.c.inventario_fisico_id == inventario_fisico_id,
+                    InvInventarioFisicoDetalleTable.c.empresa_id == empresa_id,
+                    InvInventarioFisicoDetalleTable.c.inventario_fisico_id
+                    == inventario_fisico_id,
                 )
             )
             .order_by(InvInventarioFisicoDetalleTable.c.producto_id)
@@ -288,41 +376,44 @@ async def update_inventario_fisico_con_detalles_servicio(
     inventario_fisico_id: UUID,
     data: InventarioFisicoConDetalleUpdate,
 ) -> InventarioFisicoConDetalleRead:
-    """
-    Actualiza cabecera (estados permitidos: todos excepto 'ajustado' y 'anulado') y,
-    si se proporcionan 'detalles', reemplaza todas las líneas existentes (replace-all).
-    """
+    empresa_id = require_session_empresa_id()
     row = await get_inventario_fisico_by_id(
-        client_id=client_id, inventario_fisico_id=inventario_fisico_id
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
     )
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
-    estado_actual = (row.get("estado") or "").lower()
-    if estado_actual in ("ajustado", "anulado"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"No se puede editar un inventario físico en estado '{row.get('estado')}'",
-        )
+    _assert_editable_estado(row)
 
     if data.empresa_id is not None:
-        await get_empresa_servicio(client_id=client_id, empresa_id=data.empresa_id)
+        enforce_body_empresa_matches_session(data.empresa_id)
+    if data.almacen_id is not None:
+        await _validate_cabecera_refs(
+            client_id, empresa_id, almacen_id=data.almacen_id
+        )
 
     cab_payload = data.model_dump(exclude_unset=True, exclude={"detalles"})
+    if "empresa_id" in cab_payload:
+        del cab_payload["empresa_id"]
     now = datetime.utcnow()
-    detalles_data = data.detalles  # None = sin cambio; list = reemplazar
+    detalles_data = data.detalles
+
+    if detalles_data is not None:
+        await _validate_detalle_productos(client_id, empresa_id, detalles_data)
 
     async with unit_of_work(client_id=client_id) as uow:
         if detalles_data is not None:
-            # Delete-all + re-insert (replace-all pattern)
             await uow.execute(
                 delete(InvInventarioFisicoDetalleTable).where(
                     and_(
                         InvInventarioFisicoDetalleTable.c.cliente_id == client_id,
-                        InvInventarioFisicoDetalleTable.c.inventario_fisico_id == inventario_fisico_id,
+                        InvInventarioFisicoDetalleTable.c.empresa_id == empresa_id,
+                        InvInventarioFisicoDetalleTable.c.inventario_fisico_id
+                        == inventario_fisico_id,
                     )
                 )
             )
-            empresa_id = cab_payload.get("empresa_id") or row.get("empresa_id")
             if detalles_data:
                 await _insert_inventario_fisico_detalles(
                     uow,
@@ -336,8 +427,10 @@ async def update_inventario_fisico_con_detalles_servicio(
         if cab_payload:
             cab_payload["fecha_actualizacion"] = now
             filtered = {
-                k: v for k, v in cab_payload.items()
-                if k in _INV_COLUMNS and k not in ("inventario_fisico_id", "cliente_id")
+                k: v
+                for k, v in cab_payload.items()
+                if k in _INV_COLUMNS
+                and k not in ("inventario_fisico_id", "cliente_id", "empresa_id")
             }
             if filtered:
                 await uow.execute(
@@ -345,7 +438,9 @@ async def update_inventario_fisico_con_detalles_servicio(
                     .where(
                         and_(
                             InvInventarioFisicoTable.c.cliente_id == client_id,
-                            InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
+                            InvInventarioFisicoTable.c.empresa_id == empresa_id,
+                            InvInventarioFisicoTable.c.inventario_fisico_id
+                            == inventario_fisico_id,
                         )
                     )
                     .values(**filtered)
@@ -355,6 +450,7 @@ async def update_inventario_fisico_con_detalles_servicio(
             select(InvInventarioFisicoTable).where(
                 and_(
                     InvInventarioFisicoTable.c.cliente_id == client_id,
+                    InvInventarioFisicoTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
@@ -364,7 +460,9 @@ async def update_inventario_fisico_con_detalles_servicio(
             .where(
                 and_(
                     InvInventarioFisicoDetalleTable.c.cliente_id == client_id,
-                    InvInventarioFisicoDetalleTable.c.inventario_fisico_id == inventario_fisico_id,
+                    InvInventarioFisicoDetalleTable.c.empresa_id == empresa_id,
+                    InvInventarioFisicoDetalleTable.c.inventario_fisico_id
+                    == inventario_fisico_id,
                 )
             )
             .order_by(InvInventarioFisicoDetalleTable.c.producto_id)

@@ -1,0 +1,192 @@
+{
+  "mode": "dry_run",
+  "timestamp_utc": "2026-05-22T00:02:16.956980+00:00",
+  "tenants_scanned": 7,
+  "repair_candidates": 0,
+  "repaired": [],
+  "omitted": [
+    {
+      "subdominio": "acme",
+      "cliente_id": "11111111-1111-1111-1111-111111111111",
+      "reason": "already_healthy",
+      "rol_menu_permiso_admin": 14
+    },
+    {
+      "subdominio": "e2evalid01",
+      "cliente_id": "db40cccc-c3a1-498b-84a5-b5f97c128d40",
+      "reason": "already_healthy",
+      "rol_menu_permiso_admin": 14
+    },
+    {
+      "subdominio": "global",
+      "cliente_id": "44444444-4444-4444-4444-444444444444",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0
+    },
+    {
+      "subdominio": "innova",
+      "cliente_id": "22222222-2222-2222-2222-222222222222",
+      "reason": "already_healthy",
+      "rol_menu_permiso_admin": 14
+    },
+    {
+      "subdominio": "platform",
+      "cliente_id": "00000000-0000-0000-0000-000000000001",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0
+    },
+    {
+      "subdominio": "prueba",
+      "cliente_id": "eb067fe5-92c5-449b-9845-f9fe36b28a40",
+      "reason": "already_healthy",
+      "rol_menu_permiso_admin": 14
+    },
+    {
+      "subdominio": "techcorp",
+      "cliente_id": "33333333-3333-3333-3333-333333333333",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0
+    }
+  ],
+  "failed": [],
+  "tenants": [
+    {
+      "cliente_id": "11111111-1111-1111-1111-111111111111",
+      "subdominio": "acme",
+      "razon_social": "ACME Corporation S.A.C.",
+      "audit": {
+        "cliente_id": "11111111-1111-1111-1111-111111111111",
+        "subdominio": "acme",
+        "rol_menu_permiso_admin": 14,
+        "expected_menu_grants": 14,
+        "inserts_expected": 0,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN",
+          "ORG"
+        ],
+        "admin_rol_id": "11111111-1111-1111-1111-111111111110",
+        "needs_repair": false,
+        "skipped_reason": "already_healthy"
+      }
+    },
+    {
+      "cliente_id": "db40cccc-c3a1-498b-84a5-b5f97c128d40",
+      "subdominio": "e2evalid01",
+      "razon_social": "E2E Validation Tenant S.A.",
+      "audit": {
+        "cliente_id": "db40cccc-c3a1-498b-84a5-b5f97c128d40",
+        "subdominio": "e2evalid01",
+        "rol_menu_permiso_admin": 14,
+        "expected_menu_grants": 14,
+        "inserts_expected": 0,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN",
+          "ORG"
+        ],
+        "admin_rol_id": "61c78cd6-5a38-4112-be5f-6ea4d14bda1a",
+        "needs_repair": false,
+        "skipped_reason": "already_healthy"
+      }
+    },
+    {
+      "cliente_id": "44444444-4444-4444-4444-444444444444",
+      "subdominio": "global",
+      "razon_social": "Global Logistics S.A.",
+      "audit": {
+        "cliente_id": "44444444-4444-4444-4444-444444444444",
+        "subdominio": "global",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 8,
+        "inserts_expected": 8,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN"
+        ],
+        "admin_rol_id": null,
+        "needs_repair": false,
+        "skipped_reason": "no_admin_tenant_role"
+      }
+    },
+    {
+      "cliente_id": "22222222-2222-2222-2222-222222222222",
+      "subdominio": "innova",
+      "razon_social": "Innova Solutions S.A.",
+      "audit": {
+        "cliente_id": "22222222-2222-2222-2222-222222222222",
+        "subdominio": "innova",
+        "rol_menu_permiso_admin": 14,
+        "expected_menu_grants": 14,
+        "inserts_expected": 0,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN",
+          "ORG"
+        ],
+        "admin_rol_id": "22222222-2222-2222-2222-222222222210",
+        "needs_repair": false,
+        "skipped_reason": "already_healthy"
+      }
+    },
+    {
+      "cliente_id": "00000000-0000-0000-0000-000000000001",
+      "subdominio": "platform",
+      "razon_social": "Sistema ERP Multi-Tenant",
+      "audit": {
+        "cliente_id": "00000000-0000-0000-0000-000000000001",
+        "subdominio": "platform",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 14,
+        "inserts_expected": 14,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "ORG",
+          "SYS_ADMIN"
+        ],
+        "admin_rol_id": null,
+        "needs_repair": false,
+        "skipped_reason": "no_admin_tenant_role"
+      }
+    },
+    {
+      "cliente_id": "eb067fe5-92c5-449b-9845-f9fe36b28a40",
+      "subdominio": "prueba",
+      "razon_social": "CLIENTE PRUEBA",
+      "audit": {
+        "cliente_id": "eb067fe5-92c5-449b-9845-f9fe36b28a40",
+        "subdominio": "prueba",
+        "rol_menu_permiso_admin": 14,
+        "expected_menu_grants": 14,
+        "inserts_expected": 0,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN",
+          "ORG"
+        ],
+        "admin_rol_id": "8f6e7b82-879d-4e35-beb3-c8f894bca42d",
+        "needs_repair": false,
+        "skipped_reason": "already_healthy"
+      }
+    },
+    {
+      "cliente_id": "33333333-3333-3333-3333-333333333333",
+      "subdominio": "techcorp",
+      "razon_social": "TechCorp Industries S.A.",
+      "audit": {
+        "cliente_id": "33333333-3333-3333-3333-333333333333",
+        "subdominio": "techcorp",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 8,
+        "inserts_expected": 8,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN"
+        ],
+        "admin_rol_id": null,
+        "needs_repair": false,
+        "skipped_reason": "no_admin_tenant_role"
+      }
+    }
+  ]
+}

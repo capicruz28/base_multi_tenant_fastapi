@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from app.core.authorization.core_permissions import PROTECTED_PERMISSION_CODIGOS
 from app.core.authorization.permission_registry import get_all
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.infrastructure.database.connection_async import DatabaseConnection
@@ -145,9 +146,16 @@ async def sync() -> None:
             except Exception as e:
                 logger.warning("%s Error actualizando permiso %s: %s", RBAC_LOG_PREFIX, codigo, e)
 
-    # 4) Desactivar permisos que están en BD pero no en código
+    # 4) Desactivar permisos que están en BD pero no en código (excepto grant-only protegidos)
     for codigo, row in existing_by_codigo.items():
         if codigo not in codigos_declared:
+            if codigo in PROTECTED_PERMISSION_CODIGOS:
+                logger.debug(
+                    "%s Permission protected from deactivation: %s",
+                    RBAC_LOG_PREFIX,
+                    codigo,
+                )
+                continue
             try:
                 upd_disabled = text("""
                     UPDATE permiso

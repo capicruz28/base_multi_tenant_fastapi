@@ -1,28 +1,33 @@
 # app/modules/org/presentation/endpoints_sucursales.py
-"""Endpoints ORG - Sucursales. client_id desde current_user.cliente_id."""
+"""Endpoints ORG - Sucursales. Company-scoped: empresa desde sesión JWT (Etapa B)."""
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import AuthorizationError, CustomException, NotFoundError
+from app.modules.org.presentation.org_deps import (
+    get_org_session_client_id,
+    reject_legacy_empresa_query,
+)
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.org.presentation.schemas import SucursalCreate, SucursalUpdate, SucursalRead
 from app.modules.org.application.services import sucursal_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
+
 @router.get("", response_model=list[SucursalRead], summary="Listar sucursales")
 async def listar_sucursales(
-    empresa_id: Optional[UUID] = Query(None),
     solo_activos: bool = True,
     buscar: Optional[str] = Query(None),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.leer")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    client_id = current_user.cliente_id
+    """Lista sucursales de la empresa activa en sesión."""
     return await sucursal_service.list_sucursales_servicio(
         client_id=client_id,
-        empresa_id=empresa_id,
         solo_activos=solo_activos,
         buscar=buscar,
     )
@@ -35,64 +40,76 @@ async def listar_sucursales(
 )
 async def reactivar_sucursal(
     sucursal_id: UUID,
-    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    """Marca la sucursal como activa (es_activo = True) dentro del tenant."""
-    client_id = current_user.cliente_id
+    """Marca la sucursal como activa (es_activo = True) en la empresa de sesión."""
     try:
         return await sucursal_service.reactivar_sucursal_servicio(
             client_id=client_id,
             sucursal_id=sucursal_id,
-            empresa_id=empresa_id,
         )
     except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+    except CustomException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.get("/{sucursal_id}", response_model=SucursalRead, summary="Detalle sucursal")
 async def detalle_sucursal(
     sucursal_id: UUID,
-    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.leer")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    client_id = current_user.cliente_id
+    """Detalle de una sucursal de la empresa activa."""
     try:
         return await sucursal_service.get_sucursal_servicio(
             client_id=client_id,
             sucursal_id=sucursal_id,
-            empresa_id=empresa_id,
         )
     except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+    except CustomException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.post("", response_model=SucursalRead, status_code=201, summary="Crear sucursal")
 async def crear_sucursal(
     data: SucursalCreate,
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.crear")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    client_id = current_user.cliente_id
-    return await sucursal_service.create_sucursal_servicio(client_id=client_id, data=data)
+    """Crea una sucursal. empresa_id del body debe coincidir con la sesión."""
+    try:
+        return await sucursal_service.create_sucursal_servicio(client_id=client_id, data=data)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+    except CustomException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.put("/{sucursal_id}", response_model=SucursalRead, summary="Actualizar sucursal")
 async def actualizar_sucursal(
     sucursal_id: UUID,
-    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
     data: SucursalUpdate = Body(...),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.actualizar")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    client_id = current_user.cliente_id
+    """Actualiza una sucursal de la empresa activa."""
     try:
         return await sucursal_service.update_sucursal_servicio(
             client_id=client_id,
             sucursal_id=sucursal_id,
             data=data,
-            empresa_id=empresa_id,
         )
     except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+    except CustomException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.delete(
@@ -102,16 +119,17 @@ async def actualizar_sucursal(
 )
 async def eliminar_sucursal(
     sucursal_id: UUID,
-    empresa_id: UUID = Query(..., description="Empresa propietaria de la sucursal."),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.sucursal.eliminar")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    """Marca una sucursal como inactiva (baja lógica) dentro del tenant."""
-    client_id = current_user.cliente_id
+    """Marca una sucursal como inactiva (baja lógica) en la empresa de sesión."""
     try:
         await sucursal_service.delete_sucursal_servicio(
             client_id=client_id,
             sucursal_id=sucursal_id,
-            empresa_id=empresa_id,
         )
     except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+    except CustomException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e

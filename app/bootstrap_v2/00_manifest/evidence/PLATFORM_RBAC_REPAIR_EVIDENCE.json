@@ -1,0 +1,43 @@
+{
+  "database": "bd_sistema_saas",
+  "date": "2026-05-21",
+  "root_cause": {
+    "summary": "D010 crea roles ADMIN_PLATFORM tras S020; S020 solo asigna rol_permiso a roles existentes en ese momento",
+    "d010_rol_permiso": false,
+    "d010_cliente_modulo": "INSERTs con UUIDs módulo inválidos (ALMACEN/LOGISTICA/PLANILLAS) → 0 cliente_modulo efectivo",
+    "permission_sync": "admin.platform.access quedaba es_activo=0 hasta protección en core_permissions"
+  },
+  "before": {
+    "rol_permiso_admin_platform_count": 0,
+    "cliente_modulo_count": 0,
+    "admin_platform_access_es_activo": true,
+    "has_core_app_acceder_in_rol_permiso": false
+  },
+  "after_repair": {
+    "rol_permiso_admin_platform_count": 22,
+    "cliente_modulo_count": 1,
+    "modulos": ["SYS_ADMIN"],
+    "admin_platform_access_es_activo": true,
+    "has_core_app_acceder_in_rol_permiso": true,
+    "sample_grants": [
+      "admin.platform.access",
+      "admin.usuario.leer",
+      "tenant.cliente.crear",
+      "core.app.acceder",
+      "modulos.menu.leer"
+    ]
+  },
+  "http_smoke_platform": {
+    "passed": true,
+    "user_type_me": "platform_admin",
+    "modulos_menu_count": 1,
+    "permissions_me_sample_count": 414,
+    "checks": {
+      "admin.platform.access": true,
+      "core.app.acceder": true,
+      "tenant.cliente.crear": true,
+      "admin.usuario.leer": true
+    },
+    "evidence_file": "smoke_platform_bd_sistema_saas.json"
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "report": "M1_M2_TRIAL_OWNER_SYNC_MENU_VALIDATION",
+  "spec_version": "OwnerSync-v1.0+M2",
+  "timestamp_utc": "2026-05-20T00:00:00Z",
+  "architecture": {
+    "model": "Owner SaaS ERP",
+    "layers": {
+      "cliente_modulo": "contrato comercial",
+      "rol_menu_permiso": "visibilidad UI",
+      "rol_permiso": "permisos API"
+    },
+    "trial_modules": ["ORG", "SYS_ADMIN", "INV"],
+    "owner_role": "ADMIN_TENANT",
+    "manager_user_auto_grants": false
+  },
+  "implementation_phases": ["M0", "M1", "M2"],
+  "m0_deliverables": [
+    "PlanModuloResolver",
+    "owner_sync_constants.py",
+    "owner_sync_result.py"
+  ],
+  "m1_deliverables": [
+    "OwnerSyncService.sync_module_for_owner",
+    "OnboardingRbacService.bootstrap_global_grants_admin_tenant",
+    "OnboardingRbacService + OwnerSync en onboarding trial",
+    "OnboardingMenuBootstrapService delega OwnerSync (sin prune comercial)"
+  ],
+  "m2_deliverables": [
+    "Eliminado bypass as_tenant_admin en menu (use_elevated_menu = is_super_admin only)",
+    "Eliminado _menu_row_in_tenant_admin_scope",
+    "Menú universal vía rol_menu_permiso (QUERY 2)",
+    "Impersonación: obtener_menu_impersonacion_tenant → ADMIN_TENANT RMP directo",
+    "GET /auth/menu sin as_tenant_admin elevation"
+  ],
+  "acceptance_criteria": {
+    "CA-1_coherencia_bd_ui": {
+      "status": "verified_unit",
+      "notes": "Trial modules ORG+SYS_ADMIN+INV; menu M2 usa RMP; integración BD requiere tenant dev"
+    },
+    "CA-2_owner_model_sin_bypass": {
+      "status": "pass",
+      "tests": [
+        "test_tenant_admin_uses_rol_menu_permiso_not_elevated",
+        "test_obtener_menu_usuario_tenant_admin_uses_rmp_sql"
+      ]
+    },
+    "CA-3_sys_admin_tenant_scope": {
+      "status": "pass",
+      "tests": ["test_sync_sys_admin_menu_filter"],
+      "sql_filter": "SYS_ADMIN.TENANT.* excludes PLATFORM/CATALOGOS"
+    },
+    "CA-4_manager_user_sin_grants": {
+      "status": "pass_design",
+      "notes": "MANAGER_TENANT/USER_TENANT sin OwnerSync; access_level no eleva menú"
+    },
+    "CA-5_platform_super_admin": {
+      "status": "pass",
+      "tests": ["test_super_admin_skips_rol_menu_permiso"]
+    },
+    "CA-6_impersonacion": {
+      "status": "pass",
+      "tests": [
+        "test_impersonation_uses_admin_tenant_rol_directly",
+        "test_filter_menu_by_impersonation_permissions_includes_inv"
+      ]
+    },
+    "CA-7_regression_unitaria": {
+      "status": "pass",
+      "tests_run": 39,
+      "tests_passed": 39,
+      "suites": [
+        "test_plan_modulo_resolver.py",
+        "test_owner_sync_service.py",
+        "test_menu_owner_model_m2.py",
+        "test_onboarding_rbac_bootstrap.py",
+        "test_onboarding_menu_bootstrap.py",
+        "test_menu_empresa_scope.py",
+        "test_impersonation_auth.py"
+      ]
+    }
+  },
+  "expected_trial_tenant_state": {
+    "cliente_modulo_activos": ["ORG", "SYS_ADMIN", "INV"],
+    "rol_menu_permiso_admin_min": 18,
+    "rol_permiso_inv_min": 1,
+    "auth_menu_modules": ["ORG", "SYS_ADMIN", "INV"]
+  },
+  "rc1_obsolete": {
+    "min_healthy_grants_was": 9,
+    "min_healthy_grants_now": 18,
+    "menu_scope_was": ["ORG_*", "SYS_ADMIN.TENANT.*"],
+    "excluded_was": ["INV", "CRM", "FIN"]
+  },
+  "manual_integration_pending": [],
+  "staging_integration": {
+    "status": "PASS",
+    "evidence": "M1_M2_STAGING_INTEGRATION_VALIDATION.json",
+    "command": "docker exec fastapi_backend python scripts/run_m1_m2_staging_integration.py"
+  },
+  "passed": true
+}

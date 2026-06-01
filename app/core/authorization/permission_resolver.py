@@ -13,7 +13,7 @@ Flujo de resolución (comentado en get_effective_permissions):
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from app.core.config import settings
@@ -76,6 +76,8 @@ class PermissionResolverService:
         database_type: str = "single",
         is_super_admin: bool = False,
         filter_by_subscription: bool = False,
+        empresa_id: Optional[UUID] = None,
+        payload: Optional[dict] = None,
     ) -> EffectivePermissions:
         """
         Calcula permisos efectivos. Si is_super_admin=True no consulta BD ni cache.
@@ -88,6 +90,23 @@ class PermissionResolverService:
           5. Permisos finales: solo códigos cuyo permiso.modulo_id es NULL (globales)
              o está en cliente_modulo activos. Fuente de verdad: permiso.modulo_id.
         """
+        from app.core.auth.impersonation_rbac import (
+            get_effective_impersonation_permissions,
+            is_impersonation_effective_tenant_session,
+        )
+
+        if is_impersonation_effective_tenant_session(payload):
+            codes = await get_effective_impersonation_permissions(
+                cliente_id, database_type=database_type
+            )
+            return EffectivePermissions(
+                codes=codes,
+                is_super_admin=False,
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+                source="impersonation_effective_admin",
+            )
+
         if is_super_admin:
             logger.debug("[PERMISSION_RESOLVER] super_admin bypass para usuario %s", usuario_id)
             return EffectivePermissions(
@@ -98,10 +117,14 @@ class PermissionResolverService:
                 source="super_admin",
             )
 
+        from app.core.tenant.empresa_context import resolve_empresa_id
+
+        resolved_empresa_id = resolve_empresa_id(empresa_id)
+
         cache_enabled = getattr(settings, "PERMISSION_RESOLVER_CACHE_ENABLED", False)
         if cache_enabled:
             cache = get_permission_cache(ttl_seconds=getattr(settings, "PERMISSION_RESOLVER_CACHE_TTL", 300))
-            cached = cache.get(cliente_id, usuario_id)
+            cached = cache.get(cliente_id, usuario_id, resolved_empresa_id)
             if cached is not None:
                 logger.debug("[PERMISSION_RESOLVER] cache hit for %s in tenant %s", usuario_id, cliente_id)
                 return cached
@@ -118,6 +141,7 @@ class PermissionResolverService:
             cliente_id=cliente_id,
             database_type=database_type,
             filter_by_active_modules=True,
+            empresa_id=resolved_empresa_id,
         )
 
         # Opcional: filtro adicional por prefijo de código (compatibilidad con filter_by_subscription).
@@ -137,7 +161,7 @@ class PermissionResolverService:
 
         if cache_enabled:
             cache = get_permission_cache(ttl_seconds=getattr(settings, "PERMISSION_RESOLVER_CACHE_TTL", 300))
-            cache.set(cliente_id, usuario_id, effective)
+            cache.set(cliente_id, usuario_id, effective, empresa_id=resolved_empresa_id)
 
         return effective
 

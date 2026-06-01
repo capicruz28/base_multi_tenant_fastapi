@@ -1,6 +1,6 @@
 """
 Queries de Kardex (consulta) basadas en inv_movimiento + inv_movimiento_detalle.
-Filtro tenant estricto: todas las operaciones usan cliente_id.
+Filtro tenant estricto: cliente_id. Aislamiento empresa: empresa_id obligatorio (INV).
 """
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -13,14 +13,14 @@ from app.infrastructure.database.queries_async import execute_query
 
 async def list_kardex(
     client_id: UUID,
-    empresa_id: Optional[UUID] = None,
+    empresa_id: UUID,
     producto_id: Optional[UUID] = None,
     almacen_id: Optional[UUID] = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Devuelve líneas de kardex (movimiento + detalle) filtradas.
+    Devuelve líneas de kardex (movimiento + detalle) de la empresa indicada.
     Nota: no calcula saldo acumulado; entrega la secuencia de movimientos.
     """
     query = (
@@ -48,13 +48,19 @@ async def list_kardex(
                     == InvMovimientoTable.c.movimiento_id,
                     InvMovimientoDetalleTable.c.cliente_id
                     == InvMovimientoTable.c.cliente_id,
+                    InvMovimientoDetalleTable.c.empresa_id
+                    == InvMovimientoTable.c.empresa_id,
                 ),
             )
         )
-        .where(InvMovimientoTable.c.cliente_id == client_id)
+        .where(
+            and_(
+                InvMovimientoTable.c.cliente_id == client_id,
+                InvMovimientoTable.c.empresa_id == empresa_id,
+                InvMovimientoDetalleTable.c.empresa_id == empresa_id,
+            )
+        )
     )
-    if empresa_id:
-        query = query.where(InvMovimientoTable.c.empresa_id == empresa_id)
     if producto_id:
         query = query.where(InvMovimientoDetalleTable.c.producto_id == producto_id)
     if almacen_id:
@@ -68,4 +74,3 @@ async def list_kardex(
         query = query.where(InvMovimientoTable.c.fecha_movimiento <= fecha_hasta)
     query = query.order_by(InvMovimientoTable.c.fecha_movimiento.desc())
     return await execute_query(query, client_id=client_id)
-

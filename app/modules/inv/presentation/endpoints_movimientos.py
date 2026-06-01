@@ -7,6 +7,7 @@ from datetime import date
 
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import (
     MovimientoCreate,
@@ -17,7 +18,6 @@ from app.modules.inv.presentation.schemas import (
     MovimientoConDetalleRead,
 )
 from app.modules.inv.application.services import movimiento_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
@@ -27,7 +27,6 @@ RESOURCE_CODE = "movimiento"
 
 @router.get("", response_model=list[MovimientoRead], summary="Listar movimientos")
 async def listar_movimientos(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     tipo_movimiento_id: Optional[UUID] = Query(None, description="Filtrar por tipo de movimiento"),
     almacen_id: Optional[UUID] = Query(None, description="Filtrar por almacén"),
     estado: Optional[str] = Query(None, description="Filtrar por estado"),
@@ -36,17 +35,19 @@ async def listar_movimientos(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista movimientos del tenant. Filtro por cliente_id del token."""
+    """Lista movimientos de la empresa activa en sesión."""
     client_id = current_user.cliente_id
-    return await movimiento_service.list_movimientos_servicio(
-        client_id=client_id,
-        empresa_id=empresa_id,
-        tipo_movimiento_id=tipo_movimiento_id,
-        almacen_id=almacen_id,
-        estado=estado,
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-    )
+    try:
+        return await movimiento_service.list_movimientos_servicio(
+            client_id=client_id,
+            tipo_movimiento_id=tipo_movimiento_id,
+            almacen_id=almacen_id,
+            estado=estado,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.get("/{movimiento_id}", response_model=MovimientoRead, summary="Detalle movimiento")
@@ -55,7 +56,7 @@ async def detalle_movimiento(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Detalle de un movimiento. Solo del tenant del usuario."""
+    """Detalle de un movimiento de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_service.get_movimiento_servicio(
@@ -72,9 +73,14 @@ async def crear_movimiento(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea un movimiento. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """Crea un movimiento. empresa_id del body debe coincidir con la sesión."""
     client_id = current_user.cliente_id
-    return await movimiento_service.create_movimiento_servicio(client_id=client_id, data=data)
+    try:
+        return await movimiento_service.create_movimiento_servicio(client_id=client_id, data=data)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{movimiento_id}", response_model=MovimientoRead, summary="Actualizar movimiento")
@@ -84,7 +90,7 @@ async def actualizar_movimiento(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza un movimiento. Solo del tenant del usuario."""
+    """Actualiza un movimiento de la empresa activa (solo borrador)."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_service.update_movimiento_servicio(
@@ -96,10 +102,6 @@ async def actualizar_movimiento(
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
-# ============================================================================
-# ENDPOINTS CABECERA + DETALLE EMBEBIDO
-# ============================================================================
-
 @router.get(
     "/{movimiento_id}/con-detalle",
     response_model=MovimientoConDetalleRead,
@@ -110,7 +112,7 @@ async def detalle_movimiento_con_detalles(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Retorna la cabecera del movimiento con todas sus líneas de detalle embebidas."""
+    """Cabecera + detalles de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_service.get_movimiento_con_detalles_servicio(
@@ -132,15 +134,17 @@ async def crear_movimiento_con_detalles(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """
-    Crea un movimiento con sus líneas de detalle en una sola transacción atómica.
-    Requiere mínimo 1 línea. Calcula total_items/total_cantidad/total_costo automáticamente.
-    """
+    """Crea movimiento + detalles en transacción atómica."""
     client_id = current_user.cliente_id
-    return await movimiento_service.create_movimiento_con_detalles_servicio(
-        client_id=client_id,
-        data=data,
-    )
+    try:
+        return await movimiento_service.create_movimiento_con_detalles_servicio(
+            client_id=client_id,
+            data=data,
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put(
@@ -154,11 +158,7 @@ async def actualizar_movimiento_con_detalles(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """
-    Actualiza un movimiento en estado 'borrador'.
-    Si se incluye 'detalles', reemplaza todas las líneas existentes (replace-all).
-    Si no se incluye 'detalles', solo actualiza los campos de la cabecera.
-    """
+    """Actualiza movimiento en borrador; detalles opcionales replace-all."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_service.update_movimiento_con_detalles_servicio(
@@ -167,4 +167,6 @@ async def actualizar_movimiento_con_detalles(
             data=data,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

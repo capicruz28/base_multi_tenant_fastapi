@@ -1,10 +1,17 @@
 # app/modules/org/presentation/endpoints_parametros.py
-"""Endpoints ORG - Parámetros del sistema. client_id desde current_user.cliente_id."""
+"""Endpoints ORG - Parámetros (HYBRID). Lectura contextual ERP + escritura por ámbito (Etapa C2)."""
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
 from typing import Optional
 
+from app.api.deps import get_current_user_data
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import AuthorizationError, ConflictError, CustomException, NotFoundError
+from app.modules.org.presentation.org_deps import (
+    get_org_session_client_id,
+    reject_legacy_empresa_query,
+    user_can_manage_global_parametros,
+)
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.org.presentation.schemas import (
     ParametroCreate,
@@ -12,28 +19,24 @@ from app.modules.org.presentation.schemas import (
     ParametroRead,
 )
 from app.modules.org.application.services import parametro_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
-
-_EMPRESA_ID_SCOPE_DESC = (
-    "Ámbito empresa para validar el registro: si se informa, acepta parámetros globales "
-    "(empresa_id NULL en BD) o de esa empresa; excluye parámetros de otra empresa."
-)
 
 
 @router.get("", response_model=list[ParametroRead], summary="Listar parámetros")
 async def listar_parametros(
-    empresa_id: Optional[UUID] = Query(None),
     modulo_codigo: Optional[str] = Query(None),
     solo_activos: bool = True,
     buscar: Optional[str] = Query(None),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.leer")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    client_id = current_user.cliente_id
+    """
+    Lista efectiva para la empresa activa: globales tenant + overrides con precedencia.
+    """
     return await parametro_service.list_parametros_servicio(
         client_id=client_id,
-        empresa_id=empresa_id,
         modulo_codigo=modulo_codigo,
         solo_activos=solo_activos,
         buscar=buscar,
@@ -47,67 +50,77 @@ async def listar_parametros(
 )
 async def reactivar_parametro(
     parametro_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.actualizar")),
+    client_id: UUID = Depends(get_org_session_client_id),
+    payload: dict = Depends(get_current_user_data),
 ):
-    """Marca el parámetro como activo (es_activo = True) dentro del tenant."""
-    client_id = current_user.cliente_id
     try:
         return await parametro_service.reactivar_parametro_servicio(
             client_id=client_id,
             parametro_id=parametro_id,
-            empresa_id=empresa_id,
+            can_manage_global=user_can_manage_global_parametros(current_user, payload),
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except (NotFoundError, AuthorizationError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.get("/{parametro_id}", response_model=ParametroRead, summary="Detalle parámetro")
 async def detalle_parametro(
     parametro_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.leer")),
+    client_id: UUID = Depends(get_org_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await parametro_service.get_parametro_servicio(
             client_id=client_id,
             parametro_id=parametro_id,
-            empresa_id=empresa_id,
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except (NotFoundError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.post("", response_model=ParametroRead, status_code=201, summary="Crear parámetro")
 async def crear_parametro(
     data: ParametroCreate,
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.crear")),
+    client_id: UUID = Depends(get_org_session_client_id),
+    payload: dict = Depends(get_current_user_data),
 ):
-    client_id = current_user.cliente_id
-    return await parametro_service.create_parametro_servicio(
-        client_id=client_id,
-        data=data,
-    )
+    """
+    Global (empresa_id null): tenant_admin/platform.
+    Empresa: empresa_id del body debe coincidir con la sesión.
+    """
+    try:
+        return await parametro_service.create_parametro_servicio(
+            client_id=client_id,
+            data=data,
+            can_manage_global=user_can_manage_global_parametros(current_user, payload),
+        )
+    except (AuthorizationError, ConflictError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.put("/{parametro_id}", response_model=ParametroRead, summary="Actualizar parámetro")
 async def actualizar_parametro(
     parametro_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
     data: ParametroUpdate = Body(...),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.actualizar")),
+    client_id: UUID = Depends(get_org_session_client_id),
+    payload: dict = Depends(get_current_user_data),
 ):
-    client_id = current_user.cliente_id
     try:
         return await parametro_service.update_parametro_servicio(
             client_id=client_id,
             parametro_id=parametro_id,
             data=data,
-            empresa_id=empresa_id,
+            can_manage_global=user_can_manage_global_parametros(current_user, payload),
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except (NotFoundError, AuthorizationError, ConflictError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.delete(
@@ -117,16 +130,16 @@ async def actualizar_parametro(
 )
 async def eliminar_parametro(
     parametro_id: UUID,
-    empresa_id: Optional[UUID] = Query(None, description=_EMPRESA_ID_SCOPE_DESC),
+    _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.eliminar")),
+    client_id: UUID = Depends(get_org_session_client_id),
+    payload: dict = Depends(get_current_user_data),
 ):
-    """Marca un parámetro como inactivo (baja lógica) dentro del tenant."""
-    client_id = current_user.cliente_id
     try:
         await parametro_service.delete_parametro_servicio(
             client_id=client_id,
             parametro_id=parametro_id,
-            empresa_id=empresa_id,
+            can_manage_global=user_can_manage_global_parametros(current_user, payload),
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except (NotFoundError, AuthorizationError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e

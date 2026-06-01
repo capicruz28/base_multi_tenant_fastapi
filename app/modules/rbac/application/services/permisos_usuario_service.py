@@ -10,10 +10,12 @@ permisos cuyo permiso.modulo_id es NULL (globales: admin, modulos) o pertenece a
 módulo activo del tenant en cliente_modulo (esta_activo=1, fecha_vencimiento vigente).
 """
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 import logging
 from sqlalchemy import text
+
+from app.core.tenant.empresa_context import resolve_empresa_id, sql_empresa_filter_usuario_rol
 
 from app.infrastructure.database.queries_async import execute_query
 from app.infrastructure.database.connection_async import DatabaseConnection
@@ -42,6 +44,7 @@ async def obtener_codigos_permiso_usuario(
     database_type: str = "single",
     *,
     filter_by_active_modules: bool = True,
+    empresa_id: Optional[UUID] = None,
 ) -> List[str]:
     """
     Obtiene la lista de códigos de permiso (ej. admin.usuario.leer) que tiene
@@ -54,9 +57,14 @@ async def obtener_codigos_permiso_usuario(
     permiso.modulo_id es NULL o está en cliente_modulo activos del tenant.
     """
     try:
+        resolved_empresa_id = resolve_empresa_id(empresa_id)
         if database_type == "multi":
-            return await _permisos_dedicated(usuario_id, cliente_id, filter_by_active_modules)
-        return await _permisos_single(usuario_id, cliente_id, filter_by_active_modules)
+            return await _permisos_dedicated(
+                usuario_id, cliente_id, filter_by_active_modules, resolved_empresa_id
+            )
+        return await _permisos_single(
+            usuario_id, cliente_id, filter_by_active_modules, resolved_empresa_id
+        )
     except Exception as e:
         logger.warning(
             f"[PERMISOS_USUARIO] Error obteniendo permisos para usuario {usuario_id}: {e}. "
@@ -66,9 +74,16 @@ async def obtener_codigos_permiso_usuario(
 
 
 async def _permisos_single(
-    usuario_id: UUID, cliente_id: UUID, filter_by_active_modules: bool
+    usuario_id: UUID,
+    cliente_id: UUID,
+    filter_by_active_modules: bool,
+    empresa_id: Optional[UUID] = None,
 ) -> List[str]:
     """BD central/shared: permiso y rol_permiso en la misma BD. Filtro por cliente_modulo si está activo."""
+    empresa_sql = sql_empresa_filter_usuario_rol("ur") if empresa_id else ""
+    bind = {"usuario_id": usuario_id, "cliente_id": cliente_id}
+    if empresa_id:
+        bind["empresa_id"] = empresa_id
     sql = text("""
         SELECT DISTINCT p.codigo
         FROM usuario_rol ur
@@ -78,8 +93,8 @@ async def _permisos_single(
           AND ur.cliente_id = :cliente_id
           AND ur.es_activo = 1
           AND (ur.fecha_expiracion IS NULL OR ur.fecha_expiracion > GETDATE())
-    """ + (_CLIENTE_MODULO_FILTER if filter_by_active_modules else "") + "\n").bindparams(
-        usuario_id=usuario_id, cliente_id=cliente_id
+    """ + empresa_sql + (_CLIENTE_MODULO_FILTER if filter_by_active_modules else "") + "\n").bindparams(
+        **bind
     )
 
     rows = await execute_query(
@@ -94,10 +109,16 @@ async def _permisos_single(
 
 
 async def _permisos_dedicated(
-    usuario_id: UUID, cliente_id: UUID, filter_by_active_modules: bool
+    usuario_id: UUID,
+    cliente_id: UUID,
+    filter_by_active_modules: bool,
+    empresa_id: Optional[UUID] = None,
 ) -> List[str]:
     """BD dedicada: rol_permiso en tenant; permiso en central (ADMIN). Filtro por cliente_modulo en central."""
-    # 1) Permiso IDs desde BD del tenant (sin tabla permiso)
+    empresa_sql = sql_empresa_filter_usuario_rol("ur") if empresa_id else ""
+    bind_ids = {"usuario_id": usuario_id, "cliente_id": cliente_id}
+    if empresa_id:
+        bind_ids["empresa_id"] = empresa_id
     sql_ids = text("""
         SELECT DISTINCT rp.permiso_id
         FROM usuario_rol ur
@@ -106,7 +127,7 @@ async def _permisos_dedicated(
           AND ur.cliente_id = :cliente_id
           AND ur.es_activo = 1
           AND (ur.fecha_expiracion IS NULL OR ur.fecha_expiracion > GETDATE())
-    """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
+    """ + empresa_sql + "\n").bindparams(**bind_ids)
 
     rows_ids = await execute_query(
         sql_ids,

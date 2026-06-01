@@ -19,8 +19,13 @@ from app.core.authorization.effective_permissions import EffectivePermissions
 logger = logging.getLogger(__name__)
 
 
-def _cache_key(cliente_id: UUID, usuario_id: UUID) -> str:
-    return f"permissions:{cliente_id!s}:{usuario_id!s}"
+def _cache_key(
+    cliente_id: UUID,
+    usuario_id: UUID,
+    empresa_id: Optional[UUID] = None,
+) -> str:
+    emp = str(empresa_id) if empresa_id else "none"
+    return f"permissions:{cliente_id!s}:{usuario_id!s}:{emp}"
 
 
 class PermissionCache:
@@ -34,8 +39,13 @@ class PermissionCache:
         self._ttl = ttl_seconds
         self._store: dict[str, tuple[EffectivePermissions, float]] = {}
 
-    def get(self, cliente_id: UUID, usuario_id: UUID) -> Optional[EffectivePermissions]:
-        key = _cache_key(cliente_id, usuario_id)
+    def get(
+        self,
+        cliente_id: UUID,
+        usuario_id: UUID,
+        empresa_id: Optional[UUID] = None,
+    ) -> Optional[EffectivePermissions]:
+        key = _cache_key(cliente_id, usuario_id, empresa_id)
         entry = self._store.get(key)
         if not entry:
             return None
@@ -51,16 +61,24 @@ class PermissionCache:
         usuario_id: UUID,
         effective: EffectivePermissions,
         ttl_seconds: Optional[int] = None,
+        empresa_id: Optional[UUID] = None,
     ) -> None:
         ttl = ttl_seconds if ttl_seconds is not None else self._ttl
-        key = _cache_key(cliente_id, usuario_id)
+        key = _cache_key(cliente_id, usuario_id, empresa_id)
         self._store[key] = (effective, time.monotonic() + ttl)
 
     def invalidate_for_user(self, usuario_id: UUID, cliente_id: UUID) -> None:
-        key = _cache_key(cliente_id, usuario_id)
-        if key in self._store:
-            del self._store[key]
-            logger.debug("Permission cache invalidated for user %s in tenant %s", usuario_id, cliente_id)
+        prefix = f"permissions:{cliente_id!s}:{usuario_id!s}:"
+        to_remove = [k for k in self._store if k.startswith(prefix)]
+        for k in to_remove:
+            del self._store[k]
+        if to_remove:
+            logger.debug(
+                "Permission cache invalidated for user %s in tenant %s (%d keys)",
+                usuario_id,
+                cliente_id,
+                len(to_remove),
+            )
 
     def invalidate_for_tenant(self, cliente_id: UUID) -> None:
         prefix = f"permissions:{cliente_id!s}:"

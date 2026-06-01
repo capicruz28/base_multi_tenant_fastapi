@@ -1,0 +1,106 @@
+{
+  "report": "T3_USER_STANDARD_INTEGRATION_VALIDATION",
+  "timestamp_utc": "2026-06-01T04:00:49Z",
+  "base_url": "http://127.0.0.1:8000",
+  "repair_used": false,
+  "expected_permiso_codigos_count": 16,
+  "expected_menu_ver_count": 14,
+  "steps": {
+    "platform_login": {
+      "passed": true
+    },
+    "onboarding_create_tenant": {
+      "ok": true,
+      "subdominio": "t3usr971acefb",
+      "cliente_id": "e4c8e906-0e64-4f4e-a04d-8daee57dc7f8",
+      "username": "admin",
+      "password": "w7vO8$O&A@FQ",
+      "raw_status": 201
+    },
+    "sql_post_onboarding": {
+      "label": "post_onboarding",
+      "sql_queries": {
+        "user_role": "SELECT rol_id\nFROM rol\nWHERE cliente_id = :cid AND codigo_rol = 'USER_TENANT' AND es_activo = 1",
+        "rp_count": "SELECT COUNT(DISTINCT p.codigo) AS c\nFROM rol_permiso rp\nINNER JOIN permiso p ON p.permiso_id = rp.permiso_id AND p.es_activo = 1\nWHERE rp.cliente_id = :cid\n  AND rp.rol_id = :rid\n  AND p.codigo IN (:pc0, :pc1, :pc2, :pc3, :pc4, :pc5, :pc6, :pc7, :pc8, :pc9, :pc10, :pc11, :pc12, :pc13, :pc14, :pc15)",
+        "rmp_ver_count": "SELECT COUNT(*) AS c\nFROM rol_menu_permiso\nWHERE cliente_id = :cid\n  AND rol_id = :rid\n  AND puede_ver = 1"
+      },
+      "counts": {
+        "rol_permiso_bundle_count": 16,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "expected": {
+        "rol_permiso_bundle_count": 16,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "checks": {
+        "rp_ok": true,
+        "rmp_ok": true
+      }
+    },
+    "admin_login": {
+      "passed": true
+    },
+    "user_create": {
+      "status": 201,
+      "ok": true,
+      "usuario_id": "34050e82-da8b-4da4-ac0e-e9a9516a678f"
+    },
+    "user_assign": {
+      "status": 201,
+      "ok": true
+    },
+    "sql_post_assign": {
+      "label": "post_assign",
+      "sql_queries": {
+        "user_role": "SELECT rol_id\nFROM rol\nWHERE cliente_id = :cid AND codigo_rol = 'USER_TENANT' AND es_activo = 1",
+        "rp_count": "SELECT COUNT(DISTINCT p.codigo) AS c\nFROM rol_permiso rp\nINNER JOIN permiso p ON p.permiso_id = rp.permiso_id AND p.es_activo = 1\nWHERE rp.cliente_id = :cid\n  AND rp.rol_id = :rid\n  AND p.codigo IN (:pc0, :pc1, :pc2, :pc3, :pc4, :pc5, :pc6, :pc7, :pc8, :pc9, :pc10, :pc11, :pc12, :pc13, :pc14, :pc15)",
+        "rmp_ver_count": "SELECT COUNT(*) AS c\nFROM rol_menu_permiso\nWHERE cliente_id = :cid\n  AND rol_id = :rid\n  AND puede_ver = 1"
+      },
+      "counts": {
+        "rol_permiso_bundle_count": 16,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "expected": {
+        "rol_permiso_bundle_count": 16,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "checks": {
+        "rp_ok": true,
+        "rmp_ok": true
+      }
+    },
+    "user_login": {
+      "passed": true
+    },
+    "user_menu": {
+      "status": 200,
+      "check": {
+        "ok": true,
+        "modulo_codigos": [
+          "ORG",
+          "INV"
+        ],
+        "has_org": true,
+        "has_inv": true,
+        "has_sys_admin": false,
+        "any_crear_true": false,
+        "any_editar_true": false,
+        "any_eliminar_true": false
+      }
+    }
+  },
+  "tenant_created": {
+    "cliente_id": "e4c8e906-0e64-4f4e-a04d-8daee57dc7f8",
+    "subdominio": "t3usr971acefb",
+    "admin_username": "admin",
+    "admin_password": "w7vO8$O&A@FQ"
+  },
+  "verdict": {
+    "status": "PASS",
+    "menu_ok": true,
+    "no_sys_admin": true,
+    "no_crear": true,
+    "no_editar": true,
+    "no_eliminar": true
+  }
+}

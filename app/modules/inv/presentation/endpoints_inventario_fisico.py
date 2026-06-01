@@ -17,7 +17,7 @@ from app.modules.inv.presentation.schemas import (
     InventarioFisicoConDetalleRead,
 )
 from app.modules.inv.application.services import inventario_fisico_service
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, AuthorizationError
 
 router = APIRouter()
 
@@ -27,7 +27,6 @@ RESOURCE_CODE = "inventario_fisico"
 
 @router.get("", response_model=list[InventarioFisicoRead], summary="Listar inventarios físicos")
 async def listar_inventarios_fisicos(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     almacen_id: Optional[UUID] = Query(None, description="Filtrar por almacén"),
     estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[date] = Query(None, description="Fecha desde"),
@@ -35,16 +34,18 @@ async def listar_inventarios_fisicos(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista inventarios físicos del tenant. Filtro por cliente_id del token."""
+    """Lista inventarios físicos de la empresa activa en sesión."""
     client_id = current_user.cliente_id
-    return await inventario_fisico_service.list_inventarios_fisicos_servicio(
-        client_id=client_id,
-        empresa_id=empresa_id,
-        almacen_id=almacen_id,
-        estado=estado,
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-    )
+    try:
+        return await inventario_fisico_service.list_inventarios_fisicos_servicio(
+            client_id=client_id,
+            almacen_id=almacen_id,
+            estado=estado,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.get("/{inventario_fisico_id}", response_model=InventarioFisicoRead, summary="Detalle inventario físico")
@@ -53,7 +54,7 @@ async def detalle_inventario_fisico(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Detalle de un inventario físico. Solo del tenant del usuario."""
+    """Detalle de un inventario físico de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.get_inventario_fisico_servicio(
@@ -61,6 +62,8 @@ async def detalle_inventario_fisico(
             inventario_fisico_id=inventario_fisico_id,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -70,9 +73,14 @@ async def crear_inventario_fisico(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea un inventario físico. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """Crea un inventario físico. empresa_id debe coincidir con la sesión."""
     client_id = current_user.cliente_id
-    return await inventario_fisico_service.create_inventario_fisico_servicio(client_id=client_id, data=data)
+    try:
+        return await inventario_fisico_service.create_inventario_fisico_servicio(
+            client_id=client_id, data=data
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{inventario_fisico_id}", response_model=InventarioFisicoRead, summary="Actualizar inventario físico")
@@ -82,7 +90,7 @@ async def actualizar_inventario_fisico(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza un inventario físico. Solo del tenant del usuario."""
+    """Actualiza un inventario físico de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.update_inventario_fisico_servicio(
@@ -91,6 +99,8 @@ async def actualizar_inventario_fisico(
             data=data,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -104,7 +114,7 @@ async def anular_inventario_fisico(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
 ):
-    """Anula un inventario físico dentro del tenant (cambia estado a 'anulado')."""
+    """Anula un inventario físico de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.anular_inventario_fisico_servicio(
@@ -112,6 +122,8 @@ async def anular_inventario_fisico(
             inventario_fisico_id=inventario_fisico_id,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -125,10 +137,7 @@ async def finalizar_inventario_fisico(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.finalizar")),
 ):
-    """
-    Cierra el conteo de un inventario físico (estado 'en_proceso' → 'finalizado').
-    Una vez finalizado, puede ser aprobado para generar el ajuste de stock.
-    """
+    """Finaliza el conteo de un inventario físico de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.finalizar_inventario_fisico_servicio(
@@ -137,11 +146,9 @@ async def finalizar_inventario_fisico(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
-
-# ============================================================================
-# ENDPOINTS CABECERA + DETALLE EMBEBIDO
-# ============================================================================
 
 @router.get(
     "/{inventario_fisico_id}/con-detalle",
@@ -153,7 +160,7 @@ async def detalle_inventario_fisico_con_detalles(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Retorna la cabecera del inventario físico con todas sus líneas de conteo embebidas."""
+    """Retorna cabecera + detalles de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.get_inventario_fisico_con_detalles_servicio(
@@ -161,6 +168,8 @@ async def detalle_inventario_fisico_con_detalles(
             inventario_fisico_id=inventario_fisico_id,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -175,15 +184,14 @@ async def crear_inventario_fisico_con_detalles(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """
-    Crea un inventario físico con sus líneas de conteo en una sola transacción atómica.
-    Las líneas son opcionales al crear y pueden añadirse/reemplazarse en PUT posterior.
-    """
     client_id = current_user.cliente_id
-    return await inventario_fisico_service.create_inventario_fisico_con_detalles_servicio(
-        client_id=client_id,
-        data=data,
-    )
+    try:
+        return await inventario_fisico_service.create_inventario_fisico_con_detalles_servicio(
+            client_id=client_id,
+            data=data,
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put(
@@ -197,11 +205,6 @@ async def actualizar_inventario_fisico_con_detalles(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """
-    Actualiza un inventario físico (estados distintos a 'ajustado' y 'anulado').
-    Si se incluye 'detalles', reemplaza todas las líneas de conteo existentes (replace-all).
-    Si no se incluye 'detalles', solo actualiza los campos de la cabecera.
-    """
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.update_inventario_fisico_con_detalles_servicio(
@@ -210,4 +213,6 @@ async def actualizar_inventario_fisico_con_detalles(
             data=data,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

@@ -3,8 +3,9 @@
 Router principal del módulo INV (Inventarios).
 Agrupa todos los endpoints de las entidades INV.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps_auth import require_erp_session
 from app.modules.inv.presentation.endpoints_categorias import router as categorias_router
 from app.modules.inv.presentation.endpoints_unidades_medida import router as unidades_medida_router
 from app.modules.inv.presentation.endpoints_productos import router as productos_router
@@ -20,7 +21,7 @@ from app.modules.inv.presentation.endpoints_inventario_fisico_aprobar import rou
 from app.modules.inv.presentation.endpoints_inventario_fisico_detalle import router as inventario_fisico_detalle_router
 from app.modules.inv.presentation.endpoints_kardex import router as kardex_router
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_erp_session)])
 
 # Incluir todos los routers de entidades INV
 router.include_router(

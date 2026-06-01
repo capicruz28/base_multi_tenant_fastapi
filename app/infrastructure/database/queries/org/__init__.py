@@ -42,11 +42,12 @@ from app.infrastructure.database.queries.org.cargo_queries import (
     update_cargo,
 )
 from app.infrastructure.database.queries.org.parametro_queries import (
-    list_parametros,
-    get_parametro_by_id,
+    list_parametros_hybrid,
+    get_parametro_by_id_raw,
     get_parametro_by_clave_natural,
     create_parametro,
     update_parametro,
+    apply_parametro_precedence,
 )
 
 __all__ = [
@@ -76,9 +77,10 @@ __all__ = [
     "get_cargo_by_codigo",
     "create_cargo",
     "update_cargo",
-    "list_parametros",
-    "get_parametro_by_id",
+    "list_parametros_hybrid",
+    "get_parametro_by_id_raw",
     "get_parametro_by_clave_natural",
     "create_parametro",
     "update_parametro",
+    "apply_parametro_precedence",
 ]

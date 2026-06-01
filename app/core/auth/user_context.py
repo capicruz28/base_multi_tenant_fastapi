@@ -11,7 +11,11 @@ from uuid import UUID
 from dataclasses import dataclass
 import logging
 
-from app.infrastructure.database.queries_async import execute_auth_query, execute_query
+from app.core.auth.platform_user_lookup import (
+    fetch_usuario_auth_row,
+    resolve_platform_superadmin_flag,
+)
+from app.infrastructure.database.queries_async import execute_query
 from app.infrastructure.database.tables import UsuarioTable, UsuarioRolTable, RolTable
 from sqlalchemy import select, func, and_, or_
 
@@ -76,7 +80,11 @@ async def get_user_auth_context(
                     UsuarioTable.c.es_eliminado == False
                 )
             )
-            user_result = await execute_auth_query(user_query)
+            user_result = await fetch_usuario_auth_row(
+                user_query,
+                username=username,
+                request_cliente_id=request_cliente_id,
+            )
         elif request_cliente_id:
             # BD compartida: primero intentar con cliente_id del tenant
             user_query = select(UsuarioTable).where(
@@ -86,28 +94,41 @@ async def get_user_auth_context(
                     UsuarioTable.c.cliente_id == request_cliente_id
                 )
             )
-            user_result = await execute_auth_query(user_query)
-            
-            # ✅ CORRECCIÓN: Si no se encuentra con cliente_id, intentar sin filtro
-            # (para usuarios del sistema como superadmin que pueden tener cliente_id NULL o diferente)
+            user_result = await fetch_usuario_auth_row(
+                user_query,
+                username=username,
+                request_cliente_id=request_cliente_id,
+            )
+
             if not user_result:
-                logger.debug(f"Usuario '{username}' no encontrado con cliente_id {request_cliente_id}, intentando sin filtro de cliente")
+                logger.debug(
+                    "Usuario '%s' no encontrado con cliente_id %s, intentando sin filtro de cliente",
+                    username,
+                    request_cliente_id,
+                )
                 user_query_fallback = select(UsuarioTable).where(
                     and_(
                         UsuarioTable.c.nombre_usuario == username,
-                        UsuarioTable.c.es_eliminado == False
+                        UsuarioTable.c.es_eliminado == False,
                     )
                 )
-                user_result = await execute_auth_query(user_query_fallback)
+                user_result = await fetch_usuario_auth_row(
+                    user_query_fallback,
+                    username=username,
+                    request_cliente_id=request_cliente_id,
+                )
         else:
-            # Fallback: buscar sin filtro de cliente (para casos edge)
             user_query = select(UsuarioTable).where(
                 and_(
                     UsuarioTable.c.nombre_usuario == username,
-                    UsuarioTable.c.es_eliminado == False
+                    UsuarioTable.c.es_eliminado == False,
                 )
             )
-            user_result = await execute_auth_query(user_query)
+            user_result = await fetch_usuario_auth_row(
+                user_query,
+                username=username,
+                request_cliente_id=request_cliente_id,
+            )
         
         if not user_result:
             logger.warning(f"Usuario '{username}' no encontrado en BD")
@@ -232,7 +253,15 @@ async def get_user_auth_context(
             
             if niveles:
                 nivel_acceso = max(niveles)
-        
+
+        is_superadmin = resolve_platform_superadmin_flag(
+            username=username,
+            request_cliente_id=request_cliente_id,
+            roles_result=roles_result,
+            nivel_acceso=nivel_acceso,
+            is_superadmin_from_roles=is_superadmin,
+        )
+
         # 4. Construir y retornar contexto
         context = CurrentUserContext(
             usuario_id=usuario_id,
@@ -295,21 +324,24 @@ async def validate_tenant_access(
     return context.cliente_id == request_cliente_id
 
 
-def determine_user_type(access_level: int, is_super_admin: bool) -> str:
+def determine_user_type(
+    access_level: int,
+    is_super_admin: bool,
+    *,
+    request_cliente_id: Optional[UUID] = None,
+) -> str:
     """
     Determina el tipo de usuario basado en nivel de acceso.
-    
-    Args:
-        access_level: Nivel de acceso del usuario
-        is_super_admin: Si es super admin
-    
-    Returns:
-        str: Tipo de usuario: 'super_admin', 'tenant_admin', 'user'
+
+    Operadores SYSTEM usan platform_admin (no super_admin legacy).
     """
+    from app.core.auth.platform_user_lookup import is_system_request_client
+
+    if is_super_admin and is_system_request_client(request_cliente_id):
+        return 'platform_admin'
     if is_super_admin:
         return 'super_admin'
-    elif access_level >= 4:
+    if access_level >= 4:
         return 'tenant_admin'
-    else:
-        return 'user'
+    return 'user'
 

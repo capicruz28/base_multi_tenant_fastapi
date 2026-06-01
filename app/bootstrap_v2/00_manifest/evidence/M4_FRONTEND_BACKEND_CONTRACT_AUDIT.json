@@ -1,0 +1,110 @@
+{
+  "audit": "M4_FRONTEND_BACKEND_CONTRACT",
+  "generated_at": "2026-05-31",
+  "method": "static_code_trace + unit_tests_m4_m1",
+  "tenant_profile": {
+    "ADMIN_TENANT": "usuario_rol.empresa_id IS NULL",
+    "elegibles_source": "org_empresa activas (fallback admin global)"
+  },
+  "conclusion": "C_partial",
+  "conclusion_detail": "Login/seleccionar alineados con FLUJO_AUTH_MULTIEMPRESA_FE.md; gap compartido en EmpresaSelector header (empresas_disponibles null en /me con sesion activa) — deuda M2 / FE org list",
+  "login_scenarios": [
+    {
+      "id": "A_1_org",
+      "preconditions": {
+        "org_empresa_count": 1,
+        "empresa_default_id": "EMP001 or null"
+      },
+      "response_schema": "Token",
+      "access_token": true,
+      "selection_token": false,
+      "requiere_seleccion_empresa": "N/A (Token schema)",
+      "empresas_disponibles_in_response": false,
+      "user_data_empresa_activa": true,
+      "fe_SeleccionarEmpresaPage": false,
+      "status": "PASS"
+    },
+    {
+      "id": "B_2_org_no_default",
+      "preconditions": {
+        "org_empresa_count": 2,
+        "empresa_default_id": null
+      },
+      "response_schema": "LoginEmpresaSelectionResponse",
+      "access_token": false,
+      "selection_token": true,
+      "requiere_seleccion_empresa": true,
+      "empresas_disponibles_in_response": true,
+      "empresas_source": "org_empresa",
+      "fe_SeleccionarEmpresaPage": true,
+      "status": "PASS"
+    },
+    {
+      "id": "C_2_org_with_default",
+      "preconditions": {
+        "org_empresa_count": 2,
+        "empresa_default_id": "valid in elegibles"
+      },
+      "response_schema": "Token",
+      "access_token": true,
+      "selection_token": false,
+      "user_data_empresa_activa": "default UUID",
+      "fe_SeleccionarEmpresaPage": false,
+      "status": "PASS"
+    }
+  ],
+  "auth_context_matrix": {
+    "empresa_default_id_exposed": false,
+    "endpoints": {
+      "POST_auth_login_Token": {
+        "empresa_activa": "user_data",
+        "empresas_disponibles": false,
+        "empresa_default_id": false
+      },
+      "POST_auth_login_Selection": {
+        "empresa_activa": false,
+        "empresas_disponibles": "root",
+        "requiere_seleccion_empresa": "root",
+        "empresa_default_id": false
+      },
+      "GET_auth_me_session_active": {
+        "empresa_activa": true,
+        "empresas_disponibles": null,
+        "requiere_seleccion_empresa": false,
+        "empresa_default_id": false
+      },
+      "GET_auth_me_no_empresa_jwt": {
+        "empresa_activa": null,
+        "empresas_disponibles": "conditional list",
+        "requiere_seleccion_empresa": "conditional",
+        "empresa_default_id": false
+      },
+      "POST_empresa_seleccionar": {
+        "empresa_activa": "user_data",
+        "empresas_disponibles": false,
+        "empresa_default_id": false
+      },
+      "POST_empresa_cambiar": {
+        "empresa_activa": "user_data",
+        "empresas_disponibles": false,
+        "empresa_default_id": false
+      }
+    }
+  },
+  "fe_compatibility": {
+    "FLUJO_AUTH_MULTIEMPRESA_FE_login_selection": "ALIGNED",
+    "FLUJO_AUTH_MULTIEMPRESA_FE_login_token": "ALIGNED",
+    "FLUJO_AUTH_MULTIEMPRESA_FE_me": "ALIGNED",
+    "R-FE-03_EmpresaSelector_header": "GAP_M2",
+    "empresa_preferida_exposure": "NOT_IMPLEMENTED_M2"
+  },
+  "fe_recommendations": {
+    "SeleccionarEmpresaPage": "activate when requiere_seleccion_empresa or selection_token on login",
+    "EmpresaSelector": "use GET /org/empresas or wait M2; /me alone insufficient with active JWT"
+  },
+  "security_unchanged": {
+    "erp_data_scoped_by_jwt_empresa_id": true,
+    "inv_org_company_scoped": true,
+    "m4_only_admin_eligibility": true
+  }
+}

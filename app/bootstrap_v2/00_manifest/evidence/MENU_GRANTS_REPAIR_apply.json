@@ -1,0 +1,346 @@
+{
+  "mode": "apply",
+  "timestamp_utc": "2026-05-22T05:54:08.352760+00:00",
+  "tenants_scanned": 5,
+  "repair_candidates": 4,
+  "repaired": [
+    "smokerc2af1c02b",
+    "smokerc69929718",
+    "smokerc9a284e98",
+    "smokercd7a988ab"
+  ],
+  "omitted": [
+    {
+      "subdominio": "platform",
+      "cliente_id": "00000000-0000-0000-0000-000000000001",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0
+    }
+  ],
+  "failed": [],
+  "tenants": [
+    {
+      "cliente_id": "00000000-0000-0000-0000-000000000001",
+      "subdominio": "platform",
+      "razon_social": "Sistema ERP Multi-Tenant",
+      "audit": {
+        "cliente_id": "00000000-0000-0000-0000-000000000001",
+        "subdominio": "platform",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 3,
+        "inserts_expected": 3,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN"
+        ],
+        "admin_rol_id": null,
+        "needs_repair": false,
+        "skipped_reason": "no_admin_tenant_role"
+      }
+    },
+    {
+      "cliente_id": "79b2dc3c-b119-4ec6-b1ab-c71913ac2f5c",
+      "subdominio": "smokerc2af1c02b",
+      "razon_social": "Smoke RC Tenant 2af1c02b",
+      "audit": {
+        "cliente_id": "79b2dc3c-b119-4ec6-b1ab-c71913ac2f5c",
+        "subdominio": "smokerc2af1c02b",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 9,
+        "inserts_expected": 9,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "ORG",
+          "SYS_ADMIN"
+        ],
+        "admin_rol_id": "8e684fcc-e065-4c86-9ee4-8eb11187d728",
+        "needs_repair": true,
+        "skipped_reason": null
+      },
+      "action": "repaired",
+      "repair": {
+        "before": {
+          "cliente_id": "79b2dc3c-b119-4ec6-b1ab-c71913ac2f5c",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 0,
+          "expected_menu_grants": 9,
+          "inserts_expected": 9,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "admin_rol_id": "8e684fcc-e065-4c86-9ee4-8eb11187d728",
+          "needs_repair": true,
+          "skipped_reason": null
+        },
+        "after": {
+          "cliente_id": "79b2dc3c-b119-4ec6-b1ab-c71913ac2f5c",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 9,
+          "expected_menu_grants": 9,
+          "inserts_expected": 0,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "admin_rol_id": "8e684fcc-e065-4c86-9ee4-8eb11187d728",
+          "needs_repair": false,
+          "skipped_reason": "already_healthy"
+        },
+        "grants": {
+          "inserted": 9,
+          "pruned": 0,
+          "skipped_existing": 0,
+          "total_rol_menu_permiso": 9,
+          "expected_menu_grants": 9,
+          "modulos": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "menu_codigos_sample": [
+            "ORG_CARGOS",
+            "ORG_CENTROS_COSTO",
+            "ORG_DEPARTAMENTOS",
+            "ORG_MI_EMPRESA",
+            "ORG_PARAMETROS",
+            "ORG_SUCURSALES",
+            "SYS_ADMIN.TENANT.ROLES",
+            "SYS_ADMIN.TENANT.SESSIONS",
+            "SYS_ADMIN.TENANT.USERS"
+          ],
+          "menu_codigos_count": 9
+        }
+      }
+    },
+    {
+      "cliente_id": "fa2bb487-73c5-4137-9add-e18919fa25a0",
+      "subdominio": "smokerc69929718",
+      "razon_social": "Smoke RC Tenant 69929718",
+      "audit": {
+        "cliente_id": "fa2bb487-73c5-4137-9add-e18919fa25a0",
+        "subdominio": "smokerc69929718",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 9,
+        "inserts_expected": 9,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN",
+          "ORG"
+        ],
+        "admin_rol_id": "a1970f8f-4bb0-4551-b1f4-f99cbefa731d",
+        "needs_repair": true,
+        "skipped_reason": null
+      },
+      "action": "repaired",
+      "repair": {
+        "before": {
+          "cliente_id": "fa2bb487-73c5-4137-9add-e18919fa25a0",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 0,
+          "expected_menu_grants": 9,
+          "inserts_expected": 9,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "SYS_ADMIN",
+            "ORG"
+          ],
+          "admin_rol_id": "a1970f8f-4bb0-4551-b1f4-f99cbefa731d",
+          "needs_repair": true,
+          "skipped_reason": null
+        },
+        "after": {
+          "cliente_id": "fa2bb487-73c5-4137-9add-e18919fa25a0",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 9,
+          "expected_menu_grants": 9,
+          "inserts_expected": 0,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "SYS_ADMIN",
+            "ORG"
+          ],
+          "admin_rol_id": "a1970f8f-4bb0-4551-b1f4-f99cbefa731d",
+          "needs_repair": false,
+          "skipped_reason": "already_healthy"
+        },
+        "grants": {
+          "inserted": 9,
+          "pruned": 0,
+          "skipped_existing": 0,
+          "total_rol_menu_permiso": 9,
+          "expected_menu_grants": 9,
+          "modulos": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "menu_codigos_sample": [
+            "ORG_CARGOS",
+            "ORG_CENTROS_COSTO",
+            "ORG_DEPARTAMENTOS",
+            "ORG_MI_EMPRESA",
+            "ORG_PARAMETROS",
+            "ORG_SUCURSALES",
+            "SYS_ADMIN.TENANT.ROLES",
+            "SYS_ADMIN.TENANT.SESSIONS",
+            "SYS_ADMIN.TENANT.USERS"
+          ],
+          "menu_codigos_count": 9
+        }
+      }
+    },
+    {
+      "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+      "subdominio": "smokerc9a284e98",
+      "razon_social": "Smoke RC Tenant 9a284e98",
+      "audit": {
+        "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+        "subdominio": "smokerc9a284e98",
+        "rol_menu_permiso_admin": 0,
+        "expected_menu_grants": 9,
+        "inserts_expected": 9,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "ORG",
+          "SYS_ADMIN"
+        ],
+        "admin_rol_id": "5b46f400-3ffc-4175-8ed8-f77936d3113c",
+        "needs_repair": true,
+        "skipped_reason": null
+      },
+      "action": "repaired",
+      "repair": {
+        "before": {
+          "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 0,
+          "expected_menu_grants": 9,
+          "inserts_expected": 9,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "admin_rol_id": "5b46f400-3ffc-4175-8ed8-f77936d3113c",
+          "needs_repair": true,
+          "skipped_reason": null
+        },
+        "after": {
+          "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 9,
+          "expected_menu_grants": 9,
+          "inserts_expected": 0,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "admin_rol_id": "5b46f400-3ffc-4175-8ed8-f77936d3113c",
+          "needs_repair": false,
+          "skipped_reason": "already_healthy"
+        },
+        "grants": {
+          "inserted": 9,
+          "pruned": 0,
+          "skipped_existing": 0,
+          "total_rol_menu_permiso": 9,
+          "expected_menu_grants": 9,
+          "modulos": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "menu_codigos_sample": [
+            "ORG_CARGOS",
+            "ORG_CENTROS_COSTO",
+            "ORG_DEPARTAMENTOS",
+            "ORG_MI_EMPRESA",
+            "ORG_PARAMETROS",
+            "ORG_SUCURSALES",
+            "SYS_ADMIN.TENANT.ROLES",
+            "SYS_ADMIN.TENANT.SESSIONS",
+            "SYS_ADMIN.TENANT.USERS"
+          ],
+          "menu_codigos_count": 9
+        }
+      }
+    },
+    {
+      "cliente_id": "42eb747f-7447-451b-a9ac-4681b45a6f56",
+      "subdominio": "smokercd7a988ab",
+      "razon_social": "Smoke RC Tenant d7a988ab",
+      "audit": {
+        "cliente_id": "42eb747f-7447-451b-a9ac-4681b45a6f56",
+        "subdominio": "smokercd7a988ab",
+        "rol_menu_permiso_admin": 14,
+        "expected_menu_grants": 9,
+        "inserts_expected": 0,
+        "duplicate_menu_keys": 0,
+        "cliente_modulo_base": [
+          "SYS_ADMIN",
+          "ORG"
+        ],
+        "admin_rol_id": "2110e1c2-5dd4-4ecb-a342-e160106c8f54",
+        "needs_repair": true,
+        "skipped_reason": "already_healthy"
+      },
+      "action": "repaired",
+      "repair": {
+        "before": {
+          "cliente_id": "42eb747f-7447-451b-a9ac-4681b45a6f56",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 14,
+          "expected_menu_grants": 9,
+          "inserts_expected": 0,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "SYS_ADMIN",
+            "ORG"
+          ],
+          "admin_rol_id": "2110e1c2-5dd4-4ecb-a342-e160106c8f54",
+          "needs_repair": true,
+          "skipped_reason": "already_healthy"
+        },
+        "after": {
+          "cliente_id": "42eb747f-7447-451b-a9ac-4681b45a6f56",
+          "subdominio": null,
+          "rol_menu_permiso_admin": 9,
+          "expected_menu_grants": 9,
+          "inserts_expected": 0,
+          "duplicate_menu_keys": 0,
+          "cliente_modulo_base": [
+            "SYS_ADMIN",
+            "ORG"
+          ],
+          "admin_rol_id": "2110e1c2-5dd4-4ecb-a342-e160106c8f54",
+          "needs_repair": false,
+          "skipped_reason": "already_healthy"
+        },
+        "grants": {
+          "inserted": 0,
+          "pruned": 5,
+          "skipped_existing": 0,
+          "total_rol_menu_permiso": 9,
+          "expected_menu_grants": 9,
+          "modulos": [
+            "ORG",
+            "SYS_ADMIN"
+          ],
+          "menu_codigos_sample": [
+            "ORG_CARGOS",
+            "ORG_CENTROS_COSTO",
+            "ORG_DEPARTAMENTOS",
+            "ORG_MI_EMPRESA",
+            "ORG_PARAMETROS",
+            "ORG_SUCURSALES",
+            "SYS_ADMIN.TENANT.ROLES",
+            "SYS_ADMIN.TENANT.SESSIONS",
+            "SYS_ADMIN.TENANT.USERS"
+          ],
+          "menu_codigos_count": 9
+        }
+      }
+    }
+  ]
+}

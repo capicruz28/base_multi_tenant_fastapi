@@ -6,10 +6,10 @@ from typing import Optional
 
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import AlmacenCreate, AlmacenUpdate, AlmacenRead
 from app.modules.inv.application.services import almacen_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
@@ -19,17 +19,15 @@ RESOURCE_CODE = "almacen"
 
 @router.get("", response_model=list[AlmacenRead], summary="Listar almacenes")
 async def listar_almacenes(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     sucursal_id: Optional[UUID] = Query(None, description="Filtrar por sucursal"),
     solo_activos: bool = Query(True, description="Solo almacenes activos"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista almacenes del tenant. Filtro por cliente_id del token."""
+    """Lista almacenes de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     return await almacen_service.list_almacenes_servicio(
         client_id=client_id,
-        empresa_id=empresa_id,
         sucursal_id=sucursal_id,
         solo_activos=solo_activos,
     )
@@ -41,7 +39,7 @@ async def detalle_almacen(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Detalle de un almacén. Solo del tenant del usuario."""
+    """Detalle de un almacén de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await almacen_service.get_almacen_servicio(
@@ -58,9 +56,12 @@ async def crear_almacen(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea un almacén. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """Crea un almacén. empresa_id del body debe coincidir con la sesión."""
     client_id = current_user.cliente_id
-    return await almacen_service.create_almacen_servicio(client_id=client_id, data=data)
+    try:
+        return await almacen_service.create_almacen_servicio(client_id=client_id, data=data)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{almacen_id}", response_model=AlmacenRead, summary="Actualizar almacén")
@@ -70,7 +71,7 @@ async def actualizar_almacen(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza un almacén. Solo del tenant del usuario."""
+    """Actualiza un almacén de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await almacen_service.update_almacen_servicio(
@@ -92,7 +93,7 @@ async def eliminar_almacen(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
 ):
-    """Marca un almacén como inactivo (es_activo = 0) dentro del tenant."""
+    """Marca un almacén como inactivo en la empresa activa."""
     client_id = current_user.cliente_id
     try:
         await almacen_service.update_almacen_servicio(
@@ -114,7 +115,7 @@ async def reactivar_almacen(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Reactiva un almacén previamente dado de baja dentro del tenant."""
+    """Reactiva un almacén de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await almacen_service.update_almacen_servicio(

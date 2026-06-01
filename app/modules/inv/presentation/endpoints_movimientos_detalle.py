@@ -5,6 +5,7 @@ from typing import Optional
 
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import (
     MovimientoDetalleCreate,
@@ -12,7 +13,6 @@ from app.modules.inv.presentation.schemas import (
     MovimientoDetalleRead,
 )
 from app.modules.inv.application.services import movimiento_detalle_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
@@ -26,7 +26,6 @@ RESOURCE_CODE = "movimiento"
     summary="Listar detalle de movimientos",
 )
 async def listar_movimientos_detalle(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     movimiento_id: Optional[UUID] = Query(
         None, description="Filtrar por cabecera de movimiento"
     ),
@@ -38,13 +37,16 @@ async def listar_movimientos_detalle(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")
     ),
 ):
+    """Lista líneas de detalle de la empresa activa."""
     client_id = current_user.cliente_id
-    return await movimiento_detalle_service.list_movimientos_detalle_servicio(
-        client_id=client_id,
-        empresa_id=empresa_id,
-        movimiento_id=movimiento_id,
-        producto_id=producto_id,
-    )
+    try:
+        return await movimiento_detalle_service.list_movimientos_detalle_servicio(
+            client_id=client_id,
+            movimiento_id=movimiento_id,
+            producto_id=producto_id,
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.get(
@@ -84,9 +86,14 @@ async def crear_movimiento_detalle(
     ),
 ):
     client_id = current_user.cliente_id
-    return await movimiento_detalle_service.create_movimiento_detalle_servicio(
-        client_id=client_id, data=data
-    )
+    try:
+        return await movimiento_detalle_service.create_movimiento_detalle_servicio(
+            client_id=client_id, data=data
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put(
@@ -112,4 +119,3 @@ async def actualizar_movimiento_detalle(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
-

@@ -1,0 +1,271 @@
+{
+  "version": "2.0.0",
+  "description": "Mapping bootstrap_v2 official files to immutable legacy sources under app/docs/database/",
+  "policy": "Edit logic only in legacy sources until deprecation; refresh copies via scripts/refresh_bootstrap_v2.ps1 (future)",
+  "layers": {
+    "schema": "01_schema",
+    "catalog": "02_catalog",
+    "runtime": "03_runtime",
+    "qa": "04_qa",
+    "dedicated": "05_dedicated"
+  },
+  "files": [
+    {
+      "bootstrap_v2": "01_schema/V010__tablas_bd_erp_completo.sql",
+      "legacy": "app/docs/database/3.- TABLAS_BD_ERP_COMPLETO.sql",
+      "layer": "schema",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "01_schema/V020__tablas_bd_central.sql",
+      "legacy": "app/docs/database/1.- TABLAS_BD_CENTRAL.sql",
+      "layer": "schema",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "01_schema/V030__rbac_tablas_central.sql",
+      "legacy": "app/docs/database/5.- SCRIPT_RBAC_TABLAS_CENTRAL.sql",
+      "layer": "schema",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/S010__seed_modulo_menu_completo.sql",
+      "legacy": "app/docs/database/4.- SEED_MODULO_MENU_COMPLETO.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/S020__seed_admin_menu.sql",
+      "legacy": "app/docs/database/6.- SEED_ADMIN_MENU.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/S030__seed_permisos_core.sql",
+      "legacy": "app/docs/database/7.- SEED_PERMISOS_CORE.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S040__permisos_rbac_org.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_ORG.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"],
+      "notes": "Run ORG first among module permission seeds"
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S041__permisos_rbac_inv-fase4.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_INV_FASE4.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S042__permisos_rbac_inv-lifecycle.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_INV_LIFECYCLE.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S043__permisos_rbac_wms.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_WMS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S044__permisos_rbac_qms.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_QMS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S045__permisos_rbac_pur.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_PUR.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S046__permisos_rbac_log.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_LOG.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S047__permisos_rbac_mfg.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_MFG.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S048__permisos_rbac_mrp.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_MRP.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S049__permisos_rbac_mps.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_MPS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S050__permisos_rbac_mnt.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_MNT.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S051__permisos_rbac_sls.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_SLS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S052__permisos_rbac_crm.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_CRM.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S053__permisos_rbac_inv-bill.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_INV_BILL.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S054__permisos_rbac_pos.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_POS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S055__permisos_rbac_hcm.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_HCM.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S056__permisos_rbac_fin.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_FIN.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S057__permisos_rbac_bdg.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_BDG.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S058__permisos_rbac_cst.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_CST.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S059__permisos_rbac_pm.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_PM.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S060__permisos_rbac_svc.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_SVC.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S061__permisos_rbac_tkt.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_TKT.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S062__permisos_rbac_bi.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_BI.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S063__permisos_rbac_dms.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_DMS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S064__permisos_rbac_wfl.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_WFL.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S065__permisos_rbac_aud.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_AUD.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S066__permisos_rbac_fase4-candidatos.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC_FASE4_CANDIDATOS.sql",
+      "layer": "catalog",
+      "env": ["prod", "dev"]
+    },
+    {
+      "bootstrap_v2": "02_catalog/permisos_rbac/S067__permisos_rbac__legacy_empty_stub.sql",
+      "legacy": "app/docs/database/SEED_PERMISOS_RBAC.sql",
+      "layer": "catalog",
+      "env": ["legacy"],
+      "notes": "Legacy file is empty (0 bytes); placeholder for historical dependency references"
+    },
+    {
+      "bootstrap_v2": "03_runtime/R010__asignar_core_app_a_roles.sql",
+      "legacy": "app/docs/database/8.- SEED_ASIGNAR_CORE_APP_A_ROLES.sql",
+      "layer": "runtime",
+      "env": ["prod"],
+      "replaced_by": "ClienteOnboardingService (future): grant core.app.acceder on role creation"
+    },
+    {
+      "bootstrap_v2": "03_runtime/R020__relacion_sys_admin_cliente_modulo.sql",
+      "legacy": "app/docs/database/10.- RELACION_SYS_ADMIN_CLIENTE_MODULO.sql",
+      "layer": "runtime",
+      "env": ["prod"],
+      "replaced_by": "ClienteOnboardingService / ClienteModuloService (future): activate SYS_ADMIN per tenant"
+    },
+    {
+      "bootstrap_v2": "04_qa/D010__seed_bd_central.sql",
+      "legacy": "app/docs/database/2.- SEED_BD_CENTRAL.sql",
+      "layer": "qa",
+      "env": ["qa", "dev"],
+      "replaced_by": "POST /api/v1/tenant/clientes/ + optional QA fixture"
+    },
+    {
+      "bootstrap_v2": "04_qa/D020__rol_permiso_administrador.sql",
+      "legacy": "app/docs/database/9.- SEED_ROL_PERMISO_ADMINISTRADOR.sql",
+      "layer": "qa",
+      "env": ["qa"],
+      "replaced_by": "Explicit RBAC assignment UI / module templates (never prod)"
+    },
+    {
+      "bootstrap_v2": "04_qa/D030__cliente_modulo_activar_org.sql",
+      "legacy": "app/docs/database/SEED_CLIENTE_MODULO_ACTIVAR_ORG.sql",
+      "layer": "qa",
+      "env": ["qa", "dev"],
+      "replaced_by": "ClienteModuloService.activate (future default ORG on onboarding)"
+    },
+    {
+      "bootstrap_v2": "05_dedicated/V010__rbac_tablas_dedicated.sql",
+      "legacy": "app/docs/database/SCRIPT_RBAC_TABLAS_DEDICADA.sql",
+      "layer": "dedicated",
+      "env": ["prod"],
+      "notes": "Run on each tenant dedicated database after ERP schema"
+    }
+  ],
+  "excluded_from_v2": {
+    "reason": "Not in audited bootstrap list for this migration",
+    "examples": [
+      "app/docs/database/SEED_BD_DEDICADA_TECHCORP.sql",
+      "app/docs/database/SEED_BD_DEDICADA_GLOBALLOG.sql",
+      "app/docs/database/migrations/*",
+      "app/docs/database/SEED_PERMISOS_RBAC_PRC.sql (does not exist in repo)"
+    ]
+  }
+}

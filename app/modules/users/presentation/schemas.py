@@ -554,6 +554,29 @@ class UsuarioRolBase(BaseModel):
         
         return self
 
+class UsuarioRolAssignBody(BaseModel):
+    """
+  Cuerpo opcional para POST assign role (I2.2 multi-empresa).
+
+  Si se omite, la asignación usa la empresa activa de la sesión (tenant admin).
+  """
+
+    empresa_id: Optional[UUID] = Field(
+        None,
+        description=(
+            "Empresa destino del rol. NULL solo permitido para operador de plataforma. "
+            "Si se omite, se usa la empresa del JWT/sesión."
+        ),
+    )
+    scope_global: bool = Field(
+        False,
+        description=(
+            "Si true, asigna el rol a todo el tenant (usuario_rol.empresa_id NULL). "
+            "Solo operador de plataforma."
+        ),
+    )
+
+
 class UsuarioRolCreate(BaseModel):
     """
     Schema para la creación de nuevas asignaciones usuario-rol.
@@ -602,6 +625,16 @@ class UsuarioRolRead(UsuarioRolBase):
     fecha_asignacion: datetime = Field(
         ...,
         description="Fecha y hora en que se creó la asignación usuario-rol"
+    )
+
+    empresa_id: Optional[UUID] = Field(
+        None,
+        description="Empresa del alcance del rol; NULL = global al tenant",
+    )
+
+    cliente_id: Optional[UUID] = Field(
+        None,
+        description="Cliente (tenant) de la asignación",
     )
 
     class Config:

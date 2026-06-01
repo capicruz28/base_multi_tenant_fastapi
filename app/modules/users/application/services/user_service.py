@@ -267,8 +267,26 @@ class UsuarioService(BaseService):
     # --- FIN NUEVOS MÉTODOS PARA SISTEMA DE NIVELES ---
 
     @staticmethod
+    def _usuario_rol_empresa_filter_clause(
+        scope: "RoleListScope",
+        alias: str = "ur",
+    ) -> tuple[str, tuple]:
+        from app.core.tenant.company_scope import RoleListScope
+        from app.core.tenant.empresa_context import sql_empresa_filter_usuario_rol_qmark
+
+        if scope.tenant_wide:
+            return "", ()
+        empresa_sql = sql_empresa_filter_usuario_rol_qmark(alias)
+        return empresa_sql, (str(scope.empresa_id),)
+
+    @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_usuario_completo_por_id(cliente_id: UUID, usuario_id: UUID) -> Optional[Dict[str, Any]]:
+    async def obtener_usuario_completo_por_id(
+        cliente_id: UUID,
+        usuario_id: UUID,
+        *,
+        list_scope: Optional["RoleListScope"] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Obtiene un usuario completo por su ID incluyendo todos sus datos y roles activos.
         
@@ -297,7 +315,16 @@ class UsuarioService(BaseService):
             
             tenant_context = try_get_tenant_context()
             database_type = tenant_context.database_type if tenant_context else "single"
-            
+
+            from app.core.tenant.company_scope import resolve_role_list_scope
+
+            if list_scope is None:
+                list_scope = await resolve_role_list_scope()
+
+            empresa_sql, empresa_params = UsuarioService._usuario_rol_empresa_filter_clause(
+                list_scope
+            )
+
             # 🔍 CONSULTA UNIFICADA PARA USUARIO Y SUS ROLES
             # ✅ Para BD dedicadas, no filtrar por cliente_id en WHERE (todos los usuarios pertenecen al mismo cliente)
             if database_type == "multi":
@@ -326,12 +353,14 @@ class UsuarioService(BaseService):
                     r.descripcion as descripcion_rol,
                     r.es_activo as rol_activo,
                     ur.fecha_asignacion,
-                    ur.es_activo as asignacion_activa
+                    ur.es_activo as asignacion_activa,
+                    ur.empresa_id as asignacion_empresa_id
                     
                 FROM dbo.usuario u
                 -- 🔄 LEFT JOIN para incluir usuarios sin roles asignados
                 LEFT JOIN dbo.usuario_rol ur ON u.usuario_id = ur.usuario_id 
                     AND ur.es_activo = 1
+                    {empresa_sql}
                 LEFT JOIN dbo.rol r ON ur.rol_id = r.rol_id 
                     AND r.es_activo = 1
                 WHERE 
@@ -340,8 +369,8 @@ class UsuarioService(BaseService):
                 ORDER BY 
                     u.usuario_id, 
                     r.nombre
-                """
-                params = (usuario_id,)
+                """.format(empresa_sql=empresa_sql)
+                params = empresa_params + (usuario_id,)
             else:
                 # BD compartida: filtrar por cliente_id
                 query = """
@@ -368,13 +397,15 @@ class UsuarioService(BaseService):
                     r.descripcion as descripcion_rol,
                     r.es_activo as rol_activo,
                     ur.fecha_asignacion,
-                    ur.es_activo as asignacion_activa
+                    ur.es_activo as asignacion_activa,
+                    ur.empresa_id as asignacion_empresa_id
                     
                 FROM dbo.usuario u
                 -- 🔄 LEFT JOIN para incluir usuarios sin roles asignados
                 LEFT JOIN dbo.usuario_rol ur ON u.usuario_id = ur.usuario_id 
                     AND u.cliente_id = ur.cliente_id 
                     AND ur.es_activo = 1
+                    {empresa_sql}
                 LEFT JOIN dbo.rol r ON ur.rol_id = r.rol_id 
                     AND r.es_activo = 1
                 WHERE 
@@ -384,8 +415,8 @@ class UsuarioService(BaseService):
                 ORDER BY 
                     u.usuario_id, 
                     r.nombre
-                """
-                params = (usuario_id, cliente_id)
+                """.format(empresa_sql=empresa_sql)
+                params = empresa_params + (usuario_id, cliente_id)
             
             # ✅ FASE 2: Usar await
             resultados = await execute_query(query, params)
@@ -468,7 +499,8 @@ class UsuarioService(BaseService):
                         "descripcion": fila.get('descripcion_rol'),
                         "es_activo": True,
                         "fecha_asignacion": fila.get('fecha_asignacion'),
-                        "fecha_creacion": None  # No disponible en esta consulta
+                        "fecha_creacion": None,
+                        "asignacion_empresa_id": fila.get("asignacion_empresa_id"),
                     }
                     
                     usuario_completo["roles"].append(rol_info)
@@ -508,7 +540,11 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def get_user_role_names(cliente_id: UUID, user_id: UUID) -> List[str]:
+    async def get_user_role_names(
+        cliente_id: UUID,
+        user_id: UUID,
+        empresa_id: Optional[UUID] = None,
+    ) -> List[str]:
         """
         Obtiene solo los NOMBRES de roles activos para un usuario dentro de un cliente.
         
@@ -527,15 +563,31 @@ class UsuarioService(BaseService):
         """
         role_names = []
         try:
-            query = """
-            SELECT r.nombre
+            from sqlalchemy import text
+            from app.core.tenant.empresa_context import resolve_empresa_id, sql_empresa_filter_usuario_rol
+
+            resolved_empresa_id = resolve_empresa_id(empresa_id)
+            empresa_sql = (
+                sql_empresa_filter_usuario_rol("ur") if resolved_empresa_id else ""
+            )
+            query = f"""
+            SELECT DISTINCT r.nombre
             FROM dbo.rol r
             INNER JOIN dbo.usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ? AND ur.cliente_id = ? AND ur.es_activo = 1 AND r.es_activo = 1;
+            WHERE ur.usuario_id = :usuario_id
+              AND ur.cliente_id = :cliente_id
+              AND ur.es_activo = 1
+              AND r.es_activo = 1
+            {empresa_sql}
             """
-            
-            # ✅ FASE 2: Usar await
-            results = await execute_query(query, (user_id, cliente_id))
+            bind = {"usuario_id": user_id, "cliente_id": cliente_id}
+            if resolved_empresa_id:
+                bind["empresa_id"] = resolved_empresa_id
+
+            results = await execute_query(
+                text(query).bindparams(**bind),
+                client_id=cliente_id,
+            )
             
             if results:
                 role_names = [row['nombre'] for row in results if 'nombre' in row]
@@ -1019,31 +1071,166 @@ class UsuarioService(BaseService):
                 internal_code="USER_DELETION_UNEXPECTED_ERROR"
             )
 
+    _SELECT_USUARIO_ROL_BY_ID = """
+        SELECT usuario_rol_id, usuario_id, rol_id, cliente_id, empresa_id,
+               fecha_asignacion, es_activo
+        FROM dbo.usuario_rol WHERE usuario_rol_id = ?
+    """
+
+    @staticmethod
+    def _validate_assign_scope_conflict(
+        existing_empresa_id: Any,
+        target_empresa_id: Optional[UUID],
+        *,
+        allow_global_promotion: bool = False,
+    ) -> None:
+        from app.core.tenant.company_scope import assignment_scope_matches
+        from app.core.tenant.empresa_context import coerce_empresa_id
+        from app.core.exceptions import ConflictError
+
+        if assignment_scope_matches(existing_empresa_id, target_empresa_id):
+            return
+
+        existing_norm = coerce_empresa_id(existing_empresa_id)
+        target_norm = coerce_empresa_id(target_empresa_id)
+
+        if existing_norm is None and target_norm is not None:
+            raise ConflictError(
+                detail=(
+                    "El rol ya está asignado de forma global al usuario. "
+                    "Revóquelo antes de asignarlo a una empresa específica."
+                ),
+                internal_code="ROLE_ALREADY_GLOBAL",
+            )
+
+        if existing_norm is not None and target_norm is None:
+            if allow_global_promotion:
+                return
+            raise ConflictError(
+                detail=(
+                    "El rol ya está asignado en otra empresa. "
+                    "No se puede asignar el mismo rol en un alcance distinto."
+                ),
+                internal_code="ROLE_ASSIGNED_OTHER_EMPRESA",
+            )
+
+        raise ConflictError(
+            detail=(
+                "El rol ya está asignado en otra empresa. "
+                "No se puede asignar el mismo rol en un alcance distinto."
+            ),
+            internal_code="ROLE_ASSIGNED_OTHER_EMPRESA",
+        )
+
+    @staticmethod
+    async def _maybe_set_empresa_default_after_role_assign(
+        cliente_id: UUID,
+        usuario_id: UUID,
+    ) -> None:
+        """
+        R-USER-03: si empresa_default_id IS NULL y queda exactamente 1 elegible → set default.
+        """
+        check_query = """
+        SELECT empresa_default_id
+        FROM dbo.usuario
+        WHERE usuario_id = ? AND cliente_id = ? AND es_eliminado = 0
+        """
+        rows = await execute_query(check_query, (usuario_id, cliente_id))
+        if not rows:
+            return
+        if rows[0].get("empresa_default_id") is not None:
+            return
+
+        from app.modules.auth.application.services.auth_service import AuthService
+        from app.core.tenant.empresa_preference import persist_usuario_empresa_default_id
+
+        ctx = await AuthService.get_empresa_activa_para_login(usuario_id, cliente_id)
+        empresas = ctx.get("empresas_disponibles") or []
+        if len(empresas) != 1:
+            return
+
+        empresa_id = empresas[0]["empresa_id"]
+        await persist_usuario_empresa_default_id(usuario_id, cliente_id, empresa_id)
+
+    @staticmethod
+    async def _ensure_base_operative_for_operative_role(
+        cliente_id: UUID,
+        rol_id: UUID,
+        codigo_rol: Optional[str],
+    ) -> None:
+        """T1: asegura BASE_OPERATIVE en MANAGER_TENANT / USER_TENANT al asignar rol."""
+        from app.modules.tenant.application.services.base_operative_service import (
+            BaseOperativeService,
+        )
+
+        await BaseOperativeService.ensure_for_operative_role(
+            cliente_id, rol_id, codigo_rol
+        )
+
+    @staticmethod
+    async def _ensure_manager_standard_for_manager_role(
+        cliente_id: UUID,
+        rol_id: UUID,
+        codigo_rol: Optional[str],
+    ) -> None:
+        """T2: asegura MANAGER_STANDARD (rol_permiso + rol_menu_permiso) en MANAGER_TENANT."""
+        from app.modules.tenant.application.services.manager_standard_service import (
+            ManagerStandardService,
+        )
+
+        try:
+            await ManagerStandardService.ensure_for_manager_role(
+                cliente_id, rol_id, codigo_rol
+            )
+        except Exception as e:
+            # No bloquear asignación de rol por falla de provisioning del bundle.
+            logger.debug("MANAGER_STANDARD ensure hook error: %s", e)
+
+    @staticmethod
+    async def _ensure_user_standard_for_user_role(
+        cliente_id: UUID,
+        rol_id: UUID,
+        codigo_rol: Optional[str],
+    ) -> None:
+        """T3: asegura USER_STANDARD (rol_permiso + rol_menu_permiso) en USER_TENANT."""
+        from app.modules.tenant.application.services.user_standard_service import (
+            UserStandardService,
+        )
+
+        try:
+            await UserStandardService.ensure_for_user_role(
+                cliente_id, rol_id, codigo_rol
+            )
+        except Exception as e:
+            logger.debug("USER_STANDARD ensure hook error: %s", e)
+
     @staticmethod
     @BaseService.handle_service_errors
-    async def asignar_rol_a_usuario(cliente_id: UUID, usuario_id: UUID, rol_id: UUID) -> Dict:
+    async def asignar_rol_a_usuario(
+        cliente_id: UUID,
+        usuario_id: UUID,
+        rol_id: UUID,
+        *,
+        target_empresa_id: Optional[UUID] = None,
+        allow_global_promotion: bool = False,
+        allow_scope_change_on_reactivate: bool = False,
+    ) -> Dict:
         """
-        Asigna un rol a un usuario con validaciones completas.
-        
-        🔄 COMPORTAMIENTO INTELIGENTE:
-        - Si la asignación existe e está inactiva: la reactiva
-        - Si la asignación existe y está activa: retorna la existente
-        - Si no existe: crea una nueva asignación
-        
-        Args:
-            cliente_id: ID del cliente
-            usuario_id: ID del usuario
-            rol_id: ID del rol a asignar
-            
-        Returns:
-            Dict: Asignación usuario-rol creada o reactivada
-            
-        Raises:
-            NotFoundError: Si el usuario o rol no existen en el cliente
-            ValidationError: Si el rol no está activo
-            ServiceError: Si la asignación falla
+        Asigna un rol a un usuario con validaciones completas (I2.2 multi-empresa).
+
+        UQ asumida: (usuario_id, rol_id) — una fila por rol.
+
+        - Si la asignación existe, activa y mismo scope: idempotente.
+        - Scope distinto: 409 ROLE_ALREADY_GLOBAL o ROLE_ASSIGNED_OTHER_EMPRESA.
+        - Si está inactiva: reactiva (platform puede alinear empresa_id si allow_scope_change).
         """
-        logger.info(f"Intentando asignar rol {rol_id} a usuario {usuario_id} en cliente {cliente_id}")
+        logger.info(
+            "Intentando asignar rol %s a usuario %s en cliente %s (empresa_id=%s)",
+            rol_id,
+            usuario_id,
+            cliente_id,
+            target_empresa_id,
+        )
 
         try:
             # 👤 VALIDAR QUE EL USUARIO EXISTE EN EL CLIENTE
@@ -1067,85 +1254,199 @@ class UsuarioService(BaseService):
                     internal_code="ROLE_INACTIVE"
                 )
 
-            # 🔍 VERIFICAR ASIGNACIÓN EXISTENTE
+            # 🔍 VERIFICAR ASIGNACIÓN EXISTENTE (UQ usuario_id + rol_id)
             check_query = """
-            SELECT usuario_rol_id, es_activo
+            SELECT usuario_rol_id, es_activo, empresa_id
             FROM dbo.usuario_rol
             WHERE usuario_id = ? AND rol_id = ? AND cliente_id = ?
             """
-            
-            # ✅ FASE 2: Usar await
-            existing_assignment = await execute_query(check_query, (usuario_id, rol_id, cliente_id))
+            existing_assignment = await execute_query(
+                check_query, (usuario_id, rol_id, cliente_id)
+            )
 
             if existing_assignment:
                 assignment = existing_assignment[0]
-                
-                if assignment['es_activo']:
-                    # ✅ ASIGNACIÓN YA ACTIVA - Retornar existente
-                    logger.info(f"Rol ID {rol_id} ya está asignado y activo para usuario ID {usuario_id} en cliente {cliente_id}")
-                    get_assignment_query = """
-                    SELECT usuario_rol_id, usuario_id, rol_id, fecha_asignacion, es_activo
-                    FROM dbo.usuario_rol WHERE usuario_rol_id = ?
-                    """
-                    # ✅ FASE 2: Usar await
-                    final_result = await execute_query(get_assignment_query, (assignment['usuario_rol_id'],))
+                existing_empresa = assignment.get("empresa_id")
+
+                if assignment["es_activo"]:
+                    UsuarioService._validate_assign_scope_conflict(
+                        existing_empresa,
+                        target_empresa_id,
+                        allow_global_promotion=allow_global_promotion,
+                    )
+                    if allow_global_promotion and target_empresa_id is None:
+                        update_global = """
+                        UPDATE dbo.usuario_rol
+                        SET empresa_id = NULL
+                        OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
+                               INSERTED.cliente_id, INSERTED.empresa_id,
+                               INSERTED.fecha_asignacion, INSERTED.es_activo
+                        WHERE usuario_rol_id = ?
+                        """
+                        promoted = await execute_update(
+                            update_global, (assignment["usuario_rol_id"],)
+                        )
+                        if promoted:
+                            try:
+                                from app.core.authorization.permission_resolver import (
+                                    get_permission_resolver,
+                                )
+                                get_permission_resolver().invalidate_for_user(
+                                    usuario_id, cliente_id
+                                )
+                            except Exception as inv:
+                                logger.debug(
+                                    "Permission resolver invalidation: %s", inv
+                                )
+                            await UsuarioService._ensure_base_operative_for_operative_role(
+                                cliente_id, rol_id, rol.get("codigo_rol")
+                            )
+                            await UsuarioService._ensure_manager_standard_for_manager_role(
+                                cliente_id, rol_id, rol.get("codigo_rol")
+                            )
+                            await UsuarioService._ensure_user_standard_for_user_role(
+                                cliente_id, rol_id, rol.get("codigo_rol")
+                            )
+                            await UsuarioService._maybe_set_empresa_default_after_role_assign(
+                                cliente_id, usuario_id
+                            )
+                            return promoted
+
+                    logger.info(
+                        "Rol %s ya asignado (scope coincidente) usuario %s cliente %s",
+                        rol_id,
+                        usuario_id,
+                        cliente_id,
+                    )
+                    final_result = await execute_query(
+                        UsuarioService._SELECT_USUARIO_ROL_BY_ID,
+                        (assignment["usuario_rol_id"],),
+                    )
                     if not final_result:
                         raise ServiceError(
                             status_code=500,
                             detail="Error obteniendo datos de asignación existente",
-                            internal_code="EXISTING_ASSIGNMENT_RETRIEVAL_ERROR"
+                            internal_code="EXISTING_ASSIGNMENT_RETRIEVAL_ERROR",
                         )
+                    await UsuarioService._ensure_base_operative_for_operative_role(
+                        cliente_id, rol_id, rol.get("codigo_rol")
+                    )
+                    await UsuarioService._ensure_manager_standard_for_manager_role(
+                        cliente_id, rol_id, rol.get("codigo_rol")
+                    )
+                    await UsuarioService._ensure_user_standard_for_user_role(
+                        cliente_id, rol_id, rol.get("codigo_rol")
+                    )
+                    await UsuarioService._maybe_set_empresa_default_after_role_assign(
+                        cliente_id, usuario_id
+                    )
                     return final_result[0]
+
+                from app.core.tenant.company_scope import assignment_scope_matches
+
+                if not assignment_scope_matches(
+                    existing_empresa, target_empresa_id
+                ):
+                    if not allow_scope_change_on_reactivate:
+                        UsuarioService._validate_assign_scope_conflict(
+                            existing_empresa,
+                            target_empresa_id,
+                            allow_global_promotion=allow_global_promotion,
+                        )
+
+                logger.info(
+                    "Reactivando asignación usuario %s rol %s", usuario_id, rol_id
+                )
+                empresa_bind = target_empresa_id
+                if allow_scope_change_on_reactivate:
+                    update_query = """
+                    UPDATE dbo.usuario_rol
+                    SET es_activo = 1, fecha_asignacion = GETDATE(), empresa_id = ?
+                    OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
+                           INSERTED.cliente_id, INSERTED.empresa_id,
+                           INSERTED.fecha_asignacion, INSERTED.es_activo
+                    WHERE usuario_rol_id = ?
+                    """
+                    result = await execute_update(
+                        update_query, (empresa_bind, assignment["usuario_rol_id"])
+                    )
                 else:
-                    # 🔄 REACTIVAR ASIGNACIÓN EXISTENTE
-                    logger.info(f"Reactivando asignación existente para usuario {usuario_id}, rol {rol_id}")
                     update_query = """
                     UPDATE dbo.usuario_rol
                     SET es_activo = 1, fecha_asignacion = GETDATE()
                     OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
+                           INSERTED.cliente_id, INSERTED.empresa_id,
                            INSERTED.fecha_asignacion, INSERTED.es_activo
                     WHERE usuario_rol_id = ?
                     """
-                    result = execute_update(update_query, (assignment['usuario_rol_id'],))
-                    if not result:
-                        raise ServiceError(
-                            status_code=500,
-                            detail="Error reactivando la asignación de rol",
-                            internal_code="ROLE_REACTIVATION_ERROR"
-                        )
-                    logger.info(f"Asignación reactivada exitosamente")
-                    try:
-                        from app.core.authorization.permission_resolver import get_permission_resolver
-                        get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
-                    except Exception as inv:
-                        logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
-                    return result
-            else:
-                # 🆕 CREAR NUEVA ASIGNACIÓN
-                logger.info(f"Creando nueva asignación para usuario {usuario_id}, rol {rol_id}")
-                insert_query = """
-                INSERT INTO dbo.usuario_rol (usuario_id, rol_id, cliente_id, es_activo)
-                OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
-                       INSERTED.fecha_asignacion, INSERTED.es_activo
-                VALUES (?, ?, ?, 1)
-                """
-                # ✅ FASE 2: Usar await
-                result = await execute_insert(insert_query, (usuario_id, rol_id, cliente_id))
+                    result = await execute_update(
+                        update_query, (assignment["usuario_rol_id"],)
+                    )
                 if not result:
                     raise ServiceError(
                         status_code=500,
-                        detail="Error creando la asignación de rol",
-                        internal_code="ROLE_ASSIGNMENT_ERROR"
+                        detail="Error reactivando la asignación de rol",
+                        internal_code="ROLE_REACTIVATION_ERROR",
                     )
-                logger.info(f"Asignación creada exitosamente")
                 try:
                     from app.core.authorization.permission_resolver import get_permission_resolver
+
                     get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
                 except Exception as inv:
-                    logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
+                    logger.debug("Permission resolver invalidation: %s", inv)
+                await UsuarioService._ensure_base_operative_for_operative_role(
+                    cliente_id, rol_id, rol.get("codigo_rol")
+                )
+                await UsuarioService._ensure_manager_standard_for_manager_role(
+                    cliente_id, rol_id, rol.get("codigo_rol")
+                )
+                await UsuarioService._ensure_user_standard_for_user_role(
+                    cliente_id, rol_id, rol.get("codigo_rol")
+                )
+                await UsuarioService._maybe_set_empresa_default_after_role_assign(
+                    cliente_id, usuario_id
+                )
                 return result
 
-        except (ValidationError, NotFoundError):
+            logger.info("Creando nueva asignación usuario %s rol %s", usuario_id, rol_id)
+            insert_query = """
+            INSERT INTO dbo.usuario_rol (usuario_id, rol_id, cliente_id, empresa_id, es_activo)
+            OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
+                   INSERTED.cliente_id, INSERTED.empresa_id,
+                   INSERTED.fecha_asignacion, INSERTED.es_activo
+            VALUES (?, ?, ?, ?, 1)
+            """
+            result = await execute_insert(
+                insert_query,
+                (usuario_id, rol_id, cliente_id, target_empresa_id),
+            )
+            if not result:
+                raise ServiceError(
+                    status_code=500,
+                    detail="Error creando la asignación de rol",
+                    internal_code="ROLE_ASSIGNMENT_ERROR",
+                )
+            try:
+                from app.core.authorization.permission_resolver import get_permission_resolver
+
+                get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
+            except Exception as inv:
+                logger.debug("Permission resolver invalidation: %s", inv)
+            await UsuarioService._ensure_base_operative_for_operative_role(
+                cliente_id, rol_id, rol.get("codigo_rol")
+            )
+            await UsuarioService._ensure_manager_standard_for_manager_role(
+                cliente_id, rol_id, rol.get("codigo_rol")
+            )
+            await UsuarioService._ensure_user_standard_for_user_role(
+                cliente_id, rol_id, rol.get("codigo_rol")
+            )
+            await UsuarioService._maybe_set_empresa_default_after_role_assign(
+                cliente_id, usuario_id
+            )
+            return result
+
+        except (ValidationError, NotFoundError, ConflictError):
             raise
         except DatabaseError as db_err:
             logger.error(f"Error de BD al asignar rol: {db_err.detail}")
@@ -1164,7 +1465,13 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def revocar_rol_de_usuario(cliente_id: UUID, usuario_id: UUID, rol_id: UUID) -> Dict:
+    async def revocar_rol_de_usuario(
+        cliente_id: UUID,
+        usuario_id: UUID,
+        rol_id: UUID,
+        *,
+        list_scope: Optional["RoleListScope"] = None,
+    ) -> Dict:
         """
         Revoca (desactiva) un rol asignado a un usuario.
         
@@ -1185,65 +1492,90 @@ class UsuarioService(BaseService):
             NotFoundError: Si la asignación no existe
             ServiceError: Si la revocación falla
         """
-        logger.info(f"Intentando revocar rol {rol_id} de usuario {usuario_id} en cliente {cliente_id}")
+        logger.info(
+            "Intentando revocar rol %s de usuario %s en cliente %s",
+            rol_id,
+            usuario_id,
+            cliente_id,
+        )
 
         try:
-            # 🔍 VERIFICAR EXISTENCIA DE LA ASIGNACIÓN
+            from app.core.tenant.company_scope import (
+                assert_assignment_visible_in_scope,
+                resolve_role_list_scope,
+            )
+
+            if list_scope is None:
+                list_scope = await resolve_role_list_scope()
+
             check_query = """
-            SELECT usuario_rol_id, es_activo
+            SELECT usuario_rol_id, es_activo, empresa_id
             FROM dbo.usuario_rol
             WHERE usuario_id = ? AND rol_id = ? AND cliente_id = ?
             """
-            
-            # ✅ FASE 2: Usar await
-            existing_assignment = await execute_query(check_query, (usuario_id, rol_id, cliente_id))
+            existing_assignment = await execute_query(
+                check_query, (usuario_id, rol_id, cliente_id)
+            )
 
             if not existing_assignment:
-                 raise NotFoundError(
-                     detail=f"No existe asignación entre usuario ID {usuario_id} y rol ID {rol_id} en cliente {cliente_id}.",
-                     internal_code="ASSIGNMENT_NOT_FOUND"
-                 )
+                raise NotFoundError(
+                    detail=(
+                        f"No existe asignación entre usuario ID {usuario_id} y rol ID {rol_id} "
+                        f"en cliente {cliente_id}."
+                    ),
+                    internal_code="ASSIGNMENT_NOT_FOUND",
+                )
 
             assignment = existing_assignment[0]
-            if not assignment['es_activo']:
-                logger.info(f"La asignación ya estaba inactiva para usuario {usuario_id}, rol {rol_id}")
-                get_assignment_query = """
-                SELECT usuario_rol_id, usuario_id, rol_id, fecha_asignacion, es_activo
-                FROM dbo.usuario_rol WHERE usuario_rol_id = ?
-                """
-                final_result = execute_query(get_assignment_query, (assignment['usuario_rol_id'],))
+            assert_assignment_visible_in_scope(
+                assignment.get("empresa_id"),
+                list_scope,
+                operation="revoke",
+            )
+
+            if not assignment["es_activo"]:
+                logger.info(
+                    "La asignación ya estaba inactiva para usuario %s, rol %s",
+                    usuario_id,
+                    rol_id,
+                )
+                final_result = await execute_query(
+                    UsuarioService._SELECT_USUARIO_ROL_BY_ID,
+                    (assignment["usuario_rol_id"],),
+                )
                 return final_result[0] if final_result else {"message": "Asignación ya inactiva"}
 
-            # 🗑️ DESACTIVAR LA ASIGNACIÓN
-            logger.info(f"Desactivando asignación para usuario {usuario_id}, rol {rol_id}")
+            logger.info("Desactivando asignación para usuario %s, rol %s", usuario_id, rol_id)
             update_query = """
             UPDATE dbo.usuario_rol
             SET es_activo = 0
             OUTPUT INSERTED.usuario_rol_id, INSERTED.usuario_id, INSERTED.rol_id,
+                   INSERTED.cliente_id, INSERTED.empresa_id,
                    INSERTED.fecha_asignacion, INSERTED.es_activo
             WHERE usuario_rol_id = ? AND es_activo = 1
             """
-            
-            result = execute_update(update_query, (assignment['usuario_rol_id'],))
+            result = await execute_update(update_query, (assignment["usuario_rol_id"],))
 
             if not result:
-                logger.warning(f"No se pudo desactivar la asignación ID {assignment['usuario_rol_id']}")
-                get_assignment_query = """
-                SELECT usuario_rol_id, usuario_id, rol_id, fecha_asignacion, es_activo
-                FROM dbo.usuario_rol WHERE usuario_rol_id = ?
-                """
-                final_result = execute_query(get_assignment_query, (assignment['usuario_rol_id'],))
+                logger.warning(
+                    "No se pudo desactivar la asignación ID %s",
+                    assignment["usuario_rol_id"],
+                )
+                final_result = await execute_query(
+                    UsuarioService._SELECT_USUARIO_ROL_BY_ID,
+                    (assignment["usuario_rol_id"],),
+                )
                 return final_result[0] if final_result else {"message": "No se pudo desactivar la asignación"}
 
-            logger.info(f"Asignación desactivada exitosamente")
             try:
                 from app.core.authorization.permission_resolver import get_permission_resolver
+
                 get_permission_resolver().invalidate_for_user(usuario_id, cliente_id)
             except Exception as inv:
-                logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
+                logger.debug("Permission resolver invalidation: %s", inv)
             return result
 
-        except (ValidationError, NotFoundError):
+        except (ValidationError, NotFoundError, ConflictError):
             raise
         except DatabaseError as db_err:
             logger.error(f"Error de BD al revocar rol: {db_err.detail}")
@@ -1262,7 +1594,12 @@ class UsuarioService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_roles_de_usuario(cliente_id: UUID, usuario_id: UUID) -> List[Dict]:
+    async def obtener_roles_de_usuario(
+        cliente_id: UUID,
+        usuario_id: UUID,
+        *,
+        list_scope: Optional["RoleListScope"] = None,
+    ) -> List[Dict]:
         """
         Obtiene la lista completa de roles activos asignados a un usuario.
         
@@ -1282,17 +1619,29 @@ class UsuarioService(BaseService):
             ServiceError: Si hay errores en la consulta
         """
         try:
-            query = """
+            from app.core.tenant.company_scope import resolve_role_list_scope
+
+            if list_scope is None:
+                list_scope = await resolve_role_list_scope()
+
+            empresa_sql, empresa_params = UsuarioService._usuario_rol_empresa_filter_clause(
+                list_scope
+            )
+            query = f"""
             SELECT
-                r.rol_id, r.nombre, r.descripcion, r.es_activo, r.fecha_creacion
+                r.rol_id, r.cliente_id, r.codigo_rol, r.nombre, r.descripcion,
+                r.es_activo, r.fecha_creacion,
+                ur.empresa_id AS asignacion_empresa_id
             FROM dbo.rol r
             INNER JOIN dbo.usuario_rol ur ON r.rol_id = ur.rol_id
-            WHERE ur.usuario_id = ? AND ur.cliente_id = ? AND ur.es_activo = 1 AND r.es_activo = 1
+            WHERE ur.usuario_id = ? AND ur.cliente_id = ?
+              AND ur.es_activo = 1 AND r.es_activo = 1
+              {empresa_sql}
             ORDER BY r.nombre;
             """
-            
-            # ✅ FASE 2: Usar await
-            roles = await execute_query(query, (usuario_id, cliente_id))
+            roles = await execute_query(
+                query, (usuario_id, cliente_id) + empresa_params
+            )
             logger.debug(f"Obtenidos {len(roles)} roles activos para usuario ID {usuario_id} en cliente {cliente_id}")
             return roles
 

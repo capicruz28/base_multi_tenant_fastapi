@@ -32,6 +32,47 @@ from app.infrastructure.database.connection_async import DatabaseConnection
 logger = logging.getLogger(__name__)
 
 
+async def leer_expiracion_tokens_cliente(cliente_id: UUID) -> Dict[str, int]:
+    """
+    Lee access_token_minutes y refresh_token_days desde cliente_auth_config.
+    No crea filas por defecto. Si no hay fila o el campo es NULL, usa settings globales.
+    """
+    from app.core.config import settings
+
+    access_minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    refresh_days = settings.REFRESH_TOKEN_EXPIRE_DAYS
+
+    try:
+        query = text("""
+            SELECT access_token_minutes, refresh_token_days
+            FROM cliente_auth_config
+            WHERE cliente_id = :cliente_id
+        """)
+        rows = await execute_query(
+            query.bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None,
+        )
+        if rows:
+            row = rows[0]
+            if row.get("access_token_minutes") is not None:
+                access_minutes = int(row["access_token_minutes"])
+            if row.get("refresh_token_days") is not None:
+                refresh_days = int(row["refresh_token_days"])
+    except Exception as e:
+        logger.warning(
+            "[AUTH_CONFIG] No se pudo leer expiración de tokens para cliente %s: %s. "
+            "Usando settings globales.",
+            cliente_id,
+            e,
+        )
+
+    return {
+        "access_token_minutes": access_minutes,
+        "refresh_token_days": refresh_days,
+    }
+
+
 class AuthConfigService(BaseService):
     """
     Servicio central para la administración de configuraciones de autenticación por cliente.

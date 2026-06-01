@@ -1,0 +1,100 @@
+{
+  "report": "T2_MANAGER_STANDARD_INTEGRATION_VALIDATION",
+  "timestamp_utc": "2026-06-01T03:27:38Z",
+  "base_url": "http://127.0.0.1:8000",
+  "repair_used": false,
+  "expected_permiso_codigos_count": 47,
+  "expected_menu_ver_count": 14,
+  "steps": {
+    "platform_login": {
+      "passed": true
+    },
+    "onboarding_create_tenant": {
+      "ok": true,
+      "subdominio": "t2mgr7770466b",
+      "cliente_id": "30ed1c56-ded6-4da5-b6a8-cafaa84ec5b5",
+      "username": "admin",
+      "password": "6zOy#6RAL@*e",
+      "raw_status": 201
+    },
+    "sql_post_onboarding": {
+      "label": "post_onboarding",
+      "sql_queries": {
+        "manager_role": "SELECT rol_id\nFROM rol\nWHERE cliente_id = :cid AND codigo_rol = 'MANAGER_TENANT' AND es_activo = 1",
+        "rp_count": "SELECT COUNT(DISTINCT p.codigo) AS c\nFROM rol_permiso rp\nINNER JOIN permiso p ON p.permiso_id = rp.permiso_id AND p.es_activo = 1\nWHERE rp.cliente_id = :cid\n  AND rp.rol_id = :rid\n  AND p.codigo IN (:pc0, :pc1, :pc2, :pc3, :pc4, :pc5, :pc6, :pc7, :pc8, :pc9, :pc10, :pc11, :pc12, :pc13, :pc14, :pc15, :pc16, :pc17, :pc18, :pc19, :pc20, :pc21, :pc22, :pc23, :pc24, :pc25, :pc26, :pc27, :pc28, :pc29, :pc30, :pc31, :pc32, :pc33, :pc34, :pc35, :pc36, :pc37, :pc38, :pc39, :pc40, :pc41, :pc42, :pc43, :pc44, :pc45, :pc46)",
+        "rmp_ver_count": "SELECT COUNT(*) AS c\nFROM rol_menu_permiso\nWHERE cliente_id = :cid\n  AND rol_id = :rid\n  AND puede_ver = 1"
+      },
+      "counts": {
+        "rol_permiso_bundle_count": 47,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "expected": {
+        "rol_permiso_bundle_count": 47,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "checks": {
+        "rp_ok": true,
+        "rmp_ok": true
+      }
+    },
+    "admin_login": {
+      "passed": true
+    },
+    "manager_create": {
+      "status": 201,
+      "ok": true,
+      "usuario_id": "8485392a-d4e7-427b-8ff3-c3186130044c"
+    },
+    "manager_assign": {
+      "status": 201,
+      "ok": true
+    },
+    "sql_post_assign": {
+      "label": "post_assign",
+      "sql_queries": {
+        "manager_role": "SELECT rol_id\nFROM rol\nWHERE cliente_id = :cid AND codigo_rol = 'MANAGER_TENANT' AND es_activo = 1",
+        "rp_count": "SELECT COUNT(DISTINCT p.codigo) AS c\nFROM rol_permiso rp\nINNER JOIN permiso p ON p.permiso_id = rp.permiso_id AND p.es_activo = 1\nWHERE rp.cliente_id = :cid\n  AND rp.rol_id = :rid\n  AND p.codigo IN (:pc0, :pc1, :pc2, :pc3, :pc4, :pc5, :pc6, :pc7, :pc8, :pc9, :pc10, :pc11, :pc12, :pc13, :pc14, :pc15, :pc16, :pc17, :pc18, :pc19, :pc20, :pc21, :pc22, :pc23, :pc24, :pc25, :pc26, :pc27, :pc28, :pc29, :pc30, :pc31, :pc32, :pc33, :pc34, :pc35, :pc36, :pc37, :pc38, :pc39, :pc40, :pc41, :pc42, :pc43, :pc44, :pc45, :pc46)",
+        "rmp_ver_count": "SELECT COUNT(*) AS c\nFROM rol_menu_permiso\nWHERE cliente_id = :cid\n  AND rol_id = :rid\n  AND puede_ver = 1"
+      },
+      "counts": {
+        "rol_permiso_bundle_count": 47,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "expected": {
+        "rol_permiso_bundle_count": 47,
+        "rol_menu_permiso_ver_count": 14
+      },
+      "checks": {
+        "rp_ok": true,
+        "rmp_ok": true
+      }
+    },
+    "manager_login": {
+      "passed": true
+    },
+    "manager_menu": {
+      "status": 200,
+      "check": {
+        "ok": true,
+        "modulo_codigos": [
+          "ORG",
+          "INV"
+        ],
+        "has_org": true,
+        "has_inv": true,
+        "any_eliminar_true": false
+      }
+    }
+  },
+  "tenant_created": {
+    "cliente_id": "30ed1c56-ded6-4da5-b6a8-cafaa84ec5b5",
+    "subdominio": "t2mgr7770466b",
+    "admin_username": "admin",
+    "admin_password": "6zOy#6RAL@*e"
+  },
+  "verdict": {
+    "status": "PASS",
+    "menu_ok": true,
+    "no_delete": true
+  }
+}

@@ -12,7 +12,7 @@ Características principales:
 - **✅ MULTI-TENANT:** Autenticación segmentada por cliente (subdominio o cliente_id).
 - **✅ SSO:** Soporte para Azure AD y Google Workspace.
 """
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union, Any
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body
 from fastapi.security import OAuth2PasswordRequestForm
@@ -22,7 +22,31 @@ from app.core.auth import get_user_access_level_info
 # Importar la función que lee el ContextVar del cliente (¡Asume que está definida!)
 from app.core.tenant.context import get_current_client_id 
 
-from app.modules.auth.presentation.schemas import Token, UserDataWithRoles, LoginData, PermissionsMeResponse
+from app.modules.auth.presentation.schemas import (
+    Token,
+    UserDataWithRoles,
+    MeResponse,
+    LoginData,
+    PermissionsMeResponse,
+    LoginEmpresaSelectionResponse,
+    EmpresaDisponible,
+    EmpresaIdRequest,
+    build_user_data_with_roles_dict,
+    ImpersonationEndResponse,
+)
+from app.core.authorization.rbac import require_super_admin
+from app.core.auth.impersonation import is_impersonation_payload
+from app.core.security.jwt import normalize_bearer_jwt_token
+from app.modules.auth.application.services.impersonation_service import (
+    ImpersonationService,
+)
+from app.api.deps_auth import (
+    require_selection_token_payload,
+    require_full_session_payload,
+    require_erp_session,
+    get_current_active_user_full_session,
+    reject_selection_token_for_me,
+)
 from app.core.auth import (
     authenticate_user,
     get_current_user,
@@ -30,12 +54,13 @@ from app.core.auth import (
     authenticate_user_sso_azure_ad,
     authenticate_user_sso_google
 )
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, get_current_user_data
 from app.core.authorization.rbac import has_permission
 from app.core.security.jwt import create_access_token, create_refresh_token
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.modules.users.application.services.user_service import UsuarioService
+from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.modules.superadmin.application.services.audit_service import AuditService
@@ -70,6 +95,61 @@ def get_client_type(request: Request) -> str:
     logger.debug(f"Cliente detectado: {client_type}")
     return client_type
 
+
+def _extract_bearer_from_request(request: Request) -> str:
+    """Obtiene el JWT del header Authorization."""
+    authorization = request.headers.get("Authorization") or ""
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Se requiere Authorization: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return normalize_bearer_jwt_token(authorization[7:].strip())
+
+
+def _access_only_token_response(session: Dict[str, Any]) -> Dict[str, Any]:
+    """Respuesta Token sin refresh (impersonación)."""
+    return {
+        "access_token": session["access_token"],
+        "token_type": "bearer",
+        "user_data": session.get("user_data"),
+    }
+
+
+def _session_token_http_response(
+    response: Response,
+    request: Request,
+    session: Dict,
+) -> Dict:
+    """
+    Arma respuesta Token (JSON + cookie refresh en web) a partir de emitir_sesion_*.
+    """
+    client_type = get_client_type(request)
+    refresh_expire_days = session["refresh_expire_days"]
+    refresh_cookie_max_age = refresh_expire_days * 24 * 60 * 60
+    response_data = {
+        "access_token": session["access_token"],
+        "token_type": "bearer",
+        "user_data": session["user_data"],
+    }
+    refresh_token = session["refresh_token"]
+    if client_type == "web":
+        response.set_cookie(
+            key=settings.REFRESH_COOKIE_NAME,
+            value=refresh_token,
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite=settings.COOKIE_SAMESITE,
+            max_age=refresh_cookie_max_age,
+            path="/",
+            domain=settings.COOKIE_DOMAIN,
+        )
+    else:
+        response_data["refresh_token"] = refresh_token
+    return response_data
+
+
 # ----
 # --- Endpoint para Login ---
 # ----
@@ -77,7 +157,7 @@ def get_client_type(request: Request) -> str:
 # El decorador se aplica después del router.post para que funcione correctamente
 @router.post(
     "/login/",
-    response_model=Token,
+    response_model=Union[Token, LoginEmpresaSelectionResponse],
     summary="Autenticar usuario y obtener token",
     description="""
     Verifica credenciales (nombre de usuario/email y contraseña) **dentro del contexto de un cliente**.
@@ -189,32 +269,142 @@ async def login(
             # Si no hay target_cliente_id, usar cliente_id del contexto (siempre correcto)
             target_cliente_id = cliente_id
             logger.debug(f"[LOGIN] target_cliente_id no encontrado en user_base_data, usando cliente_id del contexto: {cliente_id}")
-        
+
+        # 5b. Resolución de empresa activa (multi-empresa); superadmin nunca selecciona empresa
+        empresa_ctx = await AuthService.get_empresa_activa_para_login(
+            user_id,
+            target_cliente_id,
+            es_superadmin=es_superadmin,
+            user_type=user_base_data.get("user_type"),
+        )
+        empresa_activa = empresa_ctx.get("empresa_activa")
+        requiere_seleccion = empresa_ctx.get("requiere_seleccion", False)
+        es_admin_sin_empresa = empresa_ctx.get("es_admin_sin_empresa", False)
+        empresas_disponibles = empresa_ctx.get("empresas_disponibles") or []
+
+        AuthService.assert_operational_login_allowed(
+            empresa_ctx,
+            es_superadmin=es_superadmin,
+            user_type=user_base_data.get("user_type"),
+        )
+
         # Para superadmin, podría no tener roles en el cliente destino
         if es_superadmin:
             user_role_names = ["Super Administrador"]  # Rol implícito
             logger.info(f"[LOGIN] Superadmin accediendo a cliente_id={target_cliente_id}")
         else:
-            user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
-        
-        user_full_data = {**user_base_data, "roles": user_role_names}
+            user_role_names = await UsuarioService.get_user_role_names(
+                cliente_id, user_id, empresa_id=empresa_activa
+            )
 
-        # 6. ✅ Tokens con contexto correcto
-        level_info = await get_user_access_level_info(user_id, target_cliente_id)
+        # 6. Tokens con contexto correcto
+        level_info = await get_user_access_level_info(
+            user_id,
+            target_cliente_id,
+            empresa_id=empresa_activa,
+            username=form_data.username,
+        )
+        if es_superadmin or level_info.get("is_super_admin"):
+            level_info = AuthService._platform_superadmin_level_info()
+            es_superadmin = True
+
+        es_admin_cliente = await AuthService.usuario_tiene_es_admin_cliente(
+            user_id,
+            target_cliente_id,
+            empresa_activa,
+            username=form_data.username,
+        )
+        user_type_login = level_info.get("user_type", "user")
+
+        user_profile = build_user_data_with_roles_dict(
+            usuario_id=user_id,
+            nombre_usuario=form_data.username,
+            correo=user_base_data.get("correo", ""),
+            nombre=user_base_data.get("nombre"),
+            apellido=user_base_data.get("apellido"),
+            es_activo=user_base_data.get("es_activo", True),
+            roles=user_role_names,
+            access_level=level_info.get("access_level", 1),
+            is_super_admin=level_info.get("is_super_admin", False),
+            user_type=user_type_login,
+            cliente_id=target_cliente_id,
+            es_admin_cliente=es_admin_cliente,
+            empresa_activa=(
+                str(empresa_activa) if empresa_activa is not None else None
+            ),
+        )
+
         token_data = {
             "sub": form_data.username,
-            "cliente_id": str(target_cliente_id),  # ✅ Convertir UUID a string para JSON serialization
-            "level_info": level_info 
+            "cliente_id": str(target_cliente_id),
+            "level_info": level_info,
         }
-        
+
         if es_superadmin:
             token_data["es_superadmin"] = True
-        
-        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        access_token, access_jti = create_access_token(data=token_data)
-        refresh_token, refresh_jti = create_refresh_token(data=token_data)
 
-        # ✅ CORRECCIÓN: Almacenar en el cliente destino
+        token_expiration = await AuthService.get_token_expiration_for_cliente(target_cliente_id)
+        access_expire_minutes = token_expiration["access_token_minutes"]
+        refresh_expire_days = token_expiration["refresh_token_days"]
+        refresh_cookie_max_age = refresh_expire_days * 24 * 60 * 60
+
+        # Selección de empresa obligatoria: token temporal sin refresh
+        if requiere_seleccion:
+            selection_payload = {**token_data, "empresa_selection_pending": True}
+            selection_token, _selection_jti = create_access_token(
+                data=selection_payload,
+                empresa_id=None,
+                es_admin_cliente=es_admin_cliente,
+                access_token_expire_minutes=access_expire_minutes,
+            )
+            logger.info(
+                "[LOGIN] Usuario %s requiere selección de empresa (%s opciones)",
+                form_data.username,
+                len(empresas_disponibles),
+            )
+            selection_profile = build_user_data_with_roles_dict(
+                usuario_id=user_id,
+                nombre_usuario=form_data.username,
+                correo=user_base_data.get("correo", ""),
+                nombre=user_base_data.get("nombre"),
+                apellido=user_base_data.get("apellido"),
+                es_activo=user_base_data.get("es_activo", True),
+                roles=user_role_names,
+                access_level=level_info.get("access_level", 1),
+                is_super_admin=level_info.get("is_super_admin", False),
+                user_type=user_type_login,
+                cliente_id=target_cliente_id,
+                es_admin_cliente=es_admin_cliente,
+            )
+            return LoginEmpresaSelectionResponse(
+                requiere_seleccion_empresa=True,
+                empresas_disponibles=[
+                    EmpresaDisponible.model_validate(e) for e in empresas_disponibles
+                ],
+                selection_token=selection_token,
+                token_type="bearer",
+                user_data=UserDataWithRoles.model_validate(selection_profile),
+            )
+
+        if empresa_activa is None and es_admin_sin_empresa and not empresas_disponibles:
+            logger.info(
+                "[LOGIN] Usuario %s admin sin empresa (onboarding); continúa sin empresa_id",
+                form_data.username,
+            )
+
+        access_token, access_jti = create_access_token(
+            data=token_data,
+            empresa_id=empresa_activa,
+            es_admin_cliente=es_admin_cliente,
+            access_token_expire_minutes=access_expire_minutes,
+        )
+        refresh_token, refresh_jti = create_refresh_token(
+            data=token_data,
+            empresa_id=empresa_activa,
+            es_admin_cliente=es_admin_cliente,
+            refresh_token_expire_days=refresh_expire_days,
+        )
+
         try:
             stored = await RefreshTokenService.store_refresh_token(
                 cliente_id=target_cliente_id,
@@ -223,7 +413,9 @@ async def login(
                 client_type=client_type,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                is_rotation=False  # ✅ CRÍTICO: False porque es un login nuevo
+                is_rotation=False,
+                empresa_id=empresa_activa,
+                refresh_token_expire_days=refresh_expire_days,
             )
             
             if stored and stored.get('token_id'):
@@ -239,7 +431,7 @@ async def login(
         response_data = {
             "access_token": access_token,
             "token_type": "bearer",
-            "user_data": user_full_data
+            "user_data": UserDataWithRoles.model_validate(user_profile),
         }
         
         if client_type == "web":
@@ -249,7 +441,7 @@ async def login(
                 httponly=True,
                 secure=settings.COOKIE_SECURE,
                 samesite=settings.COOKIE_SAMESITE,
-                max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                max_age=refresh_cookie_max_age,
                 path="/",
                 domain=settings.COOKIE_DOMAIN,
             )
@@ -295,53 +487,396 @@ async def login(
 
 
 # ----
+# --- Selección y cambio de empresa activa ---
+# ----
+
+@router.post(
+    "/empresa/seleccionar/",
+    response_model=Token,
+    summary="Confirmar empresa tras login multi-empresa",
+    description="""
+    Cierra el flujo iniciado con `LoginEmpresaSelectionResponse`.
+
+    **Autenticación:** Bearer con JWT que incluya `empresa_selection_pending: true`
+    (selection_token del login). No acepta access token de sesión normal (409).
+
+    **Body:** `{ "empresa_id": "<uuid>" }`
+
+    **Respuesta 200:** Igual que login exitoso (`Token` con access, refresh según X-Client-Type,
+    `user_data` con `empresa_activa`, `es_admin_cliente`, roles filtrados por empresa).
+    """,
+)
+async def seleccionar_empresa(
+    request: Request,
+    response: Response,
+    body: EmpresaIdRequest,
+    payload: Dict = Depends(require_selection_token_payload),
+):
+    client_type = get_client_type(request)
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    try:
+        session = await AuthService.seleccionar_empresa_post_login(
+            payload=payload,
+            empresa_id=body.empresa_id,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if not session.get("refresh_token"):
+            return _access_only_token_response(session)
+        return _session_token_http_response(response, request, session)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en POST /empresa/seleccionar/: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al seleccionar empresa",
+        )
+
+
+@router.post(
+    "/empresa/cambiar/",
+    response_model=Token,
+    summary="Cambiar empresa activa en sesión",
+    description="""
+    Cambia la empresa activa sin re-login (selector en header ERP).
+
+    **Autenticación:** Bearer access token de sesión normal (no selection token; 409 si pending).
+
+    **Body:** `{ "empresa_id": "<uuid>" }`
+
+    **Respuesta 200:** Nuevo access (+ refresh rotado en web/mobile), `user_data` actualizado.
+    """,
+)
+async def cambiar_empresa(
+    request: Request,
+    response: Response,
+    body: EmpresaIdRequest,
+    payload: Dict = Depends(get_current_user_data),
+):
+    if is_impersonation_payload(payload):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "No se puede cambiar de empresa durante una sesión de "
+                "impersonación de soporte."
+            ),
+        )
+
+    if payload.get("empresa_selection_pending"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Debe completar la selección de empresa con "
+                "POST /api/v1/auth/empresa/seleccionar/ antes de cambiar de empresa."
+            ),
+        )
+
+    client_type = get_client_type(request)
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
+    old_refresh_token = None
+    if client_type == "web":
+        old_refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    else:
+        old_refresh_token = body.refresh_token
+
+    try:
+        session = await AuthService.cambiar_empresa_sesion(
+            payload=payload,
+            empresa_id=body.empresa_id,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            old_refresh_token=old_refresh_token,
+        )
+        return _session_token_http_response(response, request, session)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en POST /empresa/cambiar/: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al cambiar empresa",
+        )
+
+
+# ----
+# --- Impersonación (soporte plataforma) ---
+# ----
+
+@router.post(
+    "/impersonate/{cliente_id}/",
+    response_model=Union[Token, LoginEmpresaSelectionResponse],
+    summary="Iniciar sesión de soporte en un tenant (impersonación)",
+    description="""
+    Emite una sesión temporal (**120 min**, solo access token, sin refresh)
+    para operar en el tenant indicado como soporte de plataforma.
+
+    **Requisitos:** operador autenticado con privilegios de Super Administrador.
+    **Claims:** `is_impersonation`, `impersonated_by`, `impersonated_by_username`.
+
+    Si el tenant tiene más de una empresa activa, devuelve `selection_token`
+    (mismo contrato que login multi-empresa) para completar con
+    `POST /auth/empresa/seleccionar/`.
+    """,
+)
+async def iniciar_impersonacion(
+    request: Request,
+    cliente_id: UUID = Path(..., description="UUID del tenant destino"),
+    current_user=Depends(require_super_admin()),
+    parent_payload: Dict = Depends(get_current_user_data),
+):
+    from app.core.auth.impersonate_auth_diag import log_impersonate_request_headers
+
+    log_impersonate_request_headers(request, phase="endpoint_handler_deps_ok")
+    logger.info(
+        "[IMPERSONATE-AUTH] endpoint_handler target_cliente_id=%s operator=%s",
+        cliente_id,
+        getattr(current_user, "nombre_usuario", None),
+    )
+
+    if is_impersonation_payload(parent_payload):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se permite impersonación anidada",
+        )
+
+    parent_access = _extract_bearer_from_request(request)
+    client_type = get_client_type(request)
+    parent_refresh = None
+    if client_type == "web":
+        parent_refresh = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
+    try:
+        result = await ImpersonationService.iniciar_impersonacion(
+            target_cliente_id=cliente_id,
+            operator_usuario_id=current_user.usuario_id,
+            operator_username=current_user.nombre_usuario,
+            parent_access_token=parent_access,
+            parent_refresh_token=parent_refresh,
+            parent_payload=parent_payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if result["kind"] == "selection":
+            return result["response"]
+        return _access_only_token_response(result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en POST /impersonate/{cliente_id}/: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al iniciar impersonación",
+        )
+
+
+@router.post(
+    "/impersonate/end/",
+    response_model=ImpersonationEndResponse,
+    summary="Finalizar impersonación y restaurar sesión del operador",
+    description="""
+    Cierra la sesión de soporte (impersonación) y devuelve el access token
+  (y refresh en móvil / cookie en web) de la sesión original del operador.
+
+    **Auth:** Bearer con token de impersonación activo (`is_impersonation=true`).
+    """,
+)
+async def finalizar_impersonacion(
+    request: Request,
+    response: Response,
+    payload: Dict = Depends(get_current_user_data),
+):
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    client_type = get_client_type(request)
+
+    try:
+        restored = await ImpersonationService.finalizar_impersonacion(
+            payload=payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        refresh_token = restored.pop("refresh_token", None)
+        if client_type == "web" and refresh_token:
+            refresh_expire_days = settings.REFRESH_TOKEN_EXPIRE_DAYS
+            response.set_cookie(
+                key=settings.REFRESH_COOKIE_NAME,
+                value=refresh_token,
+                httponly=True,
+                secure=settings.COOKIE_SECURE,
+                samesite=settings.COOKIE_SAMESITE,
+                max_age=refresh_expire_days * 24 * 60 * 60,
+                path="/",
+                domain=settings.COOKIE_DOMAIN,
+            )
+        elif client_type == "mobile" and refresh_token:
+            restored["refresh_token"] = refresh_token
+        return ImpersonationEndResponse.model_validate(restored)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en POST /impersonate/end/: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al finalizar impersonación",
+        )
+
+
+# ----
 # --- Endpoint para Obtener Usuario Actual (Me) ---
 # ----
 # app/api/v1/endpoints/auth.py (línea ~200)
 
 @router.get(
     "/me/",
-    response_model=UserDataWithRoles,
+    response_model=MeResponse,
     summary="Obtener usuario actual"
 )
-async def get_me(current_user=Depends(get_current_active_user)):
+async def get_me(
+    _payload_ok: Dict = Depends(reject_selection_token_for_me),
+    current_user=Depends(get_current_active_user),
+):
     """
     Recupera los datos del usuario identificado por el Access Token.
     ✅ CORRECCIÓN CRÍTICA: Usar niveles del TOKEN, no recalcularlos.
     """
+    payload = _payload_ok
+    from app.core.auth.platform_user_lookup import is_system_request_client
+
+    lookup_db = "tenant_routing"
+    try:
+        from app.core.tenant.context import try_get_current_client_id
+
+        req_cid = try_get_current_client_id()
+        if is_system_request_client(req_cid):
+            lookup_db = "system_admin_then_bd_sistema_fallback"
+    except Exception:
+        pass
+
+    logger.info(
+        "[ME-ENDPOINT] payload=%s user_type=%s is_super_admin=%s es_superadmin=%s "
+        "cliente_id=%s lookup_db=%s roles=%s",
+        {k: payload.get(k) for k in (
+            "sub", "user_type", "access_level", "cliente_id", "empresa_id",
+            "es_superadmin", "is_super_admin",
+        )},
+        payload.get("user_type"),
+        payload.get("is_super_admin"),
+        payload.get("es_superadmin"),
+        payload.get("cliente_id"),
+        lookup_db,
+        [
+            getattr(r, "nombre", None) or (r.get("nombre") if isinstance(r, dict) else None)
+            for r in (getattr(current_user, "roles", None) or [])
+        ],
+    )
     logger.info(f"Solicitud /me/ recibida para usuario: {current_user.nombre_usuario}")
     try:
+        from app.core.tenant.empresa_context import coerce_empresa_id
+
         usuario_service = UsuarioService()
+
         user_id = current_user.usuario_id
         cliente_id = current_user.cliente_id
+        if cliente_id is None and payload.get("cliente_id"):
+            try:
+                cliente_id = UUID(str(payload["cliente_id"]))
+            except (ValueError, TypeError):
+                pass
 
-        access_level_from_token = getattr(current_user, "access_level", 1)
+        empresa_activa_uuid = coerce_empresa_id(payload.get("empresa_id"))
+        es_admin_cliente_me = bool(payload.get("es_admin_cliente", False))
+        if empresa_activa_uuid is None:
+            es_admin_cliente_me = await AuthService.usuario_tiene_es_admin_cliente(
+                user_id, cliente_id, None
+            )
+        else:
+            es_admin_cliente_me = await AuthService.usuario_tiene_es_admin_cliente(
+                user_id, cliente_id, empresa_activa_uuid
+            )
 
-        # Extraer codigo_rol de los roles del usuario (fuente de verdad para identidad)
-        codigos_rol = []
-        if hasattr(current_user, "roles") and current_user.roles:
-            for rol in current_user.roles:
-                cod = getattr(rol, "codigo_rol", None) or (rol.get("codigo_rol") if isinstance(rol, dict) else None)
-                if cod:
-                    codigos_rol.append(str(cod).strip().upper())
+        token_access_level = payload.get("access_level")
+        if token_access_level is not None:
+            access_level_me = int(token_access_level)
+        else:
+            access_level_me = int(getattr(current_user, "access_level", 1))
 
-        # Identidad por codigo_rol: ADMIN_PLATFORM/SUPER_ADMIN → platform_admin, ADMIN_TENANT → tenant_admin
-        if "ADMIN_PLATFORM" in codigos_rol or "SUPER_ADMIN" in codigos_rol:
+        token_is_super_admin = payload.get("is_super_admin")
+        token_user_type = payload.get("user_type")
+
+        # Normalizar platform tras refresh: no degradar por roles tenant en SYSTEM
+        system_cid = AuthService._coerce_uuid(settings.SUPERADMIN_CLIENTE_ID)
+        session_cid = AuthService._coerce_uuid(
+            str(cliente_id) if cliente_id is not None else payload.get("cliente_id")
+        )
+        if payload.get("es_superadmin") or (
+            system_cid
+            and session_cid == system_cid
+            and (
+                token_user_type == "platform_admin"
+                or payload.get("access_level") == 5
+                or token_is_super_admin
+            )
+        ):
             user_type_me = "platform_admin"
             is_super_admin_me = True
-        elif "ADMIN_TENANT" in codigos_rol:
-            user_type_me = "tenant_admin"
-            is_super_admin_me = False
+            access_level_me = max(access_level_me, 5)
+        elif token_user_type:
+            user_type_me = str(token_user_type)
+            is_super_admin_me = bool(
+                token_is_super_admin
+                if token_is_super_admin is not None
+                else getattr(current_user, "is_super_admin", False)
+            )
         else:
-            user_type_me = getattr(current_user, "user_type", "user")
-            is_super_admin_me = getattr(current_user, "is_super_admin", False)
+            codigos_rol = []
+            if hasattr(current_user, "roles") and current_user.roles:
+                for rol in current_user.roles:
+                    cod = getattr(rol, "codigo_rol", None) or (
+                        rol.get("codigo_rol") if isinstance(rol, dict) else None
+                    )
+                    if cod:
+                        codigos_rol.append(str(cod).strip().upper())
+
+            if "ADMIN_PLATFORM" in codigos_rol or "SUPER_ADMIN" in codigos_rol:
+                user_type_me = "platform_admin"
+                is_super_admin_me = True
+            elif "ADMIN_TENANT" in codigos_rol:
+                user_type_me = "tenant_admin"
+                is_super_admin_me = False
+            else:
+                user_type_me = getattr(current_user, "user_type", "user")
+                is_super_admin_me = (
+                    bool(token_is_super_admin)
+                    if token_is_super_admin is not None
+                    else getattr(current_user, "is_super_admin", False)
+                )
 
         logger.info(
-            f"[ME] Identidad por codigo_rol - codigos={codigos_rol}, "
+            f"[ME] Niveles - access_level={access_level_me}, "
             f"user_type={user_type_me}, is_super_admin={is_super_admin_me}"
         )
 
-        usuario_completo = await usuario_service.obtener_usuario_completo_por_id(cliente_id, user_id)
+        from app.core.tenant.company_scope import resolve_role_list_scope
+
+        list_scope = await resolve_role_list_scope(
+            payload=payload,
+            user_type=user_type_me,
+            is_super_admin=is_super_admin_me,
+        )
+        usuario_completo = await usuario_service.obtener_usuario_completo_por_id(
+            cliente_id,
+            user_id,
+            list_scope=list_scope,
+        )
 
         if not usuario_completo:
             logger.error(f"Usuario {user_id} no encontrado en cliente {cliente_id}")
@@ -361,35 +896,78 @@ async def get_me(current_user=Depends(get_current_active_user)):
             for rol in usuario_completo.get("roles", []):
                 if rol.get("nombre"):
                     role_names.append(rol["nombre"])
+        role_names = list(dict.fromkeys(role_names))
 
-        user_full_data = {
-            "usuario_id": str(current_user.usuario_id),
-            "cliente_id": str(current_user.cliente_id),
-            "nombre_usuario": current_user.nombre_usuario,
-            "correo": getattr(current_user, "correo", None) or "",
-            "nombre": getattr(current_user, "nombre", None),
-            "apellido": getattr(current_user, "apellido", None),
-            "es_activo": getattr(current_user, "es_activo", True),
-            "roles": role_names,
-            "tipo_usuario": user_type_me,
-            "es_super_admin": is_super_admin_me,
-            "es_tenant_admin": user_type_me == "tenant_admin",
-            "cliente": usuario_completo.get("cliente_info"),
-            "modulos_activos": usuario_completo.get("modulos_activos", []),
-            "access_level": access_level_from_token,
-            "is_super_admin": is_super_admin_me,
-            "user_type": user_type_me,
-        }
+        requiere_seleccion_me = False
+        empresas_disponibles_me: Optional[List[EmpresaDisponible]] = None
+        if empresa_activa_uuid is None and es_admin_cliente_me:
+            empresa_ctx = await AuthService.get_empresa_activa_para_login(
+                user_id, cliente_id
+            )
+            requiere_seleccion_me = bool(empresa_ctx.get("requiere_seleccion", False))
+            empresas_ctx = empresa_ctx.get("empresas_disponibles") or []
+            if empresas_ctx:
+                empresas_disponibles_me = [
+                    EmpresaDisponible.model_validate(e) for e in empresas_ctx
+                ]
+
+        user_profile = build_user_data_with_roles_dict(
+            usuario_id=user_id,
+            nombre_usuario=current_user.nombre_usuario,
+            correo=getattr(current_user, "correo", None) or "",
+            nombre=getattr(current_user, "nombre", None),
+            apellido=getattr(current_user, "apellido", None),
+            es_activo=getattr(current_user, "es_activo", True),
+            roles=role_names,
+            access_level=access_level_me,
+            is_super_admin=is_super_admin_me,
+            user_type=user_type_me,
+            cliente_id=cliente_id,
+            es_admin_cliente=es_admin_cliente_me,
+            empresa_activa=(
+                str(empresa_activa_uuid) if empresa_activa_uuid is not None else None
+            ),
+        )
+        user_profile["empresa_activa"] = (
+            str(empresa_activa_uuid) if empresa_activa_uuid is not None else None
+        )
 
         logger.info(
             f"[ME] Datos completos enviados - Usuario: {current_user.nombre_usuario}, "
             f"user_type: {user_type_me}, is_super_admin: {is_super_admin_me}, Roles: {len(role_names)}"
         )
-        return user_full_data
+        imp_by = payload.get("impersonated_by")
+        return MeResponse(
+            **user_profile,
+            requiere_seleccion_empresa=requiere_seleccion_me,
+            empresas_disponibles=empresas_disponibles_me,
+            is_impersonation=bool(payload.get("is_impersonation")),
+            impersonated_by=str(imp_by) if imp_by is not None else None,
+            impersonated_by_username=payload.get("impersonated_by_username"),
+        )
 
     except HTTPException:
         raise
     except Exception as e:
+        from app.core.exceptions import CustomException
+
+        logger.error(
+            "[ME-ENDPOINT] exception=%s:%s payload=%s user_type=%s is_super_admin=%s "
+            "es_superadmin=%s cliente_id=%s lookup_db=%s",
+            type(e).__name__,
+            e,
+            {k: payload.get(k) for k in (
+                "sub", "user_type", "access_level", "cliente_id", "es_superadmin",
+            )},
+            payload.get("user_type"),
+            payload.get("is_super_admin"),
+            payload.get("es_superadmin"),
+            payload.get("cliente_id"),
+            lookup_db,
+            exc_info=True,
+        )
+        if isinstance(e, CustomException):
+            raise HTTPException(status_code=e.status_code, detail=e.detail) from e
         logger.exception(f"Error en /me/: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -415,7 +993,8 @@ async def get_me(current_user=Depends(get_current_active_user)):
     """,
 )
 async def get_permissions_me(
-    current_user = Depends(get_current_active_user),
+    current_user=Depends(require_erp_session),
+    payload: Dict = Depends(require_full_session_payload),
 ):
     """
     Lista de permisos efectivos del usuario actual desde el Permission Resolver.
@@ -437,7 +1016,14 @@ async def get_permissions_me(
 
         tenant_context = try_get_tenant_context()
         database_type = tenant_context.database_type if tenant_context else "single"
-        is_super_admin = getattr(current_user, "is_super_admin", False)
+        from app.core.auth.impersonation import suppress_platform_privileges
+
+        is_super_admin, _, _ = suppress_platform_privileges(
+            payload=payload,
+            is_super_admin=getattr(current_user, "is_super_admin", False),
+            user_type=getattr(current_user, "user_type", None),
+            access_level=getattr(current_user, "access_level", None),
+        )
 
         if is_super_admin:
             from sqlalchemy import text
@@ -450,12 +1036,18 @@ async def get_permissions_me(
             )
             return PermissionsMeResponse(permissions=[r["codigo"] for r in rows if r.get("codigo")])
 
+        from app.core.tenant.company_scope import resolve_empresa_id_for_rbac
+
+        empresa_id = resolve_empresa_id_for_rbac(payload=payload)
+
         resolver = get_permission_resolver()
         effective = await resolver.get_effective_permissions(
             usuario_id=current_user.usuario_id,
             cliente_id=cliente_id,
             database_type=database_type,
             is_super_admin=is_super_admin,
+            empresa_id=empresa_id,
+            payload=payload,
             filter_by_subscription=getattr(
                 settings, "PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION", False
             ),
@@ -489,7 +1081,8 @@ async def get_permissions_me(
     """,
 )
 async def get_menu(
-    current_user=Depends(get_current_active_user),
+    current_user=Depends(require_erp_session),
+    payload: Dict = Depends(require_full_session_payload),
 ):
     """
     Menú centralizado vía Menu Resolver (Permission Resolver + ModuloMenuService).
@@ -499,21 +1092,39 @@ async def get_menu(
         from app.core.authorization.menu_resolver import get_menu_resolver
         from app.core.tenant.context import try_get_tenant_context
 
-        cliente_id = getattr(current_user, "cliente_id", None)
-        if not cliente_id:
+        request_cliente_id = None
+        try:
             request_cliente_id = get_current_client_id()
-            if not request_cliente_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Contexto de tenant no disponible",
-                )
-            cliente_id = request_cliente_id
+        except RuntimeError:
+            pass
+
+        from app.core.auth.impersonation_rbac import resolve_menu_cliente_id_for_session
+
+        cliente_id = resolve_menu_cliente_id_for_session(
+            payload=payload,
+            user_cliente_id=getattr(current_user, "cliente_id", None),
+            request_cliente_id=request_cliente_id,
+        )
+        if not cliente_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Contexto de tenant no disponible",
+            )
 
         tenant_context = try_get_tenant_context()
         database_type = tenant_context.database_type if tenant_context else "single"
-        is_super_admin = getattr(current_user, "is_super_admin", False)
-        access_level = getattr(current_user, "access_level", 1)
-        as_tenant_admin = access_level >= 4 and not is_super_admin
+        from app.core.auth.impersonation import suppress_platform_privileges
+
+        is_super_admin, _, _access_level = suppress_platform_privileges(
+            payload=payload,
+            is_super_admin=getattr(current_user, "is_super_admin", False),
+            user_type=getattr(current_user, "user_type", None),
+            access_level=getattr(current_user, "access_level", None),
+        )
+
+        from app.core.tenant.company_scope import resolve_empresa_id_for_rbac
+
+        empresa_id = resolve_empresa_id_for_rbac(payload=payload)
 
         menu_resolver = get_menu_resolver()
         menu = await menu_resolver.get_menu_for_user(
@@ -521,7 +1132,9 @@ async def get_menu(
             cliente_id=cliente_id,
             database_type=database_type,
             is_super_admin=is_super_admin,
-            as_tenant_admin=as_tenant_admin,
+            as_tenant_admin=False,
+            empresa_id=empresa_id,
+            payload=payload,
         )
         return menu
     except HTTPException:
@@ -571,25 +1184,66 @@ async def refresh_access_token(
                 detail="Refresh token no proporcionado"
             )
 
-        level_info = await get_user_access_level_info(
-            current_user.get("usuario_id"),
-            current_user.get("cliente_id")
+        from app.core.security.jwt import decode_refresh_token
+
+        try:
+            refresh_payload = decode_refresh_token(old_refresh_token)
+            if refresh_payload.get("is_impersonation"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "La sesión de impersonación no admite refresh. "
+                        "Finalice la impersonación o vuelva a iniciar soporte en el tenant."
+                    ),
+                )
+        except HTTPException:
+            raise
+
+        from app.core.tenant.empresa_context import coerce_empresa_id
+
+        # Fuente de verdad: refresh_tokens.empresa_id (cargado en get_current_user_from_refresh)
+        refresh_empresa_id = coerce_empresa_id(current_user.get("empresa_id"))
+        refresh_usuario_id = current_user.get("usuario_id")
+        refresh_cliente_id = current_user.get("cliente_id")
+
+        level_info = await AuthService.resolve_level_info_for_token_refresh(
+            refresh_payload=refresh_payload,
+            username=username,
+            usuario_id=refresh_usuario_id,
+            cliente_id=refresh_cliente_id,
+            empresa_id=refresh_empresa_id,
+        )
+        es_admin_cliente = await AuthService.usuario_tiene_es_admin_cliente(
+            refresh_usuario_id,
+            refresh_cliente_id,
+            refresh_empresa_id,
+            username=username,
         )
 
-        # ✅ Convertir cliente_id a string para JSON serialization
-        cliente_id = current_user.get("cliente_id")
-        if cliente_id and not isinstance(cliente_id, str):
-            cliente_id = str(cliente_id)
+        token_expiration = await AuthService.get_token_expiration_for_cliente(refresh_cliente_id)
+        access_expire_minutes = token_expiration["access_token_minutes"]
+        refresh_expire_days = token_expiration["refresh_token_days"]
+        refresh_cookie_max_age = refresh_expire_days * 24 * 60 * 60
 
-        token_data = {
-            "sub": username,
-            "cliente_id": cliente_id,
-            "level_info": level_info  # ✅ AGREGAR ESTO
-        }
+        token_data = AuthService.build_token_data_from_level_info(
+            username=username,
+            cliente_id=current_user.get("cliente_id"),
+            level_info=level_info,
+            refresh_payload=refresh_payload,
+        )
 
-        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        new_access_token, new_access_jti = create_access_token(data=token_data)
-        new_refresh_token, new_refresh_jti = create_refresh_token(data=token_data)    
+        new_access_token, new_access_jti = create_access_token(
+            data=token_data,
+            empresa_id=refresh_empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            access_token_expire_minutes=access_expire_minutes,
+        )
+        new_refresh_token, new_refresh_jti = create_refresh_token(
+            data=token_data,
+            empresa_id=refresh_empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            refresh_token_expire_days=refresh_expire_days,
+        )
 
         # === PASO 2: GENERAR NUEVOS TOKENS ===
         #new_access_token = create_access_token(data={"sub": username})
@@ -613,7 +1267,9 @@ async def refresh_access_token(
                 client_type=client_type,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                is_rotation=True  # ✅ CRÍTICO: True porque es una rotación
+                is_rotation=True,
+                empresa_id=refresh_empresa_id,
+                refresh_token_expire_days=refresh_expire_days,
             )
             
             # === PASO 4: REVOCAR TOKEN ANTIGUO SOLO SI EL NUEVO SE GUARDÓ ===
@@ -666,7 +1322,7 @@ async def refresh_access_token(
                 httponly=True,
                 secure=settings.COOKIE_SECURE,
                 samesite=settings.COOKIE_SAMESITE,
-                max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                max_age=refresh_cookie_max_age,
                 path="/",
                 domain=settings.COOKIE_DOMAIN,
             )
@@ -728,29 +1384,33 @@ async def refresh_access_token(
     "/logout/",
     summary="Cerrar sesión",
     description="""
-    Cierra sesión de forma **stateless** e **idempotente**.
+    Cierra sesión de forma **idempotente** (siempre 200).
 
-    - No requiere `Authorization` header.
-    - No depende de datos del usuario ni consulta tablas de usuario.
-    - Limpia cookies/tokens si existen y retorna **200 siempre**.
+    **Revocación en BD:**
+    - Lee el refresh desde cookie HttpOnly (web) o body `refresh_token` (mobile).
+    - Marca `refresh_tokens.is_revoked = 1` y `revoked_at` para ese hash.
+    - Usa `cliente_id` del JWT refresh (válido para platform y tenant).
 
-    **Respuestas:**
-    - 200: Sesión cerrada exitosamente.
+    **Cliente web:** limpia cookies de refresh (y access si aplica).
+
+    **Opcional:** si envía `Authorization: Bearer <access>`, blacklistea el `jti` del access.
+
+    No requiere access token para revocar el refresh en BD.
     """
 )
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
     """
-    Logout stateless:
-    - No requiere usuario autenticado.
-    - No ejecuta queries.
-    - Limpia cookies si existen.
-    - Siempre retorna 200 (idempotente).
+    Logout: revoca refresh en BD + limpia cookies. Idempotente (200 siempre).
     """
-    try:
-        # Cookie estándar solicitada (aunque el backend use header para access token)
-        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN)
+    client_type = get_client_type(request)
 
-        # Cookie refresh (web) si existe
+    try:
+        await AuthService.perform_logout(request=request, client_type=client_type)
+    except Exception as e:
+        logger.warning("[LOGOUT] perform_logout falló (fail-soft): %s", e)
+
+    try:
+        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN)
         response.delete_cookie(
             key=settings.REFRESH_COOKIE_NAME,
             path="/",
@@ -758,7 +1418,6 @@ async def logout(response: Response):
             domain=settings.COOKIE_DOMAIN,
         )
     except Exception:
-        # Fail-soft: logout nunca debe fallar por limpieza de cookies
         pass
 
     return {"message": "Logout successful"}
@@ -1131,12 +1790,21 @@ async def sso_azure_login(
             cliente_id=cliente_id,
             user_role_names=user_role_names
         )
-        
-        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        access_token, access_jti = create_access_token(data=token_payload)
-        refresh_token, refresh_jti = create_refresh_token(data=token_payload)
 
-        # Almacenar refresh token
+        token_expiration = await AuthService.get_token_expiration_for_cliente(cliente_id)
+        access_expire_minutes = token_expiration["access_token_minutes"]
+        refresh_expire_days = token_expiration["refresh_token_days"]
+        refresh_cookie_max_age = refresh_expire_days * 24 * 60 * 60
+        
+        access_token, access_jti = create_access_token(
+            data=token_payload,
+            access_token_expire_minutes=access_expire_minutes,
+        )
+        refresh_token, refresh_jti = create_refresh_token(
+            data=token_payload,
+            refresh_token_expire_days=refresh_expire_days,
+        )
+
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
         await RefreshTokenService.store_refresh_token(
@@ -1145,7 +1813,8 @@ async def sso_azure_login(
             token=refresh_token,
             client_type=client_type,
             ip_address=ip_address,
-            user_agent=user_agent
+            user_agent=user_agent,
+            refresh_token_expire_days=refresh_expire_days,
         )
 
         response_data = {
@@ -1161,7 +1830,7 @@ async def sso_azure_login(
                 httponly=True,
                 secure=settings.COOKIE_SECURE,
                 samesite=settings.COOKIE_SAMESITE,
-                max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                max_age=refresh_cookie_max_age,
                 path="/",
                 domain=settings.COOKIE_DOMAIN,
             )
@@ -1262,12 +1931,21 @@ async def sso_google_login(
             cliente_id=cliente_id,
             user_role_names=user_role_names
         )
-        
-        # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        access_token, access_jti = create_access_token(data=token_payload)
-        refresh_token, refresh_jti = create_refresh_token(data=token_payload)
 
-        # Almacenar refresh token
+        token_expiration = await AuthService.get_token_expiration_for_cliente(cliente_id)
+        access_expire_minutes = token_expiration["access_token_minutes"]
+        refresh_expire_days = token_expiration["refresh_token_days"]
+        refresh_cookie_max_age = refresh_expire_days * 24 * 60 * 60
+        
+        access_token, access_jti = create_access_token(
+            data=token_payload,
+            access_token_expire_minutes=access_expire_minutes,
+        )
+        refresh_token, refresh_jti = create_refresh_token(
+            data=token_payload,
+            refresh_token_expire_days=refresh_expire_days,
+        )
+
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
         await RefreshTokenService.store_refresh_token(
@@ -1276,7 +1954,8 @@ async def sso_google_login(
             token=refresh_token,
             client_type=client_type,
             ip_address=ip_address,
-            user_agent=user_agent
+            user_agent=user_agent,
+            refresh_token_expire_days=refresh_expire_days,
         )
 
         response_data = {
@@ -1292,7 +1971,7 @@ async def sso_google_login(
                 httponly=True,
                 secure=settings.COOKIE_SECURE,
                 samesite=settings.COOKIE_SAMESITE,
-                max_age=settings.REFRESH_COOKIE_MAX_AGE,
+                max_age=refresh_cookie_max_age,
                 path="/",
                 domain=settings.COOKIE_DOMAIN,
             )

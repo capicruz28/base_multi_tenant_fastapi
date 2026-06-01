@@ -1,0 +1,24 @@
+"""
+Constantes compartidas — OwnerSyncService v1.0 (Modelo Owner SaaS).
+"""
+from __future__ import annotations
+
+ADMIN_ROL_CODIGO = "ADMIN_TENANT"
+
+TRIAL_MODULES: tuple[str, ...] = ("ORG", "SYS_ADMIN", "INV")
+
+SYS_ADMIN_MENU_EXCLUDE_PREFIXES: tuple[str, ...] = (
+    "SYS_ADMIN.PLATFORM.",
+    "SYS_ADMIN.CATALOGOS.",
+)
+
+EXCLUDED_GLOBAL_PERMISO_CODIGOS: frozenset[str] = frozenset({"tenant.cliente.crear"})
+
+# Códigos de error OwnerSync
+OWNER_SYNC_ADMIN_ROLE_NOT_FOUND = "OWNER_SYNC_ADMIN_ROLE_NOT_FOUND"
+OWNER_SYNC_MODULE_NOT_FOUND = "OWNER_SYNC_MODULE_NOT_FOUND"
+OWNER_SYNC_MODULE_NOT_CONTRACTED = "OWNER_SYNC_MODULE_NOT_CONTRACTED"
+OWNER_SYNC_ZERO_GRANTS = "OWNER_SYNC_ZERO_GRANTS"
+
+# Trial owner menu grants esperados (S010): 6 ORG + 3 SYS_ADMIN.TENANT + 9 INV
+MIN_HEALTHY_TRIAL_OWNER_MENU_GRANTS = 18

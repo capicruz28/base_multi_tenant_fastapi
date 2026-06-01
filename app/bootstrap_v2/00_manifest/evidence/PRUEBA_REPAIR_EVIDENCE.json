@@ -1,0 +1,58 @@
+{
+  "tenant": {
+    "cliente_id": "EB067FE5-92C5-449B-9845-F9FE36B28A40",
+    "subdominio": "prueba",
+    "codigo_cliente": "CL005"
+  },
+  "validation_date": "2026-05-21",
+  "environment": "docker dev (bd_sistema)",
+  "dry_run": {
+    "status": "dry_run",
+    "before": {
+      "cliente_modulo_count": 0,
+      "modulos_codigos": [],
+      "rol_permiso_admin_count": 0,
+      "has_core_app_acceder": false,
+      "repair_reasons": ["NO_CLIENTE_MODULO", "NO_ROL_PERMISO_ADMIN"]
+    }
+  },
+  "apply": {
+    "status": "repaired",
+    "bootstrap": {
+      "modulos": ["ORG", "SYS_ADMIN"],
+      "grants_inserted": 44
+    },
+    "before": {
+      "cliente_modulo_count": 0,
+      "rol_permiso_admin_count": 0,
+      "has_core_app_acceder": false
+    },
+    "after": {
+      "cliente_modulo_count": 2,
+      "modulos_codigos": ["ORG", "SYS_ADMIN"],
+      "rol_permiso_admin_count": 44,
+      "has_core_app_acceder": true,
+      "needs_repair": false
+    }
+  },
+  "post_repair_sql": {
+    "cliente_modulo_count": 2,
+    "modulos": "ORG,SYS_ADMIN",
+    "rol_permiso_admin_count": 44,
+    "admin_username": "admin",
+    "sample_checks": {
+      "core.app.acceder": true,
+      "org.empresa.crear": true,
+      "org.empresa.leer": true,
+      "modulos.menu.leer": true,
+      "admin.usuario.leer": true,
+      "tenant.cliente.crear": false
+    }
+  },
+  "manual_api_smoke": {
+    "reset_admin": "staging_reset_tenant_admin.py --subdominio prueba --password admin123",
+    "http_smoke": "scripts/http_smoke_tenant_rbac.py → passed: true (2026-05-21)",
+    "evidence_file": "smoke_prueba_last.json",
+    "note": "Admin sin org_empresa: /me, /menu, /permissions/me en 403 se marcan skip esperado hasta crear empresa"
+  }
+}

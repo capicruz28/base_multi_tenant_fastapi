@@ -11,7 +11,10 @@ import logging
 from app.modules.auth.domain.entities.usuario import Usuario
 from app.modules.auth.infrastructure.repositories.usuario_repository import UsuarioRepository
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
-from app.core.auth import create_access_token, create_refresh_token, get_user_access_level_info
+from app.core.security.jwt import create_access_token, create_refresh_token
+from app.modules.auth.application.services.auth_service import get_user_access_level_info
+from app.modules.auth.application.services.auth_service import AuthService
+from app.core.tenant.empresa_context import coerce_empresa_id
 from app.core.exceptions import ValidationError, NotFoundError, AuthenticationError
 from app.core.tenant.context import get_current_client_id
 
@@ -79,8 +82,19 @@ class RefreshTokenUseCase:
                 internal_code="INVALID_REFRESH_TOKEN_DATA"
             )
         
-        # 2. Obtener información de niveles de acceso
-        level_info = await get_user_access_level_info(usuario_id, cliente_id)
+        refresh_empresa_id = coerce_empresa_id(current_user_data.get("empresa_id"))
+
+        # 2. Obtener información de niveles de acceso (filtrada por empresa si aplica)
+        level_info = await get_user_access_level_info(
+            usuario_id, cliente_id, empresa_id=refresh_empresa_id
+        )
+        es_admin_cliente = await AuthService.usuario_tiene_es_admin_cliente(
+            usuario_id, cliente_id, refresh_empresa_id
+        )
+
+        token_expiration = await AuthService.get_token_expiration_for_cliente(cliente_id)
+        access_expire_minutes = token_expiration["access_token_minutes"]
+        refresh_expire_days = token_expiration["refresh_token_days"]
         
         # 3. Preparar datos para nuevos tokens
         # ✅ Convertir cliente_id a string para JSON serialization
@@ -94,8 +108,18 @@ class RefreshTokenUseCase:
         
         # 4. Generar nuevos tokens
         # ✅ REVOCACIÓN: create_access_token y create_refresh_token ahora retornan (token, jti)
-        new_access_token, new_access_jti = create_access_token(data=token_data)
-        new_refresh_token, new_refresh_jti = create_refresh_token(data=token_data)
+        new_access_token, new_access_jti = create_access_token(
+            data=token_data,
+            empresa_id=refresh_empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            access_token_expire_minutes=access_expire_minutes,
+        )
+        new_refresh_token, new_refresh_jti = create_refresh_token(
+            data=token_data,
+            empresa_id=refresh_empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            refresh_token_expire_days=refresh_expire_days,
+        )
         
         # 5. Almacenar nuevo refresh token con rotación
         try:
@@ -106,7 +130,9 @@ class RefreshTokenUseCase:
                 client_type=client_type,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                is_rotation=True  # Es una rotación
+                is_rotation=True,
+                empresa_id=refresh_empresa_id,
+                refresh_token_expire_days=refresh_expire_days,
             )
             
             # 6. Revocar token antiguo solo si el nuevo se guardó correctamente

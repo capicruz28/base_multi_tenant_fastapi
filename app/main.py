@@ -91,6 +91,11 @@ def create_application() -> FastAPI:
         TenantMiddleware
     )
 
+    # Diagnóstico temporal: POST /auth/impersonate/* (solo logs)
+    from app.core.auth.impersonate_auth_diag import ImpersonateAuthDiagMiddleware
+
+    app.add_middleware(ImpersonateAuthDiagMiddleware)
+
     # ✅ CORRECCIÓN: Construir origins dinámicamente para subdominios
     allowed_origins = [
         # Desarrollo local
@@ -103,6 +108,7 @@ def create_application() -> FastAPI:
         "http://innova.app.local:8000",
         "http://techcorp.app.local:8000",
         "http://global.app.local:8000",
+        "http://prueba.app.local:8000",
         "http://platform.app.local:8000",
         
         # ✅ NUEVO: Dominios con app.local (desarrollo)
@@ -112,6 +118,7 @@ def create_application() -> FastAPI:
         "http://innova.app.local:5173",
         "http://techcorp.app.local:5173",
         "http://global.app.local:5173",
+        "http://prueba.app.local:5173",
         
         # Producción (mantén tus existentes)
         "http://acme.midominio.com:5173",

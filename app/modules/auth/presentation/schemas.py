@@ -12,11 +12,13 @@ Características principales:
 - Documentación clara para desarrolladores
 """
 
-from pydantic import BaseModel, Field, field_validator, EmailStr
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, EmailStr
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
 import re
+
+from app.shared.validators import sanitize_person_name
 
 class UserDataBase(BaseModel):
     """
@@ -443,7 +445,9 @@ class UserDataWithRoles(UserDataBase):
     
     AHORA INCLUYE: Campos de nivel de acceso para el sistema LBAC
     """
-    
+
+    model_config = ConfigDict(ser_json_exclude_none=True)
+
     roles: List[str] = Field(
         default_factory=list,
         description="Lista de nombres de roles asignados al usuario",
@@ -476,6 +480,21 @@ class UserDataWithRoles(UserDataBase):
         description="ID del cliente al que pertenece el usuario (UUID)",
         examples=["550e8400-e29b-41d4-a716-446655440000"]
     )
+
+    es_admin_cliente: bool = Field(
+        False,
+        description="True si el usuario tiene un rol activo con rol.es_admin_cliente = 1",
+    )
+
+    empresa_activa: Optional[str] = Field(
+        None,
+        description="UUID de la empresa activa de la sesión (string), si aplica",
+        examples=["AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"],
+    )
+
+    @field_serializer("empresa_activa", when_used="json-unless-none")
+    def _serialize_empresa_activa(self, value: Optional[str]) -> Optional[str]:
+        return value
 
     @field_validator('roles')
     @classmethod
@@ -620,6 +639,126 @@ class LoginData(BaseModel):
         
         return valor
 
+
+def build_user_data_with_roles_dict(
+    *,
+    usuario_id: UUID,
+    nombre_usuario: str,
+    correo: str,
+    nombre: Optional[str],
+    apellido: Optional[str],
+    es_activo: bool,
+    roles: List[str],
+    access_level: int,
+    is_super_admin: bool,
+    user_type: str,
+    cliente_id: UUID,
+    es_admin_cliente: bool,
+    empresa_activa: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Perfil de usuario para user_data en login, Token y /me.
+    Sin campos de estado de sesión (requiere_seleccion_empresa, empresas_disponibles).
+    """
+    data: Dict[str, Any] = {
+        "usuario_id": usuario_id,
+        "nombre_usuario": nombre_usuario,
+        "correo": correo or "",
+        "nombre": sanitize_person_name(nombre),
+        "apellido": sanitize_person_name(apellido),
+        "es_activo": es_activo,
+        "roles": roles,
+        "access_level": access_level,
+        "is_super_admin": is_super_admin,
+        "user_type": user_type,
+        "cliente_id": cliente_id,
+        "es_admin_cliente": es_admin_cliente,
+    }
+    if empresa_activa is not None:
+        data["empresa_activa"] = empresa_activa
+    return data
+
+
+class EmpresaDisponible(BaseModel):
+    """Empresa elegible en el flujo de selección post-login."""
+
+    empresa_id: UUID = Field(..., description="UUID de la empresa")
+    razon_social: str = Field(..., description="Razón social de la empresa")
+    nombre_comercial: Optional[str] = Field(
+        None,
+        description="Nombre comercial de la empresa (opcional)",
+    )
+
+
+class MeResponse(UserDataWithRoles):
+    """
+    GET /auth/me: perfil y estado de sesión en un único objeto plano (sin anidamiento).
+    """
+
+    model_config = ConfigDict(ser_json_exclude_none=False)
+
+    requiere_seleccion_empresa: bool = Field(
+        False,
+        description="True si debe seleccionar empresa (admin sin empresa activa en JWT)",
+    )
+    empresas_disponibles: Optional[List[EmpresaDisponible]] = Field(
+        None,
+        description="Empresas elegibles cuando requiere_seleccion_empresa es true",
+    )
+    is_impersonation: bool = Field(
+        False,
+        description="True si la sesión es impersonación de soporte de plataforma",
+    )
+    impersonated_by: Optional[str] = Field(
+        None,
+        description="UUID del operador que inició la impersonación",
+    )
+    impersonated_by_username: Optional[str] = Field(
+        None,
+        description="Username del operador que inició la impersonación",
+    )
+
+
+class EmpresaIdRequest(BaseModel):
+    """Body para seleccionar o cambiar la empresa activa de la sesión."""
+
+    empresa_id: UUID = Field(
+        ...,
+        description="UUID de la empresa a activar en la sesión",
+    )
+    refresh_token: Optional[str] = Field(
+        None,
+        description="Refresh token actual (solo móvil, para rotación en cambiar empresa)",
+    )
+
+
+class LoginEmpresaSelectionResponse(BaseModel):
+    """
+    Respuesta cuando el usuario debe elegir empresa antes de completar la sesión.
+    Incluye un token temporal (sin empresa_id) para el endpoint de selección.
+    """
+
+    model_config = ConfigDict(ser_json_exclude_none=True)
+
+    requiere_seleccion_empresa: bool = Field(
+        True,
+        description="Indica que debe seleccionar una empresa para continuar",
+    )
+    empresas_disponibles: List[EmpresaDisponible] = Field(
+        default_factory=list,
+        description="Empresas a las que el usuario tiene acceso (id y nombres para el selector)",
+    )
+    selection_token: str = Field(
+        ...,
+        description="JWT temporal sin empresa_id para autorizar la selección de empresa",
+    )
+    token_type: str = Field("bearer", description="Tipo de token")
+    user_data: Optional["UserDataWithRoles"] = Field(
+        None,
+        description="Datos básicos del usuario autenticado",
+    )
+
+
 class Token(BaseModel):
     """
     Schema para respuesta de tokens JWT.
@@ -629,7 +768,9 @@ class Token(BaseModel):
     
     AHORA INCLUYE: Campos de nivel de acceso en user_data
     """
-    
+
+    model_config = ConfigDict(ser_json_exclude_none=True)
+
     access_token: str = Field(
         ...,
         description="Token JWT de acceso para autorizar solicitudes",
@@ -645,6 +786,11 @@ class Token(BaseModel):
     user_data: Optional[UserDataWithRoles] = Field(
         None,
         description="Datos del usuario autenticado (opcional, no se incluye en refresh)"
+    )
+
+    refresh_token: Optional[str] = Field(
+        None,
+        description="Refresh token (solo cliente móvil; en web va en cookie HttpOnly)",
     )
 
     @field_validator('access_token')
@@ -666,6 +812,19 @@ class Token(BaseModel):
             raise ValueError('El token de acceso no puede estar vacío')
         
         return valor
+
+
+class ImpersonationEndResponse(BaseModel):
+    """Respuesta al finalizar impersonación: restaura sesión del operador."""
+
+    model_config = ConfigDict(ser_json_exclude_none=True)
+
+    access_token: str = Field(..., description="Access token de la sesión original del operador")
+    token_type: str = Field("bearer", description="Tipo de token")
+    refresh_token: Optional[str] = Field(
+        None,
+        description="Refresh token original (solo móvil; en web se restaura vía cookie)",
+    )
 
 
 class PermissionsMeResponse(BaseModel):
@@ -731,14 +890,49 @@ class TokenPayload(BaseModel):
     
     user_type: Optional[str] = Field(
         None,
-        description="Tipo de usuario: 'super_admin', 'tenant_admin', 'user'",
-        examples=["super_admin", "tenant_admin", "user"]
+        description="Tipo de usuario: 'platform_admin', 'super_admin', 'tenant_admin', 'user'",
+        examples=["platform_admin", "tenant_admin", "user"],
+    )
+
+    es_superadmin: Optional[bool] = Field(
+        None,
+        description="Flag legacy/plataforma en JWT (login platform_admin)",
     )
     
     cliente_id: Optional[UUID] = Field(
         None,
         description="ID del cliente al que pertenece el usuario (UUID)",
         examples=["550e8400-e29b-41d4-a716-446655440000"]
+    )
+
+    empresa_id: Optional[UUID] = Field(
+        None,
+        description="Empresa activa de la sesión (scope multi-empresa)",
+    )
+
+    es_admin_cliente: Optional[bool] = Field(
+        False,
+        description="True si el usuario tiene un rol con es_admin_cliente = 1",
+    )
+
+    empresa_selection_pending: Optional[bool] = Field(
+        None,
+        description="True en selection_token pendiente de elegir empresa",
+    )
+
+    is_impersonation: Optional[bool] = Field(
+        None,
+        description="True en sesión temporal de soporte de plataforma (impersonación)",
+    )
+
+    impersonated_by: Optional[str] = Field(
+        None,
+        description="UUID del operador de plataforma que inició la impersonación",
+    )
+
+    impersonated_by_username: Optional[str] = Field(
+        None,
+        description="Nombre de usuario del operador que inició la impersonación",
     )
 
     @field_validator('type')
@@ -796,9 +990,17 @@ class TokenPayload(BaseModel):
         Raises:
             ValueError: Cuando el tipo no es válido
         """
-        if valor is not None and valor not in ['super_admin', 'tenant_admin', 'user']:
-            raise ValueError(f'Tipo de usuario no válido. Permitidos: super_admin, tenant_admin, user')
-        
+        tipos_permitidos = [
+            "platform_admin",
+            "super_admin",
+            "tenant_admin",
+            "user",
+        ]
+        if valor is not None and valor not in tipos_permitidos:
+            raise ValueError(
+                f"Tipo de usuario no válido. Permitidos: {', '.join(tipos_permitidos)}"
+            )
+
         return valor
 
 class RefreshTokenRequest(BaseModel):

@@ -2,14 +2,13 @@
 """Endpoints INV - Unidades de Medida. client_id siempre desde current_user.cliente_id."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
-from typing import Optional
 
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import UnidadMedidaCreate, UnidadMedidaUpdate, UnidadMedidaRead
 from app.modules.inv.application.services import unidad_medida_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
@@ -19,16 +18,14 @@ RESOURCE_CODE = "unidad_medida"
 
 @router.get("", response_model=list[UnidadMedidaRead], summary="Listar unidades de medida")
 async def listar_unidades_medida(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     solo_activos: bool = Query(True, description="Solo unidades activas"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista unidades de medida del tenant. Filtro por cliente_id del token."""
+    """Lista unidades de medida de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     return await unidad_medida_service.list_unidades_medida_servicio(
         client_id=client_id,
-        empresa_id=empresa_id,
         solo_activos=solo_activos,
     )
 
@@ -39,7 +36,7 @@ async def detalle_unidad_medida(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Detalle de una unidad de medida. Solo del tenant del usuario."""
+    """Detalle de una unidad de medida de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await unidad_medida_service.get_unidad_medida_servicio(
@@ -56,9 +53,12 @@ async def crear_unidad_medida(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea una unidad de medida. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """Crea una unidad de medida. empresa_id del body debe coincidir con la sesión."""
     client_id = current_user.cliente_id
-    return await unidad_medida_service.create_unidad_medida_servicio(client_id=client_id, data=data)
+    try:
+        return await unidad_medida_service.create_unidad_medida_servicio(client_id=client_id, data=data)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{unidad_medida_id}", response_model=UnidadMedidaRead, summary="Actualizar unidad de medida")
@@ -68,7 +68,7 @@ async def actualizar_unidad_medida(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza una unidad de medida. Solo del tenant del usuario."""
+    """Actualiza una unidad de medida de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await unidad_medida_service.update_unidad_medida_servicio(
@@ -90,7 +90,7 @@ async def eliminar_unidad_medida(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
 ):
-    """Marca una unidad de medida como inactiva (es_activo = 0) dentro del tenant."""
+    """Marca una unidad de medida como inactiva en la empresa activa."""
     client_id = current_user.cliente_id
     try:
         await unidad_medida_service.update_unidad_medida_servicio(
@@ -112,7 +112,7 @@ async def reactivar_unidad_medida(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Reactiva una unidad de medida previamente dada de baja dentro del tenant."""
+    """Reactiva una unidad de medida de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await unidad_medida_service.update_unidad_medida_servicio(

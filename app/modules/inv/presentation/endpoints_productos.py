@@ -6,10 +6,10 @@ from typing import Optional
 
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import NotFoundError, AuthorizationError, ConflictError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import ProductoCreate, ProductoUpdate, ProductoRead
 from app.modules.inv.application.services import producto_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
@@ -19,7 +19,6 @@ RESOURCE_CODE = "producto"
 
 @router.get("", response_model=list[ProductoRead], summary="Listar productos")
 async def listar_productos(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     categoria_id: Optional[UUID] = Query(None, description="Filtrar por categoría"),
     tipo_producto: Optional[str] = Query(None, description="Filtrar por tipo de producto"),
     solo_activos: bool = Query(True, description="Solo productos activos"),
@@ -27,11 +26,10 @@ async def listar_productos(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista productos del tenant. Filtro por cliente_id del token."""
+    """Lista productos de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     return await producto_service.list_productos_servicio(
         client_id=client_id,
-        empresa_id=empresa_id,
         categoria_id=categoria_id,
         tipo_producto=tipo_producto,
         solo_activos=solo_activos,
@@ -45,7 +43,7 @@ async def detalle_producto(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Detalle de un producto. Solo del tenant del usuario."""
+    """Detalle de un producto de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await producto_service.get_producto_servicio(
@@ -62,9 +60,14 @@ async def crear_producto(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea un producto. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """Crea un producto. empresa_id del body debe coincidir con la sesión."""
     client_id = current_user.cliente_id
-    return await producto_service.create_producto_servicio(client_id=client_id, data=data)
+    try:
+        return await producto_service.create_producto_servicio(client_id=client_id, data=data)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ConflictError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{producto_id}", response_model=ProductoRead, summary="Actualizar producto")
@@ -74,7 +77,7 @@ async def actualizar_producto(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza un producto. Solo del tenant del usuario."""
+    """Actualiza un producto de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await producto_service.update_producto_servicio(
@@ -83,6 +86,8 @@ async def actualizar_producto(
             data=data,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except ConflictError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -96,7 +101,7 @@ async def eliminar_producto(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
 ):
-    """Marca un producto como inactivo (es_activo = 0) dentro del tenant."""
+    """Marca un producto como inactivo en la empresa activa."""
     client_id = current_user.cliente_id
     try:
         await producto_service.update_producto_servicio(
@@ -118,7 +123,7 @@ async def reactivar_producto(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Reactiva un producto previamente dado de baja dentro del tenant."""
+    """Reactiva un producto de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await producto_service.update_producto_servicio(

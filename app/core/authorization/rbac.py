@@ -178,11 +178,27 @@ def has_permission(user: UserWithRolesAndPermissions, permission: str) -> bool:
     if not user:
         return False
     
-    # ✅ SUPER ADMIN TIENE ACCESO COMPLETO
-    if get_user_type(user) == "super_admin":
-        logger.debug(f"Super Admin {user.nombre_usuario} tiene acceso completo al permiso: {permission}")
+    from app.core.auth.impersonation_rbac import (
+        get_impersonation_effective_permissions_cached,
+    )
+
+    imp_cached = get_impersonation_effective_permissions_cached()
+
+    # ✅ SUPER ADMIN TIENE ACCESO COMPLETO (no durante impersonación tenant-scoped)
+    if get_user_type(user) == "super_admin" and imp_cached is None:
+        logger.debug(
+            f"Super Admin {user.nombre_usuario} tiene acceso completo al permiso: {permission}"
+        )
         return True
-    
+
+    if imp_cached is not None:
+        if permission in imp_cached:
+            logger.debug(
+                "[IMPERSONATION-RBAC] permiso '%s' OK (impersonation_effective_admin)",
+                permission,
+            )
+            return True
+
     # 🔍 VERIFICAR EN PERMISOS EXPLÍCITOS (lista de códigos str o lista de objetos con .nombre)
     permisos_list = getattr(user, "permisos", None) or []
     if all(isinstance(p, str) for p in permisos_list):
@@ -248,9 +264,39 @@ def require_super_admin() -> Callable:
         Raises:
             AuthorizationError: Si el usuario no tiene permisos de Super Admin
         """
+        from app.core.auth.impersonate_auth_diag import is_impersonate_diag_request
+
+        if is_impersonate_diag_request():
+            logger.info(
+                "[IMPERSONATE-AUTH] require_super_admin entry username=%s "
+                "user_type=%s is_super_admin=%s access_level=%s",
+                current_user.nombre_usuario,
+                getattr(current_user, "user_type", None),
+                getattr(current_user, "is_super_admin", None),
+                getattr(current_user, "access_level", None),
+            )
+
         logger.info(f"Validando Super Admin para usuario: {current_user.nombre_usuario}")
-        
-        if get_user_type(current_user) != "super_admin":
+
+        user_type_claim = (getattr(current_user, "user_type", None) or "").lower()
+        is_platform_admin = user_type_claim == "platform_admin"
+        is_super = (
+            get_user_type(current_user) == "super_admin"
+            or is_platform_admin
+            or (
+                getattr(current_user, "is_super_admin", False)
+                and getattr(current_user, "access_level", 0) >= 5
+            )
+        )
+        if not is_super:
+            if is_impersonate_diag_request():
+                logger.warning(
+                    "[IMPERSONATE-AUTH] require_super_admin DENIED username=%s "
+                    "user_type_claim=%s get_user_type=%s → AuthorizationError 403",
+                    current_user.nombre_usuario,
+                    user_type_claim,
+                    get_user_type(current_user),
+                )
             logger.warning(
                 f"Intento de acceso no autorizado a endpoint Super Admin por: {current_user.nombre_usuario}"
             )
@@ -258,7 +304,13 @@ def require_super_admin() -> Callable:
                 detail="Se requieren privilegios de Super Administrador para acceder a este recurso",
                 internal_code="SUPER_ADMIN_REQUIRED"
             )
-        
+
+        if is_impersonate_diag_request():
+            logger.info(
+                "[IMPERSONATE-AUTH] require_super_admin OK username=%s",
+                current_user.nombre_usuario,
+            )
+
         logger.info(f"Acceso Super Admin autorizado para: {current_user.nombre_usuario}")
         return current_user
     

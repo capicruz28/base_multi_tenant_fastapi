@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 import logging
 
+from app.core.menu.menu_route_normalizer import normalize_menu_ruta_for_fe
 from app.modules.modulos.presentation.schemas import (
     MenuUsuarioResponse,
     ModuloMenuResponse,
@@ -136,7 +137,7 @@ def transformar_sp_menu_usuario(
             "nombre": row.get("menu_nombre", ""),
             "descripcion": row.get("menu_descripcion"),
             "icono": row.get("menu_icono"),
-            "ruta": row.get("ruta") or row.get("menu_ruta"),
+            "ruta": normalize_menu_ruta_for_fe(row.get("ruta") or row.get("menu_ruta")),
             "tipo_menu": row.get("menu_tipo", "pantalla"),
             "orden": row.get("menu_orden", 0),
             "is_visible": is_visible,

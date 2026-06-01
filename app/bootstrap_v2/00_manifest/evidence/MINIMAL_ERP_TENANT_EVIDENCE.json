@@ -1,0 +1,23 @@
+{
+  "database": "bd_sistema_saas",
+  "date": "2026-05-21",
+  "implementation": "minimal_erp_tenant_bootstrap_service + cliente_onboarding_service",
+  "new_tenant_onboarding": {
+    "subdominio": "smokerc9a284e98",
+    "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+    "org_empresa": "EMP001",
+    "smoke_passed": true,
+    "permissions_me_sample_count": 45,
+    "checks": {
+      "auth_me": 200,
+      "auth_menu": 200,
+      "permissions_me": 200,
+      "org_empresa_list": 1
+    }
+  },
+  "legacy_repair": {
+    "subdominio": "smokerc2af1c02b",
+    "repair_script": "repair_minimal_erp_tenant.py --apply",
+    "smoke_passed_after_repair": true
+  }
+}

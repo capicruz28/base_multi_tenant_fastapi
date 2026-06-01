@@ -1,0 +1,50 @@
+{
+  "subdominio": "platform",
+  "base_url": "http://localhost:8000",
+  "passed": true,
+  "duration_sec": 1.797,
+  "steps": [
+    {
+      "name": "login",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "has_access": true
+      }
+    },
+    {
+      "name": "auth_me",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "user_type": "platform_admin"
+      }
+    },
+    {
+      "name": "auth_menu",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "modulos_count": 1
+      }
+    },
+    {
+      "name": "permissions_me_platform",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "admin.platform.access": true,
+        "core.app.acceder": true,
+        "tenant.cliente.crear": true,
+        "admin.usuario.leer": true,
+        "sample_count": 414
+      }
+    },
+    {
+      "name": "refresh",
+      "ok": true,
+      "status": 200,
+      "detail": null
+    }
+  ]
+}

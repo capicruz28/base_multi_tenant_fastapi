@@ -28,6 +28,11 @@ from app.core.exceptions import (
 )
 from app.core.application.base_service import BaseService
 from app.modules.tenant.presentation.schemas import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse, BrandingRead
+from app.modules.tenant.application.services.cliente_onboarding_service import (
+    ClienteOnboardingService,
+    ClienteOnboardingResult,
+    MENSAJE_CREACION_EXITOSA,
+)
 from app.infrastructure.database.connection_async import DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -94,75 +99,22 @@ class ClienteService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def crear_cliente(cliente_data: ClienteCreate) -> ClienteRead:
+    async def crear_cliente(cliente_data: ClienteCreate) -> ClienteOnboardingResult:
         """
-        Crea un nuevo cliente en el sistema con todas sus validaciones.
+        Crea un nuevo cliente y ejecuta el onboarding inicial en una sola transacción.
         """
         logger.info(f"Creando nuevo cliente: {cliente_data.razon_social}")
 
-        # Validaciones de unicidad
         await ClienteService._validar_subdominio_cliente(cliente_data.subdominio)
         await ClienteService._validar_codigo_cliente(cliente_data.codigo_cliente)
 
-        # Preparar datos para inserción
-        fields = [
-            'codigo_cliente', 'subdominio', 'razon_social', 'nombre_comercial', 'ruc',
-            'tipo_instalacion', 'servidor_api_local', 'modo_autenticacion', 'logo_url',
-            'favicon_url', 'color_primario', 'color_secundario', 'tema_personalizado',
-            'plan_suscripcion', 'estado_suscripcion', 'fecha_inicio_suscripcion',
-            'fecha_fin_trial', 'contacto_nombre', 'contacto_email', 'contacto_telefono',
-            'es_activo', 'es_demo', 'metadata_json',
-            'api_key_sincronizacion', 'sincronizacion_habilitada', 'ultima_sincronizacion'
-        ]
-        params = [getattr(cliente_data, field) for field in fields]
-
-        query = f"""
-        INSERT INTO cliente ({', '.join(fields)})
-        OUTPUT 
-            INSERTED.cliente_id,
-            INSERTED.codigo_cliente,
-            INSERTED.subdominio,
-            INSERTED.razon_social,
-            INSERTED.nombre_comercial,
-            INSERTED.ruc,
-            INSERTED.tipo_instalacion,
-            INSERTED.servidor_api_local,
-            INSERTED.modo_autenticacion,
-            INSERTED.logo_url,
-            INSERTED.favicon_url,
-            INSERTED.color_primario,
-            INSERTED.color_secundario,
-            INSERTED.tema_personalizado,
-            INSERTED.plan_suscripcion,
-            INSERTED.estado_suscripcion,
-            INSERTED.fecha_inicio_suscripcion,
-            INSERTED.fecha_fin_trial,
-            INSERTED.contacto_nombre,
-            INSERTED.contacto_email,
-            INSERTED.contacto_telefono,
-            INSERTED.es_activo,
-            INSERTED.es_demo,
-            INSERTED.metadata_json,
-            INSERTED.api_key_sincronizacion,
-            INSERTED.sincronizacion_habilitada,
-            INSERTED.ultima_sincronizacion,
-            INSERTED.fecha_creacion,
-            INSERTED.fecha_actualizacion,
-            INSERTED.fecha_ultimo_acceso
-        VALUES ({', '.join(['?'] * len(fields))})
-        """
-
-        # ✅ FASE 2: Usar await
-        resultado = await execute_insert(query, tuple(params))
-        if not resultado:
-            raise ServiceError(
-                status_code=500,
-                detail="No se pudo crear el cliente en la base de datos.",
-                internal_code="CLIENT_CREATION_FAILED"
-            )
-
-        logger.info(f"Cliente creado exitosamente con ID: {resultado['cliente_id']}")
-        return ClienteRead(**resultado)
+        resultado = await ClienteOnboardingService.crear_cliente_con_onboarding(cliente_data)
+        logger.info(
+            "Cliente creado con onboarding — ID: %s, subdominio: %s",
+            resultado.cliente.cliente_id,
+            resultado.cliente.subdominio,
+        )
+        return resultado
 
     @staticmethod
     @BaseService.handle_service_errors

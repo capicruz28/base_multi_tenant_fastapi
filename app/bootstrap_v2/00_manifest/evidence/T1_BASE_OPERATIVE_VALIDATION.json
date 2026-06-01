@@ -1,0 +1,84 @@
+{
+  "report": "T1_BASE_OPERATIVE_VALIDATION",
+  "phase": "T1",
+  "timestamp_utc": "2026-05-31T00:00:00Z",
+  "spec_reference": "ROLE_BUNDLE_BASELINE_AUDIT.md",
+  "bundle": {
+    "name": "BASE_OPERATIVE",
+    "rol_permiso_codigos": [
+      "core.app.acceder",
+      "tenant.branding.leer",
+      "org.empresa.leer"
+    ],
+    "target_roles": [
+      "MANAGER_TENANT",
+      "USER_TENANT"
+    ],
+    "excluded_roles": [
+      "ADMIN_TENANT"
+    ]
+  },
+  "implementation": {
+    "constants": "app/modules/tenant/application/services/base_operative_constants.py",
+    "service": "app/modules/tenant/application/services/base_operative_service.py",
+    "onboarding_hook": "OnboardingRbacService.bootstrap_cliente_rbac",
+    "assign_hook": "UsuarioService.asignar_rol_a_usuario",
+    "repair_script": "scripts/repair_base_operative.py",
+    "documentation": "app/docs/auditoria/BASE_OPERATIVE_T1_IMPLEMENTATION.md"
+  },
+  "unit_tests": {
+    "command": "pytest tests/unit/test_base_operative_t1.py tests/unit/test_onboarding_rbac_bootstrap.py tests/unit/test_assign_role_empresa_scope.py -v",
+    "passed": 23,
+    "failed": 0,
+    "files": [
+      "tests/unit/test_base_operative_t1.py",
+      "tests/unit/test_onboarding_rbac_bootstrap.py",
+      "tests/unit/test_assign_role_empresa_scope.py"
+    ],
+    "t1_cases": [
+      "test_constants_bundle_three_permissions",
+      "test_apply_to_role_idempotent_when_complete",
+      "test_apply_to_role_inserts_missing_grants",
+      "test_apply_to_operative_roles_both_system_roles",
+      "test_ensure_for_operative_role_skips_admin",
+      "test_ensure_for_operative_role_applies_manager",
+      "test_bootstrap_cliente_rbac_includes_base_operative",
+      "test_asignar_rol_triggers_base_operative_for_manager"
+    ]
+  },
+  "coverage": {
+    "tool": "pytest (pytest-cov / coverage.py not installed in CI env)",
+    "modules_under_test": [
+      "app.modules.tenant.application.services.base_operative_service",
+      "app.modules.tenant.application.services.base_operative_constants"
+    ],
+    "paths_exercised_by_tests": [
+      "apply_to_role (insert + idempotent)",
+      "apply_to_operative_roles (MANAGER + USER)",
+      "ensure_for_operative_role (skip ADMIN, apply MANAGER)",
+      "bootstrap_cliente_rbac integration hook",
+      "asignar_rol_a_usuario hook"
+    ],
+    "not_covered_in_unit_tests": [
+      "audit_operative_roles (repair dry-run SQL)",
+      "repair script main() CLI"
+    ]
+  },
+  "acceptance_criteria": {
+    "manager_user_receive_base_on_onboarding": true,
+    "assign_operative_role_triggers_base": true,
+    "admin_untouched": true,
+    "idempotent_apply": true,
+    "repair_script_present": true,
+    "manager_standard_not_implemented": true,
+    "user_standard_not_implemented": true,
+    "owner_full_untouched": true,
+    "frontend_untouched": true
+  },
+  "repair_usage": {
+    "dry_run": "python scripts/repair_base_operative.py --all --dry-run",
+    "apply_tenant": "python scripts/repair_base_operative.py --subdominio <sub> --apply",
+    "apply_all": "python scripts/repair_base_operative.py --all --apply --output app/bootstrap_v2/00_manifest/evidence/T1_BASE_OPERATIVE_REPAIR.json"
+  },
+  "verdict": "PASS_UNIT"
+}

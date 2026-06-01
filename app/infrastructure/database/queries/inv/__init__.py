@@ -18,6 +18,7 @@ from app.infrastructure.database.queries.inv.unidad_medida_queries import (
 from app.infrastructure.database.queries.inv.producto_queries import (
     list_productos,
     get_producto_by_id,
+    get_producto_by_sku,
     create_producto,
     update_producto,
 )
@@ -88,6 +89,7 @@ __all__ = [
     # Productos
     "list_productos",
     "get_producto_by_id",
+    "get_producto_by_sku",
     "create_producto",
     "update_producto",
     # Almacenes

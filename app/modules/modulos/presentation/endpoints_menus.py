@@ -15,6 +15,7 @@ from app.core.exceptions import CustomException
 from app.api.deps import get_current_active_user
 from app.core.authorization.lbac import require_super_admin
 from app.core.authorization.rbac import require_permission
+from app.core.tenant.company_scope import resolve_empresa_id_for_rbac
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,6 @@ async def obtener_mi_menu(
     logger.info(f"Solicitud GET /modulos-menus/me/ recibida para usuario {current_user.usuario_id}")
     try:
         is_super_admin = getattr(current_user, "is_super_admin", False)
-        access_level = getattr(current_user, "access_level", 1)
-        as_tenant_admin = (access_level >= 4 and not is_super_admin)
         effective_codes = None
         try:
             from app.core.config import settings as _s
@@ -84,11 +83,13 @@ async def obtener_mi_menu(
                     effective_codes = list(effective_codes) if effective_codes else None
         except Exception:
             pass
+        empresa_id = resolve_empresa_id_for_rbac()
         menu = await ModuloMenuService.obtener_menu_usuario(
             usuario_id=current_user.usuario_id,
             cliente_id=current_user.cliente_id,
             is_super_admin=is_super_admin,
-            as_tenant_admin=as_tenant_admin,
+            as_tenant_admin=False,
+            empresa_id=empresa_id,
             effective_permission_codes=effective_codes,
         )
         logger.info(f"Menú /me/ obtenido exitosamente para usuario {current_user.usuario_id}")
@@ -156,13 +157,13 @@ async def obtener_menu_usuario(
         cliente_id = current_user.cliente_id
         is_own_user = str(current_user.usuario_id) == str(usuario_id)
         is_super_admin = getattr(current_user, "is_super_admin", False) and is_own_user
-        access_level = getattr(current_user, "access_level", 1)
-        as_tenant_admin = (access_level >= 4 and not getattr(current_user, "is_super_admin", False) and is_own_user)
+        empresa_id = resolve_empresa_id_for_rbac()
         menu = await ModuloMenuService.obtener_menu_usuario(
             usuario_id=usuario_id,
             cliente_id=cliente_id,
             is_super_admin=is_super_admin,
-            as_tenant_admin=as_tenant_admin,
+            as_tenant_admin=False,
+            empresa_id=empresa_id,
         )
         logger.info(f"Menú del usuario {usuario_id} obtenido exitosamente")
         return menu

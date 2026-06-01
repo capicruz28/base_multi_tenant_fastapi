@@ -1,0 +1,114 @@
+{
+  "mode": "full-staging",
+  "unit_pytest_exit_code": 0,
+  "health": true,
+  "onboarding": {
+    "subdominio": "smokerc9a284e98",
+    "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+    "username": "admin",
+    "password": "@QhVv8VeZROv",
+    "raw": {
+      "success": true,
+      "message": "Cliente creado exitosamente. Guarde las credenciales, no se volverán a mostrar.",
+      "data": {
+        "codigo_cliente": "SRC9A284E",
+        "subdominio": "smokerc9a284e98",
+        "razon_social": "Smoke RC Tenant 9a284e98",
+        "nombre_comercial": "SmokeRC 9a284e98",
+        "ruc": "20123456789",
+        "tipo_instalacion": "shared",
+        "servidor_api_local": null,
+        "modo_autenticacion": "local",
+        "logo_url": null,
+        "favicon_url": null,
+        "color_primario": "#1976D2",
+        "color_secundario": "#424242",
+        "tema_personalizado": null,
+        "plan_suscripcion": "trial",
+        "estado_suscripcion": "activo",
+        "fecha_inicio_suscripcion": null,
+        "fecha_fin_trial": null,
+        "contacto_nombre": "Smoke Admin",
+        "contacto_email": "admin+9a284e98@smoke-rc.local",
+        "contacto_telefono": null,
+        "es_activo": true,
+        "es_demo": true,
+        "metadata_json": null,
+        "api_key_sincronizacion": null,
+        "sincronizacion_habilitada": false,
+        "ultima_sincronizacion": null,
+        "cliente_id": "952d6674-25a3-49b1-9dad-3fbf73d2f554",
+        "fecha_creacion": "2026-05-21T17:26:22.710000",
+        "fecha_actualizacion": null,
+        "fecha_ultimo_acceso": null
+      },
+      "credenciales_iniciales": {
+        "nombre_usuario": "admin",
+        "contrasena": "@QhVv8VeZROv",
+        "requiere_cambio": true
+      }
+    }
+  },
+  "smoke": {
+    "subdominio": "smokerc9a284e98",
+    "base_url": "http://localhost:8000",
+    "passed": false,
+    "duration_sec": 1.04,
+    "steps": [
+      {
+        "name": "login",
+        "ok": true,
+        "status": 200,
+        "detail": {
+          "has_access": true
+        }
+      },
+      {
+        "name": "org_empresa_listar",
+        "ok": true,
+        "status": 200,
+        "detail": {
+          "count": 1
+        }
+      },
+      {
+        "name": "empresa_cambiar",
+        "ok": false,
+        "status": 400,
+        "detail": "La empresa indicada ya es la empresa activa de la sesión"
+      },
+      {
+        "name": "auth_me",
+        "ok": true,
+        "status": 200,
+        "detail": null
+      },
+      {
+        "name": "auth_menu",
+        "ok": true,
+        "status": 200,
+        "detail": null
+      },
+      {
+        "name": "refresh",
+        "ok": true,
+        "status": 200,
+        "detail": null
+      },
+      {
+        "name": "permissions_me_admin_tenant",
+        "ok": true,
+        "status": 200,
+        "detail": {
+          "checks": {
+            "org.empresa.leer": true,
+            "core.app.acceder": true,
+            "tenant.cliente.crear_absent": true
+          },
+          "sample_count": 45
+        }
+      }
+    ]
+  },
+  "smoke_subdominio": "smokerc9a284e98"
+}

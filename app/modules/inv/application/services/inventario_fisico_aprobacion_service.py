@@ -1,13 +1,7 @@
 """
 Servicio de aprobación de Inventario Físico (INV).
 
-Flujo:
-- Valida cabecera inventario_fisico y estado.
-- Valida tipo_movimiento_id (clase ajuste).
-- Lee detalle inventario_fisico_detalle y calcula diferencias.
-- Genera un movimiento de ajuste (inv_movimiento) + detalle (inv_movimiento_detalle).
-- Procesa el movimiento (actualiza stock) usando el servicio existente.
-- Cierra inventario físico (estado ajustado, movimiento_ajuste_id, totales).
+Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
 from __future__ import annotations
 
@@ -22,15 +16,19 @@ from app.core.exceptions import NotFoundError
 import uuid
 from sqlalchemy import select, insert, update, and_
 from app.core.application.unit_of_work import unit_of_work
+from app.core.tenant.company_scope import require_session_empresa_id
 from app.infrastructure.database.tables_erp import (
     InvInventarioFisicoTable,
     InvInventarioFisicoDetalleTable,
-    InvTipoMovimientoTable,
     InvMovimientoTable,
     InvMovimientoDetalleTable,
-    InvProductoTable,
 )
-from app.infrastructure.database.queries.inv import get_moneda_by_codigo
+from app.infrastructure.database.queries.inv import (
+    get_moneda_by_codigo,
+    get_tipo_movimiento_by_id,
+    get_producto_by_id,
+    get_almacen_by_id,
+)
 from app.modules.inv.application.services.movimiento_proceso_service import (
     procesar_movimiento_servicio,
 )
@@ -45,8 +43,6 @@ def _dec(v: Optional[object]) -> Decimal:
 
 
 def _gen_numero_movimiento(prefix: str = "INV-AJUS") -> str:
-    # 20 chars max (schema MovimientoCreate). Mantener compacto.
-    # Ej: INV-AJUS-240314-1A2B
     stamp = datetime.utcnow().strftime("%y%m%d")
     micro = datetime.utcnow().strftime("%f")[-4:]
     return f"{prefix}-{stamp}-{micro}"[:20]
@@ -59,7 +55,8 @@ async def aprobar_inventario_fisico_servicio(
     usuario_id: Optional[UUID] = None,
     observaciones: Optional[str] = None,
 ) -> dict:
-    # Moneda: alinear a BD (inv_movimiento.moneda_id NOT NULL)
+    empresa_id = require_session_empresa_id()
+
     moneda_row = await get_moneda_by_codigo(client_id=client_id, codigo="PEN", solo_activos=True)
     if not moneda_row:
         raise HTTPException(
@@ -68,11 +65,25 @@ async def aprobar_inventario_fisico_servicio(
         )
     moneda_id = moneda_row["moneda_id"]
 
+    tm = await get_tipo_movimiento_by_id(
+        client_id=client_id,
+        tipo_movimiento_id=tipo_movimiento_id,
+        empresa_id=empresa_id,
+    )
+    if not tm:
+        raise NotFoundError(detail="Tipo de movimiento no encontrado")
+    if (tm.get("clase_movimiento") or "").lower() != "ajuste":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="tipo_movimiento_id debe ser de clase 'ajuste'",
+        )
+
     async with unit_of_work(client_id=client_id) as uow:
         inv_rows = await uow.execute(
             select(InvInventarioFisicoTable).where(
                 and_(
                     InvInventarioFisicoTable.c.cliente_id == client_id,
+                    InvInventarioFisicoTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
@@ -90,47 +101,32 @@ async def aprobar_inventario_fisico_servicio(
                 detail=f"No se puede aprobar inventario físico en estado '{inv.get('estado')}'",
             )
 
-        tm_rows = await uow.execute(
-            select(InvTipoMovimientoTable).where(
-                and_(
-                    InvTipoMovimientoTable.c.cliente_id == client_id,
-                    InvTipoMovimientoTable.c.tipo_movimiento_id == tipo_movimiento_id,
-                )
-            )
-        )
-        tm = tm_rows[0] if tm_rows else None
-        if not tm:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="tipo_movimiento_id inválido o no pertenece al tenant",
-            )
-        if (tm.get("clase_movimiento") or "").lower() != "ajuste":
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="tipo_movimiento_id debe ser de clase 'ajuste'",
-            )
-
-        empresa_id = inv.get("empresa_id")
         almacen_id = inv.get("almacen_id")
         fecha_inventario: Optional[date] = inv.get("fecha_inventario")
-        if not empresa_id or not almacen_id or not fecha_inventario:
+        if not almacen_id or not fecha_inventario:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Inventario físico incompleto (empresa_id/almacen_id/fecha_inventario requeridos)",
+                detail="Inventario físico incompleto (almacen_id/fecha_inventario requeridos)",
             )
+
+        alm = await get_almacen_by_id(
+            client_id=client_id,
+            almacen_id=almacen_id,
+            empresa_id=empresa_id,
+        )
+        if not alm:
+            raise NotFoundError(detail="Almacén no encontrado")
 
         detalles = await uow.execute(
             select(InvInventarioFisicoDetalleTable)
             .where(
                 and_(
                     InvInventarioFisicoDetalleTable.c.cliente_id == client_id,
+                    InvInventarioFisicoDetalleTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoDetalleTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
-            .order_by(
-                InvInventarioFisicoDetalleTable.c.inventario_fisico_id,
-                InvInventarioFisicoDetalleTable.c.fecha_creacion,
-            )
+            .order_by(InvInventarioFisicoDetalleTable.c.fecha_creacion)
         )
         if not detalles:
             raise HTTPException(
@@ -138,7 +134,6 @@ async def aprobar_inventario_fisico_servicio(
                 detail="No se puede aprobar inventario físico sin detalle",
             )
 
-        # Construir movimiento de ajuste (cabecera)
         numero_movimiento = _gen_numero_movimiento()
         movimiento_id = uuid.uuid4()
         now = datetime.utcnow()
@@ -169,7 +164,6 @@ async def aprobar_inventario_fisico_servicio(
             )
         )
 
-        # Crear líneas: diferencia = contada - sistema (puede ser negativa)
         total_items = 0
         total_cantidad_abs = Decimal("0")
         total_productos_contados = 0
@@ -186,20 +180,13 @@ async def aprobar_inventario_fisico_servicio(
             if diferencia == 0:
                 continue
 
-            prod_rows = await uow.execute(
-                select(InvProductoTable).where(
-                    and_(
-                        InvProductoTable.c.cliente_id == client_id,
-                        InvProductoTable.c.producto_id == producto_id,
-                    )
-                )
+            prod = await get_producto_by_id(
+                client_id=client_id,
+                producto_id=producto_id,
+                empresa_id=empresa_id,
             )
-            prod = prod_rows[0] if prod_rows else None
             if not prod:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Producto inválido en detalle de inventario físico",
-                )
+                raise NotFoundError(detail="Producto no encontrado")
             unidad_medida_id = prod.get("unidad_medida_base_id")
             if not unidad_medida_id:
                 raise HTTPException(
@@ -237,6 +224,7 @@ async def aprobar_inventario_fisico_servicio(
                 .where(
                     and_(
                         InvInventarioFisicoTable.c.cliente_id == client_id,
+                        InvInventarioFisicoTable.c.empresa_id == empresa_id,
                         InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                     )
                 )
@@ -253,18 +241,19 @@ async def aprobar_inventario_fisico_servicio(
                 select(InvInventarioFisicoTable).where(
                     and_(
                         InvInventarioFisicoTable.c.cliente_id == client_id,
+                        InvInventarioFisicoTable.c.empresa_id == empresa_id,
                         InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                     )
                 )
             )
             return closed_rows[0] if closed_rows else inv
 
-        # Actualizar totales del inventario físico (cabecera)
         await uow.execute(
             update(InvInventarioFisicoTable)
             .where(
                 and_(
                     InvInventarioFisicoTable.c.cliente_id == client_id,
+                    InvInventarioFisicoTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
@@ -275,12 +264,12 @@ async def aprobar_inventario_fisico_servicio(
             )
         )
 
-        # Actualizar totales del movimiento (cabecera) antes de procesar
         await uow.execute(
             update(InvMovimientoTable)
             .where(
                 and_(
                     InvMovimientoTable.c.cliente_id == client_id,
+                    InvMovimientoTable.c.empresa_id == empresa_id,
                     InvMovimientoTable.c.movimiento_id == movimiento_id,
                 )
             )
@@ -291,7 +280,6 @@ async def aprobar_inventario_fisico_servicio(
             )
         )
 
-        # Procesar movimiento dentro de la misma transacción
         await procesar_movimiento_servicio(
             client_id=client_id,
             movimiento_id=movimiento_id,
@@ -299,12 +287,12 @@ async def aprobar_inventario_fisico_servicio(
             uow=uow,
         )
 
-        # Cerrar inventario físico
         await uow.execute(
             update(InvInventarioFisicoTable)
             .where(
                 and_(
                     InvInventarioFisicoTable.c.cliente_id == client_id,
+                    InvInventarioFisicoTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
@@ -321,9 +309,9 @@ async def aprobar_inventario_fisico_servicio(
             select(InvInventarioFisicoTable).where(
                 and_(
                     InvInventarioFisicoTable.c.cliente_id == client_id,
+                    InvInventarioFisicoTable.c.empresa_id == empresa_id,
                     InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
                 )
             )
         )
         return closed_rows[0] if closed_rows else inv
-

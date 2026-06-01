@@ -430,6 +430,9 @@ async def run_rbac_startup(app: Any) -> None:
         except Exception:
             pass
 
+        from app.core.authorization.core_permissions import register_core_permissions
+
+        register_core_permissions()
         ensure_registry_from_routes(app)
         apply_rbac_enforcement(app)
         await sync_permissions()

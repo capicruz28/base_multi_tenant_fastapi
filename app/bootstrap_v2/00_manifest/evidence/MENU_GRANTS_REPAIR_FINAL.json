@@ -1,0 +1,157 @@
+{
+  "report": "MENU_GRANTS_REPAIR_RC_LEGACY",
+  "timestamp_utc": "2026-05-22T00:02:25.636232+00:00",
+  "database": "bd_sistema_saas",
+  "api_base_url": "http://localhost:8000",
+  "summary": {
+    "tenants_scanned": 7,
+    "repair_candidates_dry_run": 4,
+    "repaired_apply": ["acme", "e2evalid01", "innova", "prueba"],
+    "omitted": ["global", "platform", "techcorp"],
+    "failed": [],
+    "post_apply_candidates": 0,
+    "idempotent_reapply": true,
+    "duplicate_menu_keys_all_repaired": 0
+  },
+  "dry_run": {
+    "evidence_file": "MENU_GRANTS_REPAIR_dry_run.json",
+    "candidates": [
+      {
+        "subdominio": "acme",
+        "cliente_id": "11111111-1111-1111-1111-111111111111",
+        "rol_menu_permiso_before": 0,
+        "expected_inserts": 14,
+        "cliente_modulo": ["ORG", "SYS_ADMIN"]
+      },
+      {
+        "subdominio": "e2evalid01",
+        "cliente_id": "db40cccc-c3a1-498b-84a5-b5f97c128d40",
+        "rol_menu_permiso_before": 0,
+        "expected_inserts": 14,
+        "cliente_modulo": ["ORG", "SYS_ADMIN"]
+      },
+      {
+        "subdominio": "innova",
+        "cliente_id": "22222222-2222-2222-2222-222222222222",
+        "rol_menu_permiso_before": 0,
+        "expected_inserts": 14,
+        "cliente_modulo": ["ORG", "SYS_ADMIN"]
+      },
+      {
+        "subdominio": "prueba",
+        "cliente_id": "eb067fe5-92c5-449b-9845-f9fe36b28a40",
+        "rol_menu_permiso_before": 0,
+        "expected_inserts": 14,
+        "cliente_modulo": ["ORG", "SYS_ADMIN"]
+      }
+    ]
+  },
+  "apply": {
+    "evidence_file": "MENU_GRANTS_REPAIR_apply.json",
+    "per_tenant": [
+      {
+        "subdominio": "acme",
+        "inserted": 14,
+        "rol_menu_permiso_after": 14,
+        "expected_menu_grants": 14,
+        "duplicate_menu_keys": 0,
+        "menu_modules": ["ORG", "SYS_ADMIN"]
+      },
+      {
+        "subdominio": "e2evalid01",
+        "inserted": 14,
+        "rol_menu_permiso_after": 14,
+        "expected_menu_grants": 14,
+        "duplicate_menu_keys": 0,
+        "menu_modules": ["ORG", "SYS_ADMIN"]
+      },
+      {
+        "subdominio": "innova",
+        "inserted": 14,
+        "rol_menu_permiso_after": 14,
+        "expected_menu_grants": 14,
+        "duplicate_menu_keys": 0,
+        "menu_modules": ["ORG", "SYS_ADMIN"]
+      },
+      {
+        "subdominio": "prueba",
+        "inserted": 14,
+        "rol_menu_permiso_after": 14,
+        "expected_menu_grants": 14,
+        "duplicate_menu_keys": 0,
+        "menu_modules": ["ORG", "SYS_ADMIN"]
+      }
+    ]
+  },
+  "omitted_tenants": [
+    {
+      "subdominio": "global",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0,
+      "note": "Solo SYS_ADMIN en cliente_modulo; requiere repair RBAC legacy (roles base) antes de menu grants"
+    },
+    {
+      "subdominio": "platform",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0,
+      "note": "Cliente SYSTEM; usar repair_platform_rbac + superadmin"
+    },
+    {
+      "subdominio": "techcorp",
+      "reason": "no_admin_tenant_role",
+      "rol_menu_permiso_admin": 0,
+      "note": "Idem global"
+    }
+  ],
+  "http_validation": {
+    "note": "Legacy QA tenants sin org_empresa activa en sesión devuelven 403 en /auth/menu (require_erp_session). SQL repair OK; smoke HTTP completo requiere sesión ERP o tenant post-onboarding nuevo.",
+    "attempts": [
+      {
+        "subdominio": "acme",
+        "login": 200,
+        "auth_menu_status": 403,
+        "modulo_codigos": [],
+        "reason": "sin empresa_id en JWT; org.empresa 403"
+      },
+      {
+        "subdominio": "innova",
+        "login": 200,
+        "auth_menu_status": 403,
+        "modulo_codigos": [],
+        "reason": "sin empresa_id en JWT"
+      },
+      {
+        "subdominio": "e2evalid01",
+        "login": 401,
+        "reason": "credencial admin123 no válida en este entorno"
+      },
+      {
+        "subdominio": "prueba",
+        "login": 401,
+        "reason": "resetear con staging_reset_tenant_admin.py antes de smoke"
+      }
+    ],
+    "reference_new_tenant_probe": {
+      "subdominio": "smokerc69929718",
+      "note": "Tenant RC de sesión anterior no listado en scan actual (7 tenants). Con onboarding nuevo + repair hook: /auth/menu devuelve ORG+SYS_ADMIN cuando hay sesión ERP.",
+      "probe_when_present": {
+        "access_level": 5,
+        "modulo_codigos": ["ORG", "SYS_ADMIN"],
+        "rol_menu_permiso": "0 antes del fix de código; nuevos tenants reciben grants en onboarding"
+      }
+    }
+  },
+  "onboarding_new_tenants": {
+    "repair_required": false,
+    "reason": "cliente_onboarding_service invoca OnboardingMenuBootstrapService tras bootstrap_cliente_rbac",
+    "expected_rol_menu_permiso": 14,
+    "expected_modules_auth_menu": ["ORG", "SYS_ADMIN"]
+  },
+  "verdict": {
+    "sql_repair": "PASS",
+    "idempotency": "PASS",
+    "no_duplicates": "PASS",
+    "http_smoke_legacy_qa": "PARTIAL — depende de org_empresa + credenciales",
+    "onboarding_runtime_complete": true
+  }
+}

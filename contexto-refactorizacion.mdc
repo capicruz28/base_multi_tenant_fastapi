@@ -1,0 +1,49 @@
+---
+alwaysApply: false
+---
+## PROYECTO
+Sistema SaaS ERP multi-tenant. Stack: FastAPI + SQL Server (backend),
+React + TypeScript + Vite + Tailwind (frontend).
+
+## REFACTORIZACIÓN EN CURSO
+Objetivo: separar correctamente 3 contextos:
+- /super-admin/* → Panel Super Admin CAXIS
+- /admin/* → Panel Admin del cliente (tenant)
+- /app/* → Panel ERP operativo (módulos)
+
+## PUNTOS COMPLETADOS
+
+### Punto 1 — JWT y multi-empresa ✅
+- empresa_id y es_admin_cliente agregados al JWT
+- Roles y permisos filtrados por empresa_id
+- refresh_tokens persiste empresa_id
+- Expiración de tokens lee cliente_auth_config por tenant
+
+### Punto 2 — Onboarding automático ✅
+- POST /api/v1/clientes/ ahora ejecuta en una sola transacción:
+  roles base (ADMIN_TENANT, MANAGER_TENANT, USER_TENANT),
+  usuario admin, asignación usuario-rol sin empresa,
+  cliente_auth_config, seeds en cfg_codigo_secuencia
+- Repositorio CfgCodigoSecuenciaRepository creado con 5 métodos
+
+## PUNTO ACTUAL — Punto 3: Separación de rutas frontend 🔄
+Se ejecutó el prompt de auditoría y se generó:
+docs/frontend/auditoria/AUDITORIA_RUTAS_LAYOUTS.md
+
+Siguiente acción: leer esa auditoría y proceder con la
+implementación de la separación de los 3 layouts y rutas.
+
+## PUNTOS PENDIENTES
+## Punto 4 — Sidebar y contextos
+    Auditar el sidebar actual, cómo se construye dinámicamente, qué muestra según el rol.
+
+## Punto 5 — Impersonación
+    Auditar si existe algo relacionado, aunque probablemente no exista nada aún.
+
+## REGLAS DEL PROYECTO (resumidas)
+- Frontend usa rules en .cursor/rules/ (activar manualmente)
+- Prompt maestro frontend en .cursor/rules/frontend-maestro.mdc
+- Nunca consumir endpoints deprecated
+- Nunca mostrar UUIDs en UI
+- Sistema de diseño de dos capas (tokens semánticos + brand)
+- Un solo submit para cabecera+detalle embebido

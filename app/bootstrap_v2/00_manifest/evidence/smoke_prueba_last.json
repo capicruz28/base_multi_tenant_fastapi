@@ -1,0 +1,62 @@
+{
+  "subdominio": "prueba",
+  "base_url": "http://localhost:8000",
+  "passed": true,
+  "duration_sec": 0.876,
+  "steps": [
+    {
+      "name": "login",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "has_access": true
+      }
+    },
+    {
+      "name": "org_empresa_listar",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "count": 0
+      }
+    },
+    {
+      "name": "empresa_cambiar_o_seleccionar",
+      "ok": true,
+      "status": null,
+      "detail": "skipped (sin empresas; admin onboarding sin empresa)"
+    },
+    {
+      "name": "auth_me",
+      "ok": true,
+      "status": 403,
+      "detail": "skipped_admin_sin_empresa"
+    },
+    {
+      "name": "auth_menu",
+      "ok": true,
+      "status": 403,
+      "detail": "skipped_admin_sin_empresa"
+    },
+    {
+      "name": "refresh",
+      "ok": true,
+      "status": 200,
+      "detail": null
+    },
+    {
+      "name": "permissions_me_admin_tenant",
+      "ok": true,
+      "status": 403,
+      "detail": {
+        "checks": {
+          "org.empresa.leer": false,
+          "core.app.acceder": false,
+          "tenant.cliente.crear_absent": true
+        },
+        "sample_count": 0,
+        "skipped_admin_sin_empresa": true
+      }
+    }
+  ]
+}

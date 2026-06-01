@@ -29,7 +29,8 @@ from app.modules.users.presentation.schemas import (
     UsuarioRead,
     UsuarioReadWithRoles,
     PaginatedUsuarioResponse,
-    UsuarioRolRead
+    UsuarioRolRead,
+    UsuarioRolAssignBody,
 )
 from app.modules.rbac.presentation.schemas import RolRead
 
@@ -40,8 +41,13 @@ from app.modules.users.application.services.user_service import UsuarioService
 from app.core.exceptions import CustomException
 
 # Importar Dependencias de Autorización
-from app.api.deps import get_current_active_user, RoleChecker
+from app.api.deps import get_current_active_user, get_current_user_data, RoleChecker
 from app.core.authorization.rbac import require_permission, has_permission
+from app.core.tenant.company_scope import (
+    is_platform_operator,
+    resolve_role_assign_target,
+    resolve_role_list_scope,
+)
 
 # Logging
 from app.core.logging_config import get_logger
@@ -182,7 +188,9 @@ async def crear_usuario(
         usuario_dict = usuario_in.model_dump()
         usuario_dict['cliente_id'] = current_user.cliente_id
         
-        created_usuario = await UsuarioService.crear_usuario(usuario_dict)
+        created_usuario = await UsuarioService.crear_usuario(
+            current_user.cliente_id, usuario_dict
+        )
         
         logger.info(f"Usuario '{created_usuario['nombre_usuario']}' creado exitosamente en cliente {current_user.cliente_id} con ID: {created_usuario['usuario_id']}")
         return created_usuario
@@ -225,7 +233,8 @@ async def crear_usuario(
 )
 async def read_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    payload: Dict[str, Any] = Depends(get_current_user_data),
 ):
     """
     Endpoint para obtener los detalles completos de un usuario específico.
@@ -257,10 +266,17 @@ async def read_usuario(
                 detail=f"Usuario con ID {usuario_id} no encontrado."
             )
 
-        roles = await UsuarioService.obtener_roles_de_usuario(
-            cliente_id=current_user.cliente_id, # ✅ Validar pertenencia al cliente
-            usuario_id=usuario_id
+        list_scope = await resolve_role_list_scope(
+            payload=payload,
+            user_type=getattr(current_user, "user_type", None),
+            is_super_admin=getattr(current_user, "is_super_admin", False),
         )
+        roles_raw = await UsuarioService.obtener_roles_de_usuario(
+            cliente_id=current_user.cliente_id,
+            usuario_id=usuario_id,
+            list_scope=list_scope,
+        )
+        roles = [RolRead.model_validate(r) for r in roles_raw]
         usuario_con_roles = UsuarioReadWithRoles(**usuario, roles=roles)
         
         logger.debug(f"Usuario ID {usuario_id} encontrado en cliente {current_user.cliente_id}: '{usuario_con_roles.nombre_usuario}'")
@@ -462,7 +478,9 @@ async def eliminar_usuario(
 async def assign_rol_to_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
     rol_id: UUID = Path(..., description="ID del rol"),
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+    body: Optional[UsuarioRolAssignBody] = Body(None),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    payload: Dict[str, Any] = Depends(get_current_user_data),
 ):
     """
     Endpoint para asignar un rol a un usuario.
@@ -479,15 +497,32 @@ async def assign_rol_to_usuario(
         HTTPException: Si el usuario/rol no existen o hay error interno
     """
     logger.info(f"Solicitud POST /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
-    
+
     try:
+        assign_body = body or UsuarioRolAssignBody()
+        platform = is_platform_operator(
+            payload=payload,
+            user_type=getattr(current_user, "user_type", None),
+            is_super_admin=getattr(current_user, "is_super_admin", False),
+        )
+        target = await resolve_role_assign_target(
+            cliente_id=current_user.cliente_id,
+            body_empresa_id=assign_body.empresa_id,
+            scope_global=assign_body.scope_global,
+            payload=payload,
+            user_type=getattr(current_user, "user_type", None),
+            is_super_admin=getattr(current_user, "is_super_admin", False),
+        )
         assignment = await UsuarioService.asignar_rol_a_usuario(
-            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            cliente_id=current_user.cliente_id,
             usuario_id=usuario_id,
-            rol_id=rol_id
+            rol_id=rol_id,
+            target_empresa_id=target.empresa_id,
+            allow_global_promotion=platform and target.is_global,
+            allow_scope_change_on_reactivate=platform,
         )
         logger.info(f"Rol {rol_id} asignado exitosamente al usuario {usuario_id} en cliente {current_user.cliente_id}")
-        return assignment
+        return UsuarioRolRead.model_validate(assignment)
         
     except CustomException as ce:
         logger.warning(f"Error de negocio asignando rol {rol_id} a usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
@@ -533,7 +568,8 @@ async def assign_rol_to_usuario(
 async def revoke_rol_from_usuario(
     usuario_id: UUID = Path(..., description="ID del usuario"),
     rol_id: UUID = Path(..., description="ID del rol"),
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    payload: Dict[str, Any] = Depends(get_current_user_data),
 ):
     """
     Endpoint para revocar un rol de un usuario.
@@ -552,13 +588,19 @@ async def revoke_rol_from_usuario(
     logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
     
     try:
+        list_scope = await resolve_role_list_scope(
+            payload=payload,
+            user_type=getattr(current_user, "user_type", None),
+            is_super_admin=getattr(current_user, "is_super_admin", False),
+        )
         assignment = await UsuarioService.revocar_rol_de_usuario(
-            cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
+            cliente_id=current_user.cliente_id,
             usuario_id=usuario_id,
-            rol_id=rol_id
+            rol_id=rol_id,
+            list_scope=list_scope,
         )
         logger.info(f"Rol {rol_id} revocado exitosamente del usuario {usuario_id} en cliente {current_user.cliente_id}")
-        return assignment
+        return UsuarioRolRead.model_validate(assignment)
         
     except CustomException as ce:
         logger.warning(f"Error de negocio revocando rol {rol_id} de usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}")
@@ -597,7 +639,8 @@ async def revoke_rol_from_usuario(
 )
 async def read_usuario_roles(
     usuario_id: UUID = Path(..., description="ID del usuario"),
-    current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    payload: Dict[str, Any] = Depends(get_current_user_data),
 ):
     """
     Endpoint para obtener los roles activos de un usuario.
@@ -617,11 +660,18 @@ async def read_usuario_roles(
         f"{current_user.usuario_id} del cliente {current_user.cliente_id}"
     )
     try:
-        roles = await UsuarioService.obtener_roles_de_usuario(
-            cliente_id=current_user.cliente_id, # ✅ Validar que el usuario_id pertenece al mismo cliente
-            usuario_id=usuario_id
+        list_scope = await resolve_role_list_scope(
+            payload=payload,
+            user_type=getattr(current_user, "user_type", None),
+            is_super_admin=getattr(current_user, "is_super_admin", False),
         )
-        
+        roles_raw = await UsuarioService.obtener_roles_de_usuario(
+            cliente_id=current_user.cliente_id,
+            usuario_id=usuario_id,
+            list_scope=list_scope,
+        )
+        roles = [RolRead.model_validate(r) for r in roles_raw]
+
         logger.debug(f"Roles del usuario {usuario_id} recuperados - Total: {len(roles)}")
         return roles
         

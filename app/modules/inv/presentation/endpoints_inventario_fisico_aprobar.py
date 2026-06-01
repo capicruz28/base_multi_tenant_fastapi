@@ -8,7 +8,7 @@ from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import InventarioFisicoRead
 from app.modules.inv.presentation.schemas_proceso import AprobarInventarioFisicoRequest
 from app.modules.inv.application.services import inventario_fisico_aprobacion_service
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, AuthorizationError
 
 router = APIRouter()
 
@@ -29,6 +29,7 @@ async def aprobar_inventario_fisico(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")
     ),
 ):
+    """Aprueba un inventario físico de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await inventario_fisico_aprobacion_service.aprobar_inventario_fisico_servicio(
@@ -40,4 +41,5 @@ async def aprobar_inventario_fisico(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
-
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

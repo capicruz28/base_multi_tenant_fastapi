@@ -18,8 +18,12 @@ import logging
 
 from app.modules.tenant.presentation.schemas import (
     ClienteCreate, ClienteUpdate, ClienteRead, 
-    PaginatedClienteResponse, ClienteStatsResponse, ClienteResponse, ClienteDeleteResponse,
+    PaginatedClienteResponse, ClienteStatsResponse, ClienteResponse, ClienteCreateResponse,
+    ClienteDeleteResponse,
     BrandingRead
+)
+from app.modules.tenant.application.services.cliente_onboarding_service import (
+    MENSAJE_CREACION_EXITOSA,
 )
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.core.authorization.lbac import require_super_admin
@@ -35,7 +39,7 @@ router = APIRouter()
 
 @router.post(
     "/",
-    response_model=ClienteResponse,
+    response_model=ClienteCreateResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Crear un nuevo cliente",
     description=""" 
@@ -68,12 +72,14 @@ async def crear_cliente(
     """
     logger.info(f"Solicitud POST /clientes/ recibida para crear cliente: '{cliente_data.razon_social}' por usuario: {current_user.nombre_usuario}")
     try:
-        created_cliente = await ClienteService.crear_cliente(cliente_data)
+        resultado = await ClienteService.crear_cliente(cliente_data)
+        created_cliente = resultado.cliente
         logger.info(f"Cliente '{created_cliente.razon_social}' creado con ID: {created_cliente.cliente_id}")
-        return ClienteResponse(
+        return ClienteCreateResponse(
             success=True,
-            message=f"Cliente '{created_cliente.razon_social}' creado exitosamente",
-            data=created_cliente
+            message=MENSAJE_CREACION_EXITOSA,
+            data=created_cliente,
+            credenciales_iniciales=resultado.credenciales,
         )
     except HTTPException:
         raise

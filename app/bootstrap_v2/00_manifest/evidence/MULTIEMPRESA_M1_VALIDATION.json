@@ -1,0 +1,71 @@
+{
+  "phase": "M1",
+  "document": "MULTIEMPRESA_OFFICIAL_MODEL.md",
+  "generated_at": "2026-05-31",
+  "overall_status": "PASS",
+  "pytest_summary": {
+    "command": "pytest tests/unit/test_multiempresa_m1.py tests/unit/test_empresa_sesion_auth.py -v",
+    "passed": 31,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "scope_excluded": ["M2", "M3", "RBAC", "OwnerSync", "frontend"],
+  "criteria": [
+    {
+      "id": "M1.1",
+      "rule": "R-LOGIN-07",
+      "description": "POST /auth/empresa/seleccionar/ persiste empresa_default_id",
+      "test": "test_seleccionar_persiste_empresa_default_m1_1",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.2",
+      "rule": "R-CAMBIO-03",
+      "description": "POST /auth/empresa/cambiar/ persiste empresa_default_id",
+      "test": "test_cambiar_persiste_empresa_default_m1_2",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.3",
+      "rule": "R-USER-03",
+      "description": "asignar_rol_a_usuario set default si NULL y 1 elegible",
+      "test": "test_asignar_rol_set_default_mono_empresa_m1_3, test_maybe_set_default_llama_persist_si_una_elegible",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.4",
+      "rule": "R-LOGIN-06",
+      "description": "Admin global aplica R-LOGIN-01..03 sin forzar selección",
+      "test": "test_admin_global_una_org_sesion_directa_m1_4, test_admin_global_una_org_no_requiere_seleccion",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.5",
+      "rule": "R-LOGIN-04",
+      "description": "Login operativo sin empresas → USER_WITHOUT_COMPANY 403",
+      "test": "test_caso_d_operativo_sin_empresa_rechazado, test_caso_d_admin_onboarding_permitido, test_platform_admin_sin_rechazo",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.6",
+      "rule": "R-DATA-02",
+      "description": "Default inválida se limpia y continúa flujo normal",
+      "test": "test_m1_6_default_invalida_se_limpia",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.7",
+      "rule": null,
+      "description": "Tests casos A B C D + seleccionar/cambiar/admin/sin empresa",
+      "test": "test_caso_a_una_empresa_sesion_directa, test_caso_b_multiples_con_default_valido, test_caso_c_multiples_sin_default_requiere_seleccion",
+      "status": "PASS"
+    },
+    {
+      "id": "M1.8",
+      "rule": "R-DATA-05",
+      "description": "UQ_usuario_rol vs UQ_usuario_rol_empresa documentado",
+      "test": "MULTIEMPRESA_M1_IMPLEMENTATION.md § M1.8",
+      "status": "PASS"
+    }
+  ]
+}

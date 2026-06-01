@@ -843,35 +843,95 @@ class ModuloMenuService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
+    async def resolve_admin_tenant_rol_id(cliente_id: UUID) -> Optional[UUID]:
+        """Resuelve rol_id ADMIN_TENANT del tenant (menú impersonación)."""
+        from sqlalchemy import text as sa_text
+
+        query = sa_text("""
+            SELECT rol_id FROM rol
+            WHERE cliente_id = :cliente_id
+              AND codigo_rol = N'ADMIN_TENANT'
+              AND es_activo = 1
+        """).bindparams(cliente_id=cliente_id)
+        rows = await execute_query(
+            query,
+            connection_type=DatabaseConnection.DEFAULT,
+            client_id=cliente_id,
+        )
+        if not rows:
+            return None
+        rid = rows[0].get("rol_id")
+        if rid is None:
+            return None
+        return rid if isinstance(rid, UUID) else UUID(str(rid))
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def obtener_menu_impersonacion_tenant(
+        usuario_id: UUID,
+        cliente_id: UUID,
+        *,
+        empresa_id: Optional[UUID] = None,
+        effective_permission_codes: Optional[List[str]] = None,
+    ) -> MenuUsuarioResponse:
+        """
+        Menú impersonación: RMP del ADMIN_TENANT del tenant (operador SYSTEM sin usuario_rol).
+        """
+        admin_rol_id = await ModuloMenuService.resolve_admin_tenant_rol_id(cliente_id)
+        if not admin_rol_id:
+            logger.warning(
+                "[MENU_USUARIO] Impersonación: ADMIN_TENANT no encontrado cliente=%s",
+                cliente_id,
+            )
+            return MenuUsuarioResponse(modulos=[])
+        return await ModuloMenuService.obtener_menu_usuario(
+            usuario_id=usuario_id,
+            cliente_id=cliente_id,
+            is_super_admin=False,
+            as_tenant_admin=False,
+            empresa_id=empresa_id,
+            effective_permission_codes=effective_permission_codes,
+            permisos_rol_id=admin_rol_id,
+        )
+
+    @staticmethod
+    @BaseService.handle_service_errors
     async def obtener_menu_usuario(
         usuario_id: UUID,
         cliente_id: UUID,
         is_super_admin: bool = False,
         as_tenant_admin: bool = False,
         *,
+        empresa_id: Optional[UUID] = None,
         effective_permission_codes: Optional[List[str]] = None,
+        permisos_rol_id: Optional[UUID] = None,
     ) -> MenuUsuarioResponse:
         """
         Obtiene el menú completo del usuario combinando datos de BD central y BD del cliente.
         
-        ARQUITECTURA:
-        - Módulos, secciones y menús: BD CENTRAL (DatabaseConnection.ADMIN)
-        - Permisos: BD del CLIENTE (DatabaseConnection.DEFAULT)
-        - El backend combina ambos resultados
+        ARQUITECTURA (Modelo Owner):
+        - Módulos contratados: QUERY 1 (cliente_modulo)
+        - Visibilidad UI: QUERY 2 (rol_menu_permiso) para todos los usuarios tenant
+        - Elevación: solo is_super_admin (platform); tenant_admin usa rol_menu_permiso
         
-        ATAJO (1 query, permisos completos):
-        - is_super_admin=True: todos los menús de módulos contratados del tenant.
-        - as_tenant_admin=True: igual, para admin del tenant (no depende de rol_menu_permiso).
-        
-        Stage 2: effective_permission_codes (opcional). Cuando se proporciona, son los códigos
-        de permiso ya resueltos (p. ej. desde Permission Resolver vía user.permisos). Por ahora
-        la lógica del menú sigue usando rol_menu_permiso; en el futuro se podrá filtrar ítems
-        por permiso requerido (modulo_menu.permiso_requerido_id) usando esta lista.
+        permisos_rol_id: cuando se setea (impersonación), QUERY 2 usa ese rol directamente
+        sin join usuario_rol (operador SYSTEM no tiene usuario_rol en tenant).
         """
-        use_elevated_menu = is_super_admin or as_tenant_admin
+        from app.core.tenant.empresa_context import (
+            resolve_empresa_id,
+            sql_empresa_filter_usuario_rol_qmark,
+        )
+
+        resolved_empresa_id = resolve_empresa_id(empresa_id)
+        use_elevated_menu = is_super_admin
+        if as_tenant_admin and not is_super_admin:
+            logger.debug(
+                "[MENU_USUARIO] as_tenant_admin ignorado (Modelo Owner); usando rol_menu_permiso"
+            )
         logger.info(
             f"Obteniendo menú para usuario {usuario_id} del cliente {cliente_id} "
-            f"(is_super_admin={is_super_admin}, as_tenant_admin={as_tenant_admin})"
+            f"(is_super_admin={is_super_admin}, permisos_rol_id={permisos_rol_id}, "
+            f"empresa_id={resolved_empresa_id})"
         )
 
         try:
@@ -975,15 +1035,16 @@ class ModuloMenuService(BaseService):
             required_permissions_by_modulo = await ModuloMenuService._get_required_permissions_by_modulo(modulo_ids_distinct)
 
             # ============================================================
-            # SUPERADMIN / TENANT ADMIN: Devolver todos los menús con permisos completos (1 query)
+            # SUPER_ADMIN platform: menús contratados con permisos UI completos
             # ============================================================
             if use_elevated_menu:
+                elevated_rows = menus_central
                 logger.info(
-                    f"[MENU_USUARIO] Elevado (super_admin o tenant_admin): omitiendo query de permisos, "
-                    f"asignando permisos completos a {len(menus_central)} ítems"
+                    "[MENU_USUARIO] Elevado super_admin: %s ítems (sin rol_menu_permiso)",
+                    len(elevated_rows),
                 )
                 resultado_combinado = []
-                for menu_row in menus_central:
+                for menu_row in elevated_rows:
                     resultado_combinado.append({
                         **menu_row,
                         'puede_ver': True,
@@ -1025,9 +1086,45 @@ class ModuloMenuService(BaseService):
             if not menu_ids:
                 logger.warning(f"[MENU_USUARIO] No hay menu_ids para filtrar permisos")
                 permisos_cliente = []
+            elif permisos_rol_id is not None:
+                menu_ids_placeholders = ','.join(['?' for _ in menu_ids])
+                query_raw = f"""
+                SELECT p.menu_id,
+                       MAX(CAST(p.puede_ver AS INT)) AS puede_ver,
+                       MAX(CAST(p.puede_crear AS INT)) AS puede_crear,
+                       MAX(CAST(p.puede_editar AS INT)) AS puede_editar,
+                       MAX(CAST(p.puede_eliminar AS INT)) AS puede_eliminar,
+                       MAX(CAST(p.puede_exportar AS INT)) AS puede_exportar,
+                       MAX(CAST(p.puede_imprimir AS INT)) AS puede_imprimir,
+                       MAX(CAST(p.puede_aprobar AS INT)) AS puede_aprobar
+                FROM rol_menu_permiso p
+                WHERE p.rol_id = ?
+                  AND p.cliente_id = ?
+                  AND p.menu_id IN ({menu_ids_placeholders})
+                  AND p.puede_ver = 1
+                GROUP BY p.menu_id
+                """
+                params_raw = (str(permisos_rol_id), str(cliente_id)) + tuple(
+                    str(mid) for mid in menu_ids
+                )
+                logger.info(
+                    "[MENU_USUARIO] Query impersonación/admin_rol rol_id=%s",
+                    permisos_rol_id,
+                )
+                permisos_cliente = await execute_query(
+                    query_raw,
+                    params=params_raw,
+                    connection_type=DatabaseConnection.DEFAULT,
+                    client_id=cliente_id,
+                )
             else:
                 # Construir lista de menu_ids para IN clause
                 menu_ids_placeholders = ','.join(['?' for _ in menu_ids])
+                empresa_sql = (
+                    sql_empresa_filter_usuario_rol_qmark("ur")
+                    if resolved_empresa_id
+                    else ""
+                )
                 query_raw = f"""
                 SELECT p.menu_id,
                        MAX(CAST(p.puede_ver AS INT)) AS puede_ver,
@@ -1043,17 +1140,20 @@ class ModuloMenuService(BaseService):
                   AND ur.cliente_id = ?
                   AND ur.es_activo = 1
                   AND (ur.fecha_expiracion IS NULL OR ur.fecha_expiracion > GETDATE())
+                  {empresa_sql}
                   AND p.cliente_id = ?
                   AND p.menu_id IN ({menu_ids_placeholders})
                   AND p.puede_ver = 1
                 GROUP BY p.menu_id
                 """
-                params_raw = (str(usuario_id), str(cliente_id), str(cliente_id)) + tuple(str(mid) for mid in menu_ids)
+                params_raw = (str(usuario_id), str(cliente_id))
+                if resolved_empresa_id:
+                    params_raw += (str(resolved_empresa_id),)
+                params_raw += (str(cliente_id),) + tuple(str(mid) for mid in menu_ids)
                 
                 logger.info(f"[MENU_USUARIO] Query RAW SQL generada con {len(menu_ids)} menu_ids en IN clause")
                 logger.debug(f"[MENU_USUARIO] Parámetros RAW: usuario_id={usuario_id}, cliente_id={cliente_id}")
                 
-                # Ejecutar query RAW SQL
                 permisos_cliente = await execute_query(
                     query_raw,
                     params=params_raw,
@@ -1104,17 +1204,23 @@ class ModuloMenuService(BaseService):
             logger.info(f"[MENU_USUARIO] Permisos procesados: {len(permisos_por_menu)} menús con permisos de {len(menu_ids)} menús disponibles")
             logger.debug(f"[MENU_USUARIO] Menu IDs con permisos: {list(permisos_por_menu.keys())}")
             
-            # ✅ DIAGNÓSTICO: Verificar si hay roles asignados al usuario
+            # ✅ DIAGNÓSTICO: Verificar si hay roles asignados al usuario (mismo scope empresa)
+            role_diag_conditions = [
+                UsuarioRolTable.c.usuario_id == usuario_id,
+                UsuarioRolTable.c.cliente_id == cliente_id,
+                UsuarioRolTable.c.es_activo == True,
+            ]
+            if resolved_empresa_id:
+                role_diag_conditions.append(
+                    or_(
+                        UsuarioRolTable.c.empresa_id.is_(None),
+                        UsuarioRolTable.c.empresa_id == resolved_empresa_id,
+                    )
+                )
             query_roles_usuario = select(
                 UsuarioRolTable.c.rol_id,
                 UsuarioRolTable.c.es_activo
-            ).where(
-                and_(
-                    UsuarioRolTable.c.usuario_id == usuario_id,
-                    UsuarioRolTable.c.cliente_id == cliente_id,
-                    UsuarioRolTable.c.es_activo == True
-                )
-            )
+            ).where(and_(*role_diag_conditions))
             roles_usuario = await execute_query(
                 query_roles_usuario,
                 connection_type=DatabaseConnection.DEFAULT,

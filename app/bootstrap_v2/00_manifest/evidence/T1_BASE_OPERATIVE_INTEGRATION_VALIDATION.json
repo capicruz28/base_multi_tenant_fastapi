@@ -1,0 +1,180 @@
+{
+  "report": "T1_BASE_OPERATIVE_INTEGRATION_VALIDATION",
+  "timestamp_utc": "2026-05-31T22:33:00Z",
+  "base_url": "http://127.0.0.1:8000",
+  "repair_used": false,
+  "expected_base_codigos": [
+    "core.app.acceder",
+    "tenant.branding.leer",
+    "org.empresa.leer"
+  ],
+  "steps": {
+    "health": {
+      "passed": true,
+      "status": 200
+    },
+    "platform_login": {
+      "passed": true
+    },
+    "onboarding_create_tenant": {
+      "ok": true,
+      "subdominio": "t1base4de824d1",
+      "cliente_id": "04519c7c-8dac-456a-a5bb-b0664b1a1e8b",
+      "username": "admin",
+      "password": "ED#7Kpvt@*i$",
+      "raw_status": 201
+    },
+    "sql_post_onboarding": {
+      "label": "post_onboarding_no_repair",
+      "sql_queries": {
+        "roles": "SELECT rol_id, codigo_rol, nombre\nFROM rol\nWHERE cliente_id = :cid\n  AND codigo_rol IN ('ADMIN_TENANT', 'MANAGER_TENANT', 'USER_TENANT')\n  AND es_activo = 1\nORDER BY codigo_rol",
+        "base_rp_by_rol": "SELECT r.codigo_rol, p.codigo\nFROM rol r\nINNER JOIN rol_permiso rp ON rp.rol_id = r.rol_id AND rp.cliente_id = r.cliente_id\nINNER JOIN permiso p ON p.permiso_id = rp.permiso_id AND p.es_activo = 1\nWHERE r.cliente_id = :cid\n  AND r.codigo_rol IN ('ADMIN_TENANT', 'MANAGER_TENANT', 'USER_TENANT')\n  AND p.codigo IN ('core.app.acceder', 'tenant.branding.leer', 'org.empresa.leer')\nORDER BY r.codigo_rol, p.codigo",
+        "base_count": "SELECT r.codigo_rol, COUNT(DISTINCT p.codigo) AS base_count\nFROM rol r\nLEFT JOIN rol_permiso rp ON rp.rol_id = r.rol_id AND rp.cliente_id = r.cliente_id\nLEFT JOIN permiso p ON p.permiso_id = rp.permiso_id\n  AND p.es_activo = 1\n  AND p.codigo IN ('core.app.acceder', 'tenant.branding.leer', 'org.empresa.leer')\nWHERE r.cliente_id = :cid\n  AND r.codigo_rol IN ('MANAGER_TENANT', 'USER_TENANT')\nGROUP BY r.codigo_rol\nORDER BY r.codigo_rol"
+      },
+      "roles": [
+        {
+          "rol_id": "85457AEA-90A7-4FA9-B471-621755ACEA6E",
+          "codigo_rol": "ADMIN_TENANT",
+          "nombre": "Administrador"
+        },
+        {
+          "rol_id": "7FB4D2C5-3049-4558-8CE6-13CD0DA60815",
+          "codigo_rol": "MANAGER_TENANT",
+          "nombre": "Supervisor"
+        },
+        {
+          "rol_id": "150BB75B-2B40-4C61-B797-F47B601B7CDA",
+          "codigo_rol": "USER_TENANT",
+          "nombre": "Usuario"
+        }
+      ],
+      "base_permiso_by_rol": {
+        "ADMIN_TENANT": [
+          "core.app.acceder",
+          "org.empresa.leer",
+          "tenant.branding.leer"
+        ],
+        "MANAGER_TENANT": [
+          "core.app.acceder",
+          "org.empresa.leer",
+          "tenant.branding.leer"
+        ],
+        "USER_TENANT": [
+          "core.app.acceder",
+          "org.empresa.leer",
+          "tenant.branding.leer"
+        ]
+      },
+      "base_count_by_rol": {
+        "MANAGER_TENANT": 3,
+        "USER_TENANT": 3
+      },
+      "checks": {
+        "manager_base_complete": true,
+        "user_base_complete": true,
+        "manager_has_all_three": true,
+        "user_has_all_three": true
+      }
+    },
+    "admin_login": {
+      "passed": true
+    },
+    "manager_setup": {
+      "ok": true,
+      "username": "mgr_t1_4de824d1",
+      "password": "Manager123!",
+      "usuario_id": "245a24b1-a354-4178-b12e-8d7517681156",
+      "rol_id": "7FB4D2C5-3049-4558-8CE6-13CD0DA60815",
+      "via": "api_assign",
+      "assign_status": 201
+    },
+    "sql_post_assign": {
+      "label": "post_assign_no_repair",
+      "sql_queries": {
+        "roles": "SELECT rol_id, codigo_rol, nombre\nFROM rol\nWHERE cliente_id = :cid\n  AND codigo_rol IN ('ADMIN_TENANT', 'MANAGER_TENANT', 'USER_TENANT')\n  AND es_activo = 1\nORDER BY codigo_rol",
+        "base_rp_by_rol": "SELECT r.codigo_rol, p.codigo\nFROM rol r\nINNER JOIN rol_permiso rp ON rp.rol_id = r.rol_id AND rp.cliente_id = r.cliente_id\nINNER JOIN permiso p ON p.permiso_id = rp.permiso_id AND p.es_activo = 1\nWHERE r.cliente_id = :cid\n  AND r.codigo_rol IN ('ADMIN_TENANT', 'MANAGER_TENANT', 'USER_TENANT')\n  AND p.codigo IN ('core.app.acceder', 'tenant.branding.leer', 'org.empresa.leer')\nORDER BY r.codigo_rol, p.codigo",
+        "base_count": "SELECT r.codigo_rol, COUNT(DISTINCT p.codigo) AS base_count\nFROM rol r\nLEFT JOIN rol_permiso rp ON rp.rol_id = r.rol_id AND rp.cliente_id = r.cliente_id\nLEFT JOIN permiso p ON p.permiso_id = rp.permiso_id\n  AND p.es_activo = 1\n  AND p.codigo IN ('core.app.acceder', 'tenant.branding.leer', 'org.empresa.leer')\nWHERE r.cliente_id = :cid\n  AND r.codigo_rol IN ('MANAGER_TENANT', 'USER_TENANT')\nGROUP BY r.codigo_rol\nORDER BY r.codigo_rol"
+      },
+      "roles": [
+        {
+          "rol_id": "85457AEA-90A7-4FA9-B471-621755ACEA6E",
+          "codigo_rol": "ADMIN_TENANT",
+          "nombre": "Administrador"
+        },
+        {
+          "rol_id": "7FB4D2C5-3049-4558-8CE6-13CD0DA60815",
+          "codigo_rol": "MANAGER_TENANT",
+          "nombre": "Supervisor"
+        },
+        {
+          "rol_id": "150BB75B-2B40-4C61-B797-F47B601B7CDA",
+          "codigo_rol": "USER_TENANT",
+          "nombre": "Usuario"
+        }
+      ],
+      "base_permiso_by_rol": {
+        "ADMIN_TENANT": [
+          "core.app.acceder",
+          "org.empresa.leer",
+          "tenant.branding.leer"
+        ],
+        "MANAGER_TENANT": [
+          "core.app.acceder",
+          "org.empresa.leer",
+          "tenant.branding.leer"
+        ],
+        "USER_TENANT": [
+          "core.app.acceder",
+          "org.empresa.leer",
+          "tenant.branding.leer"
+        ]
+      },
+      "base_count_by_rol": {
+        "MANAGER_TENANT": 3,
+        "USER_TENANT": 3
+      },
+      "checks": {
+        "manager_base_complete": true,
+        "user_base_complete": true,
+        "manager_has_all_three": true,
+        "user_has_all_three": true
+      }
+    },
+    "manager_login": {
+      "passed": true
+    },
+    "manager_branding": {
+      "status": 200,
+      "ok": true,
+      "body_keys": [
+        "logo_url",
+        "favicon_url",
+        "color_primario",
+        "color_secundario",
+        "tema_personalizado"
+      ]
+    }
+  },
+  "tenant_created": {
+    "cliente_id": "04519c7c-8dac-456a-a5bb-b0664b1a1e8b",
+    "subdominio": "t1base4de824d1",
+    "admin_username": "admin",
+    "admin_password": "ED#7Kpvt@*i$",
+    "manager_username": "mgr_t1_4de824d1",
+    "manager_password": "Manager123!"
+  },
+  "diagnosis": {
+    "onboarding_provisions_base": true,
+    "assign_role_path_ok": true,
+    "repair_required_for_validation": false,
+    "repair_script_issue": "circular import fixed in constants; use docker exec if local DB host differs",
+    "root_cause_assessment": "none — onboarding provisions BASE_OPERATIVE correctly",
+    "branding_api_manager": true
+  },
+  "verdict": {
+    "status": "PASS",
+    "onboarding_base_operative": true,
+    "manager_branding_200": true,
+    "manager_assign_ok": true
+  }
+}

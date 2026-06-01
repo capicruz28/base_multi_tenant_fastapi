@@ -1,0 +1,61 @@
+{
+  "subdominio": "smokerc2af1c02b",
+  "base_url": "http://localhost:8000",
+  "passed": false,
+  "duration_sec": 1.718,
+  "steps": [
+    {
+      "name": "login",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "has_access": true
+      }
+    },
+    {
+      "name": "org_empresa_listar",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "count": 1
+      }
+    },
+    {
+      "name": "empresa_cambiar",
+      "ok": false,
+      "status": 400,
+      "detail": "La empresa indicada ya es la empresa activa de la sesión"
+    },
+    {
+      "name": "auth_me",
+      "ok": true,
+      "status": 200,
+      "detail": null
+    },
+    {
+      "name": "auth_menu",
+      "ok": true,
+      "status": 200,
+      "detail": null
+    },
+    {
+      "name": "refresh",
+      "ok": true,
+      "status": 200,
+      "detail": null
+    },
+    {
+      "name": "permissions_me_admin_tenant",
+      "ok": true,
+      "status": 200,
+      "detail": {
+        "checks": {
+          "org.empresa.leer": true,
+          "core.app.acceder": true,
+          "tenant.cliente.crear_absent": true
+        },
+        "sample_count": 44
+      }
+    }
+  ]
+}

@@ -1,11 +1,9 @@
 """
 Servicios de proceso para Movimientos (INV):
 - Procesar movimiento: aplica impacto en stock basado en tipo/clase y detalle.
-- Anular movimiento: marca anulado (sin reversión automática por ahora).
+- Autorizar / anular movimiento.
 
-Diseño conservador:
-- No asume transacciones distribuidas; intenta aplicar cambios de forma segura.
-- Exige que el movimiento tenga detalle para poder procesarlo.
+Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
 from __future__ import annotations
 
@@ -16,17 +14,24 @@ from datetime import datetime
 import uuid
 
 from fastapi import HTTPException, status
+from sqlalchemy import select, insert, update, and_
 
 from app.core.exceptions import NotFoundError
 from app.core.application.unit_of_work import unit_of_work, UnitOfWork
+from app.core.tenant.company_scope import require_session_empresa_id
 from app.infrastructure.database.tables_erp import (
     InvMovimientoTable,
     InvMovimientoDetalleTable,
     InvTipoMovimientoTable,
     InvStockTable,
 )
-from sqlalchemy import select, insert, update, and_
-from app.infrastructure.database.queries.inv import get_moneda_by_codigo
+from app.infrastructure.database.queries.inv import (
+    get_moneda_by_codigo,
+    get_movimiento_by_id,
+    update_movimiento,
+    get_almacen_by_id,
+    get_producto_by_id,
+)
 
 
 def _to_decimal(value: Optional[object], default: str = "0") -> Decimal:
@@ -37,6 +42,39 @@ def _to_decimal(value: Optional[object], default: str = "0") -> Decimal:
     return Decimal(str(value))
 
 
+async def _validate_proceso_referencias(
+    client_id: UUID,
+    empresa_id: UUID,
+    mov: dict,
+    detalles: list[dict],
+) -> None:
+    """Almacenes y productos del movimiento deben pertenecer a la empresa de sesión."""
+    for alm_id, label in (
+        (mov.get("almacen_origen_id"), "Almacén origen"),
+        (mov.get("almacen_destino_id"), "Almacén destino"),
+    ):
+        if alm_id is not None:
+            alm = await get_almacen_by_id(
+                client_id=client_id,
+                almacen_id=alm_id,
+                empresa_id=empresa_id,
+            )
+            if not alm:
+                raise NotFoundError(detail=f"{label} no encontrado")
+
+    for det in detalles:
+        producto_id = det.get("producto_id")
+        if not producto_id:
+            continue
+        prod = await get_producto_by_id(
+            client_id=client_id,
+            producto_id=producto_id,
+            empresa_id=empresa_id,
+        )
+        if not prod:
+            raise NotFoundError(detail="Producto no encontrado")
+
+
 async def procesar_movimiento_servicio(
     client_id: UUID,
     movimiento_id: UUID,
@@ -44,22 +82,17 @@ async def procesar_movimiento_servicio(
     uow: Optional[UnitOfWork] = None,
 ) -> dict:
     """
-    Procesa un movimiento:
-    - Valida existencia y estado.
-    - Determina clase del tipo de movimiento.
-    - Aplica detalle contra inv_stock:
-        entrada: +cantidad_base en almacen_destino
-        salida:  -cantidad_base en almacen_origen
-        transferencia: -origen +destino
-        ajuste: si hay origen -> aplica en origen; si hay destino -> aplica en destino
-    - Marca movimiento.estado = 'procesado' y fecha_procesado.
+    Procesa un movimiento de la empresa activa en sesión.
+    Cross-company → NotFoundError; no muta stock de otra empresa.
     """
-    async def _run(uow: UnitOfWork) -> dict:
-        # Leer cabecera dentro de la transacción
-        rows = await uow.execute(
+    empresa_id = require_session_empresa_id()
+
+    async def _run(uow_run: UnitOfWork) -> dict:
+        rows = await uow_run.execute(
             select(InvMovimientoTable).where(
                 and_(
                     InvMovimientoTable.c.cliente_id == client_id,
+                    InvMovimientoTable.c.empresa_id == empresa_id,
                     InvMovimientoTable.c.movimiento_id == movimiento_id,
                 )
             )
@@ -76,7 +109,6 @@ async def procesar_movimiento_servicio(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="No se puede procesar un movimiento anulado",
             )
-        # Lifecycle: si requiere autorización, debe estar autorizado antes de procesar
         if bool(mov.get("requiere_autorizacion")) and estado != "autorizado":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -90,31 +122,23 @@ async def procesar_movimiento_servicio(
                 detail="Movimiento sin tipo_movimiento_id",
             )
 
-        tm_rows = await uow.execute(
+        tm_rows = await uow_run.execute(
             select(InvTipoMovimientoTable).where(
                 and_(
                     InvTipoMovimientoTable.c.cliente_id == client_id,
+                    InvTipoMovimientoTable.c.empresa_id == empresa_id,
                     InvTipoMovimientoTable.c.tipo_movimiento_id == tipo_movimiento_id,
                 )
             )
         )
         tm = tm_rows[0] if tm_rows else None
         if not tm:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Tipo de movimiento inválido o no pertenece al tenant",
-            )
+            raise NotFoundError(detail="Tipo de movimiento no encontrado")
 
         clase = (tm.get("clase_movimiento") or "").lower()
         almacen_origen_id = mov.get("almacen_origen_id")
         almacen_destino_id = mov.get("almacen_destino_id")
-        empresa_id = mov.get("empresa_id")
         moneda_id = mov.get("moneda_id")
-        if not empresa_id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Movimiento sin empresa_id",
-            )
         if not moneda_id:
             moneda_row = await get_moneda_by_codigo(
                 client_id=client_id, codigo="PEN", solo_activos=True
@@ -126,18 +150,16 @@ async def procesar_movimiento_servicio(
                 )
             moneda_id = moneda_row["moneda_id"]
 
-        detalles = await uow.execute(
+        detalles = await uow_run.execute(
             select(InvMovimientoDetalleTable)
             .where(
                 and_(
                     InvMovimientoDetalleTable.c.cliente_id == client_id,
+                    InvMovimientoDetalleTable.c.empresa_id == empresa_id,
                     InvMovimientoDetalleTable.c.movimiento_id == movimiento_id,
                 )
             )
-            .order_by(
-                InvMovimientoDetalleTable.c.movimiento_id,
-                InvMovimientoDetalleTable.c.fecha_creacion,
-            )
+            .order_by(InvMovimientoDetalleTable.c.fecha_creacion)
         )
         if not detalles:
             raise HTTPException(
@@ -145,11 +167,14 @@ async def procesar_movimiento_servicio(
                 detail="No se puede procesar un movimiento sin detalle",
             )
 
+        await _validate_proceso_referencias(client_id, empresa_id, mov, detalles)
+
         async def _apply_delta(almacen_id: UUID, producto_id: UUID, delta: Decimal):
-            existing_rows = await uow.execute(
+            existing_rows = await uow_run.execute(
                 select(InvStockTable).where(
                     and_(
                         InvStockTable.c.cliente_id == client_id,
+                        InvStockTable.c.empresa_id == empresa_id,
                         InvStockTable.c.producto_id == producto_id,
                         InvStockTable.c.almacen_id == almacen_id,
                     )
@@ -163,7 +188,7 @@ async def procesar_movimiento_servicio(
                         status_code=status.HTTP_409_CONFLICT,
                         detail="Stock insuficiente (no existe registro de stock para salida)",
                     )
-                await uow.execute(
+                await uow_run.execute(
                     insert(InvStockTable).values(
                         stock_id=uuid.uuid4(),
                         cliente_id=client_id,
@@ -188,11 +213,12 @@ async def procesar_movimiento_servicio(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Stock insuficiente para procesar el movimiento",
                 )
-            await uow.execute(
+            await uow_run.execute(
                 update(InvStockTable)
                 .where(
                     and_(
                         InvStockTable.c.cliente_id == client_id,
+                        InvStockTable.c.empresa_id == empresa_id,
                         InvStockTable.c.stock_id == existing["stock_id"],
                     )
                 )
@@ -245,12 +271,12 @@ async def procesar_movimiento_servicio(
                     detail=f"Clase de movimiento no soportada: {clase}",
                 )
 
-        # Marcar procesado
-        await uow.execute(
+        await uow_run.execute(
             update(InvMovimientoTable)
             .where(
                 and_(
                     InvMovimientoTable.c.cliente_id == client_id,
+                    InvMovimientoTable.c.empresa_id == empresa_id,
                     InvMovimientoTable.c.movimiento_id == movimiento_id,
                 )
             )
@@ -262,11 +288,11 @@ async def procesar_movimiento_servicio(
             )
         )
 
-        # Retornar cabecera actualizada (dentro de la misma transacción)
-        updated_rows = await uow.execute(
+        updated_rows = await uow_run.execute(
             select(InvMovimientoTable).where(
                 and_(
                     InvMovimientoTable.c.cliente_id == client_id,
+                    InvMovimientoTable.c.empresa_id == empresa_id,
                     InvMovimientoTable.c.movimiento_id == movimiento_id,
                 )
             )
@@ -286,12 +312,13 @@ async def autorizar_movimiento_servicio(
     movimiento_id: UUID,
     usuario_autorizado_id: Optional[UUID] = None,
 ) -> dict:
-    """
-    Autoriza un movimiento:
-    - Valida existencia y estado.
-    - Marca estado = 'autorizado' y setea autorizado_por_usuario_id/fecha_autorizacion.
-    """
-    mov = await get_movimiento_by_id(client_id=client_id, movimiento_id=movimiento_id)
+    """Autoriza un movimiento de la empresa activa en sesión."""
+    empresa_id = require_session_empresa_id()
+    mov = await get_movimiento_by_id(
+        client_id=client_id,
+        movimiento_id=movimiento_id,
+        empresa_id=empresa_id,
+    )
     if not mov:
         raise NotFoundError(detail="Movimiento no encontrado")
 
@@ -312,6 +339,7 @@ async def autorizar_movimiento_servicio(
             "autorizado_por_usuario_id": usuario_autorizado_id,
             "fecha_autorizacion": datetime.utcnow(),
         },
+        empresa_id=empresa_id,
     )
     return updated
 
@@ -321,11 +349,13 @@ async def anular_movimiento_servicio(
     movimiento_id: UUID,
     motivo: Optional[str] = None,
 ) -> dict:
-    """
-    Marca un movimiento como anulado.
-    Nota: no revierte stock automáticamente para evitar inconsistencias.
-    """
-    mov = await get_movimiento_by_id(client_id=client_id, movimiento_id=movimiento_id)
+    """Anula un movimiento de la empresa activa en sesión (sin reversión de stock)."""
+    empresa_id = require_session_empresa_id()
+    mov = await get_movimiento_by_id(
+        client_id=client_id,
+        movimiento_id=movimiento_id,
+        empresa_id=empresa_id,
+    )
     if not mov:
         raise NotFoundError(detail="Movimiento no encontrado")
 
@@ -346,6 +376,6 @@ async def anular_movimiento_servicio(
             "motivo_anulacion": motivo,
             "fecha_actualizacion": datetime.utcnow(),
         },
+        empresa_id=empresa_id,
     )
     return updated
-

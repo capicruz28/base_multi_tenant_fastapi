@@ -8,7 +8,7 @@ from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.application.services import movimiento_proceso_service
 from app.modules.inv.presentation.schemas import MovimientoRead
 from app.modules.inv.presentation.schemas_proceso import MotivoAnulacion
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, AuthorizationError
 
 router = APIRouter()
 
@@ -28,6 +28,7 @@ async def procesar_movimiento(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.procesar")
     ),
 ):
+    """Procesa un movimiento de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_proceso_service.procesar_movimiento_servicio(
@@ -36,6 +37,8 @@ async def procesar_movimiento(
             usuario_procesado_id=current_user.usuario_id,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -51,6 +54,7 @@ async def autorizar_movimiento(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.autorizar")
     ),
 ):
+    """Autoriza un movimiento de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_proceso_service.autorizar_movimiento_servicio(
@@ -59,6 +63,8 @@ async def autorizar_movimiento(
             usuario_autorizado_id=current_user.usuario_id,
         )
     except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
@@ -75,6 +81,7 @@ async def anular_movimiento(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")
     ),
 ):
+    """Anula un movimiento de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     try:
         return await movimiento_proceso_service.anular_movimiento_servicio(
@@ -84,4 +91,5 @@ async def anular_movimiento(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
-
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

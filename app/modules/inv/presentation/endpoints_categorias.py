@@ -2,14 +2,13 @@
 """Endpoints INV - Categorías. client_id siempre desde current_user.cliente_id."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
-from typing import Optional
 
 from app.api.deps import get_current_active_user
 from app.core.authorization.rbac import require_permission
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import CategoriaCreate, CategoriaUpdate, CategoriaRead
 from app.modules.inv.application.services import categoria_service
-from app.core.exceptions import NotFoundError
 
 router = APIRouter()
 
@@ -19,16 +18,14 @@ RESOURCE_CODE = "categoria"
 
 @router.get("", response_model=list[CategoriaRead], summary="Listar categorías")
 async def listar_categorias(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     solo_activos: bool = Query(True, description="Solo categorías activas"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Lista categorías del tenant. Filtro por cliente_id del token."""
+    """Lista categorías de la empresa activa en sesión."""
     client_id = current_user.cliente_id
     return await categoria_service.list_categorias_servicio(
         client_id=client_id,
-        empresa_id=empresa_id,
         solo_activos=solo_activos,
     )
 
@@ -39,7 +36,7 @@ async def detalle_categoria(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
 ):
-    """Detalle de una categoría. Solo del tenant del usuario."""
+    """Detalle de una categoría de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await categoria_service.get_categoria_servicio(
@@ -56,9 +53,12 @@ async def crear_categoria(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
 ):
-    """Crea una categoría. cliente_id se asigna desde el contexto (tenant), no desde el body."""
+    """Crea una categoría. empresa_id del body debe coincidir con la sesión."""
     client_id = current_user.cliente_id
-    return await categoria_service.create_categoria_servicio(client_id=client_id, data=data)
+    try:
+        return await categoria_service.create_categoria_servicio(client_id=client_id, data=data)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put("/{categoria_id}", response_model=CategoriaRead, summary="Actualizar categoría")
@@ -68,7 +68,7 @@ async def actualizar_categoria(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Actualiza una categoría. Solo del tenant del usuario."""
+    """Actualiza una categoría de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await categoria_service.update_categoria_servicio(
@@ -90,7 +90,7 @@ async def eliminar_categoria(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
 ):
-    """Marca una categoría como inactiva (es_activo = 0) dentro del tenant."""
+    """Marca una categoría como inactiva (es_activo = 0) en la empresa activa."""
     client_id = current_user.cliente_id
     try:
         await categoria_service.update_categoria_servicio(
@@ -112,7 +112,7 @@ async def reactivar_categoria(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
 ):
-    """Reactiva una categoría previamente dada de baja dentro del tenant."""
+    """Reactiva una categoría de la empresa activa."""
     client_id = current_user.cliente_id
     try:
         return await categoria_service.update_categoria_servicio(

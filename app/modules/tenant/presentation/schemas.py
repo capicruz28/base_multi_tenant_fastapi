@@ -459,6 +459,16 @@ class ClienteStatsResponse(BaseModel):
         }
 
 
+class CredencialesInicialesRead(BaseModel):
+    """Credenciales del usuario admin inicial (solo en respuesta de creación de cliente)."""
+
+    nombre_usuario: str = Field("admin", description="Usuario administrador inicial del tenant")
+    contrasena: str = Field(..., description="Contraseña en texto plano (solo se muestra una vez)")
+    requiere_cambio: bool = Field(
+        True, description="El usuario debe cambiar la contraseña en el primer acceso"
+    )
+
+
 class ClienteResponse(BaseModel):
     """
     Schema estándar para respuestas de operaciones exitosas sobre clientes.
@@ -467,6 +477,25 @@ class ClienteResponse(BaseModel):
     message: str = Field(..., description="Mensaje descriptivo de la operación")
     data: Optional[ClienteRead] = Field(None, description="Datos del cliente (si aplica)")
     
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
+class ClienteCreateResponse(BaseModel):
+    """
+    Respuesta de POST /clientes/ con datos del tenant y credenciales iniciales.
+    """
+
+    success: bool = Field(True, description="Indica si la operación fue exitosa")
+    message: str = Field(..., description="Mensaje descriptivo de la operación")
+    data: ClienteRead = Field(..., description="Datos del cliente creado")
+    credenciales_iniciales: CredencialesInicialesRead = Field(
+        ..., description="Credenciales del administrador inicial (solo en esta respuesta)"
+    )
+
     class Config:
         from_attributes = True
         json_encoders = {

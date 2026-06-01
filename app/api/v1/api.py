@@ -20,7 +20,7 @@ from app.modules.rbac.presentation import endpoints_permisos, endpoints_permisos
 from app.modules.menus.presentation import endpoints as menus_endpoints
 from app.modules.menus.presentation import endpoints_areas
 from app.modules.catalogos.presentation import endpoints as catalogos_endpoints
-from app.modules.tenant.presentation import endpoints_clientes, endpoints_modulos, endpoints_conexiones
+from app.modules.tenant.presentation import endpoints_clientes, endpoints_conexiones
 from app.modules.superadmin.presentation import endpoints_usuarios as superadmin_usuarios_endpoints
 from app.modules.superadmin.presentation import endpoints_auditoria as superadmin_auditoria_endpoints
 from app.modules.superadmin.presentation import endpoints_catalogos_globales as superadmin_catalogos_endpoints
@@ -92,15 +92,8 @@ api_router.include_router(
     tags=["Clientes (Super Admin)"]
 )
 
-# Endpoints antiguos de módulos (deprecated - mantener por compatibilidad temporal)
-api_router.include_router(
-    endpoints_modulos.router,
-    prefix="/modulos",
-    tags=["Módulos (Super Admin) - Deprecated"]
-)
-
 # ========================================
-# ENDPOINTS NUEVOS DE GESTIÓN DE MÓDULOS
+# ENDPOINTS DE GESTIÓN DE MÓDULOS (catálogo v2 + activación por cliente)
 # ========================================
 api_router.include_router(
     modulos_endpoints.router,

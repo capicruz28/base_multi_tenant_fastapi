@@ -311,6 +311,11 @@ class RolRead(RolBase):
         description="Indicador de borrado lógico."
     )
 
+    asignacion_empresa_id: Optional[UUID] = Field(
+        None,
+        description="Empresa del alcance de la asignación usuario_rol; NULL = global al tenant",
+    )
+
     class Config:
         """Configuración de Pydantic para el schema."""
         from_attributes = True

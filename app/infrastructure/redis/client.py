@@ -8,6 +8,7 @@ Servicio Redis asíncrono para gestión de blacklist de tokens.
 - TTL automático basado en tiempo de expiración del token
 """
 
+import json
 import logging
 from typing import Optional
 from uuid import UUID
@@ -228,6 +229,52 @@ class RedisService:
             logger.warning(f"[REDIS_BLACKLIST] Error obteniendo TTL para jti {jti}: {e}")
             return None
     
+    @staticmethod
+    async def set_json(key: str, value: dict, expire_seconds: int) -> bool:
+        """Almacena un dict JSON con TTL (fail-soft si Redis no está disponible)."""
+        if expire_seconds <= 0:
+            return False
+        client = await _get_redis_client()
+        if not client:
+            logger.warning(
+                "[REDIS] set_json omitido (Redis no disponible). key=%s", key
+            )
+            return False
+        try:
+            await client.setex(key, expire_seconds, json.dumps(value, ensure_ascii=False))
+            return True
+        except Exception as e:
+            logger.error("[REDIS] Error en set_json key=%s: %s", key, e, exc_info=True)
+            return False
+
+    @staticmethod
+    async def get_json(key: str) -> Optional[dict]:
+        """Lee un dict JSON; None si no existe o Redis no está disponible."""
+        client = await _get_redis_client()
+        if not client:
+            return None
+        try:
+            raw = await client.get(key)
+            if not raw:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            logger.error("[REDIS] Error en get_json key=%s: %s", key, e, exc_info=True)
+            return None
+
+    @staticmethod
+    async def delete_key(key: str) -> bool:
+        """Elimina una clave (fail-soft)."""
+        client = await _get_redis_client()
+        if not client:
+            return False
+        try:
+            await client.delete(key)
+            return True
+        except Exception as e:
+            logger.warning("[REDIS] Error eliminando key=%s: %s", key, e)
+            return False
+
     @staticmethod
     def is_redis_available() -> bool:
         """

@@ -59,6 +59,7 @@ WHERE ur.usuario_id = :usuario_id
   AND ur.es_activo = 1
   AND r.es_activo = 1
   AND (r.cliente_id = :cliente_id OR r.cliente_id IS NULL)
+  AND (ur.empresa_id IS NULL OR ur.empresa_id = :empresa_id)
 """
 
 # ============================================

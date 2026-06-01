@@ -12,7 +12,7 @@ from app.modules.inv.presentation.schemas import (
     InventarioFisicoDetalleRead,
 )
 from app.modules.inv.application.services import inventario_fisico_detalle_service
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, AuthorizationError
 
 router = APIRouter()
 
@@ -26,7 +26,6 @@ RESOURCE_CODE = "inventario_fisico"
     summary="Listar detalle de inventarios físicos",
 )
 async def listar_inventarios_fisicos_detalle(
-    empresa_id: Optional[UUID] = Query(None, description="Filtrar por empresa"),
     inventario_fisico_id: Optional[UUID] = Query(
         None, description="Filtrar por cabecera de inventario físico"
     ),
@@ -39,12 +38,14 @@ async def listar_inventarios_fisicos_detalle(
     ),
 ):
     client_id = current_user.cliente_id
-    return await inventario_fisico_detalle_service.list_inventarios_fisicos_detalle_servicio(
-        client_id=client_id,
-        empresa_id=empresa_id,
-        inventario_fisico_id=inventario_fisico_id,
-        producto_id=producto_id,
-    )
+    try:
+        return await inventario_fisico_detalle_service.list_inventarios_fisicos_detalle_servicio(
+            client_id=client_id,
+            inventario_fisico_id=inventario_fisico_id,
+            producto_id=producto_id,
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.get(
@@ -67,6 +68,8 @@ async def detalle_inventario_fisico_detalle(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.post(
@@ -84,9 +87,12 @@ async def crear_inventario_fisico_detalle(
     ),
 ):
     client_id = current_user.cliente_id
-    return await inventario_fisico_detalle_service.create_inventario_fisico_detalle_servicio(
-        client_id=client_id, data=data
-    )
+    try:
+        return await inventario_fisico_detalle_service.create_inventario_fisico_detalle_servicio(
+            client_id=client_id, data=data
+        )
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.put(
@@ -112,4 +118,5 @@ async def actualizar_inventario_fisico_detalle(
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
-
+    except AuthorizationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)

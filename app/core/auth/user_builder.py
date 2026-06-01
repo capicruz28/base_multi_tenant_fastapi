@@ -16,7 +16,13 @@ from datetime import datetime
 
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.rbac.presentation.schemas import RolRead
+from app.core.auth.platform_user_lookup import (
+    fetch_usuario_auth_row,
+    is_system_request_client,
+    resolve_platform_superadmin_flag,
+)
 from app.infrastructure.database.queries_async import execute_auth_query
+from app.shared.validators import sanitize_person_name
 from app.infrastructure.database.tables import UsuarioTable, UsuarioRolTable, RolTable
 from sqlalchemy import select, and_, or_
 
@@ -46,6 +52,10 @@ async def build_user_with_roles(
         
         tenant_context = try_get_tenant_context()
         database_type = tenant_context.database_type if tenant_context else "single"
+
+        from app.core.tenant.empresa_context import try_get_current_empresa_id
+
+        empresa_id_ctx = try_get_current_empresa_id()
         
         # 1. Obtener usuario básico
         # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los usuarios pertenecen al mismo cliente)
@@ -66,28 +76,41 @@ async def build_user_with_roles(
                     UsuarioTable.c.cliente_id == request_cliente_id
                 )
             )
-            user_result = await execute_auth_query(user_query)
-            
-            # ✅ CORRECCIÓN: Si no se encuentra con cliente_id, intentar sin filtro
-            # (para usuarios del sistema como superadmin que pueden tener cliente_id NULL o diferente)
+            user_result = await fetch_usuario_auth_row(
+                user_query,
+                username=username,
+                request_cliente_id=request_cliente_id,
+            )
+
             if not user_result:
-                logger.debug(f"Usuario '{username}' no encontrado con cliente_id {request_cliente_id}, intentando sin filtro de cliente")
+                logger.debug(
+                    "Usuario '%s' no encontrado con cliente_id %s, intentando sin filtro de cliente",
+                    username,
+                    request_cliente_id,
+                )
                 user_query_fallback = select(UsuarioTable).where(
                     and_(
                         UsuarioTable.c.nombre_usuario == username,
-                        UsuarioTable.c.es_eliminado == False
+                        UsuarioTable.c.es_eliminado == False,
                     )
                 )
-                user_result = await execute_auth_query(user_query_fallback)
+                user_result = await fetch_usuario_auth_row(
+                    user_query_fallback,
+                    username=username,
+                    request_cliente_id=request_cliente_id,
+                )
         else:
-            # Fallback: buscar sin filtro de cliente (para casos edge)
             user_query = select(UsuarioTable).where(
                 and_(
                     UsuarioTable.c.nombre_usuario == username,
-                    UsuarioTable.c.es_eliminado == False
+                    UsuarioTable.c.es_eliminado == False,
                 )
             )
-            user_result = await execute_auth_query(user_query)
+            user_result = await fetch_usuario_auth_row(
+                user_query,
+                username=username,
+                request_cliente_id=request_cliente_id,
+            )
         
         if not user_result:
             return None
@@ -156,7 +179,17 @@ async def build_user_with_roles(
                 and_(
                     UsuarioRolTable.c.usuario_id == usuario_id,
                     UsuarioRolTable.c.es_activo == True,
-                    RolTable.c.es_activo == True
+                    RolTable.c.es_activo == True,
+                    *(
+                        [
+                            or_(
+                                UsuarioRolTable.c.empresa_id.is_(None),
+                                UsuarioRolTable.c.empresa_id == empresa_id_ctx,
+                            )
+                        ]
+                        if empresa_id_ctx
+                        else []
+                    ),
                 )
             )
         else:
@@ -182,7 +215,17 @@ async def build_user_with_roles(
                     or_(
                         RolTable.c.cliente_id == roles_cliente_id if roles_cliente_id else False,
                         RolTable.c.cliente_id.is_(None)
-                    )
+                    ),
+                    *(
+                        [
+                            or_(
+                                UsuarioRolTable.c.empresa_id.is_(None),
+                                UsuarioRolTable.c.empresa_id == empresa_id_ctx,
+                            )
+                        ]
+                        if empresa_id_ctx
+                        else []
+                    ),
                 )
             )
         
@@ -233,7 +276,14 @@ async def build_user_with_roles(
                     # Los roles como SUPER_ADMIN son globales y no pertenecen a un cliente específico
                     # Esto previene errores de validación de Pydantic en RolRead
                     codigo_rol = role_data.get('codigo_rol')
-                    roles_globales_sistema = {'SUPER_ADMIN', 'SUPERADMIN', 'SYSTEM_ADMIN'}
+                    roles_globales_sistema = {
+                        'SUPER_ADMIN',
+                        'SUPERADMIN',
+                        'SYSTEM_ADMIN',
+                        'ADMIN_PLATFORM',
+                        'SUPPORT_PLATFORM',
+                        'USER_PLATFORM',
+                    }
                     if codigo_rol and codigo_rol.upper() in roles_globales_sistema:
                         # Si es un rol global del sistema, forzar cliente_id=None
                         rol_cliente_id = None
@@ -260,19 +310,30 @@ async def build_user_with_roles(
                     if nivel:
                         niveles.append(nivel)
                     
-                    # Verificar superadmin
-                    if role_data.get('codigo_rol') == 'SUPER_ADMIN' and nivel == 5:
+                    codigo = (role_data.get('codigo_rol') or '').upper()
+                    if codigo in ('SUPER_ADMIN', 'ADMIN_PLATFORM') and nivel >= 5:
                         is_superadmin = True
-                        
+
                 except Exception as e:
                     logger.warning(f"Error construyendo RolRead: {e}")
                     continue
             
             if niveles:
                 nivel_acceso = max(niveles)
-        
-        # 4. Determinar tipo de usuario
-        user_type = determine_user_type(nivel_acceso, is_superadmin)
+
+        is_superadmin = resolve_platform_superadmin_flag(
+            username=username,
+            request_cliente_id=request_cliente_id,
+            roles_result=roles_result,
+            nivel_acceso=nivel_acceso,
+            is_superadmin_from_roles=is_superadmin,
+        )
+
+        # 4. Tipo de usuario (platform_admin, no super_admin legacy)
+        if is_superadmin and is_system_request_client(request_cliente_id):
+            user_type = 'platform_admin'
+        else:
+            user_type = determine_user_type(nivel_acceso, is_superadmin)
 
         # 5. Cargar códigos de permiso RBAC (tablas permiso + rol_permiso). No rompe si no existen.
         permisos_codigos: List[str] = []
@@ -292,6 +353,7 @@ async def build_user_with_roles(
                         filter_by_subscription=getattr(
                             _settings, "PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION", False
                         ),
+                        empresa_id=empresa_id_ctx,
                     )
                     permisos_codigos = list(effective.codes)
                 except Exception as resolver_err:
@@ -307,6 +369,7 @@ async def build_user_with_roles(
                         usuario_id=usuario_id,
                         cliente_id=cliente_id,
                         database_type=database_type,
+                        empresa_id=empresa_id_ctx,
                     )
             else:
                 from app.modules.rbac.application.services.permisos_usuario_service import (
@@ -316,6 +379,7 @@ async def build_user_with_roles(
                     usuario_id=usuario_id,
                     cliente_id=cliente_id,
                     database_type=database_type,
+                    empresa_id=empresa_id_ctx,
                 )
         except Exception as perm_err:
             logger.debug(
@@ -335,6 +399,8 @@ async def build_user_with_roles(
         usuario_dict = {
             **user_result,
             'cliente_id': cliente_id,  # ✅ Establecer explícitamente el cliente_id corregido
+            'nombre': sanitize_person_name(user_result.get('nombre')),
+            'apellido': sanitize_person_name(user_result.get('apellido')),
             'access_level': nivel_acceso,
             'is_super_admin': is_superadmin,
             'user_type': user_type,
@@ -348,7 +414,15 @@ async def build_user_with_roles(
         return usuario_pydantic
         
     except Exception as e:
-        logger.error(f"Error construyendo UsuarioReadWithRoles para '{username}': {e}", exc_info=True)
+        logger.error(
+            "[ME-ENDPOINT] build_user_with_roles exception=%s:%s username=%s "
+            "request_cliente_id=%s",
+            type(e).__name__,
+            e,
+            username,
+            request_cliente_id,
+            exc_info=True,
+        )
         return None
 
 

@@ -191,6 +191,12 @@ UsuarioRolTable = Table(
     Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='CASCADE'), nullable=False),
     Column('rol_id', UNIQUEIDENTIFIER, ForeignKey('rol.rol_id', ondelete='CASCADE'), nullable=False),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
+    Column(
+        'empresa_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
     
     # Control
     Column('fecha_asignacion', DateTime, nullable=False, server_default=func.getdate()),
@@ -262,6 +268,12 @@ RefreshTokensTable = Table(
     metadata,
     Column('token_id', UNIQUEIDENTIFIER, primary_key=True),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=False),
+    Column(
+        'empresa_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
     Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='CASCADE'), nullable=False),
     
     # Token
@@ -290,6 +302,7 @@ RefreshTokensTable = Table(
     Index('IDX_refresh_token_active', 'usuario_id', 'is_revoked', 'expires_at'),
     Index('IDX_refresh_token_cleanup', 'expires_at', 'is_revoked'),
     Index('IDX_refresh_token_device', 'device_id'),
+    Index('IDX_refresh_token_empresa', 'empresa_id'),
 )
 
 # ============================================================================
@@ -493,6 +506,31 @@ LogSincronizacionUsuarioTable = Table(
 )
 
 # ============================================================================
+# TABLA: cfg_codigo_secuencia
+# ============================================================================
+CfgCodigoSecuenciaTable = Table(
+    'cfg_codigo_secuencia',
+    metadata,
+    Column('secuencia_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=False),
+    Column(
+        'empresa_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
+    Column('entidad', String(50), nullable=False),
+    Column('prefijo', String(5), nullable=False),
+    Column('longitud_numero', Integer, nullable=False, server_default='3'),
+    Column('ultimo_numero', Integer, nullable=False, server_default='0'),
+    Column('separador', String(2), nullable=True, server_default=''),
+    Column('es_activo', Boolean, nullable=False, server_default='1'),
+    UniqueConstraint('cliente_id', 'empresa_id', 'entidad', name='UQ_cfg_codigo_secuencia_cliente_empresa_entidad'),
+    Index('IDX_cfg_codigo_secuencia_cliente', 'cliente_id', 'es_activo'),
+    Index('IDX_cfg_codigo_secuencia_entidad', 'cliente_id', 'entidad'),
+)
+
+# ============================================================================
 # TABLA: auth_audit_log
 # ============================================================================
 AuthAuditLogTable = Table(
@@ -544,6 +582,7 @@ __all__ = [
     'ClienteAuthConfigTable',
     'FederacionIdentidadTable',
     'LogSincronizacionUsuarioTable',
+    'CfgCodigoSecuenciaTable',
     'AuthAuditLogTable',
     # Tablas de módulos y menús están en tables_modulos.py
     # Importar desde allí: ModuloTable, ClienteModuloTable, ModuloSeccionTable,

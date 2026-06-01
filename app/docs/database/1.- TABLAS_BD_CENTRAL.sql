@@ -295,7 +295,7 @@ CREATE INDEX IDX_cliente_modulo_vencimiento ON cliente_modulo(fecha_vencimiento)
 CREATE TABLE usuario (
     usuario_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
-    empresa_default_id  UNIQUEIDENTIFIER NOT NULL,
+    empresa_default_id  UNIQUEIDENTIFIER NULL,
     nombre_usuario NVARCHAR(100) NOT NULL,
     contrasena NVARCHAR(255) NOT NULL,
     nombre NVARCHAR(100) NULL,
@@ -335,7 +335,7 @@ CREATE TABLE usuario (
 CREATE TABLE rol (
     rol_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NULL,                   -- NULL = Rol global del sistema
-    empresa_id UNIQUEIDENTIFIER NULL;                          
+    empresa_id UNIQUEIDENTIFIER NULL,
     codigo_rol NVARCHAR(30) NULL,
     nombre NVARCHAR(50) NOT NULL,
     descripcion NVARCHAR(255) NULL,
@@ -360,7 +360,7 @@ CREATE TABLE usuario_rol (
     rol_id UNIQUEIDENTIFIER NOT NULL,
     cliente_id UNIQUEIDENTIFIER NOT NULL,                      -- Desnormalizado para queries rápidas
     empresa_id UNIQUEIDENTIFIER NULL,
-    es_empresa_default BIT DEFAULT 0 NOT NULL
+    es_empresa_default BIT DEFAULT 0 NOT NULL,
     fecha_asignacion DATETIME DEFAULT GETDATE() NOT NULL,
     fecha_expiracion DATETIME NULL,
     es_activo BIT DEFAULT 1 NOT NULL,
@@ -381,7 +381,7 @@ CREATE TABLE usuario_rol (
 CREATE TABLE rol_menu_permiso (
     permiso_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
-    empresa_id UNIQUEIDENTIFIER NULL;
+    empresa_id UNIQUEIDENTIFIER NULL,
     rol_id UNIQUEIDENTIFIER NOT NULL,
     menu_id UNIQUEIDENTIFIER NOT NULL,
     puede_ver BIT DEFAULT 1 NOT NULL,
@@ -410,7 +410,7 @@ CREATE TABLE rol_menu_permiso (
 CREATE TABLE refresh_tokens (
     token_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
-    empresa_id UNIQUEIDENTIFIER NULL;
+    empresa_id UNIQUEIDENTIFIER NULL,
     usuario_id UNIQUEIDENTIFIER NOT NULL,
     token_hash VARCHAR(255) NOT NULL UNIQUE,
     expires_at DATETIME NOT NULL,
@@ -438,7 +438,7 @@ CREATE TABLE refresh_tokens (
 CREATE TABLE auth_audit_log (
     log_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
     cliente_id UNIQUEIDENTIFIER NOT NULL,
-    empresa_id UNIQUEIDENTIFIER NULL;
+    empresa_id UNIQUEIDENTIFIER NULL,
     usuario_id UNIQUEIDENTIFIER NULL,
     evento NVARCHAR(50) NOT NULL,
     nombre_usuario_intento NVARCHAR(100) NULL,

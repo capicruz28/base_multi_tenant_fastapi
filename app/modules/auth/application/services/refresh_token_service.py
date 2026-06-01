@@ -67,7 +67,9 @@ class RefreshTokenService(BaseService):
         client_type: str = "web",
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
-        is_rotation: bool = False  # ✅ NUEVO: Indica si es una rotación (refresh)
+        is_rotation: bool = False,  # ✅ NUEVO: Indica si es una rotación (refresh)
+        empresa_id: Optional[UUID] = None,
+        refresh_token_expire_days: Optional[int] = None,
     ) -> Dict:
         """
         Almacena un nuevo refresh token en la base de datos.
@@ -88,7 +90,12 @@ class RefreshTokenService(BaseService):
         """
         try:
             token_hash = RefreshTokenService.hash_token(token)
-            expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+            refresh_days = (
+                refresh_token_expire_days
+                if refresh_token_expire_days is not None
+                else settings.REFRESH_TOKEN_EXPIRE_DAYS
+            )
+            expires_at = datetime.utcnow() + timedelta(days=refresh_days)
             
             # ✅ CORRECCIÓN: Si es rotación, verificar si el token ya existe (doble refresh)
             # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
@@ -119,7 +126,8 @@ class RefreshTokenService(BaseService):
                 cliente_id=cliente_id,
                 client_type=client_type,
                 ip_address=ip_address,
-                user_agent=user_agent
+                user_agent=user_agent,
+                empresa_id=empresa_id,
             )
             
             logger.info(
@@ -207,7 +215,10 @@ class RefreshTokenService(BaseService):
     
     @staticmethod
     @BaseService.handle_service_errors
-    async def validate_refresh_token(token: str) -> Optional[Dict]:
+    async def validate_refresh_token(
+        token: str,
+        cliente_id: Optional[UUID] = None,
+    ) -> Optional[Dict]:
         """
         Valida un refresh token contra la base de datos.
         
@@ -215,22 +226,42 @@ class RefreshTokenService(BaseService):
         - Exista en la BD
         - No esté revocado (is_revoked = 0)
         - No haya expirado (expires_at > NOW)
+
+        Args:
+            token: JWT refresh sin hashear (cookie/body).
+            cliente_id: Tenant donde se persistió el token. Si se omite, se usa
+                el contexto del request (puede fallar en platform si Host=backend
+                y Origin no viaja). Preferir el claim ``cliente_id`` del JWT.
         """
         try:
-            cliente_id = get_current_client_id()
+            resolved_cliente_id = cliente_id
+            if resolved_cliente_id is None:
+                try:
+                    resolved_cliente_id = get_current_client_id()
+                except RuntimeError:
+                    logger.warning(
+                        "[VALIDATE-TOKEN] Sin cliente_id en JWT ni contexto de tenant"
+                    )
+                    return None
+
             token_hash = RefreshTokenService.hash_token(token)
             # ✅ FASE 1 SEGURIDAD: Usar función SQLAlchemy Core para máxima seguridad
-            token_data = await get_refresh_token_by_hash_core(token_hash, cliente_id)
+            token_data = await get_refresh_token_by_hash_core(
+                token_hash, resolved_cliente_id
+            )
             
             if not token_data:
                 logger.warning(
-                    f"[VALIDATE-TOKEN] Token no encontrado, revocado o expirado - Cliente {cliente_id}"
+                    "[VALIDATE-TOKEN] Token no encontrado, revocado o expirado - "
+                    "Cliente %s (contexto request puede diferir del JWT en platform)",
+                    resolved_cliente_id,
                 )
                 return None
             
             logger.info(
                 f"[VALIDATE-TOKEN] Token válido - Cliente {token_data['cliente_id']}, "
-                f"Usuario {token_data['usuario_id']}, Tipo: {token_data.get('client_type', 'unknown')}"
+                f"Usuario {token_data['usuario_id']}, Tipo: {token_data.get('client_type', 'unknown')}, "
+                f"Empresa: {token_data.get('empresa_id')}"
             )
             
             return token_data

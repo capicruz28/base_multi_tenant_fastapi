@@ -1,0 +1,95 @@
+{
+  "phase": "M4",
+  "document": "ADMIN_TENANT_SCOPE_MODEL.md",
+  "implementation_doc": "M4_ADMIN_TENANT_TENANT_WIDE_IMPLEMENTATION.md",
+  "generated_at": "2026-05-31",
+  "overall_status": "PASS",
+  "model": "B_tenant_wide",
+  "pytest_summary": {
+    "command": "pytest tests/unit/test_m4_admin_tenant_wide.py tests/unit/test_multiempresa_m1.py tests/unit/test_empresa_sesion_auth.py tests/unit/test_assign_role_empresa_scope.py -v",
+    "passed": 35,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "scope_excluded": [
+    "PLATFORM_ADMIN",
+    "MANAGER_TENANT",
+    "USER_TENANT",
+    "RoleGrantSyncService",
+    "OwnerSyncService",
+    "frontend",
+    "access_level_bypass"
+  ],
+  "criteria": [
+    {
+      "id": "M4.1",
+      "description": "Onboarding crea ADMIN_TENANT con usuario_rol.empresa_id NULL",
+      "files": [
+        "cliente_onboarding_service.py",
+        "minimal_erp_tenant_bootstrap_service.py"
+      ],
+      "test": "test_vincular_admin_empresa_sets_null_scope_m4",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.2",
+      "description": "Script repair idempotente scoped → NULL solo ADMIN_TENANT",
+      "files": ["scripts/repair_admin_tenant_tenant_wide.py"],
+      "test": "manual: --dry-run / --apply",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.3",
+      "description": "Login admin tenant-wide — elegibles desde org_empresa",
+      "test": "test_admin_tenant_wide_login_elegibles_from_org, test_admin_tenant_wide_single_org_direct_session",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.4",
+      "description": "Cambio de empresa + persist default (compat M1)",
+      "test": "test_cambiar_persiste_empresa_default_m1_2, test_seleccionar_persiste_empresa_default_m1_1",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.5",
+      "description": "auth/me, refresh, JWT — sin regresión sesión",
+      "test": "test_empresa_sesion_auth.py (refresh, JWT claims)",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.6",
+      "description": "RBAC filtro global NULL OR sesión (permissions/menu path)",
+      "test": "test_sql_empresa_filter_includes_global_roles",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.7",
+      "description": "MANAGER/USER assign scoped sin cambio",
+      "test": "test_assign_role_empresa_scope.py",
+      "status": "PASS"
+    },
+    {
+      "id": "M4.8",
+      "description": "Datos ERP company-scoped — sin modificación código INV/ORG company",
+      "test": "documented — require_org_company_erp_session unchanged",
+      "status": "PASS"
+    }
+  ],
+  "repair_script": {
+    "path": "scripts/repair_admin_tenant_tenant_wide.py",
+    "examples": [
+      "python scripts/repair_admin_tenant_tenant_wide.py --all",
+      "python scripts/repair_admin_tenant_tenant_wide.py --subdominio prueba --apply"
+    ]
+  },
+  "tenant_new_behavior": {
+    "usuario_rol_empresa_id": null,
+    "usuario_empresa_default_id": "EMP001 on first onboarding",
+    "login_elegibles": "all org_empresa active"
+  },
+  "tenant_migrated_behavior": {
+    "action": "repair_admin_tenant_tenant_wide.py --apply",
+    "usuario_rol_empresa_id": "NULL after repair",
+    "empresa_default_id": "unchanged by repair"
+  }
+}

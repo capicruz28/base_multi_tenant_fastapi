@@ -500,11 +500,17 @@ class ClienteModuloService(BaseService):
             client_id=None
         )
         logger.info(f"Módulo {modulo_id} desactivado para cliente {cliente_id} exitosamente.")
+        from app.modules.modulos.application.services.modulo_service import ModuloService
+        modulo_info = await ModuloService.obtener_modulo_por_id(modulo_id)
+        modulo_codigo = modulo_info.codigo if modulo_info else str(modulo_id)
         try:
-            from app.core.authorization.permission_resolver import get_permission_resolver
-            get_permission_resolver().invalidate_for_tenant(cliente_id)
+            from app.modules.tenant.application.services.owner_sync_service import OwnerSyncService
+            await OwnerSyncService.on_module_deactivated(
+                cliente_id=cliente_id,
+                modulo_codigo=modulo_codigo or "",
+            )
         except Exception as inv:
-            logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
+            logger.debug("OwnerSync deactivate (no bloqueante): %s", inv)
         return True
 
     @staticmethod

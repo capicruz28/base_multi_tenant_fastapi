@@ -65,7 +65,8 @@ async def get_refresh_token_by_hash_core(
         RefreshTokensTable.c.is_revoked,
         RefreshTokensTable.c.created_at,
         RefreshTokensTable.c.client_type,
-        RefreshTokensTable.c.cliente_id
+        RefreshTokensTable.c.cliente_id,
+        RefreshTokensTable.c.empresa_id,
     ).where(
         and_(
             RefreshTokensTable.c.token_hash == token_hash,
@@ -91,7 +92,8 @@ async def insert_refresh_token_core(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
     device_name: Optional[str] = None,
-    device_id: Optional[str] = None
+    device_id: Optional[str] = None,
+    empresa_id: Optional[UUID] = None,
 ) -> Dict[str, Any]:
     """
     Inserta un nuevo refresh token usando SQLAlchemy Core.
@@ -108,6 +110,7 @@ async def insert_refresh_token_core(
         user_agent: User agent del cliente (opcional)
         device_name: Nombre del dispositivo (opcional)
         device_id: ID del dispositivo (opcional)
+        empresa_id: Empresa activa de la sesión (opcional)
     
     Returns:
         Diccionario con datos del token insertado (incluye token_id)
@@ -137,13 +140,13 @@ async def insert_refresh_token_core(
     # El filtro automático se aplicará aunque sea TextClause
     query = text("""
         INSERT INTO refresh_tokens (
-            usuario_id, token_hash, expires_at, client_type, 
-            ip_address, user_agent, cliente_id, device_name, device_id
+            usuario_id, token_hash, expires_at, client_type,
+            ip_address, user_agent, cliente_id, empresa_id, device_name, device_id
         )
-        OUTPUT INSERTED.token_id, INSERTED.usuario_id, INSERTED.cliente_id, 
-               INSERTED.expires_at, INSERTED.created_at
-        VALUES (:usuario_id, :token_hash, :expires_at, :client_type, 
-                :ip_address, :user_agent, :cliente_id, :device_name, :device_id)
+        OUTPUT INSERTED.token_id, INSERTED.usuario_id, INSERTED.cliente_id,
+               INSERTED.empresa_id, INSERTED.expires_at, INSERTED.created_at
+        VALUES (:usuario_id, :token_hash, :expires_at, :client_type,
+                :ip_address, :user_agent, :cliente_id, :empresa_id, :device_name, :device_id)
     """).bindparams(
         usuario_id=usuario_id,
         token_hash=token_hash,
@@ -152,6 +155,7 @@ async def insert_refresh_token_core(
         ip_address=ip_address,
         user_agent=user_agent[:500] if user_agent else None,
         cliente_id=cliente_id,  # ✅ Filtro explícito
+        empresa_id=empresa_id,
         device_name=device_name,
         device_id=device_id
     )

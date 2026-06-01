@@ -1,0 +1,361 @@
+{
+  "report": "M1_M2_STAGING_INTEGRATION_VALIDATION",
+  "spec_version": "OwnerSync-v1.0+M2",
+  "timestamp_utc": "2026-05-31T17:15:40Z",
+  "base_url": "http://localhost:8000",
+  "execution": {
+    "environment": "docker staging (fastapi_backend + bd_sistema_saas)",
+    "command": "docker exec fastapi_backend python scripts/run_m1_m2_staging_integration.py",
+    "platform_credentials": "superadmin / admin123"
+  },
+  "steps": {
+    "health": {
+      "passed": true
+    },
+    "platform_login": {
+      "passed": true
+    },
+    "onboarding_create_tenant": {
+      "ok": true,
+      "subdominio": "m1m2rc675a82d0",
+      "cliente_id": "844c009e-f5e2-4f23-bb8a-a675dce5e882",
+      "username": "admin",
+      "password": "wqzPm*oHQ19e",
+      "raw_status": 201
+    },
+    "sql_validation": {
+      "cliente_modulo": [
+        "INV",
+        "ORG",
+        "SYS_ADMIN"
+      ],
+      "expected_cliente_modulo": [
+        "ORG",
+        "SYS_ADMIN",
+        "INV"
+      ],
+      "rol_permiso_admin_inv": {
+        "count": 35,
+        "sample": [
+          "inv.almacen.actualizar",
+          "inv.almacen.crear",
+          "inv.almacen.eliminar",
+          "inv.almacen.leer",
+          "inv.categoria.actualizar",
+          "inv.categoria.crear",
+          "inv.categoria.eliminar",
+          "inv.categoria.leer",
+          "inv.inventario_fisico.actualizar",
+          "inv.inventario_fisico.anular",
+          "inv.inventario_fisico.aprobar",
+          "inv.inventario_fisico.crear",
+          "inv.inventario_fisico.finalizar",
+          "inv.inventario_fisico.leer",
+          "inv.movimiento.actualizar"
+        ],
+        "all_inv_prefix": true
+      },
+      "rol_menu_permiso_admin": {
+        "total": 18,
+        "min_expected": 18,
+        "by_modulo": {
+          "INV": [
+            "INV_ALMACENES",
+            "INV_CATEGORIAS",
+            "INV_INV_FISICO",
+            "INV_INV_KARDEX",
+            "INV_MOVIMIENTOS",
+            "INV_PRODUCTOS",
+            "INV_STOCK",
+            "INV_TIPOS_MOV",
+            "INV_UNIDADES"
+          ],
+          "ORG": [
+            "ORG_CARGOS",
+            "ORG_CENTROS_COSTO",
+            "ORG_DEPARTAMENTOS",
+            "ORG_MI_EMPRESA",
+            "ORG_PARAMETROS",
+            "ORG_SUCURSALES"
+          ],
+          "SYS_ADMIN": [
+            "SYS_ADMIN.TENANT.ROLES",
+            "SYS_ADMIN.TENANT.SESSIONS",
+            "SYS_ADMIN.TENANT.USERS"
+          ]
+        },
+        "org_count": 6,
+        "sys_admin_tenant_count": 3,
+        "inv_count": 9,
+        "forbidden_platform_catalogos": []
+      },
+      "manager_tenant_grants": {
+        "rol_id": "EA182A62-3C34-4B12-8C6D-F3C52A4EA59C",
+        "inv_rol_permiso_count": 0,
+        "inv_rol_menu_permiso_count": 0
+      },
+      "admin_rol_id": "C70B1037-EFC2-49F2-B755-464AD3D5A57B",
+      "checks": {
+        "cliente_modulo_org_sys_inv": true,
+        "cliente_modulo_contains_all_trial": true,
+        "rol_permiso_inv_present": true,
+        "rol_permiso_all_inv_prefix": true,
+        "rol_menu_permiso_org": true,
+        "rol_menu_permiso_sys_admin_tenant": true,
+        "rol_menu_permiso_inv": true,
+        "rol_menu_permiso_min_healthy": true,
+        "no_platform_catalogos_rmp": true,
+        "manager_no_inv_rmp": true,
+        "manager_no_inv_rp": true
+      },
+      "passed": true,
+      "sql_queries_used": [
+        "cliente_modulo activos por modulo.codigo",
+        "rol_permiso ADMIN_TENANT WHERE permiso.codigo LIKE 'inv.%'",
+        "rol_menu_permiso ADMIN_TENANT JOIN modulo_menu JOIN modulo",
+        "rol_menu_permiso/rol_permiso MANAGER_TENANT inv counts"
+      ]
+    },
+    "tenant_admin_menu": {
+      "passed": true,
+      "status": 200,
+      "modulo_codigos": [
+        "ORG",
+        "INV",
+        "SYS_ADMIN"
+      ],
+      "checks": {
+        "ORG": true,
+        "SYS_ADMIN": true,
+        "INV": true,
+        "no_platform_or_catalogos": true
+      },
+      "forbidden_menu_codigos": [],
+      "menu_codigos_sample": [
+        "ORG_MI_EMPRESA",
+        "ORG_SUCURSALES",
+        "ORG_DEPARTAMENTOS",
+        "ORG_CARGOS",
+        "ORG_CENTROS_COSTO",
+        "ORG_PARAMETROS",
+        "INV_CATEGORIAS",
+        "INV_PRODUCTOS",
+        "INV_UNIDADES",
+        "INV_ALMACENES",
+        "INV_STOCK",
+        "INV_TIPOS_MOV",
+        "INV_MOVIMIENTOS",
+        "INV_INV_FISICO",
+        "INV_INV_KARDEX",
+        "SYS_ADMIN.TENANT.USERS",
+        "SYS_ADMIN.TENANT.ROLES",
+        "SYS_ADMIN.TENANT.SESSIONS"
+      ]
+    },
+    "platform_admin_smoke": {
+      "subdominio": "platform",
+      "base_url": "http://localhost:8000",
+      "passed": true,
+      "duration_sec": 0.598,
+      "steps": [
+        {
+          "name": "login",
+          "ok": true,
+          "status": 200,
+          "detail": {
+            "has_access": true
+          }
+        },
+        {
+          "name": "auth_me",
+          "ok": true,
+          "status": 200,
+          "detail": {
+            "user_type": "platform_admin"
+          }
+        },
+        {
+          "name": "auth_menu",
+          "ok": true,
+          "status": 200,
+          "detail": {
+            "modulos_count": 1
+          }
+        },
+        {
+          "name": "permissions_me_platform",
+          "ok": true,
+          "status": 200,
+          "detail": {
+            "admin.platform.access": true,
+            "core.app.acceder": true,
+            "tenant.cliente.crear": true,
+            "admin.usuario.leer": true,
+            "sample_count": 414
+          }
+        },
+        {
+          "name": "refresh",
+          "ok": true,
+          "status": 200,
+          "detail": null
+        }
+      ]
+    },
+    "impersonation_menu": {
+      "passed": true,
+      "impersonate_status": 200,
+      "menu_status": 200,
+      "modulo_codigos": [
+        "ORG",
+        "INV"
+      ],
+      "checks": {
+        "ORG": true,
+        "INV": true,
+        "no_platform_or_catalogos": true
+      },
+      "forbidden_menu_codigos": []
+    },
+    "manager_tenant_menu": {
+      "passed": true,
+      "user_setup": {
+        "ok": true,
+        "username": "manager_675a82d0",
+        "password": "Manager123!",
+        "usuario_id": "2fcebb16-9a5e-43a7-a9d0-21d45e9c2050",
+        "rol_id": "EA182A62-3C34-4B12-8C6D-F3C52A4EA59C",
+        "via": "sql"
+      },
+      "menu_status": 200,
+      "modulo_codigos": [],
+      "checks": {
+        "INV_absent": true,
+        "no_platform_or_catalogos": true
+      }
+    }
+  },
+  "verdict": {
+    "status": "PASS",
+    "duration_sec": 26.28,
+    "summary": {
+      "sql_validation": true,
+      "tenant_admin_menu": true,
+      "platform_admin_smoke": true,
+      "impersonation_inv_visible": true,
+      "manager_inv_hidden": true
+    }
+  },
+  "tenant_created": {
+    "cliente_id": "844c009e-f5e2-4f23-bb8a-a675dce5e882",
+    "subdominio": "m1m2rc675a82d0",
+    "username": "admin",
+    "password": "wqzPm*oHQ19e",
+    "manager_username": "manager_675a82d0",
+    "manager_password": "Manager123!"
+  },
+  "sql_validation": {
+    "cliente_modulo": [
+      "INV",
+      "ORG",
+      "SYS_ADMIN"
+    ],
+    "expected_cliente_modulo": [
+      "ORG",
+      "SYS_ADMIN",
+      "INV"
+    ],
+    "rol_permiso_admin_inv": {
+      "count": 35,
+      "sample": [
+        "inv.almacen.actualizar",
+        "inv.almacen.crear",
+        "inv.almacen.eliminar",
+        "inv.almacen.leer",
+        "inv.categoria.actualizar",
+        "inv.categoria.crear",
+        "inv.categoria.eliminar",
+        "inv.categoria.leer",
+        "inv.inventario_fisico.actualizar",
+        "inv.inventario_fisico.anular",
+        "inv.inventario_fisico.aprobar",
+        "inv.inventario_fisico.crear",
+        "inv.inventario_fisico.finalizar",
+        "inv.inventario_fisico.leer",
+        "inv.movimiento.actualizar"
+      ],
+      "all_inv_prefix": true
+    },
+    "rol_menu_permiso_admin": {
+      "total": 18,
+      "min_expected": 18,
+      "by_modulo": {
+        "INV": [
+          "INV_ALMACENES",
+          "INV_CATEGORIAS",
+          "INV_INV_FISICO",
+          "INV_INV_KARDEX",
+          "INV_MOVIMIENTOS",
+          "INV_PRODUCTOS",
+          "INV_STOCK",
+          "INV_TIPOS_MOV",
+          "INV_UNIDADES"
+        ],
+        "ORG": [
+          "ORG_CARGOS",
+          "ORG_CENTROS_COSTO",
+          "ORG_DEPARTAMENTOS",
+          "ORG_MI_EMPRESA",
+          "ORG_PARAMETROS",
+          "ORG_SUCURSALES"
+        ],
+        "SYS_ADMIN": [
+          "SYS_ADMIN.TENANT.ROLES",
+          "SYS_ADMIN.TENANT.SESSIONS",
+          "SYS_ADMIN.TENANT.USERS"
+        ]
+      },
+      "org_count": 6,
+      "sys_admin_tenant_count": 3,
+      "inv_count": 9,
+      "forbidden_platform_catalogos": []
+    },
+    "manager_tenant_grants": {
+      "rol_id": "EA182A62-3C34-4B12-8C6D-F3C52A4EA59C",
+      "inv_rol_permiso_count": 0,
+      "inv_rol_menu_permiso_count": 0
+    },
+    "admin_rol_id": "C70B1037-EFC2-49F2-B755-464AD3D5A57B",
+    "checks": {
+      "cliente_modulo_org_sys_inv": true,
+      "cliente_modulo_contains_all_trial": true,
+      "rol_permiso_inv_present": true,
+      "rol_permiso_all_inv_prefix": true,
+      "rol_menu_permiso_org": true,
+      "rol_menu_permiso_sys_admin_tenant": true,
+      "rol_menu_permiso_inv": true,
+      "rol_menu_permiso_min_healthy": true,
+      "no_platform_catalogos_rmp": true,
+      "manager_no_inv_rmp": true,
+      "manager_no_inv_rp": true
+    },
+    "passed": true,
+    "sql_queries_used": [
+      "cliente_modulo activos por modulo.codigo",
+      "rol_permiso ADMIN_TENANT WHERE permiso.codigo LIKE 'inv.%'",
+      "rol_menu_permiso ADMIN_TENANT JOIN modulo_menu JOIN modulo",
+      "rol_menu_permiso/rol_permiso MANAGER_TENANT inv counts"
+    ]
+  },
+  "sql_validation_after_manager": {
+    "manager_tenant_grants": {
+      "rol_id": "EA182A62-3C34-4B12-8C6D-F3C52A4EA59C",
+      "inv_rol_permiso_count": 0,
+      "inv_rol_menu_permiso_count": 0
+    },
+    "checks": {
+      "manager_no_inv_rmp": true,
+      "manager_no_inv_rp": true
+    }
+  }
+}
