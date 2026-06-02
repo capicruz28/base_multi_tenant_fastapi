@@ -61,6 +61,7 @@ class CatDepartamentoBase(BaseModel):
     pais_id: UUID
     codigo: str = Field(..., max_length=10)
     nombre: str = Field(..., max_length=100)
+    es_activo: Optional[bool] = True
 
 
 class CatDepartamentoCreate(CatDepartamentoBase):
@@ -71,6 +72,7 @@ class CatDepartamentoUpdate(BaseModel):
     pais_id: Optional[UUID] = None
     codigo: Optional[str] = None
     nombre: Optional[str] = None
+    es_activo: Optional[bool] = None
 
 
 class CatDepartamentoRead(CatDepartamentoBase):
@@ -84,6 +86,7 @@ class CatProvinciaBase(BaseModel):
     departamento_id: UUID
     codigo: str = Field(..., max_length=10)
     nombre: str = Field(..., max_length=100)
+    es_activo: Optional[bool] = True
 
 
 class CatProvinciaCreate(CatProvinciaBase):
@@ -94,6 +97,7 @@ class CatProvinciaUpdate(BaseModel):
     departamento_id: Optional[UUID] = None
     codigo: Optional[str] = None
     nombre: Optional[str] = None
+    es_activo: Optional[bool] = None
 
 
 class CatProvinciaRead(CatProvinciaBase):
@@ -108,6 +112,7 @@ class CatDistritoBase(BaseModel):
     codigo: str = Field(..., max_length=10)
     nombre: str = Field(..., max_length=100)
     ubigeo: str = Field(..., max_length=6)
+    es_activo: Optional[bool] = True
 
 
 class CatDistritoCreate(CatDistritoBase):
@@ -119,6 +124,7 @@ class CatDistritoUpdate(BaseModel):
     codigo: Optional[str] = None
     nombre: Optional[str] = None
     ubigeo: Optional[str] = None
+    es_activo: Optional[bool] = None
 
 
 class CatDistritoRead(CatDistritoBase):

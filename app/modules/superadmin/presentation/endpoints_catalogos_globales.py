@@ -210,13 +210,14 @@ async def deactivate_pais(
 )
 @require_super_admin()
 async def list_departamentos(
+    solo_activos: bool = Query(True),
     pais_id: Optional[UUID] = Query(None),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_departamentos(client_id=target, pais_id=pais_id)
+        return await CatalogosGlobalesService.list_departamentos(client_id=target, pais_id=pais_id, solo_activos=solo_activos)
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 
@@ -291,13 +292,14 @@ async def delete_departamento(
 )
 @require_super_admin()
 async def list_provincias(
+    solo_activos: bool = Query(True),
     departamento_id: Optional[UUID] = Query(None),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_provincias(client_id=target, departamento_id=departamento_id)
+        return await CatalogosGlobalesService.list_provincias(client_id=target, departamento_id=departamento_id, solo_activos=solo_activos)
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 
@@ -372,6 +374,7 @@ async def delete_provincia(
 )
 @require_super_admin()
 async def list_distritos(
+    solo_activos: bool = Query(True),
     provincia_id: Optional[UUID] = Query(None),
     ubigeo: Optional[str] = Query(None, min_length=1, max_length=6),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
@@ -379,7 +382,12 @@ async def list_distritos(
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_distritos(client_id=target, provincia_id=provincia_id, ubigeo=ubigeo)
+        return await CatalogosGlobalesService.list_distritos(
+            client_id=target,
+            provincia_id=provincia_id,
+            ubigeo=ubigeo,
+            solo_activos=solo_activos,
+        )
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 

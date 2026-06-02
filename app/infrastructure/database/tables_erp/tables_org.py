@@ -62,8 +62,10 @@ CatDepartamentoTable = Table(
     Column("pais_id", UNIQUEIDENTIFIER, ForeignKey("cat_pais.pais_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(10), nullable=False),
     Column("nombre", String(100), nullable=False),
+    Column("es_activo", Boolean, nullable=False, server_default="1"),
 )
 Index("IDX_depto_pais", CatDepartamentoTable.c.pais_id)
+Index("IDX_depto_activo", CatDepartamentoTable.c.es_activo)
 
 CatProvinciaTable = Table(
     "cat_provincia",
@@ -72,8 +74,10 @@ CatProvinciaTable = Table(
     Column("departamento_id", UNIQUEIDENTIFIER, ForeignKey("cat_departamento.departamento_id", ondelete="NO ACTION"), nullable=False),
     Column("codigo", String(10), nullable=False),
     Column("nombre", String(100), nullable=False),
+    Column("es_activo", Boolean, nullable=False, server_default="1"),
 )
 Index("IDX_prov_depto", CatProvinciaTable.c.departamento_id)
+Index("IDX_prov_activo", CatProvinciaTable.c.es_activo)
 
 CatDistritoTable = Table(
     "cat_distrito",
@@ -83,10 +87,12 @@ CatDistritoTable = Table(
     Column("codigo", String(10), nullable=False),
     Column("nombre", String(100), nullable=False),
     Column("ubigeo", String(6), nullable=False),
+    Column("es_activo", Boolean, nullable=False, server_default="1"),
     UniqueConstraint("ubigeo", name="UQ_ubigeo"),
 )
 Index("IDX_dist_prov", CatDistritoTable.c.provincia_id)
 Index("IDX_dist_ubigeo", CatDistritoTable.c.ubigeo)
+Index("IDX_dist_activo", CatDistritoTable.c.es_activo)
 
 # ============================================================================
 # TABLA: org_empresa

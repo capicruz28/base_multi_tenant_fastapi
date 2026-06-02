@@ -38,18 +38,32 @@ class CatalogosService:
         return await execute_query(q, client_id=client_id)
 
     @staticmethod
-    async def list_departamentos(*, client_id: UUID, pais_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
+    async def list_departamentos(
+        *,
+        client_id: UUID,
+        pais_id: Optional[UUID] = None,
+        solo_activos: bool = True,
+    ) -> List[Dict[str, Any]]:
         q = select(CatDepartamentoTable)
         if pais_id:
             q = q.where(CatDepartamentoTable.c.pais_id == pais_id)
+        if solo_activos:
+            q = q.where(CatDepartamentoTable.c.es_activo == True)
         q = q.order_by(CatDepartamentoTable.c.nombre)
         return await execute_query(q, client_id=client_id)
 
     @staticmethod
-    async def list_provincias(*, client_id: UUID, departamento_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
+    async def list_provincias(
+        *,
+        client_id: UUID,
+        departamento_id: Optional[UUID] = None,
+        solo_activos: bool = True,
+    ) -> List[Dict[str, Any]]:
         q = select(CatProvinciaTable)
         if departamento_id:
             q = q.where(CatProvinciaTable.c.departamento_id == departamento_id)
+        if solo_activos:
+            q = q.where(CatProvinciaTable.c.es_activo == True)
         q = q.order_by(CatProvinciaTable.c.nombre)
         return await execute_query(q, client_id=client_id)
 
@@ -59,12 +73,15 @@ class CatalogosService:
         client_id: UUID,
         provincia_id: Optional[UUID] = None,
         ubigeo: Optional[str] = None,
+        solo_activos: bool = True,
     ) -> List[Dict[str, Any]]:
         q = select(CatDistritoTable)
         if provincia_id:
             q = q.where(CatDistritoTable.c.provincia_id == provincia_id)
         if ubigeo:
             q = q.where(CatDistritoTable.c.ubigeo == ubigeo)
+        if solo_activos:
+            q = q.where(CatDistritoTable.c.es_activo == True)
         q = q.order_by(CatDistritoTable.c.nombre)
         return await execute_query(q, client_id=client_id)
 

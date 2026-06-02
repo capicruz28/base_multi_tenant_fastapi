@@ -150,10 +150,17 @@ class CatalogosGlobalesService(BaseService):
     # -------------------------
     @staticmethod
     @BaseService.handle_service_errors
-    async def list_departamentos(*, client_id: UUID, pais_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
+    async def list_departamentos(
+        *,
+        client_id: UUID,
+        pais_id: Optional[UUID] = None,
+        solo_activos: bool = True,
+    ) -> List[Dict[str, Any]]:
         q = select(CatDepartamentoTable)
         if pais_id:
             q = q.where(CatDepartamentoTable.c.pais_id == pais_id)
+        if solo_activos:
+            q = q.where(CatDepartamentoTable.c.es_activo == True)
         q = q.order_by(CatDepartamentoTable.c.nombre)
         return await execute_query(q, client_id=client_id)
 
@@ -175,6 +182,7 @@ class CatalogosGlobalesService(BaseService):
             "pais_id": data.get("pais_id"),
             "codigo": data.get("codigo"),
             "nombre": data.get("nombre"),
+            "es_activo": data.get("es_activo", True),
         }
         if not payload["pais_id"]:
             raise ValidationError(detail="pais_id es obligatorio")
@@ -186,7 +194,7 @@ class CatalogosGlobalesService(BaseService):
     @BaseService.handle_service_errors
     async def update_departamento(*, client_id: UUID, departamento_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
         await CatalogosGlobalesService.get_departamento(client_id=client_id, departamento_id=departamento_id)
-        payload = {k: v for k, v in data.items() if k in {"pais_id", "codigo", "nombre"} and v is not None}
+        payload = {k: v for k, v in data.items() if k in {"pais_id", "codigo", "nombre", "es_activo"} and v is not None}
         if not payload:
             return await CatalogosGlobalesService.get_departamento(client_id=client_id, departamento_id=departamento_id)
         stmt = (
@@ -201,18 +209,29 @@ class CatalogosGlobalesService(BaseService):
     @BaseService.handle_service_errors
     async def delete_departamento(*, client_id: UUID, departamento_id: UUID) -> None:
         await CatalogosGlobalesService.get_departamento(client_id=client_id, departamento_id=departamento_id)
-        stmt = delete(CatDepartamentoTable).where(CatDepartamentoTable.c.departamento_id == departamento_id)
-        await execute_query(stmt, client_id=client_id)
+        stmt = (
+            update(CatDepartamentoTable)
+            .where(CatDepartamentoTable.c.departamento_id == departamento_id)
+            .values(es_activo=False)
+        )
+        await execute_update(stmt, client_id=client_id)
 
     # -------------------------
     # cat_provincia
     # -------------------------
     @staticmethod
     @BaseService.handle_service_errors
-    async def list_provincias(*, client_id: UUID, departamento_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
+    async def list_provincias(
+        *,
+        client_id: UUID,
+        departamento_id: Optional[UUID] = None,
+        solo_activos: bool = True,
+    ) -> List[Dict[str, Any]]:
         q = select(CatProvinciaTable)
         if departamento_id:
             q = q.where(CatProvinciaTable.c.departamento_id == departamento_id)
+        if solo_activos:
+            q = q.where(CatProvinciaTable.c.es_activo == True)
         q = q.order_by(CatProvinciaTable.c.nombre)
         return await execute_query(q, client_id=client_id)
 
@@ -234,6 +253,7 @@ class CatalogosGlobalesService(BaseService):
             "departamento_id": data.get("departamento_id"),
             "codigo": data.get("codigo"),
             "nombre": data.get("nombre"),
+            "es_activo": data.get("es_activo", True),
         }
         if not payload["departamento_id"]:
             raise ValidationError(detail="departamento_id es obligatorio")
@@ -245,7 +265,7 @@ class CatalogosGlobalesService(BaseService):
     @BaseService.handle_service_errors
     async def update_provincia(*, client_id: UUID, provincia_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
         await CatalogosGlobalesService.get_provincia(client_id=client_id, provincia_id=provincia_id)
-        payload = {k: v for k, v in data.items() if k in {"departamento_id", "codigo", "nombre"} and v is not None}
+        payload = {k: v for k, v in data.items() if k in {"departamento_id", "codigo", "nombre", "es_activo"} and v is not None}
         if not payload:
             return await CatalogosGlobalesService.get_provincia(client_id=client_id, provincia_id=provincia_id)
         stmt = update(CatProvinciaTable).where(CatProvinciaTable.c.provincia_id == provincia_id).values(**payload)
@@ -256,8 +276,8 @@ class CatalogosGlobalesService(BaseService):
     @BaseService.handle_service_errors
     async def delete_provincia(*, client_id: UUID, provincia_id: UUID) -> None:
         await CatalogosGlobalesService.get_provincia(client_id=client_id, provincia_id=provincia_id)
-        stmt = delete(CatProvinciaTable).where(CatProvinciaTable.c.provincia_id == provincia_id)
-        await execute_query(stmt, client_id=client_id)
+        stmt = update(CatProvinciaTable).where(CatProvinciaTable.c.provincia_id == provincia_id).values(es_activo=False)
+        await execute_update(stmt, client_id=client_id)
 
     # -------------------------
     # cat_distrito
@@ -269,12 +289,15 @@ class CatalogosGlobalesService(BaseService):
         client_id: UUID,
         provincia_id: Optional[UUID] = None,
         ubigeo: Optional[str] = None,
+        solo_activos: bool = True,
     ) -> List[Dict[str, Any]]:
         q = select(CatDistritoTable)
         if provincia_id:
             q = q.where(CatDistritoTable.c.provincia_id == provincia_id)
         if ubigeo:
             q = q.where(CatDistritoTable.c.ubigeo == ubigeo)
+        if solo_activos:
+            q = q.where(CatDistritoTable.c.es_activo == True)
         q = q.order_by(CatDistritoTable.c.nombre)
         return await execute_query(q, client_id=client_id)
 
@@ -297,6 +320,7 @@ class CatalogosGlobalesService(BaseService):
             "codigo": data.get("codigo"),
             "nombre": data.get("nombre"),
             "ubigeo": data.get("ubigeo"),
+            "es_activo": data.get("es_activo", True),
         }
         if not payload["provincia_id"]:
             raise ValidationError(detail="provincia_id es obligatorio")
@@ -310,7 +334,11 @@ class CatalogosGlobalesService(BaseService):
     @BaseService.handle_service_errors
     async def update_distrito(*, client_id: UUID, distrito_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
         await CatalogosGlobalesService.get_distrito(client_id=client_id, distrito_id=distrito_id)
-        payload = {k: v for k, v in data.items() if k in {"provincia_id", "codigo", "nombre", "ubigeo"} and v is not None}
+        payload = {
+            k: v
+            for k, v in data.items()
+            if k in {"provincia_id", "codigo", "nombre", "ubigeo", "es_activo"} and v is not None
+        }
         if not payload:
             return await CatalogosGlobalesService.get_distrito(client_id=client_id, distrito_id=distrito_id)
         stmt = update(CatDistritoTable).where(CatDistritoTable.c.distrito_id == distrito_id).values(**payload)
@@ -321,6 +349,6 @@ class CatalogosGlobalesService(BaseService):
     @BaseService.handle_service_errors
     async def delete_distrito(*, client_id: UUID, distrito_id: UUID) -> None:
         await CatalogosGlobalesService.get_distrito(client_id=client_id, distrito_id=distrito_id)
-        stmt = delete(CatDistritoTable).where(CatDistritoTable.c.distrito_id == distrito_id)
-        await execute_query(stmt, client_id=client_id)
+        stmt = update(CatDistritoTable).where(CatDistritoTable.c.distrito_id == distrito_id).values(es_activo=False)
+        await execute_update(stmt, client_id=client_id)
 

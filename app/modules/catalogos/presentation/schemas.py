@@ -28,6 +28,7 @@ class DepartamentoRead(BaseModel):
     pais_id: UUID
     codigo: str
     nombre: str
+    es_activo: Optional[bool] = None
 
 
 class ProvinciaRead(BaseModel):
@@ -35,6 +36,7 @@ class ProvinciaRead(BaseModel):
     departamento_id: UUID
     codigo: str
     nombre: str
+    es_activo: Optional[bool] = None
 
 
 class DistritoRead(BaseModel):
@@ -43,4 +45,5 @@ class DistritoRead(BaseModel):
     codigo: str
     nombre: str
     ubigeo: str
+    es_activo: Optional[bool] = None
 
