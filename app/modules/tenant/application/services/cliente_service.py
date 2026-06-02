@@ -450,7 +450,7 @@ class ClienteService(BaseService):
         WHERE cliente_id = ?
         """
         
-        resultado = execute_update(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
+        resultado = await execute_update(query, (cliente_id,), connection_type=DatabaseConnection.ADMIN)
         if not resultado or resultado.get('rows_affected', 0) == 0:
             raise ServiceError(
                 status_code=500,

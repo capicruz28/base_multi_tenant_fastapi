@@ -150,6 +150,26 @@ async def test_crear_conexion_propagates_conflict_error():
 
 
 @pytest.mark.asyncio
+async def test_eliminar_cliente_propagates_not_found():
+    eliminar = _unwrap(clientes_ep.eliminar_cliente)
+    cliente_id = uuid4()
+    not_found = NotFoundError(
+        detail=f"Cliente con ID {cliente_id} no encontrado.",
+        internal_code="CLIENT_NOT_FOUND",
+    )
+    with patch.object(
+        clientes_ep.ClienteService,
+        "eliminar_cliente",
+        new_callable=AsyncMock,
+        side_effect=not_found,
+    ):
+        with pytest.raises(NotFoundError) as exc:
+            await eliminar(cliente_id=cliente_id, current_user=_fake_user())
+
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_global_handler_maps_conflict_to_409_with_error_code():
     from fastapi import FastAPI
     from starlette.requests import Request

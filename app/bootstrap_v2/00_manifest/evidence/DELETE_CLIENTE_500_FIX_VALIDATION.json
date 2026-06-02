@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-06-02T19:39:40.968816+00:00",
+  "base_url": "http://localhost:8000",
+  "scenarios": [
+    {
+      "name": "login",
+      "ok": true,
+      "status": 200
+    },
+    {
+      "name": "create_fixture_cliente",
+      "ok": true,
+      "status": 201,
+      "cliente_id": "332f0f49-105d-4cd7-8289-fa77db47af74"
+    },
+    {
+      "name": "delete_existing_cliente",
+      "ok": true,
+      "expected_status": 200,
+      "status": 200,
+      "body": {
+        "success": true,
+        "message": "Cliente con ID 332f0f49-105d-4cd7-8289-fa77db47af74 eliminado exitosamente (marcado como inactivo)",
+        "cliente_id": "332f0f49-105d-4cd7-8289-fa77db47af74"
+      }
+    },
+    {
+      "name": "delete_nonexistent_cliente",
+      "ok": true,
+      "expected_status": 404,
+      "status": 404,
+      "error_code": "CLIENT_NOT_FOUND"
+    },
+    {
+      "name": "delete_system_cliente",
+      "ok": true,
+      "expected_status": 400,
+      "status": 400,
+      "error_code": "CANNOT_DELETE_SYSTEM_CLIENT",
+      "detail": "No se puede eliminar el cliente SYSTEM."
+    }
+  ],
+  "passed": true
+}
