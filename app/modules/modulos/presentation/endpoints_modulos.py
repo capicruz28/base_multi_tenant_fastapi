@@ -72,8 +72,10 @@ async def listar_modulos(
             categoria=categoria
         )
         
-        # Contar total (simplificado - en producción debería ser una query separada)
-        total = len(modulos)  # TODO: Implementar contar_modulos en el servicio
+        total = await ModuloService.contar_modulos(
+            solo_activos=solo_activos,
+            categoria=categoria,
+        )
         
         # Calcular metadata de paginación
         total_pages = math.ceil(total / limit) if limit > 0 else 0

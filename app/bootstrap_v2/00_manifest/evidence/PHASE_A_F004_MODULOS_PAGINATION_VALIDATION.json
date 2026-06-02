@@ -1,0 +1,19 @@
+{
+  "report": "PHASE_A_F004_MODULOS_PAGINATION_VALIDATION",
+  "finding": "F-004",
+  "timestamp_utc": "2026-06-02T22:12:17Z",
+  "fix": "ModuloService.contar_modulos with shared filters; GET /modulos/ pagination.total from DB count",
+  "qa": {
+    "command": "python -m pytest tests/unit/test_modulos_pagination_total.py -q",
+    "result": "2 passed",
+    "tests": [
+      "test_contar_modulos_uses_same_filters_as_list",
+      "test_listar_modulos_endpoint_uses_contar_not_len"
+    ]
+  },
+  "contract": {
+    "endpoint": "GET /api/v1/modulos/",
+    "response_schema": "unchanged (PaginatedModuloResponse)",
+    "behavior_change": "pagination.total and has_next/has_prev now reflect full catalog count"
+  }
+}

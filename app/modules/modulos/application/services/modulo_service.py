@@ -56,14 +56,8 @@ class ModuloService(BaseService):
         logger.info(f"Obteniendo catálogo de módulos - skip: {skip}, limit: {limit}")
 
         query = select(ModuloTable)
-        
-        # Filtros
-        conditions = []
-        if solo_activos:
-            conditions.append(ModuloTable.c.es_activo == True)
-        if categoria:
-            conditions.append(ModuloTable.c.categoria == categoria)
-        
+
+        conditions = ModuloService._condiciones_listado_modulos(solo_activos, categoria)
         if conditions:
             query = query.where(and_(*conditions))
         
@@ -77,6 +71,43 @@ class ModuloService(BaseService):
             client_id=None
         )
         return [ModuloRead(**modulo) for modulo in resultados]
+
+    @staticmethod
+    def _condiciones_listado_modulos(
+        solo_activos: bool,
+        categoria: Optional[str],
+    ) -> list:
+        """Filtros compartidos entre listado y conteo (F-004)."""
+        conditions = []
+        if solo_activos:
+            conditions.append(ModuloTable.c.es_activo == True)
+        if categoria:
+            conditions.append(ModuloTable.c.categoria == categoria)
+        return conditions
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_modulos(
+        solo_activos: bool = True,
+        categoria: Optional[str] = None,
+    ) -> int:
+        """
+        Cuenta módulos del catálogo con los mismos filtros que obtener_modulos.
+        """
+        conditions = ModuloService._condiciones_listado_modulos(solo_activos, categoria)
+        query = select(sql_func.count()).select_from(ModuloTable)
+        if conditions:
+            query = query.where(and_(*conditions))
+
+        resultado = await execute_query(
+            query,
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None,
+        )
+        if not resultado:
+            return 0
+        row = resultado[0]
+        return int(row.get("count_1") or row.get("count") or next(iter(row.values()), 0))
 
     @staticmethod
     @BaseService.handle_service_errors
