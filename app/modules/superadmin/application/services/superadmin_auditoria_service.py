@@ -65,8 +65,8 @@ class SuperadminAuditoriaService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def get_logs_autenticacion(
-        cliente_id: Optional[int] = None,
-        usuario_id: Optional[int] = None,
+        cliente_id: Optional[UUID] = None,
+        usuario_id: Optional[UUID] = None,
         evento: Optional[str] = None,
         exito: Optional[bool] = None,
         fecha_desde: Optional[datetime] = None,
@@ -643,9 +643,9 @@ class SuperadminAuditoriaService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def get_logs_sincronizacion(
-        cliente_origen_id: Optional[int] = None,
-        cliente_destino_id: Optional[int] = None,
-        usuario_id: Optional[int] = None,
+        cliente_origen_id: Optional[UUID] = None,
+        cliente_destino_id: Optional[UUID] = None,
+        usuario_id: Optional[UUID] = None,
         tipo_sincronizacion: Optional[str] = None,
         direccion: Optional[str] = None,
         operacion: Optional[str] = None,
@@ -916,7 +916,7 @@ class SuperadminAuditoriaService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def obtener_estadisticas(
-        cliente_id: Optional[int] = None,
+        cliente_id: Optional[UUID] = None,
         fecha_desde: Optional[datetime] = None,
         fecha_hasta: Optional[datetime] = None
     ) -> Dict:

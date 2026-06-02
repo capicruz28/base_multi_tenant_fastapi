@@ -72,7 +72,7 @@ router = APIRouter()
 @require_super_admin()
 async def list_usuarios_global(
     current_user = Depends(get_current_active_user),
-    cliente_id: Optional[int] = Query(None, description="Filtrar por cliente específico (opcional)"),
+    cliente_id: Optional[UUID] = Query(None, description="Filtrar por cliente específico (opcional)"),
     page: int = Query(1, ge=1, description="Número de página a mostrar"),
     limit: int = Query(20, ge=1, le=100, description="Número de usuarios por página"),
     search: Optional[str] = Query(None, min_length=1, max_length=50, 

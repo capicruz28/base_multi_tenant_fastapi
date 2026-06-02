@@ -1,0 +1,19 @@
+{
+  "report": "PHASE_A_F002_SUPERADMIN_UUID_VALIDATION",
+  "finding": "F-002",
+  "timestamp_utc": "2026-06-02T22:12:17Z",
+  "fix": "cliente_id/usuario_id filters typed as Optional[UUID] in superadmin services and list_usuarios_global query",
+  "qa": {
+    "command": "python -m pytest tests/unit/test_superadmin_cliente_id_uuid_query.py -q",
+    "result": "3 passed",
+    "tests": [
+      "test_list_usuarios_global_cliente_id_annotation_is_uuid",
+      "test_superadmin_usuario_service_list_global_accepts_uuid",
+      "test_auth_config_uses_lbac_not_role_checker"
+    ]
+  },
+  "contract": {
+    "breaking": false,
+    "note": "Query param cliente_id now accepts UUID string (was incorrectly int causing 422)"
+  }
+}

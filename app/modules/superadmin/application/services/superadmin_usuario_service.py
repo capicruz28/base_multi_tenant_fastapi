@@ -58,7 +58,7 @@ class SuperadminUsuarioService(BaseService):
     @staticmethod
     @BaseService.handle_service_errors
     async def get_usuarios_globales(
-        cliente_id: Optional[int] = None,
+        cliente_id: Optional[UUID] = None,
         page: int = 1,
         limit: int = 20,
         search: Optional[str] = None,
