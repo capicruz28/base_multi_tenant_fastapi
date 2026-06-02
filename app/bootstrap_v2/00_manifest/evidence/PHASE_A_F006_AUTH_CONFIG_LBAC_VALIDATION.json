@@ -1,0 +1,23 @@
+{
+  "report": "PHASE_A_F006_AUTH_CONFIG_LBAC_VALIDATION",
+  "finding": "F-006",
+  "timestamp_utc": "2026-06-02T22:12:17Z",
+  "fix": "auth-config endpoints use lbac.require_super_admin instead of RoleChecker(SUPER_ADMIN)",
+  "qa": {
+    "command": "python -m pytest tests/unit/test_auth_config_lbac_platform_admin.py tests/unit/test_superadmin_cliente_id_uuid_query.py::test_auth_config_uses_lbac_not_role_checker -q",
+    "result": "2 passed",
+    "tests": [
+      "test_lbac_require_super_admin_accepts_platform_admin_level_5",
+      "test_auth_config_uses_lbac_not_role_checker"
+    ]
+  },
+  "contract": {
+    "endpoints": [
+      "GET /api/v1/auth-config/clientes/{cliente_id}",
+      "PUT /api/v1/auth-config/clientes/{cliente_id}",
+      "GET /api/v1/auth-config/global"
+    ],
+    "auth_change": "platform_admin with access_level>=5 allowed; role name SUPER_ADMIN no longer required",
+    "openapi_change": "Permission descriptions updated to Super Administrador (LBAC)"
+  }
+}

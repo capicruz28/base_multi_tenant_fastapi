@@ -6,7 +6,7 @@ por cliente, incluyendo configuración de políticas de contraseñas, 2FA, contr
 y restricciones de acceso.
 
 Características principales:
-- Autenticación JWT con requerimiento de rol 'SUPER_ADMIN' para todas las operaciones.
+- Autenticación JWT con requerimiento de Super Administrador (LBAC nivel 5 / platform_admin).
 - Validación de coherencia entre políticas de seguridad.
 - Configuración granular de políticas por cliente.
 - Valores por defecto coherentes con mejores prácticas.
@@ -18,14 +18,12 @@ import logging
 
 from app.modules.auth.presentation.schemas import AuthConfigRead, AuthConfigUpdate
 from app.modules.auth.application.services.auth_config_service import AuthConfigService
-from app.api.deps import RoleChecker
+from app.api.deps import get_current_active_user
+from app.core.authorization.lbac import require_super_admin
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Dependencia para requerir rol SUPER_ADMIN
-require_super_admin = RoleChecker(["SUPER_ADMIN"])
 
 
 @router.get(
@@ -37,19 +35,23 @@ require_super_admin = RoleChecker(["SUPER_ADMIN"])
     Si no existe, crea una configuración por defecto.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Super Administrador (access_level >= 5, is_super_admin o platform_admin)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
     
     **Respuestas:**
     - 200: Configuración de autenticación recuperada/creada
+    - 403: Acceso denegado
     - 404: Cliente no encontrado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_super_admin)]
 )
-async def obtener_config_auth_cliente(cliente_id: UUID = Path(..., description="ID del cliente")):
+@require_super_admin()
+async def obtener_config_auth_cliente(
+    cliente_id: UUID = Path(..., description="ID del cliente"),
+    current_user=Depends(get_current_active_user),
+):
     """
     Obtiene la configuración de autenticación para un cliente.
     """
@@ -74,22 +76,24 @@ async def obtener_config_auth_cliente(cliente_id: UUID = Path(..., description="
     Actualiza la configuración de autenticación para un cliente específico.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Super Administrador (access_level >= 5, is_super_admin o platform_admin)
     
     **Parámetros de ruta:**
     - cliente_id: ID del cliente
     
     **Respuestas:**
     - 200: Configuración actualizada exitosamente
+    - 403: Acceso denegado
     - 404: Cliente no encontrado
     - 422: Error de validación en los datos
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_super_admin)]
 )
+@require_super_admin()
 async def actualizar_config_auth_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
-    config_data: AuthConfigUpdate = Body(...)
+    config_data: AuthConfigUpdate = Body(...),
+    current_user=Depends(get_current_active_user),
 ):
     """
     Actualiza la configuración de autenticación para un cliente.
@@ -117,15 +121,18 @@ async def actualizar_config_auth_cliente(
     Obtiene la configuración de autenticación por defecto del sistema.
     
     **Permisos requeridos:**
-    - Rol 'SUPER_ADMIN'
+    - Super Administrador (access_level >= 5, is_super_admin o platform_admin)
     
     **Respuestas:**
     - 200: Configuración global por defecto
+    - 403: Acceso denegado
     - 500: Error interno del servidor
     """,
-    dependencies=[Depends(require_super_admin)]
 )
-async def obtener_config_auth_global():
+@require_super_admin()
+async def obtener_config_auth_global(
+    current_user=Depends(get_current_active_user),
+):
     """
     Obtiene la configuración de autenticación global por defecto.
     """
