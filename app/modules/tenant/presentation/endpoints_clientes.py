@@ -11,13 +11,13 @@ Características principales:
 - Gestión completa del ciclo de vida de clientes.
 - Integración con políticas de autenticación y módulos.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Request, Path
-from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Path
+from typing import Optional
 from uuid import UUID
 import logging
 
 from app.modules.tenant.presentation.schemas import (
-    ClienteCreate, ClienteUpdate, ClienteRead, 
+    ClienteCreate, ClienteUpdate, ClienteRead,
     PaginatedClienteResponse, ClienteStatsResponse, ClienteResponse, ClienteCreateResponse,
     ClienteDeleteResponse,
     BrandingRead
@@ -29,7 +29,6 @@ from app.modules.tenant.application.services.cliente_service import ClienteServi
 from app.core.authorization.lbac import require_super_admin
 from app.core.authorization.rbac import require_permission
 from app.api.deps import get_current_active_user
-from app.core.exceptions import ValidationError, NotFoundError
 from math import ceil
 
 logger = logging.getLogger(__name__)
@@ -65,30 +64,24 @@ router = APIRouter()
 @require_super_admin()
 async def crear_cliente(
     cliente_data: ClienteCreate = Body(...),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Crea un nuevo cliente en el sistema.
     """
-    logger.info(f"Solicitud POST /clientes/ recibida para crear cliente: '{cliente_data.razon_social}' por usuario: {current_user.nombre_usuario}")
-    try:
-        resultado = await ClienteService.crear_cliente(cliente_data)
-        created_cliente = resultado.cliente
-        logger.info(f"Cliente '{created_cliente.razon_social}' creado con ID: {created_cliente.cliente_id}")
-        return ClienteCreateResponse(
-            success=True,
-            message=MENSAJE_CREACION_EXITOSA,
-            data=created_cliente,
-            credenciales_iniciales=resultado.credenciales,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en crear_cliente: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al crear el cliente."
-        )
+    logger.info(
+        f"Solicitud POST /clientes/ recibida para crear cliente: '{cliente_data.razon_social}' "
+        f"por usuario: {current_user.nombre_usuario}"
+    )
+    resultado = await ClienteService.crear_cliente(cliente_data)
+    created_cliente = resultado.cliente
+    logger.info(f"Cliente '{created_cliente.razon_social}' creado con ID: {created_cliente.cliente_id}")
+    return ClienteCreateResponse(
+        success=True,
+        message=MENSAJE_CREACION_EXITOSA,
+        data=created_cliente,
+        credenciales_iniciales=resultado.credenciales,
+    )
 
 
 @router.get(
@@ -120,36 +113,32 @@ async def listar_clientes(
     limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True, description="Filtrar solo clientes activos"),
     buscar: Optional[str] = Query(None, description="Texto para buscar en razón social, nombre comercial, código o subdominio"),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Lista todos los clientes del sistema con paginación y búsqueda.
     """
-    logger.info(f"Solicitud GET /clientes/ recibida - skip: {skip}, limit: {limit}, solo_activos: {solo_activos}, buscar: {buscar} por usuario: {current_user.nombre_usuario}")
-    try:
-        clientes, total = await ClienteService.listar_clientes(
-            skip=skip,
-            limit=limit,
-            solo_activos=solo_activos,
-            buscar=buscar
-        )
-        
-        total_paginas = ceil(total / limit) if limit > 0 else 0
-        pagina_actual = (skip // limit) + 1 if limit > 0 else 1
-        
-        return PaginatedClienteResponse(
-            clientes=clientes,
-            total_clientes=total,
-            pagina_actual=pagina_actual,
-            total_paginas=total_paginas,
-            items_por_pagina=limit
-        )
-    except Exception as e:
-        logger.exception(f"Error inesperado en listar_clientes: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al listar los clientes."
-        )
+    logger.info(
+        f"Solicitud GET /clientes/ recibida - skip: {skip}, limit: {limit}, "
+        f"solo_activos: {solo_activos}, buscar: {buscar} por usuario: {current_user.nombre_usuario}"
+    )
+    clientes, total = await ClienteService.listar_clientes(
+        skip=skip,
+        limit=limit,
+        solo_activos=solo_activos,
+        buscar=buscar
+    )
+
+    total_paginas = ceil(total / limit) if limit > 0 else 0
+    pagina_actual = (skip // limit) + 1 if limit > 0 else 1
+
+    return PaginatedClienteResponse(
+        clientes=clientes,
+        total_clientes=total,
+        pagina_actual=pagina_actual,
+        total_paginas=total_paginas,
+        items_por_pagina=limit
+    )
 
 
 @router.get(
@@ -176,28 +165,19 @@ async def listar_clientes(
 @require_super_admin()
 async def obtener_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Obtiene los detalles de un cliente por su ID.
     """
     logger.info(f"Solicitud GET /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
-    try:
-        cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
-        if cliente is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Cliente con ID {cliente_id} no encontrado."
-            )
-        return cliente
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en obtener_cliente: {str(e)}")
+    cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
+    if cliente is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al obtener el cliente."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Cliente con ID {cliente_id} no encontrado."
         )
+    return cliente
 
 
 @router.put(
@@ -227,28 +207,22 @@ async def obtener_cliente(
 async def actualizar_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
     cliente_data: ClienteUpdate = Body(...),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Actualiza un cliente existente.
     """
-    logger.info(f"Solicitud PUT /clientes/{cliente_id} recibida para actualizar por usuario: {current_user.nombre_usuario}")
-    try:
-        cliente_actualizado = await ClienteService.actualizar_cliente(cliente_id, cliente_data)
-        logger.info(f"Cliente {cliente_id} actualizado exitosamente")
-        return ClienteResponse(
-            success=True,
-            message=f"Cliente '{cliente_actualizado.razon_social}' actualizado exitosamente",
-            data=cliente_actualizado
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en actualizar_cliente: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al actualizar el cliente."
-        )
+    logger.info(
+        f"Solicitud PUT /clientes/{cliente_id} recibida para actualizar "
+        f"por usuario: {current_user.nombre_usuario}"
+    )
+    cliente_actualizado = await ClienteService.actualizar_cliente(cliente_id, cliente_data)
+    logger.info(f"Cliente {cliente_id} actualizado exitosamente")
+    return ClienteResponse(
+        success=True,
+        message=f"Cliente '{cliente_actualizado.razon_social}' actualizado exitosamente",
+        data=cliente_actualizado
+    )
 
 
 @router.delete(
@@ -279,28 +253,19 @@ async def actualizar_cliente(
 @require_super_admin()
 async def eliminar_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Elimina un cliente (eliminación lógica).
     """
     logger.info(f"Solicitud DELETE /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
-    try:
-        await ClienteService.eliminar_cliente(cliente_id)
-        logger.info(f"Cliente {cliente_id} eliminado exitosamente")
-        return ClienteDeleteResponse(
-            success=True,
-            message=f"Cliente con ID {cliente_id} eliminado exitosamente (marcado como inactivo)",
-            cliente_id=cliente_id
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en eliminar_cliente: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al eliminar el cliente."
-        )
+    await ClienteService.eliminar_cliente(cliente_id)
+    logger.info(f"Cliente {cliente_id} eliminado exitosamente")
+    return ClienteDeleteResponse(
+        success=True,
+        message=f"Cliente con ID {cliente_id} eliminado exitosamente (marcado como inactivo)",
+        cliente_id=cliente_id
+    )
 
 
 @router.put(
@@ -328,27 +293,20 @@ async def eliminar_cliente(
 @require_super_admin()
 async def suspender_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Suspende un cliente.
     """
-    logger.info(f"Solicitud PUT /clientes/{cliente_id}/suspender recibida por usuario: {current_user.nombre_usuario}")
-    try:
-        cliente_suspendido = await ClienteService.suspender_cliente(cliente_id)
-        return ClienteResponse(
-            success=True,
-            message=f"Cliente '{cliente_suspendido.razon_social}' suspendido exitosamente",
-            data=cliente_suspendido
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en suspender_cliente: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al suspender el cliente."
-        )
+    logger.info(
+        f"Solicitud PUT /clientes/{cliente_id}/suspender recibida por usuario: {current_user.nombre_usuario}"
+    )
+    cliente_suspendido = await ClienteService.suspender_cliente(cliente_id)
+    return ClienteResponse(
+        success=True,
+        message=f"Cliente '{cliente_suspendido.razon_social}' suspendido exitosamente",
+        data=cliente_suspendido
+    )
 
 
 @router.put(
@@ -376,27 +334,20 @@ async def suspender_cliente(
 @require_super_admin()
 async def activar_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Activa un cliente suspendido.
     """
-    logger.info(f"Solicitud PUT /clientes/{cliente_id}/activar recibida por usuario: {current_user.nombre_usuario}")
-    try:
-        cliente_activado = await ClienteService.activar_cliente(cliente_id)
-        return ClienteResponse(
-            success=True,
-            message=f"Cliente '{cliente_activado.razon_social}' activado exitosamente",
-            data=cliente_activado
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en activar_cliente: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al activar el cliente."
-        )
+    logger.info(
+        f"Solicitud PUT /clientes/{cliente_id}/activar recibida por usuario: {current_user.nombre_usuario}"
+    )
+    cliente_activado = await ClienteService.activar_cliente(cliente_id)
+    return ClienteResponse(
+        success=True,
+        message=f"Cliente '{cliente_activado.razon_social}' activado exitosamente",
+        data=cliente_activado
+    )
 
 
 @router.get(
@@ -423,29 +374,22 @@ async def activar_cliente(
 @require_super_admin()
 async def obtener_estadisticas_cliente(
     cliente_id: UUID = Path(..., description="ID del cliente"),
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Obtiene estadísticas de uso de un cliente.
     """
-    logger.info(f"Solicitud GET /clientes/{cliente_id}/estadisticas recibida por usuario: {current_user.nombre_usuario}")
-    try:
-        estadisticas = await ClienteService.obtener_estadisticas(cliente_id)
-        return estadisticas
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en obtener_estadisticas_cliente: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al obtener las estadísticas del cliente."
-        )
+    logger.info(
+        f"Solicitud GET /clientes/{cliente_id}/estadisticas recibida por usuario: {current_user.nombre_usuario}"
+    )
+    return await ClienteService.obtener_estadisticas(cliente_id)
+
 
 @router.get(
     "/debug/user-info",
     summary="Información de diagnóstico del usuario actual"
 )
-async def debug_user_info(current_user = Depends(get_current_active_user)):
+async def debug_user_info(current_user=Depends(get_current_active_user)):
     """
     Endpoint temporal para diagnóstico de niveles de acceso
     """
@@ -463,15 +407,14 @@ async def debug_user_info(current_user = Depends(get_current_active_user)):
     "/debug/access-levels",
     summary="Diagnóstico de niveles de acceso"
 )
-async def debug_access_levels(current_user = Depends(get_current_active_user)):
+async def debug_access_levels(current_user=Depends(get_current_active_user)):
     """
     Endpoint temporal para diagnóstico de niveles de acceso
     """
     from app.api.deps import debug_user_access_levels
-    
-    # Obtener información detallada de niveles
+
     level_info = await debug_user_access_levels(current_user.usuario_id, current_user.cliente_id)
-    
+
     return {
         "usuario": {
             "usuario_id": current_user.usuario_id,
@@ -484,7 +427,6 @@ async def debug_access_levels(current_user = Depends(get_current_active_user)):
             "user_type": getattr(current_user, 'user_type', 'NO_DEFINIDO')
         },
         "diagnostico_bd": level_info,
-        # CORREGIDO: Usar solo campos que existen en RolRead
         "roles_asignados": [{"nombre": r.nombre, "rol_id": r.rol_id} for r in current_user.roles]
     }
 
@@ -521,38 +463,9 @@ async def obtener_branding_por_subdominio(
 ):
     """
     Obtiene la configuración de branding por subdominio (endpoint público).
-    
-    Este endpoint permite obtener la configuración de branding de un tenant
-    basándose en su subdominio, sin requerir autenticación.
     """
-    try:
-        logger.info(f"Solicitud GET /branding recibida para subdominio={subdominio}")
-        
-        # El servicio valida el formato y busca el cliente
-        branding = await ClienteService.get_branding_by_subdomain(subdominio)
-        
-        return branding
-        
-    except ValidationError as e:
-        logger.warning(f"Error de validación en obtener_branding_por_subdominio: {e.detail}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=e.detail
-        )
-    except NotFoundError as e:
-        logger.warning(f"Subdominio no encontrado: {subdominio}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.detail
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en obtener_branding_por_subdominio: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
+    logger.info(f"Solicitud GET /branding recibida para subdominio={subdominio}")
+    return await ClienteService.get_branding_by_subdomain(subdominio)
 
 
 @router.get(
@@ -580,34 +493,23 @@ async def obtener_branding_por_subdominio(
     dependencies=[Depends(require_permission("tenant.branding.leer"))],
 )
 async def obtener_branding_tenant(
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """
     Obtiene la configuración de branding del tenant actual.
     """
     try:
         from app.core.tenant.context import get_current_client_id
-        
-        # Obtener cliente_id del contexto de tenant (middleware)
+
         cliente_id = get_current_client_id()
-        
-        logger.info(f"Solicitud GET /tenant/branding recibida para cliente_id={cliente_id} por usuario: {current_user.nombre_usuario}")
-        
-        branding = await ClienteService.get_branding_by_cliente(cliente_id)
-        
-        return branding
-        
+        logger.info(
+            f"Solicitud GET /tenant/branding recibida para cliente_id={cliente_id} "
+            f"por usuario: {current_user.nombre_usuario}"
+        )
+        return await ClienteService.get_branding_by_cliente(cliente_id)
     except RuntimeError as e:
         logger.error(f"Error obteniendo contexto de tenant: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se pudo determinar el tenant actual. Verifique que el request incluya el subdominio correcto."
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error inesperado en obtener_branding_tenant: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor al obtener el branding."
-        )
+        ) from e
