@@ -169,7 +169,7 @@ python -m pytest tests/unit/test_cliente_activar_restores_es_activo.py tests/uni
 | 2 | `acaa611` | `fix(superadmin): F-002 UUID filters for cliente_id and audit` |
 | 3 | `d4c9611` | `fix(modulos): F-004 correct pagination total via contar_modulos` |
 | 4 | `f792087` | `fix(auth-config): F-006 LBAC require_super_admin for platform_admin` |
-| 5 | `33830db` | `docs: Platform Backend Phase A implementation report` |
+| 5 | `fc1b034` | `docs: Platform Backend Phase A implementation report` |
 
 ---
 
