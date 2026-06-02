@@ -1,0 +1,20 @@
+{
+  "report": "PHASE_A_F001_CLIENTE_ACTIVAR_VALIDATION",
+  "finding": "F-001",
+  "timestamp_utc": "2026-06-02T22:12:17Z",
+  "fix": "activar_cliente sets es_activo=1 and estado_suscripcion=activo; CLIENT_ALREADY_ACTIVE when both active",
+  "qa": {
+    "command": "python -m pytest tests/unit/test_cliente_activar_restores_es_activo.py -q",
+    "result": "3 passed",
+    "tests": [
+      "test_activar_cliente_sets_es_activo_after_cancelado",
+      "test_activar_cliente_suspendido_not_already_active",
+      "test_activar_cliente_already_active_raises"
+    ]
+  },
+  "contract": {
+    "endpoint": "PUT /api/v1/clientes/{cliente_id}/activar/",
+    "openapi_change": "Description clarifies reactivation after soft delete restores es_activo",
+    "response_schema": "unchanged (ClienteResponse)"
+  }
+}

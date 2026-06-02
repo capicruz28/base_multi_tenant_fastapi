@@ -314,7 +314,10 @@ async def suspender_cliente(
     response_model=ClienteResponse,
     summary="Activar un cliente",
     description="""
-    Reactiva un cliente cambiando su estado de suscripción a 'activo'.
+    Reactiva un cliente: suscripción 'activo' y registro operativo (es_activo=1).
+
+    Aplica tanto a clientes suspendidos como a clientes desactivados (eliminación lógica),
+    restaurando visibilidad en listados y acceso operativo del tenant.
     
     **Permisos requeridos:**
     - Nivel de acceso 5 (Super Administrador)
@@ -326,7 +329,7 @@ async def suspender_cliente(
     - 200: Cliente activado exitosamente
     - 403: Acceso denegado - se requiere nivel de super administrador
     - 404: Cliente no encontrado
-    - 400: Cliente ya está activo
+    - 400: Cliente ya está activo (es_activo=1 y estado_suscripcion=activo)
     - 500: Error interno del servidor
     """,
     dependencies=[Depends(require_permission("tenant.cliente.actualizar"))],
@@ -337,7 +340,7 @@ async def activar_cliente(
     current_user=Depends(get_current_active_user)
 ):
     """
-    Activa un cliente suspendido.
+    Activa o reactiva un cliente (suscripción y es_activo).
     """
     logger.info(
         f"Solicitud PUT /clientes/{cliente_id}/activar recibida por usuario: {current_user.nombre_usuario}"

@@ -215,7 +215,10 @@ class ClienteService(BaseService):
     @BaseService.handle_service_errors
     async def activar_cliente(cliente_id: UUID) -> ClienteRead:
         """
-        Reactiva un cliente cambiando su estado de suscripción a 'activo'.
+        Reactiva un cliente: restaura suscripción 'activo' y registro operativo (es_activo=1).
+
+        Tras eliminación lógica (DELETE), también restaura es_activo para que el tenant
+        vuelva a listados y operaciones (impersonación, branding, etc.).
         """
         cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
         if not cliente:
@@ -223,7 +226,7 @@ class ClienteService(BaseService):
                 detail=f"Cliente con ID {cliente_id} no encontrado.",
                 internal_code="CLIENT_NOT_FOUND"
             )
-        if cliente.estado_suscripcion == "activo":
+        if cliente.es_activo and cliente.estado_suscripcion == "activo":
             raise ValidationError(
                 detail=f"El cliente con ID {cliente_id} ya está activo.",
                 internal_code="CLIENT_ALREADY_ACTIVE"
@@ -232,6 +235,7 @@ class ClienteService(BaseService):
         query = """
         UPDATE cliente
         SET estado_suscripcion = 'activo',
+            es_activo = 1,
             fecha_actualizacion = GETDATE()
         OUTPUT 
             INSERTED.cliente_id,
