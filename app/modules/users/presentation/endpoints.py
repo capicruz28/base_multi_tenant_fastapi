@@ -358,7 +358,7 @@ async def actualizar_usuario(
         updated_usuario = await UsuarioService.actualizar_usuario(
             cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
             usuario_id=usuario_id,
-            update_data=update_data
+            usuario_data=update_data,
         )
         logger.info(f"Usuario ID {usuario_id} actualizado exitosamente: '{updated_usuario['nombre_usuario']}'")
         return updated_usuario

@@ -1018,7 +1018,7 @@ class UsuarioService(BaseService):
             WHERE cliente_id = ? AND usuario_id = ? AND es_eliminado = 0
             """
             
-            result = execute_update(update_query, (cliente_id, usuario_id))
+            result = await execute_update(update_query, (cliente_id, usuario_id))
 
             if not result:
                 logger.warning(f"No se pudo eliminar lógicamente el usuario ID {usuario_id} en cliente {cliente_id}")

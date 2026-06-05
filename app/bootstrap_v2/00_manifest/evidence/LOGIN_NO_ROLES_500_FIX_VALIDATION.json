@@ -1,0 +1,56 @@
+{
+  "report": "LOGIN_NO_ROLES_500_FIX_VALIDATION",
+  "timestamp_utc": "2026-06-01T07:25:58Z",
+  "fix": "endpoints.login except CustomException: raise",
+  "tenant": "t3usr971acefb",
+  "cases": {
+    "1_no_roles": {
+      "username": "qa_login_norole_8c3956",
+      "expected_status": 403,
+      "status": 403,
+      "error_code": "USER_WITHOUT_COMPANY",
+      "detail": "El usuario no tiene empresas asignadas. Contacte al administrador del tenant.",
+      "ok": true
+    },
+    "2_user_tenant": {
+      "username": "qa_login_user_392371",
+      "rol_id": "8a6c861c-afb3-4afd-afb2-a151c5079bf1",
+      "assign_status": 201,
+      "expected_status": 200,
+      "status": 200,
+      "has_access_token": true,
+      "ok": true
+    },
+    "3_manager_tenant": {
+      "username": "qa_login_manager_b425ab",
+      "rol_id": "826e3965-fed2-4f6d-a342-e05d21585bd5",
+      "assign_status": 201,
+      "expected_status": 200,
+      "status": 200,
+      "has_access_token": true,
+      "ok": true
+    },
+    "4_admin_tenant": {
+      "username": "admin",
+      "expected_status": 200,
+      "status": 200,
+      "has_access_token": true,
+      "ok": true
+    },
+    "5_bad_credentials": {
+      "username": "qa_login_norole_8c3956",
+      "expected_status": 401,
+      "status": 401,
+      "detail": "Credenciales incorrectas",
+      "ok": true
+    }
+  },
+  "roles_resolved": {
+    "ADMIN_TENANT": "aa3c99e2-f072-48c1-8598-c553be81d591",
+    "MANAGER_TENANT": "826e3965-fed2-4f6d-a342-e05d21585bd5",
+    "USER_TENANT": "8a6c861c-afb3-4afd-afb2-a151c5079bf1"
+  },
+  "verdict": {
+    "status": "PASS"
+  }
+}

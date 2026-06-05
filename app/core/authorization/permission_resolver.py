@@ -93,16 +93,21 @@ class PermissionResolverService:
         from app.core.auth.impersonation_rbac import (
             get_effective_impersonation_permissions,
             is_impersonation_effective_tenant_session,
+            resolve_impersonation_tenant_cliente_id,
         )
 
         if is_impersonation_effective_tenant_session(payload):
+            imp_cliente_id = resolve_impersonation_tenant_cliente_id(
+                payload,
+                user_cliente_id=cliente_id,
+            )
             codes = await get_effective_impersonation_permissions(
-                cliente_id, database_type=database_type
+                imp_cliente_id, database_type=database_type
             )
             return EffectivePermissions(
                 codes=codes,
                 is_super_admin=False,
-                cliente_id=cliente_id,
+                cliente_id=imp_cliente_id,
                 usuario_id=usuario_id,
                 source="impersonation_effective_admin",
             )

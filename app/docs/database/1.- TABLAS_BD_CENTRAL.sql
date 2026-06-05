@@ -5,6 +5,99 @@
 -- NOTA: Este esquema usa UNIQUEIDENTIFIER (UUID) para todas las Primary Keys
 -- ============================================================================
 
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_moneda (GLOBAL)
+-- Descripción: Catálogo de monedas soportadas por la empresa
+-- Uso: Permite configurar diferentes monedas para operaciones financieras
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_moneda (
+    moneda_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    codigo NVARCHAR(3) NOT NULL,
+    nombre NVARCHAR(50) NOT NULL,
+    simbolo NVARCHAR(5) NOT NULL,
+    decimales INT DEFAULT 2,
+    es_activo BIT DEFAULT 1,
+    CONSTRAINT UQ_moneda_codigo UNIQUE (codigo)
+);
+
+CREATE INDEX IDX_moneda_activo ON cat_moneda(es_activo);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_pais (GLOBAL)
+-- Descripción: Catálogo de países soportados por la empresa
+-- Uso: Permite configurar diferentes países
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_pais (
+    pais_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    codigo_iso2 NVARCHAR(2) NOT NULL,
+    codigo_iso3 NVARCHAR(3) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
+    CONSTRAINT UQ_pais_iso2 UNIQUE (codigo_iso2)
+);
+
+CREATE INDEX IDX_pais_activo ON cat_pais(es_activo);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_departamento (GLOBAL)
+-- Descripción: Catálogo de departamentos soportados por la empresa
+-- Uso: Permite configurar diferentes departamentos
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_departamento (
+    departamento_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    pais_id UNIQUEIDENTIFIER NOT NULL,
+    codigo NVARCHAR(10) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
+    CONSTRAINT FK_depto_pais FOREIGN KEY (pais_id) 
+        REFERENCES cat_pais(pais_id) ON DELETE NO ACTION
+);
+
+CREATE INDEX IDX_depto_pais ON cat_departamento(pais_id);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_provincia (GLOBAL)
+-- Descripción: Catálogo de provincias soportadas por la empresa
+-- Uso: Permite configurar diferentes provincias
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_provincia (
+    provincia_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    departamento_id UNIQUEIDENTIFIER NOT NULL,
+    codigo NVARCHAR(10) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
+    CONSTRAINT FK_prov_depto FOREIGN KEY (departamento_id) 
+        REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION
+);
+
+CREATE INDEX IDX_prov_depto ON cat_provincia(departamento_id);
+
+-- -----------------------------------------------------------------------------    
+-- Tabla: cat_distrito (GLOBAL)
+-- Descripción: Catálogo de distritos soportados por la empresa
+-- Uso: Permite configurar diferentes distritos
+-- Relaciones: Usado por la empresa
+-- -----------------------------------------------------------------------------
+CREATE TABLE cat_distrito (
+    distrito_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    provincia_id UNIQUEIDENTIFIER NOT NULL,
+    codigo NVARCHAR(10) NOT NULL,
+    nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
+    ubigeo NVARCHAR(6) NOT NULL,
+    CONSTRAINT FK_dist_prov FOREIGN KEY (provincia_id) 
+        REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,
+    CONSTRAINT UQ_ubigeo UNIQUE (ubigeo)
+);
+
+CREATE INDEX IDX_dist_prov ON cat_distrito(provincia_id);
+CREATE INDEX IDX_dist_ubigeo ON cat_distrito(ubigeo);
+
+
 -- ============================================================================
 -- SECCIÓN 1: ADMINISTRACIÓN DE CLIENTES
 -- ============================================================================

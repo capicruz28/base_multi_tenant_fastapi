@@ -65,7 +65,7 @@ from app.modules.auth.application.services.refresh_token_service import RefreshT
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.modules.superadmin.application.services.audit_service import AuditService
 from app.api.deps import RoleChecker, get_current_active_user
-from app.core.exceptions import AuthenticationError
+from app.core.exceptions import AuthenticationError, CustomException
 from app.infrastructure.database.connection import DatabaseConnection, get_db_connection
 
 # ✅ FASE 1: Rate Limiting (condicional)
@@ -477,6 +477,8 @@ async def login(
         return response_data
 
     except HTTPException:
+        raise
+    except CustomException:
         raise
     except Exception as e:
         logger.exception(f"Error inesperado en /login/ para usuario {form_data.username}: {str(e)}")
@@ -1003,10 +1005,25 @@ async def get_permissions_me(
     try:
         from app.core.authorization.permission_resolver import get_permission_resolver
         from app.core.tenant.context import try_get_tenant_context
+        from app.core.auth.impersonation_rbac import (
+            is_impersonation_effective_tenant_session,
+            resolve_impersonation_tenant_cliente_id,
+        )
+
+        request_cliente_id = None
+        try:
+            request_cliente_id = get_current_client_id()
+        except RuntimeError:
+            pass
 
         cliente_id = getattr(current_user, "cliente_id", None)
-        if not cliente_id:
-            request_cliente_id = get_current_client_id()
+        if is_impersonation_effective_tenant_session(payload):
+            cliente_id = resolve_impersonation_tenant_cliente_id(
+                payload,
+                user_cliente_id=cliente_id,
+                request_cliente_id=request_cliente_id,
+            )
+        elif not cliente_id:
             if not request_cliente_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

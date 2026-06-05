@@ -823,24 +823,33 @@ class RolService(BaseService):
                 client_id=current_client_id
             )
 
-            if not result:
+            rows_affected = (
+                int(result.get("rows_affected", 0))
+                if isinstance(result, dict)
+                else 0
+            )
+            if rows_affected < 1:
                 logger.warning(f"No se pudo desactivar el rol ID {rol_id}")
-                # 🔄 VERIFICAR ESTADO ACTUAL
                 rol_revisado = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
                 if rol_revisado and not rol_revisado.get('es_activo'):
                     return rol_revisado
-                    
+
                 raise ServiceError(
                     status_code=500,
                     detail="Error al desactivar el rol",
                     internal_code="ROLE_DEACTIVATION_FAILED"
                 )
 
-            # 🔄 NORMALIZAR DATOS
-            result_normalizado = RolService._normalizar_rol_dict(result)
-                
+            rol_desactivado = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
+            if not rol_desactivado:
+                raise ServiceError(
+                    status_code=500,
+                    detail="Error al desactivar el rol",
+                    internal_code="ROLE_DEACTIVATION_FAILED"
+                )
+
             logger.info(f"Rol ID {rol_id} desactivado exitosamente")
-            return result_normalizado
+            return rol_desactivado
 
         except (ValidationError, NotFoundError):
             raise

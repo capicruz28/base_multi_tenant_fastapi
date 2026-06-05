@@ -1,0 +1,251 @@
+{
+  "fix_id": "SUPERADMIN_AUDITORIA_ESTADISTICAS_500",
+  "executed_at": "2026-06-03T17:03:09.571296+00:00",
+  "base_url": "http://localhost:8000",
+  "date_query_sample": "fecha_desde=...Z&fecha_hasta=...Z",
+  "endpoints": {
+    "estadisticas": {
+      "path": "/api/v1/superadmin/auditoria/estadisticas//",
+      "status": 200,
+      "ok": true,
+      "body_preview": {
+        "periodo": {
+          "fecha_desde": "2026-06-02T17:03:09.233000",
+          "fecha_hasta": "2026-06-03T17:03:09.233000"
+        },
+        "autenticacion": {
+          "total_eventos": 34,
+          "login_exitosos": 6,
+          "login_fallidos": 0,
+          "eventos_por_tipo": {
+            "empresa_cambiada": 3,
+            "impersonation_empresa_seleccionada": 1,
+            "impersonation_started": 1,
+            "login_success": 6,
+            "logout": 2,
+            "token_refresh": 21
+          }
+        },
+        "sincronizacion": {
+          "total_sincronizaciones": 0,
+          "exitosas": 0,
+          "fallidas": 0,
+          "por_tipo": {}
+        },
+        "top_ips": [
+          {
+            "ip_address": "172.18.0.1",
+            "total_eventos": 34,
+            "eventos_fallidos": 0
+          }
+        ],
+        "top_usuarios": [
+          {
+            "usuario_id": "00000000-0000-0000-0000-000000000100",
+            "nombre_usuario": "superadmin",
+            "total_eventos": 29
+          },
+          {
+            "usuario_id": "f70a6bd5-3365-4df8-8692-17b81e113648",
+            "nombre_usuario": "admin",
+            "total_eventos": 5
+          }
+        ]
+      }
+    },
+    "autenticacion": {
+      "path": "/api/v1/superadmin/auditoria/autenticacion//",
+      "status": 200,
+      "ok": true,
+      "body_preview": {
+        "logs": [
+          {
+            "log_id": "14b3b7b0-787c-441a-8109-caa8736ce0b5",
+            "cliente_id": "00000000-0000-0000-0000-000000000001",
+            "cliente": {
+              "cliente_id": "00000000-0000-0000-0000-000000000001",
+              "razon_social": "Sistema ERP Multi-Tenant",
+              "subdominio": "platform",
+              "codigo_cliente": "SUPERADMIN",
+              "nombre_comercial": "Plataforma Admin",
+              "tipo_instalacion": "shared",
+              "estado_suscripcion": "activo"
+            },
+            "usuario_id": "00000000-0000-0000-0000-000000000100",
+            "usuario": {
+              "usuario_id": "00000000-0000-0000-0000-000000000100",
+              "nombre_usuario": "superadmin",
+              "correo": "admin@plataforma.com"
+            },
+            "evento": "login_success",
+            "nombre_usuario_intento": "superadmin",
+            "descripcion": "Login exitoso",
+            "exito": true,
+            "codigo_error": null,
+            "ip_address": "172.18.0.1",
+            "user_agent": "Python-urllib/3.12",
+            "device_info": null,
+            "geolocation": null,
+            "metadata_json": {
+              "client_type": "mobile",
+              "es_superadmin": true,
+              "auth_method": "password"
+            },
+            "fecha_evento": "2026-06-03T12:03:09.897000"
+          },
+          {
+            "log_id": "e7958274-5a27-40f3-99cd-aad4540a2f68",
+            "cliente_id": "00000000-0000-0000-0000-000000000001",
+            "cliente": {
+              "cliente_id": "00000000-0000-0000-0000-000000000001",
+              "razon_social": "Sistema ERP Multi-Tenant",
+              "subdominio": "platform",
+              "codigo_cliente": "SUPERADMIN",
+              "nombre_comercial": "Plataforma Admin",
+              "tipo_instalacion": "shared",
+              "estado_suscripcion": "activo"
+            },
+            "usuario_id": "00000000-0000-0000-0000-000000000100",
+            "usuario": {
+              "usuario_id": "00000000-0000-0000-0000-000000000100",
+              "nombre_usuario": "superadmin",
+              "correo": "admin@plataforma.com"
+            },
+            "evento": "login_success",
+            "nombre_usuario_intento": "superadmin",
+            "descripcion": "Login exitoso",
+            "exito": true,
+            "codigo_error": null,
+            "ip_address": "172.18.0.1",
+            "user_agent": "Python-urllib/3.12",
+            "device_info": null,
+            "geolocation": null,
+            "metadata_json": {
+              "client_type": "mobile",
+              "es_superadmin": true,
+              "auth_method": "password"
+            },
+            "fecha_evento": "2026-06-03T12:01:56.063000"
+          },
+          {
+            "log_id": "5208bf93-494e-4ce2-b440-e202612b58dd",
+            "cliente_id": "00000000-0000-0000-0000-000000000001",
+            "cliente": {
+              "cliente_id": "00000000-0000-0000-0000-000000000001",
+              "razon_social": "Sistema ERP Multi-Tenant",
+              "subdominio": "platform",
+              "codigo_cliente": "SUPERADMIN",
+              "nombre_comercial": "Plataforma Admin",
+              "tipo_instalacion": "shared",
+              "estado_suscripcion": "activo"
+            },
+            "usuario_id": "00000000-0000-0000-0000-000000000100",
+            "usuario": {
+              "usuario_id": "00000000-0000-0000-0000-000000000100",
+              "nombre_usuario": "superadmin",
+              "correo": "admin@plataforma.com"
+            },
+            "evento": "login_success",
+            "nombre_usuario_intento": "superadmin",
+            "descripcion": "Login exitoso",
+            "exito": true,
+            "codigo_error": null,
+            "ip_address": "172.18.0.1",
+            "user_agent": "Python-urllib/3.12",
+            "device_info": null,
+            "geolocation": null,
+            "metadata_json": {
+              "client_type": "mobile",
+              "es_superadmin": true,
+              "auth_method": "password"
+            },
+            "fecha_evento": "2026-06-03T12:01:44.800000"
+          },
+          {
+            "log_id": "f4d7e5e2-4c30-45f5-bcb7-7aa55486e8f6",
+            "cliente_id": "00000000-0000-0000-0000-000000000001",
+            "cliente": {
+              "cliente_id": "00000000-0000-0000-0000-000000000001",
+              "razon_social": "Sistema ERP Multi-Tenant",
+              "subdominio": "platform",
+              "codigo_cliente": "SUPERADMIN",
+              "nombre_comercial": "Plataforma Admin",
+              "tipo_instalacion": "shared",
+              "estado_suscripcion": "activo"
+            },
+            "usuario_id": "00000000-0000-0000-0000-000000000100",
+            "usuario": {
+              "usuario_id": "00000000-0000-0000-0000-000000000100",
+              "nombre_usuario": "superadmin",
+              "correo": "admin@plataforma.com"
+            },
+            "evento": "token_refresh",
+            "nombre_usuario_intento": "superadmin",
+            "descripcion": "Refresh de token exitoso",
+            "exito": true,
+            "codigo_error": null,
+            "ip_address": "172.18.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+            "device_info": null,
+            "geolocation": null,
+            "metadata_json": {
+              "client_type": "web"
+            },
+            "fecha_evento": "2026-06-03T11:51:06.773000"
+          },
+          {
+            "log_id": "609fc472-ddd7-4a77-a462-7414e52c74c8",
+            "cliente_id": "00000000-0000-0000-0000-000000000001",
+            "cliente": {
+              "cliente_id": "00000000-0000-0000-0000-000000000001",
+              "razon_social": "Sistema ERP Multi-Tenant",
+              "subdominio": "platform",
+              "codigo_cliente": "SUPERADMIN",
+              "nombre_comercial": "Plataforma Admin",
+              "tipo_instalacion": "shared",
+              "estado_suscripcion": "activo"
+            },
+            "usuario_id": "00000000-0000-0000-0000-000000000100",
+            "usuario": {
+              "usuario_id": "00000000-0000-0000-0000-000000000100",
+              "nombre_usuario": "superadmin",
+              "correo": "admin@plataforma.com"
+            },
+            "evento": "token_refresh",
+            "nombre_usuario_intento": "superadmin",
+            "descripcion": "Refresh de token exitoso",
+            "exito": true,
+            "codigo_error": null,
+            "ip_address": "172.18.0.1",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+            "device_info": null,
+            "geolocation": null,
+            "metadata_json": {
+              "client_type": "web"
+            },
+            "fecha_evento": "2026-06-03T11:50:55.723000"
+          }
+        ],
+        "total_logs": 34,
+        "pagina_actual": 1,
+        "total_paginas": 7
+      }
+    },
+    "sincronizacion": {
+      "path": "/api/v1/superadmin/auditoria/sincronizacion//",
+      "status": 200,
+      "ok": true,
+      "body_preview": {
+        "logs": [],
+        "total_logs": 0,
+        "pagina_actual": 1,
+        "total_paginas": 0
+      }
+    }
+  },
+  "login": {
+    "status": 200,
+    "has_token": true
+  },
+  "passed": true
+}

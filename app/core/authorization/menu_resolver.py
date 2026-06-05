@@ -57,10 +57,7 @@ class MenuResolverService:
         from app.modules.modulos.application.services.modulo_menu_service import (
             ModuloMenuService,
         )
-        from app.core.auth.impersonation_rbac import (
-            filter_menu_by_impersonation_permissions,
-            is_impersonation_effective_tenant_session,
-        )
+        from app.core.auth.impersonation_rbac import is_impersonation_effective_tenant_session
 
         is_impersonation_menu = is_impersonation_effective_tenant_session(payload)
         if is_impersonation_menu and payload is None:
@@ -99,16 +96,12 @@ class MenuResolverService:
             )
 
         if is_impersonation_menu:
-            modulos_antes = len(menu.modulos or [])
-            menu = filter_menu_by_impersonation_permissions(menu, permission_codes)
             logger.info(
                 "[IMPERSONATION-MENU] cliente_id=%s is_impersonation=true "
                 "source_permissions=%s filtro_cliente_modulo=query_join "
-                "filtro_permisos_impersonados=true modulos_antes=%s modulos_final=%s "
-                "codigos_final=%s",
+                "filtro_permisos_impersonados=false modulos_final=%s codigos_final=%s",
                 cliente_id,
                 perm_source,
-                modulos_antes,
                 len(menu.modulos or []),
                 [getattr(m, "codigo", None) for m in (menu.modulos or [])],
             )

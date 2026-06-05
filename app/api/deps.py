@@ -298,8 +298,10 @@ async def get_current_active_user(
             )
             await apply_impersonation_effective_permissions_to_user(
                 usuario_completo,
-                cliente_id=request_cliente_id or usuario_completo.cliente_id,
+                cliente_id=usuario_completo.cliente_id,
                 database_type=database_type,
+                payload=payload,
+                request_cliente_id=request_cliente_id,
             )
 
         if is_impersonate_diag_request():

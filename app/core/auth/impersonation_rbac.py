@@ -47,6 +47,41 @@ def is_impersonation_effective_tenant_session(
     return str(scope).lower() == "tenant"
 
 
+def resolve_impersonation_tenant_cliente_id(
+    payload: Optional[Dict[str, Any]],
+    *,
+    user_cliente_id: Optional[UUID] = None,
+    request_cliente_id: Optional[UUID] = None,
+) -> UUID:
+    """
+    cliente_id del tenant impersonado para RBAC (permisos, menú, ORG).
+
+    Prioridad alineada con ORG session_scope: JWT ``cliente_id`` del token de
+    impersonación, no ``current_user.cliente_id`` (operador SYSTEM) ni el tenant
+    del host platform en ``request_cliente_id``.
+    """
+    from app.core.tenant.session_scope import resolve_session_cliente_id
+
+    if not is_impersonation_effective_tenant_session(payload):
+        raise ValueError(
+            "resolve_impersonation_tenant_cliente_id requiere sesión de impersonación tenant"
+        )
+
+    resolution = resolve_session_cliente_id(
+        payload=payload,
+        user_cliente_id=user_cliente_id,
+        request_cliente_id=request_cliente_id,
+    )
+    if resolution.source != "jwt_impersonation":
+        logger.warning(
+            "[IMPERSONATION-RBAC] tenant cliente_id vía %s (esperado jwt_impersonation); "
+            "cliente_id=%s",
+            resolution.source,
+            resolution.cliente_id,
+        )
+    return resolution.cliente_id
+
+
 def get_impersonation_effective_permissions_cached() -> Optional[frozenset[str]]:
     return _impersonation_permissions_ctx.get()
 
@@ -167,8 +202,16 @@ async def apply_impersonation_effective_permissions_to_user(
     *,
     cliente_id: UUID,
     database_type: str = "single",
+    payload: Optional[Dict[str, Any]] = None,
+    request_cliente_id: Optional[UUID] = None,
 ) -> List[str]:
     """Carga permisos impersonados en el usuario y ContextVar del request."""
+    if payload is not None and is_impersonation_effective_tenant_session(payload):
+        cliente_id = resolve_impersonation_tenant_cliente_id(
+            payload,
+            user_cliente_id=cliente_id,
+            request_cliente_id=request_cliente_id,
+        )
     codes = await get_effective_impersonation_permissions(
         cliente_id, database_type=database_type
     )
@@ -185,11 +228,17 @@ def resolve_menu_cliente_id_for_session(
     request_cliente_id: Optional[UUID] = None,
 ) -> Optional[UUID]:
     """
-    cliente_id para /auth/menu: delega en resolve_session_cliente_id (ORG Etapa A).
+    cliente_id para /auth/menu: JWT tenant en impersonación; legacy fuera de ella.
     """
-    from app.core.tenant.session_scope import resolve_session_cliente_id
-
     try:
+        if is_impersonation_effective_tenant_session(payload):
+            return resolve_impersonation_tenant_cliente_id(
+                payload,
+                user_cliente_id=user_cliente_id,
+                request_cliente_id=request_cliente_id,
+            )
+        from app.core.tenant.session_scope import resolve_session_cliente_id
+
         resolution = resolve_session_cliente_id(
             payload=payload,
             user_cliente_id=user_cliente_id,

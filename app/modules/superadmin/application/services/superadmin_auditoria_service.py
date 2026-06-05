@@ -13,6 +13,11 @@ Características principales:
 
 from datetime import datetime
 from uuid import UUID
+
+from app.modules.superadmin.application.datetime_sql import (
+    normalize_datetime_for_sql_server,
+    sql_int_or_zero,
+)
 import math
 import json
 from typing import Dict, List, Optional, Any
@@ -81,6 +86,9 @@ class SuperadminAuditoriaService(BaseService):
         Obtiene logs de autenticación con filtros avanzados.
         """
         logger.info(f"Obteniendo logs de autenticación - cliente_id: {cliente_id}, page: {page}")
+
+        fecha_desde = normalize_datetime_for_sql_server(fecha_desde)
+        fecha_hasta = normalize_datetime_for_sql_server(fecha_hasta)
 
         # Validar parámetros
         if page < 1:
@@ -662,6 +670,9 @@ class SuperadminAuditoriaService(BaseService):
         """
         logger.info(f"Obteniendo logs de sincronización - page: {page}")
 
+        fecha_desde = normalize_datetime_for_sql_server(fecha_desde)
+        fecha_hasta = normalize_datetime_for_sql_server(fecha_hasta)
+
         # Validar parámetros
         if page < 1:
             raise ValidationError(
@@ -925,6 +936,9 @@ class SuperadminAuditoriaService(BaseService):
         """
         logger.info(f"Obteniendo estadísticas de auditoría - cliente_id: {cliente_id}")
 
+        fecha_desde = normalize_datetime_for_sql_server(fecha_desde)
+        fecha_hasta = normalize_datetime_for_sql_server(fecha_hasta)
+
         # Validar fechas
         if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
             raise ValidationError(
@@ -959,8 +973,8 @@ class SuperadminAuditoriaService(BaseService):
         auth_stats_query = f"""
         SELECT 
             COUNT(*) as total_eventos,
-            SUM(CASE WHEN evento IN ('login_success', 'sso_login_success') AND exito = 1 THEN 1 ELSE 0 END) as login_exitosos,
-            SUM(CASE WHEN evento IN ('login_failed', 'sso_login_failed') AND exito = 0 THEN 1 ELSE 0 END) as login_fallidos,
+            ISNULL(SUM(CASE WHEN evento IN ('login_success', 'sso_login_success') AND exito = 1 THEN 1 ELSE 0 END), 0) as login_exitosos,
+            ISNULL(SUM(CASE WHEN evento IN ('login_failed', 'sso_login_failed') AND exito = 0 THEN 1 ELSE 0 END), 0) as login_fallidos,
             evento,
             COUNT(*) as eventos_por_tipo
         FROM dbo.auth_audit_log a
@@ -979,11 +993,11 @@ class SuperadminAuditoriaService(BaseService):
         
         if auth_stats_raw:
             for row in auth_stats_raw:
-                total_eventos += row.get('total_eventos', 0)
-                login_exitosos += row.get('login_exitosos', 0)
-                login_fallidos += row.get('login_fallidos', 0)
+                total_eventos += sql_int_or_zero(row.get('total_eventos'))
+                login_exitosos += sql_int_or_zero(row.get('login_exitosos'))
+                login_fallidos += sql_int_or_zero(row.get('login_fallidos'))
                 if row.get('evento'):
-                    eventos_por_tipo[row['evento']] = row.get('eventos_por_tipo', 0)
+                    eventos_por_tipo[row['evento']] = sql_int_or_zero(row.get('eventos_por_tipo'))
 
         # Construir condiciones WHERE para sincronización
         where_sync = []
@@ -1003,8 +1017,8 @@ class SuperadminAuditoriaService(BaseService):
         sync_stats_query = f"""
         SELECT 
             COUNT(*) as total_sincronizaciones,
-            SUM(CASE WHEN estado = 'exitoso' THEN 1 ELSE 0 END) as exitosas,
-            SUM(CASE WHEN estado = 'fallido' THEN 1 ELSE 0 END) as fallidas,
+            ISNULL(SUM(CASE WHEN estado = 'exitoso' THEN 1 ELSE 0 END), 0) as exitosas,
+            ISNULL(SUM(CASE WHEN estado = 'fallido' THEN 1 ELSE 0 END), 0) as fallidas,
             tipo_sincronizacion,
             COUNT(*) as por_tipo
         FROM dbo.log_sincronizacion_usuario l
@@ -1023,18 +1037,18 @@ class SuperadminAuditoriaService(BaseService):
         
         if sync_stats_raw:
             for row in sync_stats_raw:
-                total_sincronizaciones += row.get('total_sincronizaciones', 0)
-                exitosas += row.get('exitosas', 0)
-                fallidas += row.get('fallidas', 0)
+                total_sincronizaciones += sql_int_or_zero(row.get('total_sincronizaciones'))
+                exitosas += sql_int_or_zero(row.get('exitosas'))
+                fallidas += sql_int_or_zero(row.get('fallidas'))
                 if row.get('tipo_sincronizacion'):
-                    por_tipo[row['tipo_sincronizacion']] = row.get('por_tipo', 0)
+                    por_tipo[row['tipo_sincronizacion']] = sql_int_or_zero(row.get('por_tipo'))
 
         # Top IPs
         top_ips_query = f"""
         SELECT TOP 10
             ip_address,
             COUNT(*) as total_eventos,
-            SUM(CASE WHEN exito = 0 THEN 1 ELSE 0 END) as eventos_fallidos
+            ISNULL(SUM(CASE WHEN exito = 0 THEN 1 ELSE 0 END), 0) as eventos_fallidos
         FROM dbo.auth_audit_log a
         WHERE {where_auth_clause} AND ip_address IS NOT NULL
         GROUP BY ip_address
@@ -1046,8 +1060,8 @@ class SuperadminAuditoriaService(BaseService):
         top_ips = [
             IPStats(
                 ip_address=row['ip_address'],
-                total_eventos=row['total_eventos'],
-                eventos_fallidos=row['eventos_fallidos']
+                total_eventos=sql_int_or_zero(row.get('total_eventos')),
+                eventos_fallidos=sql_int_or_zero(row.get('eventos_fallidos'))
             ) for row in top_ips_raw
         ] if top_ips_raw else []
 
@@ -1070,7 +1084,7 @@ class SuperadminAuditoriaService(BaseService):
             UsuarioStats(
                 usuario_id=row['usuario_id'],
                 nombre_usuario=row['nombre_usuario'],
-                total_eventos=row['total_eventos']
+                total_eventos=sql_int_or_zero(row.get('total_eventos'))
             ) for row in top_usuarios_raw
         ] if top_usuarios_raw else []
 

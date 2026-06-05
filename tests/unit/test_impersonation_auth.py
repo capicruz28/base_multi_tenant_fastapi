@@ -20,11 +20,12 @@ from app.core.auth.impersonation import (
 )
 from app.core.tenant.company_scope import is_platform_operator
 from app.core.auth.impersonation_rbac import (
-    filter_menu_by_impersonation_permissions,
     is_impersonation_effective_tenant_session,
     impersonation_passes_tenant_admin_gate,
     resolve_menu_cliente_id_for_session,
 )
+from app.core.authorization.menu_resolver import get_menu_resolver
+from app.modules.modulos.application.services.modulo_menu_service import ModuloMenuService
 from app.modules.modulos.presentation.schemas import MenuUsuarioResponse, ModuloMenuResponse
 from app.modules.auth.application.services.auth_service import AuthService
 
@@ -207,38 +208,60 @@ def test_resolve_menu_cliente_id_uses_jwt_not_system_user():
 
 
 @pytest.mark.unit
-def test_filter_menu_by_impersonation_permissions_includes_inv():
-    menu = MenuUsuarioResponse(
-        modulos=[
-            ModuloMenuResponse(
-                modulo_id=UUID("E1000001-0000-4000-8000-000000000001"),
-                codigo="ORG",
-                nombre="Organización",
-                color="#1976D2",
-                categoria="operaciones",
-                orden=1,
-            ),
-            ModuloMenuResponse(
-                modulo_id=UUID("E1000002-0000-4000-8000-000000000002"),
-                codigo="INV",
-                nombre="Inventarios",
-                color="#4CAF50",
-                categoria="operaciones",
-                orden=2,
-            ),
-        ]
+def test_resolve_impersonation_tenant_cliente_id_prefers_jwt_over_system():
+    from app.core.auth.impersonation_rbac import resolve_impersonation_tenant_cliente_id
+
+    acme = UUID("11111111-1111-1111-1111-111111111111")
+    system = UUID("00000000-0000-0000-0000-000000000001")
+    resolved = resolve_impersonation_tenant_cliente_id(
+        {
+            "is_impersonation": True,
+            "effective_scope": "tenant",
+            "cliente_id": str(acme),
+        },
+        user_cliente_id=system,
+        request_cliente_id=system,
     )
-    filtered = filter_menu_by_impersonation_permissions(
-        menu,
-        ["org.empresa.leer", "inv.producto.leer"],
-    )
-    codes = {m.codigo for m in filtered.modulos}
-    assert codes == {"ORG", "INV"}
+    assert resolved == acme
 
 
 @pytest.mark.unit
-def test_filter_menu_by_impersonation_permissions_only_org():
-    menu = MenuUsuarioResponse(
+@pytest.mark.asyncio
+async def test_permission_resolver_impersonation_uses_jwt_cliente_id_not_system():
+    from unittest.mock import AsyncMock, patch
+    from uuid import uuid4
+
+    from app.core.authorization.permission_resolver import PermissionResolverService
+
+    tenant_cid = uuid4()
+    system_cid = UUID("00000000-0000-0000-0000-000000000001")
+    payload = {
+        "is_impersonation": True,
+        "effective_scope": "tenant",
+        "cliente_id": str(tenant_cid),
+    }
+    org_codes = ["org.empresa.leer", "org.sucursal.leer", "inv.producto.leer"]
+
+    with patch(
+        "app.core.auth.impersonation_rbac.get_effective_impersonation_permissions",
+        new=AsyncMock(return_value=org_codes),
+    ) as mock_imp:
+        resolver = PermissionResolverService()
+        effective = await resolver.get_effective_permissions(
+            usuario_id=uuid4(),
+            cliente_id=system_cid,
+            payload=payload,
+        )
+
+    mock_imp.assert_awaited_once()
+    assert mock_imp.await_args.args[0] == tenant_cid
+    assert effective.cliente_id == tenant_cid
+    assert "org.sucursal.leer" in effective.codes
+    assert effective.source == "impersonation_effective_admin"
+
+
+def _trial_admin_menu_response() -> MenuUsuarioResponse:
+    return MenuUsuarioResponse(
         modulos=[
             ModuloMenuResponse(
                 modulo_id=UUID("E1000001-0000-4000-8000-000000000001"),
@@ -256,14 +279,56 @@ def test_filter_menu_by_impersonation_permissions_only_org():
                 categoria="operaciones",
                 orden=2,
             ),
+            ModuloMenuResponse(
+                modulo_id=UUID("E1000003-0000-4000-8000-000000000003"),
+                codigo="SYS_ADMIN",
+                nombre="Administración",
+                color="#9C27B0",
+                categoria="administracion",
+                orden=3,
+            ),
         ]
     )
-    filtered = filter_menu_by_impersonation_permissions(
-        menu,
-        ["org.empresa.leer", "admin.usuario.leer"],
-    )
-    assert len(filtered.modulos) == 1
-    assert filtered.modulos[0].codigo == "ORG"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_menu_resolver_impersonation_preserves_modules_including_sys_admin():
+    """Modelo A: menú impersonado = salida RMP sin filtro por prefijo de permiso."""
+    tenant_cid = uuid4()
+    service_menu = _trial_admin_menu_response()
+    impersonation_payload = {
+        "is_impersonation": True,
+        "effective_scope": "tenant",
+        "cliente_id": str(tenant_cid),
+    }
+
+    class FakeEffective:
+        codes = ["org.empresa.leer", "inv.producto.leer", "admin.usuario.leer"]
+        source = "impersonation_effective_admin"
+
+    with patch(
+        "app.core.authorization.menu_resolver.get_permission_resolver"
+    ) as mock_get_resolver, patch.object(
+        ModuloMenuService,
+        "obtener_menu_impersonacion_tenant",
+        new=AsyncMock(return_value=service_menu),
+    ) as mock_imp_menu, patch(
+        "app.core.authorization.menu_resolver.resolve_required_permissions_for_menu_tree",
+        new=AsyncMock(return_value=None),
+    ):
+        resolver = mock_get_resolver.return_value
+        resolver.get_effective_permissions = AsyncMock(return_value=FakeEffective())
+
+        result = await get_menu_resolver().get_menu_for_user(
+            usuario_id=uuid4(),
+            cliente_id=tenant_cid,
+            payload=impersonation_payload,
+        )
+
+    mock_imp_menu.assert_awaited_once()
+    assert {m.codigo for m in result.modulos} == {"ORG", "INV", "SYS_ADMIN"}
+    assert len(result.modulos) == 3
 
 
 @pytest.mark.unit

@@ -1,0 +1,41 @@
+{
+  "report": "ROLE_DEACTIVATE_500_FIX_VALIDATION",
+  "timestamp_utc": "2026-06-01T08:01:49Z",
+  "fix": "desactivar_rol returns obtener_rol_por_id after UPDATE",
+  "tenant": "t3usr971acefb",
+  "steps": {
+    "create_role": {
+      "status": 201,
+      "rol_id": "4c7390a4-f4e9-40a6-9782-85ec30cf79d9"
+    },
+    "delete_role": {
+      "status": 200,
+      "body": {
+        "cliente_id": "e4c8e906-0e64-4f4e-a04d-8daee57dc7f8",
+        "codigo_rol": null,
+        "nombre": "Qa_Del_234971",
+        "descripcion": "role deactivate fix QA",
+        "es_activo": false,
+        "rol_id": "4c7390a4-f4e9-40a6-9782-85ec30cf79d9",
+        "fecha_creacion": "2026-06-01T03:01:49.400000",
+        "es_eliminado": false,
+        "asignacion_empresa_id": null
+      },
+      "has_rol_id": true,
+      "has_nombre": true,
+      "es_activo": false,
+      "detail": null
+    },
+    "not_in_all_active": true
+  },
+  "validation": {
+    "http_200": true,
+    "rol_read_shape": true,
+    "soft_deactivated": true,
+    "absent_from_active_list": true,
+    "no_verificar_usuario_error": true
+  },
+  "verdict": {
+    "status": "PASS"
+  }
+}

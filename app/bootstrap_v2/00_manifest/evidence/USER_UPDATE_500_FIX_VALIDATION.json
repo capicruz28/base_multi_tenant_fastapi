@@ -1,0 +1,67 @@
+{
+  "report": "USER_UPDATE_500_FIX_VALIDATION",
+  "timestamp_utc": "2026-06-01T06:57:50Z",
+  "fix": "endpoints.py usuario_data=update_data",
+  "tenant": "t3usr971acefb",
+  "base_url": "http://localhost:8000",
+  "steps": {
+    "qa_admin_login": {
+      "status": 200,
+      "ok": true
+    },
+    "qa_update_user": {
+      "status": 200,
+      "ok": true,
+      "nombre": "Supervisor",
+      "detail": null
+    },
+    "qa_create_user": {
+      "status": 201,
+      "ok": true,
+      "usuario_id": "2c184af6-85ad-49e8-bd39-8ec40855c7af"
+    },
+    "qa_roles_list": {
+      "status": 200,
+      "count": 3,
+      "user_rol_id": null,
+      "manager_rol_id": null,
+      "sample": [
+        {
+          "rol_id": "aa3c99e2-f072-48c1-8598-c553be81d591",
+          "codigo_rol": null,
+          "nombre": "Administrador"
+        },
+        {
+          "rol_id": "826e3965-fed2-4f6d-a342-e05d21585bd5",
+          "codigo_rol": null,
+          "nombre": "Supervisor"
+        },
+        {
+          "rol_id": "8a6c861c-afb3-4afd-afb2-a151c5079bf1",
+          "codigo_rol": null,
+          "nombre": "Usuario"
+        }
+      ]
+    },
+    "qa_role_assign_revoke": {
+      "assign_status": 201,
+      "revoke_status": 200,
+      "ok": true
+    },
+    "qa_user_login": {
+      "status": 200,
+      "ok": true,
+      "username": "qa_user_0cc794"
+    },
+    "qa_manager_login": {
+      "create_status": 201,
+      "assign_ok": true,
+      "login_status": 200,
+      "ok": true,
+      "username": "mgr_qa_0cc794"
+    }
+  },
+  "verdict": {
+    "status": "PASS"
+  }
+}

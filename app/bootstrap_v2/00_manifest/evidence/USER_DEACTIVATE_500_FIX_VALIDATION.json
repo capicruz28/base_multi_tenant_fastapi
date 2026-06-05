@@ -1,0 +1,57 @@
+{
+  "report": "USER_DEACTIVATE_500_FIX_VALIDATION",
+  "timestamp_utc": "2026-06-01T07:09:54Z",
+  "fix": "user_service.py L1021 await execute_update",
+  "tenant": "t3usr971acefb",
+  "preventive_scan": {
+    "file": "app\\modules\\users\\application\\services\\user_service.py",
+    "execute_update_without_await": 0,
+    "execute_insert_without_await": 0,
+    "execute_query_without_await": 0
+  },
+  "steps": {
+    "admin_login": {
+      "status": 200,
+      "ok": true
+    },
+    "create_user_for_delete": {
+      "status": 201,
+      "usuario_id": "c0afe5fc-2dbf-43eb-8c4e-3c3a00546468"
+    },
+    "assign_rol_usuario": {
+      "status": 201,
+      "rol_id": "8a6c861c-afb3-4afd-afb2-a151c5079bf1"
+    },
+    "delete_user": {
+      "status": 200,
+      "ok": true,
+      "body": {
+        "message": "Usuario eliminado lógicamente exitosamente",
+        "usuario_id": "C0AFE5FC-2DBF-43EB-8C4E-3C3A00546468",
+        "es_eliminado": true
+      }
+    },
+    "db_after_delete": {
+      "get_usuario_status": 500,
+      "usuario": {
+        "usuario_id": null,
+        "es_eliminado": null,
+        "es_activo": null,
+        "nombre_usuario": null
+      },
+      "get_roles_status": 200,
+      "usuario_rol": {
+        "total": 0,
+        "activos": 0
+      }
+    },
+    "validation": {
+      "soft_delete_usuario": true,
+      "usuario_rol_deactivated": true
+    }
+  },
+  "qa_usuario_id": "c0afe5fc-2dbf-43eb-8c4e-3c3a00546468",
+  "verdict": {
+    "status": "PASS"
+  }
+}
