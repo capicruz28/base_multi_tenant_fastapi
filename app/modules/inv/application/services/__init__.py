@@ -76,6 +76,7 @@ from app.modules.inv.application.services.movimiento_proceso_service import (
     procesar_movimiento_servicio,
     autorizar_movimiento_servicio,
     anular_movimiento_servicio,
+    estornar_movimiento_servicio,
 )
 from app.modules.inv.application.services.inventario_fisico_aprobacion_service import (
     aprobar_inventario_fisico_servicio,
@@ -161,6 +162,7 @@ __all__ = [
     "procesar_movimiento_servicio",
     "autorizar_movimiento_servicio",
     "anular_movimiento_servicio",
+    "estornar_movimiento_servicio",
     # Aprobación inventario físico
     "aprobar_inventario_fisico_servicio",
     # Módulos

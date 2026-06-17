@@ -15,6 +15,7 @@ from app.infrastructure.database.queries.org.empresa_queries import (
 )
 from app.infrastructure.database.queries.org.centro_costo_queries import (
     list_centros_costo,
+    count_centros_costo,
     get_centro_costo_by_id,
     get_centro_costo_by_codigo,
     create_centro_costo,
@@ -58,6 +59,7 @@ __all__ = [
     "create_empresa",
     "update_empresa",
     "list_centros_costo",
+    "count_centros_costo",
     "get_centro_costo_by_id",
     "get_centro_costo_by_codigo",
     "create_centro_costo",

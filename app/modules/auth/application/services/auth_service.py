@@ -225,12 +225,43 @@ class AuthService:
         return info
 
     @staticmethod
+    def resolve_requires_password_change(user_row: Dict[str, Any]) -> bool:
+        """Normaliza usuario.requiere_cambio_contrasena (BIT/bool) a bool."""
+        val = user_row.get("requiere_cambio_contrasena")
+        if val is None:
+            return False
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, int):
+            return val != 0
+        return bool(val)
+
+    @staticmethod
+    async def fetch_user_password_policy_fields(
+        usuario_id: UUID,
+        cliente_id: UUID,
+    ) -> Optional[Dict[str, Any]]:
+        """Campos de política de contraseña desde BD (fuente de verdad)."""
+        from sqlalchemy import text
+
+        query = text("""
+            SELECT requiere_cambio_contrasena, proveedor_autenticacion, contrasena
+            FROM usuario
+            WHERE usuario_id = :usuario_id
+              AND cliente_id = :cliente_id
+              AND es_eliminado = 0
+        """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
+        rows = await execute_query(query, client_id=cliente_id)
+        return rows[0] if rows else None
+
+    @staticmethod
     def build_token_data_from_level_info(
         *,
         username: str,
         cliente_id: Any,
         level_info: Dict[str, Any],
         refresh_payload: Optional[Dict[str, Any]] = None,
+        requires_password_change: bool = False,
     ) -> Dict[str, Any]:
         """Arma token_data para create_access_token / create_refresh_token."""
         cid = cliente_id if isinstance(cliente_id, str) else str(cliente_id)
@@ -238,6 +269,7 @@ class AuthService:
             "sub": username,
             "cliente_id": cid,
             "level_info": level_info,
+            "requires_password_change": bool(requires_password_change),
         }
         if level_info.get("is_super_admin") or (
             refresh_payload and refresh_payload.get("es_superadmin")
@@ -269,7 +301,8 @@ class AuthService:
             # Misma BD que tenant: usar routing DEFAULT + cliente_id del JWT (SYSTEM).
             # ADMIN solo en login password del username reservado; refresh alinea con persistencia.
             query = text("""
-                SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
+                SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
+                       es_activo, requiere_cambio_contrasena, proveedor_autenticacion
                 FROM usuario
                 WHERE cliente_id = :cliente_id
                   AND nombre_usuario = :nombre_usuario
@@ -287,7 +320,8 @@ class AuthService:
 
         if database_type == "multi":
             query = """
-            SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
+            SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
+                   es_activo, requiere_cambio_contrasena, proveedor_autenticacion
             FROM usuario
             WHERE nombre_usuario = ? AND es_eliminado = 0
             """
@@ -302,7 +336,8 @@ class AuthService:
             return None
 
         query = text("""
-            SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
+            SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
+                   es_activo, requiere_cambio_contrasena, proveedor_autenticacion
             FROM usuario
             WHERE cliente_id = :cliente_id
               AND nombre_usuario = :nombre_usuario
@@ -832,7 +867,8 @@ class AuthService:
             if database_type == "multi":
                 query = """
                 SELECT usuario_id, cliente_id, nombre_usuario, correo, contrasena,
-                       nombre, apellido, es_activo
+                       nombre, apellido, es_activo, requiere_cambio_contrasena,
+                       proveedor_autenticacion
                 FROM usuario
                 WHERE nombre_usuario = :nombre_usuario AND es_eliminado = 0
                 """
@@ -843,7 +879,8 @@ class AuthService:
             else:
                 query = """
                 SELECT usuario_id, cliente_id, nombre_usuario, correo, contrasena,
-                       nombre, apellido, es_activo
+                       nombre, apellido, es_activo, requiere_cambio_contrasena,
+                       proveedor_autenticacion
                 FROM usuario
                 WHERE cliente_id = :cliente_id AND nombre_usuario = :nombre_usuario AND es_eliminado = 0
                 """
@@ -1555,6 +1592,12 @@ class AuthService:
 
         from app.modules.auth.presentation.schemas import build_user_data_with_roles_dict
 
+        requires_password_change = False
+        if user_base_data:
+            requires_password_change = AuthService.resolve_requires_password_change(
+                user_base_data
+            )
+
         profile = build_user_data_with_roles_dict(
             usuario_id=usuario_id,
             nombre_usuario=username,
@@ -1571,6 +1614,7 @@ class AuthService:
             empresa_activa=(
                 str(empresa_id) if empresa_id is not None else None
             ),
+            requires_password_change=requires_password_change,
         )
         profile["level_info"] = level_info
         return profile
@@ -1601,10 +1645,23 @@ class AuthService:
         )
         es_admin_cliente = user_full_data.get("es_admin_cliente", False)
 
+        requires_password_change = AuthService.resolve_requires_password_change(
+            user_base_data or user_full_data
+        )
+        if not user_base_data and not requires_password_change:
+            policy_row = await AuthService.fetch_user_password_policy_fields(
+                usuario_id, cliente_id
+            )
+            if policy_row:
+                requires_password_change = AuthService.resolve_requires_password_change(
+                    policy_row
+                )
+
         token_data: Dict[str, Any] = {
             "sub": username,
             "cliente_id": str(cliente_id),
             "level_info": level_info,
+            "requires_password_change": requires_password_change,
         }
         if es_superadmin:
             token_data["es_superadmin"] = True
@@ -1625,6 +1682,8 @@ class AuthService:
             es_admin_cliente=es_admin_cliente,
             refresh_token_expire_days=refresh_expire_days,
         )
+
+        user_full_data["requires_password_change"] = requires_password_change
 
         return {
             "access_token": access_token,

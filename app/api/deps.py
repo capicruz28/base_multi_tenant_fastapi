@@ -304,6 +304,15 @@ async def get_current_active_user(
                 request_cliente_id=request_cliente_id,
             )
 
+        from app.core.auth.password_change_enforcement import enforce_password_change_policy
+
+        enforce_password_change_policy(
+            request=request,
+            payload=payload,
+            usuario=usuario_completo,
+            impersonation_tenant_session=impersonation_tenant_session,
+        )
+
         if is_impersonate_diag_request():
             logger.info(
                 "[IMPERSONATE-AUTH] get_current_active_user ok username=%s "

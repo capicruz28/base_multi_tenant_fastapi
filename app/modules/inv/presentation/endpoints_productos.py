@@ -1,10 +1,11 @@
 # app/modules/inv/presentation/endpoints_productos.py
-"""Endpoints INV - Productos. client_id siempre desde current_user.cliente_id."""
+"""Endpoints INV - Productos. client_id desde sesión efectiva (inv_deps, patrón ORG)."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import NotFoundError, AuthorizationError, ConflictError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -25,9 +26,9 @@ async def listar_productos(
     buscar: Optional[str] = Query(None, description="Búsqueda por nombre, SKU o código de barras"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Lista productos de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     return await producto_service.list_productos_servicio(
         client_id=client_id,
         categoria_id=categoria_id,
@@ -42,9 +43,9 @@ async def detalle_producto(
     producto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Detalle de un producto de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await producto_service.get_producto_servicio(
             client_id=client_id,
@@ -59,9 +60,9 @@ async def crear_producto(
     data: ProductoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Crea un producto. empresa_id del body debe coincidir con la sesión."""
-    client_id = current_user.cliente_id
     try:
         return await producto_service.create_producto_servicio(client_id=client_id, data=data)
     except AuthorizationError as e:
@@ -76,9 +77,9 @@ async def actualizar_producto(
     data: ProductoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Actualiza un producto de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await producto_service.update_producto_servicio(
             client_id=client_id,
@@ -100,9 +101,9 @@ async def eliminar_producto(
     producto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Marca un producto como inactivo en la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         await producto_service.update_producto_servicio(
             client_id=client_id,
@@ -122,9 +123,9 @@ async def reactivar_producto(
     producto_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Reactiva un producto de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await producto_service.update_producto_servicio(
             client_id=client_id,

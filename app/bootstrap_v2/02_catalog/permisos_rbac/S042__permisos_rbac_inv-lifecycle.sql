@@ -13,6 +13,7 @@
 --     inv.movimiento.procesar   → POST /{id}/procesar
 --     inv.movimiento.autorizar  → POST /{id}/autorizar
 --     inv.movimiento.anular     → POST /{id}/anular
+--     inv.movimiento.estornar   → POST /{id}/estornar
 --
 --   Inventario Físico:
 --     inv.inventario_fisico.finalizar → POST /{id}/finalizar
@@ -61,6 +62,13 @@ USING (
            @modulo_inv_id,
            'movimiento',
            'anular'
+    UNION ALL
+    SELECT 'inv.movimiento.estornar',
+           'Estornar movimiento',
+           'Estornar un movimiento procesado mediante movimiento compensatorio y reversión de stock',
+           @modulo_inv_id,
+           'movimiento',
+           'estornar'
 ) AS s
 ON t.codigo = s.codigo
 WHEN NOT MATCHED BY TARGET THEN
@@ -101,5 +109,5 @@ WHEN NOT MATCHED BY TARGET THEN
     VALUES (NEWID(), s.codigo, s.nombre, s.descripcion, s.modulo_id, s.recurso, s.accion, 1);
 GO
 
-PRINT 'Seed permisos RBAC INV - Acciones lifecycle granulares completado (6 permisos).';
+PRINT 'Seed permisos RBAC INV - Acciones lifecycle granulares completado (7 permisos).';
 GO

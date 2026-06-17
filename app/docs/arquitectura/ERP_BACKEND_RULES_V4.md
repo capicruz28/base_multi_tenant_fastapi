@@ -2,6 +2,7 @@
 
 **Versión:** 4.0  
 **Fecha:** 2026-06-03  
+**Revisión:** 2026-06-16 — post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
 **Estado:** Oficial — reemplazo definitivo de `.cursorrules` para trabajo ERP  
 **Fuente:** `ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`  
 **Estándar técnico:** `ERP_BACKEND_STANDARDS_V4.md`
@@ -14,7 +15,7 @@ Reglas operativas numeradas para desarrolladores y agentes de IA. Toda refactori
 
 **Stack:** FastAPI + SQL Server + Python  
 **Arquitectura:** Multi-tenant SaaS modular  
-**Referencia de código:** ORG (scope) + INV (sesión ERP, transaccional)
+**Referencia de código:** ORG + INV (session scope unificado, transaccional, listados)
 
 ---
 
@@ -45,7 +46,7 @@ Reglas que **nunca** se negocian.
 | **R12** | PROHIBIDO SQL inline en presentation. Toda SQL va en capa queries. |
 | **R13** | PROHIBIDO concatenar input de usuario en strings SQL. Solo queries parametrizadas. |
 | **R14** | Orden de implementación: **schemas → queries → services → routers**. |
-| **R15** | Referencia obligatoria: ORG para scope/session; INV para transaccional y cabecera-detalle. |
+| **R15** | Referencia obligatoria: ORG + INV para session scope (`get_{cod}_session_client_id`, `{codigo}_deps.py`); ORG para políticas TENANT/COMPANY/HYBRID; INV para transaccional, cabecera-detalle y listados. Ver `ERP_BACKEND_STANDARDS_V4.md` §3.7, §5.5. |
 | **R16** | PROHIBIDO replicar patrones legacy de tenant/superadmin/users (class services, SQL embebido). |
 
 ---
@@ -59,10 +60,13 @@ Reglas que **nunca** se negocian.
 | **R19** | `cliente_id` solo desde sesión (dependency). PROHIBIDO en body/query para autorización. |
 | **R20** | `empresa_id` solo desde `require_session_empresa_id()` en services. PROHIBIDO override en body. |
 | **R21** | Cross-tenant / cross-company fuera de scope → responder **404**, no 403. |
-| **R22** | Impersonación: usar tenant del JWT, no cliente SYSTEM del operador. |
-| **R23** | Crear `{codigo}_deps.py` cuando el módulo tenga políticas de scope mixtas. |
-| **R24** | Resolución de `cliente_id` en código nuevo: patrón ORG (`get_{cod}_session_client_id`). |
+| **R22** | Impersonación: contexto operativo de datos desde tenant del JWT (`require_session_cliente_id`), no cliente SYSTEM del operador. Ver STANDARDS §3.4, §3.7. |
+| **R23** | Crear `{codigo}_deps.py` en **todo** módulo ERP operativo con `get_{codigo}_session_client_id`. Si scope mixto TENANT/COMPANY/HYBRID: además enum de política + gates (patrón ORG `OrgScopePolicy`). |
+| **R24** | Resolución de `cliente_id` operativo en presentation: `Depends(get_{cod}_session_client_id)` → `require_session_cliente_id` — patrón ORG **e INV** (STANDARDS §5.5). |
 | **R25** | Rechazar query params legacy de scope: `reject_legacy_cliente_query`, `reject_legacy_empresa_query`. |
+| **R110** | PROHIBIDO usar `current_user.cliente_id` en presentation para consultas o mutaciones de datos ERP. Anti-patrón: falla en impersonación. |
+| **R111** | Separar identidad autenticada (`current_user`) de contexto operativo ERP (`get_{cod}_session_client_id`). Definición: STANDARDS §3.7. |
+| **R112** | No duplicar lógica de prioridad impersonación por módulo; centralizar en `require_session_cliente_id` (`session_scope.py`). |
 
 ---
 
@@ -76,6 +80,8 @@ Reglas que **nunca** se negocian.
 | **R29** | Super admin: bypass RBAC excepto durante impersonación. |
 | **R30** | Platform mutaciones: dual gate LBAC (`@require_super_admin()`) + RBAC (`require_permission`). |
 | **R31** | Módulos ERP operativos: solo RBAC. LBAC no aplica. |
+| **R92** | Acciones de ciclo de vida (`procesar`, `autorizar`, `anular`, `estornar`, `aprobar`, `finalizar`, etc.) requieren permiso `{mod}.{recurso}.{accion}`. |
+| **R93** | PROHIBIDO usar solo `actualizar` para acciones de ciclo de vida con efectos colaterales. |
 
 ---
 
@@ -96,12 +102,24 @@ Reglas que **nunca** se negocian.
 | ID | Regla |
 |----|-------|
 | **R37** | IDs en paths y schemas: UUID v4. |
-| **R38** | Paginación estándar: `page` (1-based) + `limit` (default 20, max 100) con `Paginated{Entity}Response`. |
-| **R39** | Maestros con volumen < 50 registros: list completo permitido. Listas grandes: paginación obligatoria. |
+| **R38** | Paginación opt-in: sin `page` → `list[Read]` legacy; con `page` → `Paginated{Entity}Response` (`ErpPaginatedResponse`). `limit` default 50, max 100; ignorado sin `page`. Infra: `app/shared/pagination/`. |
+| **R39** | Maestros con volumen < 50: `list[Read]` sin `page` permitido. Listas grandes: consumo con `page` recomendado (no breaking). |
 | **R40** | Filtro universal: `solo_activos: bool = True` en listados. |
 | **R41** | Búsqueda `buscar`: implementar en SQL (ILIKE/LIKE), no in-memory post-fetch. |
 | **R42** | Soft delete: `DELETE /{id}` desactiva; `POST /{id}/reactivar` reactiva. |
 | **R43** | Response models explícitos en decorators de router. |
+
+---
+
+## Categoría F-bis — Listados escalables (PERF backend)
+
+| ID | Regla |
+|----|-------|
+| **R105** | Ordenamiento server-side: `sort_by` + `sort_dir` (`asc`\|`desc`) con whitelist por recurso en queries. |
+| **R106** | Sin `sort_by` → conservar ORDER BY fijo del recurso. `sort_dir` sin `sort_by` → ignorar. |
+| **R107** | `sort_by` fuera de whitelist → `CustomException` 422 (`INVALID_SORT_COLUMN`). |
+| **R108** | Listados híbridos con merge en service (ej. ORG parámetros): sort post-merge via `apply_memory_sort`, luego paginar. |
+| **R109** | Metadatos `has_next`/`has_prev`: fuera de contrato v1 (P0–P2). Reservados para evolución futura; no implementar hasta autorización explícita. |
 
 ---
 
@@ -128,7 +146,7 @@ Reglas que **nunca** se negocian.
 | **R53** | Aceptado: mapeo explícito `HTTPException(status_code=e.status_code, detail=e.detail)`. |
 | **R54** | Duplicados / UNIQUE constraint → `ConflictError` (409). PROHIBIDO fallback 422. |
 | **R55** | Mensaje duplicado: `"Ya existe [entidad] con [campo] '[valor]' en este tenant."` |
-| **R56** | Estado transaccional inválido → 422. Mensaje: `"Esta operación solo está permitida en estado [requerido]. Estado actual: [actual]."` |
+| **R56** | Estado transaccional inválido → 422. Mensaje: `"Esta operación solo está permitida en estado [requerido]. Estado actual: [actual]."` Estados terminales, doble operación prohibida y escritura derivada bloqueada → preferir `ConflictError` (409). |
 | **R57** | Unicidad maestros: pre-check SELECT antes de INSERT/UPDATE + catch SQL UNIQUE como red de seguridad. |
 | **R58** | Campo `detail` siempre string claro y específico en **español**. |
 | **R59** | Antes de crear excepciones nuevas: verificar clases existentes en `app/core/exceptions.py`. |
@@ -156,6 +174,8 @@ Reglas que **nunca** se negocian.
 | **R67** | Platform CRUD: registrar eventos `platform_{recurso}_{accion}` en `auth_audit_log`. |
 | **R68** | Durante impersonación: incluir `impersonated_by` en metadata de todo evento de audit. |
 | **R69** | Errores de audit nunca deben romper flujo de negocio (fail-safe). |
+| **R94** | `usuario_creacion_id` / `usuario_actualizacion_id` solo desde sesión; ignorar valores del body. |
+| **R95** | Helper de auditoría usuario centralizado por módulo (`{cod}_audit_context`) en mutaciones CRUD críticas. |
 
 ---
 
@@ -185,6 +205,53 @@ Reglas que **nunca** se negocian.
 
 ---
 
+## Categoría M — Política de escritura en tablas derivadas
+
+| ID | Regla |
+|----|-------|
+| **R82** | Tabla derivada expuesta en API: POST/PUT/DELETE → `deprecated=True` en OpenAPI. |
+| **R83** | Service de escritura derivada debe invocar política de bloqueo; default → `ConflictError` 409. |
+| **R84** | Mutación canónica de derivada solo vía pipeline de proceso del módulo (ej. `procesar_*_servicio`). |
+| **R85** | Bypass de política solo vía flag de configuración explícito; `false` en producción. |
+
+---
+
+## Categoría N — Workflow transaccional
+
+| ID | Regla |
+|----|-------|
+| **R86** | Campos de workflow prohibidos en CREATE/UPDATE vía API; enforcement obligatorio en service layer. |
+| **R87** | CREATE transaccional fuerza estado inicial del dominio (`borrador` o equivalente). |
+| **R88** | UPDATE transaccional solo en estado editable; rechazar payload con `estado` → 422. |
+| **R89** | Transiciones de ciclo de vida solo vía endpoints POST `/{recurso}/{id}/{accion}`. |
+| **R90** | Estados fantasma (marcados procesados/autorizados sin evidencia de proceso) → 409 en acciones de proceso. |
+| **R91** | Idempotencia: definir explícitamente retorno OK vs 409 por acción (documentar en auditoría del módulo). |
+
+---
+
+## Categoría O — Reversión y atomicidad
+
+| ID | Regla |
+|----|-------|
+| **R96** | Dominios con reversión post-proceso: documento compensatorio + mismo pipeline de proceso en UoW única. |
+| **R97** | Diferenciar semánticamente anulación previa al efecto vs reversión posterior al efecto; el nombre del estado terminal de reversión es decisión del dominio. |
+| **R98** | Trazabilidad obligatoria `documento_referencia_tipo` + `documento_referencia_id` en documentos compensatorios. |
+| **R99** | Procesos concurrentes sobre la misma entidad: mecanismos de locking apropiados para la tecnología de persistencia (ej. SQL Server INV: `WITH (UPDLOCK, ROWLOCK)`). |
+| **R103** | Pre-validar edge cases del dominio antes de invocar pipeline canónico (evitar fallos internos no mapeados al cliente). |
+
+---
+
+## Categoría P — Montaje de routers y OpenAPI
+
+| ID | Regla |
+|----|-------|
+| **R100** | Acciones de proceso montadas bajo `/{recurso}/{id}/{accion}`, no en raíz del módulo. |
+| **R101** | Migración de rutas incorrectas: doble `include_router` del mismo router (alias legacy + canónico) sin duplicar handlers ni lógica. |
+| **R102** | Tras alias de rutas: verificar OpenAPI sin colisión de `operationId`. |
+| **R104** | Gate RC antes de freeze para Frontend: suite de regresión del módulo 100% verde + auditoría de contratos API cerrada. |
+
+---
+
 ## Reglas eliminadas respecto a v3 (.cursorrules)
 
 Las siguientes reglas **ya no aplican** y deben ignorarse si aparecen en documentos anteriores:
@@ -206,7 +273,7 @@ Las siguientes reglas **ya no aplican** y deben ignorarse si aparecen en documen
 
 Cuando dos reglas entren en tensión, aplicar en este orden:
 
-1. **Integridad de datos** (tenant, transacciones) — R01–R08, R17–R25, R32–R35
+1. **Integridad de datos** (tenant, transacciones) — R01–R08, R17–R25, R110–R112, R32–R35
 2. **Corrección funcional ERP** — R44–R49, R70–R76
 3. **Compatibilidad con contratos correctos existentes**
 4. **Preservación de código existente** — R02 (deprecated, no eliminar)
@@ -223,7 +290,9 @@ Cuando dos reglas entren en tensión, aplicar en este orden:
 | Recurso no encontrado / cross-scope | `NotFoundError` | 404 |
 | Duplicado / UNIQUE | `ConflictError` | 409 |
 | Validación Pydantic | `RequestValidationError` | 422 |
+| `sort_by` inválido en listado | `CustomException` (`INVALID_SORT_COLUMN`) | 422 |
 | Estado transaccional inválido | HTTPException o ValidationError | 422 |
+| Estado terminal / doble operación / escritura derivada bloqueada | `ConflictError` | 409 |
 | Error interno | `DatabaseError` / `ServiceError` | 500 |
 
 ---
@@ -238,4 +307,4 @@ Cuando dos reglas entren en tensión, aplicar en este orden:
 
 ---
 
-*CAXIS ERP Backend Rules V4 — Oficial — 2026-06-03*
+*CAXIS ERP Backend Rules V4 — Oficial — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación)*

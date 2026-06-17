@@ -1,9 +1,10 @@
-"""Endpoints INV - Inventario Físico Detalle. client_id siempre desde current_user.cliente_id."""
+"""Endpoints INV - Inventario Físico Detalle. client_id desde sesión efectiva (inv_deps, patrón ORG)."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import (
@@ -36,8 +37,8 @@ async def listar_inventarios_fisicos_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_detalle_service.list_inventarios_fisicos_detalle_servicio(
             client_id=client_id,
@@ -59,8 +60,8 @@ async def detalle_inventario_fisico_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_detalle_service.get_inventario_fisico_detalle_servicio(
             client_id=client_id,
@@ -85,8 +86,8 @@ async def crear_inventario_fisico_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_detalle_service.create_inventario_fisico_detalle_servicio(
             client_id=client_id, data=data
@@ -108,8 +109,8 @@ async def actualizar_inventario_fisico_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_detalle_service.update_inventario_fisico_detalle_servicio(
             client_id=client_id,

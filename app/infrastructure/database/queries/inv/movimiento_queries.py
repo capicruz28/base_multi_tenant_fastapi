@@ -3,16 +3,93 @@ Queries SQLAlchemy Core para inv_movimiento.
 Filtro tenant estricto: todas las operaciones usan cliente_id.
 Aislamiento empresa: get/update/list por empresa_id (INV).
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime, date
-from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy import select, insert, update, and_, or_, func
 
 from app.infrastructure.database.tables_erp import InvMovimientoTable, InvMovimientoDetalleTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.tenant.company_scope import empresa_scoped_conditions
+from app.shared.pagination.query_helpers import apply_erp_pagination, apply_erp_sort, extract_count
+
+if TYPE_CHECKING:
+    from app.shared.pagination.params import ErpPaginationParams
 
 _COLUMNS = {c.name for c in InvMovimientoTable.c}
+
+_SORT_COLUMNS_MOVIMIENTO = frozenset(
+    {"numero_movimiento", "fecha_movimiento", "fecha_contable", "estado", "fecha_creacion"}
+)
+_SORT_COLUMN_MAP = {
+    "numero_movimiento": InvMovimientoTable.c.numero_movimiento,
+    "fecha_movimiento": InvMovimientoTable.c.fecha_movimiento,
+    "fecha_contable": InvMovimientoTable.c.fecha_contable,
+    "estado": InvMovimientoTable.c.estado,
+    "fecha_creacion": InvMovimientoTable.c.fecha_creacion,
+}
+_DEFAULT_MOVIMIENTO_ORDER = [(InvMovimientoTable.c.fecha_movimiento, "desc")]
+_MOVIMIENTO_COLUMN_DIR_defaults = {"fecha_movimiento": "desc"}
+
+
+def _build_movimiento_list_conditions(
+    client_id: UUID,
+    empresa_id: UUID,
+    tipo_movimiento_id: Optional[UUID] = None,
+    almacen_id: Optional[UUID] = None,
+    estado: Optional[str] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
+) -> list:
+    """Condiciones WHERE compartidas entre COUNT y LIST."""
+    conditions = [
+        InvMovimientoTable.c.cliente_id == client_id,
+        InvMovimientoTable.c.empresa_id == empresa_id,
+    ]
+    if tipo_movimiento_id:
+        conditions.append(InvMovimientoTable.c.tipo_movimiento_id == tipo_movimiento_id)
+    if almacen_id:
+        conditions.append(
+            or_(
+                InvMovimientoTable.c.almacen_origen_id == almacen_id,
+                InvMovimientoTable.c.almacen_destino_id == almacen_id,
+            )
+        )
+    if estado:
+        conditions.append(InvMovimientoTable.c.estado == estado)
+    if fecha_desde:
+        conditions.append(InvMovimientoTable.c.fecha_movimiento >= fecha_desde)
+    if fecha_hasta:
+        conditions.append(InvMovimientoTable.c.fecha_movimiento <= fecha_hasta)
+    return conditions
+
+
+def _extract_count(result: List[Dict[str, Any]]) -> int:
+    return extract_count(result)
+
+
+async def count_movimientos(
+    client_id: UUID,
+    empresa_id: UUID,
+    tipo_movimiento_id: Optional[UUID] = None,
+    almacen_id: Optional[UUID] = None,
+    estado: Optional[str] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
+) -> int:
+    """Cuenta movimientos con los mismos filtros que list_movimientos."""
+    conditions = _build_movimiento_list_conditions(
+        client_id,
+        empresa_id,
+        tipo_movimiento_id=tipo_movimiento_id,
+        almacen_id=almacen_id,
+        estado=estado,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+    query = select(func.count()).select_from(InvMovimientoTable).where(and_(*conditions))
+    result = await execute_query(query, client_id=client_id)
+    return _extract_count(result)
 
 
 async def list_movimientos(
@@ -23,30 +100,33 @@ async def list_movimientos(
     estado: Optional[str] = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
+    pagination: Optional["ErpPaginationParams"] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista movimientos del tenant y empresa."""
-    query = select(InvMovimientoTable).where(
-        and_(
-            InvMovimientoTable.c.cliente_id == client_id,
-            InvMovimientoTable.c.empresa_id == empresa_id,
-        )
+    conditions = _build_movimiento_list_conditions(
+        client_id,
+        empresa_id,
+        tipo_movimiento_id=tipo_movimiento_id,
+        almacen_id=almacen_id,
+        estado=estado,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
-    if tipo_movimiento_id:
-        query = query.where(InvMovimientoTable.c.tipo_movimiento_id == tipo_movimiento_id)
-    if almacen_id:
-        query = query.where(
-            or_(
-                InvMovimientoTable.c.almacen_origen_id == almacen_id,
-                InvMovimientoTable.c.almacen_destino_id == almacen_id,
-            )
-        )
-    if estado:
-        query = query.where(InvMovimientoTable.c.estado == estado)
-    if fecha_desde:
-        query = query.where(InvMovimientoTable.c.fecha_movimiento >= fecha_desde)
-    if fecha_hasta:
-        query = query.where(InvMovimientoTable.c.fecha_movimiento <= fecha_hasta)
-    query = query.order_by(InvMovimientoTable.c.fecha_movimiento.desc())
+    query = select(InvMovimientoTable).where(and_(*conditions))
+    query = apply_erp_sort(
+        query,
+        allowed_columns=_SORT_COLUMNS_MOVIMIENTO,
+        column_map=_SORT_COLUMN_MAP,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        default_order=_DEFAULT_MOVIMIENTO_ORDER,
+        tie_breaker=("movimiento_id", InvMovimientoTable.c.movimiento_id),
+        column_dir_defaults=_MOVIMIENTO_COLUMN_DIR_defaults,
+    )
+    if pagination is not None and pagination.is_paginated:
+        query = apply_erp_pagination(query, pagination)
     return await execute_query(query, client_id=client_id)
 
 

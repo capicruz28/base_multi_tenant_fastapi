@@ -26,6 +26,10 @@ class MotivoAnulacion(_MotivoAnulacionWriteMixin, BaseModel):
     motivo: Optional[str] = Field(None, max_length=500)
 
 
+class MotivoEstorno(_MotivoAnulacionWriteMixin, BaseModel):
+    motivo: Optional[str] = Field(None, max_length=500)
+
+
 class AprobarInventarioFisicoRequest(_AprobarInventarioFisicoWriteMixin, BaseModel):
     tipo_movimiento_id: UUID = Field(..., description="Tipo de movimiento (clase: ajuste)")
     observaciones: Optional[str] = Field(None, max_length=500)

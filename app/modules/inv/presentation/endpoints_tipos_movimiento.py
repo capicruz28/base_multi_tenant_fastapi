@@ -1,9 +1,10 @@
 # app/modules/inv/presentation/endpoints_tipos_movimiento.py
-"""Endpoints INV - Tipos de Movimiento. client_id siempre desde current_user.cliente_id."""
+"""Endpoints INV - Tipos de Movimiento. client_id desde sesión efectiva (inv_deps, patrón ORG)."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -21,9 +22,9 @@ async def listar_tipos_movimiento(
     solo_activos: bool = Query(True, description="Solo tipos activos"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Lista tipos de movimiento de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     return await tipo_movimiento_service.list_tipos_movimiento_servicio(
         client_id=client_id,
         solo_activos=solo_activos,
@@ -35,9 +36,9 @@ async def detalle_tipo_movimiento(
     tipo_movimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Detalle de un tipo de movimiento de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await tipo_movimiento_service.get_tipo_movimiento_servicio(
             client_id=client_id,
@@ -52,9 +53,9 @@ async def crear_tipo_movimiento(
     data: TipoMovimientoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Crea un tipo de movimiento. empresa_id del body debe coincidir con la sesión."""
-    client_id = current_user.cliente_id
     try:
         return await tipo_movimiento_service.create_tipo_movimiento_servicio(client_id=client_id, data=data)
     except AuthorizationError as e:
@@ -67,9 +68,9 @@ async def actualizar_tipo_movimiento(
     data: TipoMovimientoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Actualiza un tipo de movimiento de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await tipo_movimiento_service.update_tipo_movimiento_servicio(
             client_id=client_id,
@@ -89,9 +90,9 @@ async def eliminar_tipo_movimiento(
     tipo_movimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.eliminar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Marca un tipo de movimiento como inactivo en la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         await tipo_movimiento_service.update_tipo_movimiento_servicio(
             client_id=client_id,
@@ -111,9 +112,9 @@ async def reactivar_tipo_movimiento(
     tipo_movimiento_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Reactiva un tipo de movimiento de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await tipo_movimiento_service.update_tipo_movimiento_servicio(
             client_id=client_id,

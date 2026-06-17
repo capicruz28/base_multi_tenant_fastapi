@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     SUPERADMIN_SUBDOMINIO: str = os.getenv("SUPERADMIN_SUBDOMINIO", "platform")
     # ✅ CORRECCIÓN: Agregar el nombre de usuario del Super Admin
     SUPERADMIN_USERNAME: str = os.getenv("SUPERADMIN_USERNAME", "superadmin")
+    # Bootstrap plataforma (scripts/bootstrap_platform.py)
+    PLATFORM_BOOTSTRAP_INITIAL_PASSWORD: str = os.getenv("PLATFORM_BOOTSTRAP_INITIAL_PASSWORD", "")
+    PLATFORM_BOOTSTRAP_CONTACT_EMAIL: str = os.getenv("PLATFORM_BOOTSTRAP_CONTACT_EMAIL", "")
+    PLATFORM_BOOTSTRAP_RAZON_SOCIAL: str = os.getenv("PLATFORM_BOOTSTRAP_RAZON_SOCIAL", "")
     # -----------------------------------------------
 
     # ✅ MEJORA: Security - Tokens con configuración robusta
@@ -152,6 +156,9 @@ class Settings(BaseSettings):
     
     # Code-first RBAC: sincronizar permisos declarados en código con tabla permiso al startup.
     RBAC_PERMISSION_SYNC_ENABLED: bool = os.getenv("RBAC_PERMISSION_SYNC_ENABLED", "true").lower() == "true"
+
+    # INV-P0-002: escritura directa POST/PUT /inv/stock (tabla derivada). Default false = bloqueado.
+    INV_ALLOW_STOCK_DIRECT_WRITE: bool = os.getenv("INV_ALLOW_STOCK_DIRECT_WRITE", "false").lower() == "true"
     
     # Stage 2: Menú puede recibir permisos efectivos ya calculados (evita lógica duplicada).
     # Por defecto False; cuando True, el endpoint /modulos-menus/me/ pasa user.permisos al servicio.

@@ -5,7 +5,7 @@ alwaysApply: false
 
 Eres un asistente de desarrollo para el sistema CAXIS ERP.
 
-**Estándar oficial:** Backend V4 (2026-06-03)
+**Estándar oficial:** Backend V4 (2026-06-03, rev. 2026-06-16 post ORG+INV session scope e impersonación consolidados)
 
 STACK: FastAPI + SQL Server + Python
 ARQUITECTURA: Multi-tenant SaaS modular
@@ -16,7 +16,7 @@ Documentación canónica:
 - Refactorización por módulo: `app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md`
 - Prompt operativo: `docs/prompts/PROMPT_BACKEND_MAESTRO.md`
 
-Referencia de código ERP: **ORG** (scope/session) + **INV** (sesión ERP, transaccional, cabecera-detalle).
+Referencia de código ERP: **ORG + INV** (session scope unificado, listados escalables) + **INV** (transaccional, cabecera-detalle, workflow enforcement, write policy derivadas, rutas proceso canónicas, reversión compensatoria). Definición normativa: `ERP_BACKEND_STANDARDS_V4.md` §3.7, §5.5.
 
 ---
 
@@ -44,10 +44,13 @@ Referencia de código ERP: **ORG** (scope/session) + **INV** (sesión ERP, trans
 ### Session scope
 - Router padre ERP: `dependencies=[Depends(require_erp_session)]`
 - Clasificar entidades: TENANT | COMPANY | HYBRID antes de codificar
-- `cliente_id` solo desde sesión (dependency patrón ORG) — PROHIBIDO en body/query para autorización
+- **Identidad autenticada ≠ contexto operativo ERP** — ver `ERP_BACKEND_STANDARDS_V4.md` §3.7
+- `cliente_id` operativo de datos: `Depends(get_{codigo}_session_client_id)` → `require_session_cliente_id` (`session_scope.py`) — patrón ORG **e INV**; PROHIBIDO en body/query para autorización
+- **Anti-patrón:** `current_user.cliente_id` en presentation para consultas/mutaciones ERP (falla en impersonación: fila SYSTEM del operador)
+- `{codigo}_deps.py` **obligatorio en todo módulo ERP** (impersonación-safe); gates TENANT/COMPANY adicionales si scope mixto (referencia ORG `OrgScopePolicy`)
+- Impersonación: tenant operativo desde JWT (`is_impersonation`); RBAC vía rama impersonation — no confundir con `cliente_id` de datos (§3.7 STANDARDS)
 - `empresa_id` solo desde `require_session_empresa_id()` en services
 - Cross-scope → **404**, no 403
-- Scope mixto → crear `{codigo}_deps.py`
 
 ### Base de datos
 - ERP: `DatabaseConnection.DEFAULT` + `client_id=`
@@ -57,9 +60,16 @@ Referencia de código ERP: **ORG** (scope/session) + **INV** (sesión ERP, trans
 
 ### Contratos API
 - UUID v4 en paths y schemas
-- Paginación: `page` + `limit` + `Paginated{Entity}Response` (listas grandes)
+- Listados escalables (contrato v1 — referencia ORG/INV):
+  - Infra: `app/shared/pagination/` (`erp_pagination_params`, `erp_sort_params`, `build_paginated_response`)
+  - Paginación **opt-in**: sin `page` → `list[Read]` legacy; con `page` → envelope paginado
+  - `limit` default 50, max 100; **ignorado sin `page`**
+  - Envelope: `{ items, total, pagina_actual, total_paginas, limit }` via `Paginated{Entity}Response` (extiende `ErpPaginatedResponse`)
+  - `buscar`: filtro SQL ILIKE/LIKE en queries (no in-memory)
+  - `sort_by` + `sort_dir` (`asc`|`desc`): ORDER BY server-side con whitelist por recurso
+  - Sin `sort_by` → conservar ORDER BY fijo del recurso
+  - `sort_by` inválido → 422 (`INVALID_SORT_COLUMN`); `sort_dir` sin `sort_by` → ignorar
 - Soft delete: `DELETE /{id}` + `POST /{id}/reactivar` (permiso `actualizar`)
-- Búsqueda `buscar` en SQL, no in-memory
 
 ### Proceso
 - Auditoría obligatoria (Master Prompt Fase 2) antes de escribir código
@@ -76,7 +86,9 @@ Mapeo obligatorio:
 - Duplicado / UNIQUE → `ConflictError` (409). **PROHIBIDO fallback 422**
 - Registro no encontrado / cross-scope → `NotFoundError` (404)
 - Estado inválido transaccional → 422
+- Estado terminal / doble operación / escritura derivada bloqueada → `ConflictError` (409)
 - Sin permiso / sesión incompleta → `AuthorizationError` (403)
+- `sort_by` inválido en listado → `CustomException` 422 (`INVALID_SORT_COLUMN`)
 
 Presentation:
 - Preferido: propagar `CustomException` al handler global
@@ -88,6 +100,20 @@ Unicidad maestros: pre-check SELECT + catch SQL UNIQUE. Mensaje:
 
 Estado transaccional: mensaje
 "Esta operación solo está permitida en estado [requerido]. Estado actual: [actual]."
+
+---
+
+## REGLA CRÍTICA: LISTADOS ESCALABLES (PERF backend)
+
+- Reutilizar `app/shared/pagination/` — no reinventar paginación/sort por módulo
+- Queries: `apply_erp_pagination` + `apply_erp_sort` (whitelist + tie-breaker PK)
+- Services: propagar `ErpPaginationParams` + `ErpSortParams`; COUNT solo si `page` presente
+- Endpoints con `page`: `response_model=Union[list[Read], Paginated{Entity}Response]` (obligatorio)
+- Endpoints sin `page` (maestros Tier A volumen bajo): `response_model=list[Read]` (conforme)
+- Caso híbrido ORG parámetros: `apply_memory_sort` post-merge, pre-slice
+- Metadatos `has_next`/`has_prev`: no forman parte del contrato v1 (P0–P2); reservados para evolución futura
+- No introducir `page=1` implícito ni eliminar modo legacy sin autorización
+- Referencia: ORG/INV endpoints list GET (16 operativos validados staging)
 
 ---
 
@@ -119,7 +145,40 @@ Referencia: INV movimientos (`MovimientoConDetalleCreate`).
 ## REGLA CRÍTICA: TABLAS DERIVADAS
 
 Solo GET. POST/PUT directo → DEPRECATED. Escritura solo desde services internos.
-Referencia: INV stock.
+En producción: el service debe invocar política de bloqueo (`assert_*_direct_write_allowed`) → 409 si el cliente intenta escribir.
+Mutación canónica de derivada solo vía pipeline de proceso transaccional (ej. `procesar_*_servicio`).
+Referencia: INV stock (`inv_stock_write_policy.py`).
+
+---
+
+## REGLA CRÍTICA: WORKFLOW TRANSACCIONAL
+
+Campos de proceso (`estado`, fechas/usuarios de autorización/proceso, vínculos de cierre) NO editables por el cliente.
+- CREATE: servicio fuerza estado inicial (`borrador` o equivalente del dominio) y elimina campos de proceso del payload.
+- UPDATE: servicio rechaza campos de workflow → `ValidationError` 422.
+- Transiciones de ciclo de vida solo vía `POST /{recurso}/{id}/{accion}` con permiso RBAC específico (`procesar`, `autorizar`, `anular`, `estornar`, `aprobar`, etc.) — nunca solo `actualizar`.
+Referencia: `inv_workflow_enforcement.py` (patrón replicable como `{cod}_workflow_enforcement.py`).
+
+---
+
+## REGLA CRÍTICA: REVERSIÓN POST-PROCESO
+
+Dominios que soporten reversión tras haber aplicado efectos colaterales (stock, saldos, etc.) deben diferenciar semánticamente:
+- **Anulación previa al efecto** — documento sin impacto colateral aplicado.
+- **Reversión posterior al efecto** — documento compensatorio + mismo pipeline de proceso en UoW única.
+El nombre concreto del estado terminal de reversión queda a criterio del dominio (ej. INV usa `estornado`).
+Trazabilidad obligatoria: `documento_referencia_tipo` + `documento_referencia_id`.
+Referencia: INV-P0-003 (`estornar_movimiento_servicio`).
+
+---
+
+## REGLA CRÍTICA: RUTAS DE PROCESO
+
+Endpoints de proceso se montan bajo el prefijo del recurso transaccional:
+`POST /{modulo}/{recurso}/{id}/procesar` — **NO** en raíz del módulo `/{id}/procesar`.
+Migración de rutas legacy: doble `include_router` del mismo router (alias) antes de marcar deprecated.
+Validar OpenAPI: `operationId` únicos por ruta (FastAPI incorpora el path completo).
+Referencia: INV RC1.1 (`endpoints.py` + `endpoints_movimientos_proceso.py`).
 
 ---
 
@@ -155,3 +214,5 @@ Corrección funcional > preservar código incorrecto → marcar DEPRECATED.
 - Evitar N+1: JOINs o batch en queries
 - Seguir `app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md` por módulo
 - Alcance = BD real, no mapa ideal
+- Auditoría usuario: `usuario_creacion_id` / `usuario_actualizacion_id` solo desde sesión (helper `{cod}_audit_context`)
+- Procesos concurrentes sobre la misma entidad: locking apropiado para la tecnología de persistencia (ej. SQL Server INV: `UPDLOCK, ROWLOCK`)

@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import date
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import KardexLineaRead
@@ -25,9 +26,9 @@ async def obtener_kardex(
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Kardex de la empresa activa en sesión (sin mezclar otras empresas del tenant)."""
-    client_id = current_user.cliente_id
     try:
         rows = await kardex_service.list_kardex_servicio(
             client_id=client_id,

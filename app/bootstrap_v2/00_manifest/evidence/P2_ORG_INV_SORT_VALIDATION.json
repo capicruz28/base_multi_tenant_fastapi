@@ -1,0 +1,240 @@
+{
+  "meta": {
+    "tenant": "innova",
+    "phase": "P2-001",
+    "timestamp": "2026-06-15T18:18:57"
+  },
+  "cases": {
+    "inv_categorias_legacy_no_sort": {
+      "status": 200,
+      "ms": 224.5,
+      "summary": {
+        "type": "list",
+        "count": 3
+      },
+      "path": "/api/v1/inv/categorias",
+      "query": null
+    },
+    "inv_categorias_sort_nombre": {
+      "status": 200,
+      "ms": 90.4,
+      "summary": {
+        "type": "list",
+        "count": 3
+      },
+      "path": "/api/v1/inv/categorias",
+      "query": {
+        "sort_by": "nombre",
+        "sort_dir": "asc"
+      }
+    },
+    "inv_categorias_sort_invalid": {
+      "status": 422,
+      "ms": 97.4,
+      "summary": {
+        "type": "error",
+        "detail": "sort_by 'invalid_col' no es una columna ordenable válida."
+      },
+      "path": "/api/v1/inv/categorias",
+      "query": {
+        "sort_by": "invalid_col"
+      }
+    },
+    "inv_categorias_sort_dir_ignored": {
+      "status": 200,
+      "ms": 102.9,
+      "summary": {
+        "type": "list",
+        "count": 3
+      },
+      "path": "/api/v1/inv/categorias",
+      "query": {
+        "sort_dir": "desc"
+      }
+    },
+    "inv_categorias_paginated_sort": {
+      "status": 200,
+      "ms": 99.5,
+      "summary": {
+        "type": "paginated",
+        "count": 3,
+        "total": 3,
+        "pagina_actual": 1,
+        "limit": 10
+      },
+      "path": "/api/v1/inv/categorias",
+      "query": {
+        "page": "1",
+        "limit": "10",
+        "sort_by": "codigo",
+        "sort_dir": "asc"
+      }
+    },
+    "inv_movimientos_sort_fecha": {
+      "status": 200,
+      "ms": 102.6,
+      "summary": {
+        "type": "paginated",
+        "count": 5,
+        "total": 14,
+        "pagina_actual": 1,
+        "limit": 5
+      },
+      "path": "/api/v1/inv/movimientos",
+      "query": {
+        "page": "1",
+        "limit": "5",
+        "sort_by": "fecha_movimiento",
+        "sort_dir": "desc"
+      }
+    },
+    "inv_productos_sort": {
+      "status": 200,
+      "ms": 112.7,
+      "summary": {
+        "type": "paginated",
+        "count": 2,
+        "total": 2,
+        "pagina_actual": 1,
+        "limit": 50
+      },
+      "path": "/api/v1/inv/productos",
+      "query": {
+        "page": "1",
+        "sort_by": "nombre",
+        "sort_dir": "asc"
+      }
+    },
+    "inv_stock_sort": {
+      "status": 200,
+      "ms": 115.3,
+      "summary": {
+        "type": "paginated",
+        "count": 2,
+        "total": 2,
+        "pagina_actual": 1,
+        "limit": 50
+      },
+      "path": "/api/v1/inv/stock",
+      "query": {
+        "page": "1",
+        "sort_by": "cantidad_actual",
+        "sort_dir": "desc"
+      }
+    },
+    "org_empresa_sort": {
+      "status": 200,
+      "ms": 135.7,
+      "summary": {
+        "type": "list",
+        "count": 2
+      },
+      "path": "/api/v1/org/empresa",
+      "query": {
+        "sort_by": "razon_social",
+        "sort_dir": "asc"
+      }
+    },
+    "org_centros_sort": {
+      "status": 200,
+      "ms": 173.8,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 1,
+        "pagina_actual": 1,
+        "limit": 50
+      },
+      "path": "/api/v1/org/centros-costo",
+      "query": {
+        "page": "1",
+        "sort_by": "codigo",
+        "sort_dir": "asc"
+      }
+    },
+    "org_parametros_sort": {
+      "status": 200,
+      "ms": 117.8,
+      "summary": {
+        "type": "paginated",
+        "count": 0,
+        "total": 0,
+        "pagina_actual": 1,
+        "limit": 50
+      },
+      "path": "/api/v1/org/parametros",
+      "query": {
+        "page": "1",
+        "sort_by": "modulo_codigo",
+        "sort_dir": "asc"
+      }
+    },
+    "org_parametros_sort_invalid": {
+      "status": 422,
+      "ms": 105.8,
+      "summary": {
+        "type": "error",
+        "detail": "sort_by 'bad_column' no es una columna ordenable válida."
+      },
+      "path": "/api/v1/org/parametros",
+      "query": {
+        "sort_by": "bad_column"
+      }
+    }
+  },
+  "openapi": {
+    "/api/v1/inv/categorias": {
+      "params": [
+        "solo_activos",
+        "buscar",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir"
+      ],
+      "has_sort_by": true,
+      "has_sort_dir": true
+    },
+    "/api/v1/inv/movimientos": {
+      "params": [
+        "tipo_movimiento_id",
+        "almacen_id",
+        "estado",
+        "fecha_desde",
+        "fecha_hasta",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir"
+      ],
+      "has_sort_by": true,
+      "has_sort_dir": true
+    },
+    "/api/v1/org/empresa": {
+      "params": [
+        "solo_activos",
+        "buscar",
+        "sort_by",
+        "sort_dir"
+      ],
+      "has_sort_by": true,
+      "has_sort_dir": true
+    },
+    "/api/v1/org/parametros": {
+      "params": [
+        "modulo_codigo",
+        "solo_activos",
+        "buscar",
+        "page",
+        "limit",
+        "sort_by",
+        "sort_dir"
+      ],
+      "has_sort_by": true,
+      "has_sort_dir": true
+    }
+  },
+  "login": {
+    "ok": true
+  }
+}

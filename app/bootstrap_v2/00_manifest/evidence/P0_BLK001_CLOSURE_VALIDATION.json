@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "tenant": "innova",
+    "empresa": "c441e6e8-7552-46a2-8c43-6eccebbb38c4",
+    "fix": "BLK-001",
+    "timestamp": "2026-06-15T17:21:34"
+  },
+  "stock_alertas": {
+    "legacy": {
+      "status": 200,
+      "ms": 113.8,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    },
+    "page1": {
+      "status": 200,
+      "ms": 135.7,
+      "summary": {
+        "type": "paginated",
+        "count": 0,
+        "total": 0,
+        "pagina_actual": 1,
+        "total_paginas": 0,
+        "limit": 50
+      }
+    },
+    "limit50_no_page": {
+      "status": 200,
+      "ms": 100.2,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    },
+    "page1_limit50": {
+      "status": 200,
+      "ms": 95.4,
+      "summary": {
+        "type": "paginated",
+        "count": 0,
+        "total": 0,
+        "pagina_actual": 1,
+        "total_paginas": 0,
+        "limit": 50
+      }
+    },
+    "page2_limit50": {
+      "status": 200,
+      "ms": 109.2,
+      "summary": {
+        "type": "paginated",
+        "count": 0,
+        "total": 0,
+        "pagina_actual": 2,
+        "total_paginas": 0,
+        "limit": 50
+      }
+    },
+    "invalid_page0": {
+      "status": 422,
+      "ms": 82.7,
+      "summary": {
+        "type": "object",
+        "detail": "query.page: Input should be greater than or equal to 1"
+      }
+    },
+    "invalid_limit101": {
+      "status": 422,
+      "ms": 82.0,
+      "summary": {
+        "type": "object",
+        "detail": "query.limit: Input should be less than or equal to 100"
+      }
+    }
+  },
+  "regression_5": {
+    "movimientos_legacy": {
+      "status": 200,
+      "ms": 108.5,
+      "summary": {
+        "type": "list",
+        "count": 14
+      }
+    },
+    "movimientos_p1": {
+      "status": 200,
+      "ms": 136.2,
+      "summary": {
+        "type": "paginated",
+        "count": 5,
+        "total": 14,
+        "pagina_actual": 1,
+        "total_paginas": 3,
+        "limit": 5
+      }
+    },
+    "productos_legacy": {
+      "status": 200,
+      "ms": 124.9,
+      "summary": {
+        "type": "list",
+        "count": 2
+      }
+    },
+    "productos_p1": {
+      "status": 200,
+      "ms": 146.4,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 2,
+        "pagina_actual": 1,
+        "total_paginas": 2,
+        "limit": 1
+      }
+    },
+    "kardex_no_producto": {
+      "status": 422,
+      "ms": 87.8,
+      "summary": {
+        "type": "object",
+        "detail": "query.producto_id: Field required"
+      }
+    },
+    "kardex_legacy": {
+      "status": 200,
+      "ms": 138.8,
+      "summary": {
+        "type": "list",
+        "count": 6
+      }
+    },
+    "inventario_legacy": {
+      "status": 200,
+      "ms": 109.1,
+      "summary": {
+        "type": "list",
+        "count": 14
+      }
+    },
+    "stock_legacy": {
+      "status": 200,
+      "ms": 99.6,
+      "summary": {
+        "type": "list",
+        "count": 2
+      }
+    },
+    "stock_detail_collision": {
+      "status": 200,
+      "ms": 91.6,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    }
+  },
+  "openapi": {
+    "path_present": true,
+    "operationId": "alertas_stock_bajo_minimo_api_v1_inv_stock_alertas_get",
+    "params": [
+      "almacen_id",
+      "page",
+      "limit"
+    ],
+    "has_anyOf": true,
+    "stock_id_path_present": true
+  }
+}

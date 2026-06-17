@@ -62,6 +62,11 @@ INVENTARIO_FISICO_A = uuid4()
 INVENTARIO_FISICO_B = uuid4()
 INVENTARIO_FISICO_DETALLE_B = uuid4()
 
+# INV-P0-002: tests de scope create_stock bypass guard para validar aislamiento, no política.
+_STOCK_WRITE_POLICY_SETTINGS = (
+    "app.modules.inv.application.services.inv_stock_write_policy.settings"
+)
+
 
 def _set_empresa_ctx(empresa_id):
     return set_current_empresa_id(empresa_id)
@@ -589,21 +594,23 @@ async def test_create_stock_producto_e1_almacen_e2_rejected():
             almacen_id=ALMACEN_B_OTHER,
             moneda_id=uuid4(),
         )
-        with patch(
-            "app.modules.inv.application.services.stock_service.ensure_empresa_in_tenant",
-            new=AsyncMock(),
-        ), patch(
-            "app.modules.inv.application.services.stock_service.get_producto_by_id",
-            new=AsyncMock(return_value={"empresa_id": EMPRESA_A}),
-        ), patch(
-            "app.modules.inv.application.services.stock_service.get_almacen_by_id",
-            new=AsyncMock(return_value=None),
-        ):
-            with pytest.raises(NotFoundError):
-                await stock_service.create_stock_servicio(
-                    client_id=CLIENT_ID,
-                    data=data,
-                )
+        with patch(_STOCK_WRITE_POLICY_SETTINGS) as mock_settings:
+            mock_settings.INV_ALLOW_STOCK_DIRECT_WRITE = True
+            with patch(
+                "app.modules.inv.application.services.stock_service.ensure_empresa_in_tenant",
+                new=AsyncMock(),
+            ), patch(
+                "app.modules.inv.application.services.stock_service.get_producto_by_id",
+                new=AsyncMock(return_value={"empresa_id": EMPRESA_A}),
+            ), patch(
+                "app.modules.inv.application.services.stock_service.get_almacen_by_id",
+                new=AsyncMock(return_value=None),
+            ):
+                with pytest.raises(NotFoundError):
+                    await stock_service.create_stock_servicio(
+                        client_id=CLIENT_ID,
+                        data=data,
+                    )
     finally:
         reset_current_empresa_id(token)
 
@@ -619,9 +626,11 @@ async def test_create_stock_body_empresa_mismatch_403():
             almacen_id=ALMACEN_A,
             moneda_id=uuid4(),
         )
-        with pytest.raises(AuthorizationError) as exc:
-            await stock_service.create_stock_servicio(client_id=CLIENT_ID, data=data)
-        assert exc.value.internal_code == "EMPRESA_MISMATCH"
+        with patch(_STOCK_WRITE_POLICY_SETTINGS) as mock_settings:
+            mock_settings.INV_ALLOW_STOCK_DIRECT_WRITE = True
+            with pytest.raises(AuthorizationError) as exc:
+                await stock_service.create_stock_servicio(client_id=CLIENT_ID, data=data)
+            assert exc.value.internal_code == "EMPRESA_MISMATCH"
     finally:
         reset_current_empresa_id(token)
 
@@ -1297,7 +1306,10 @@ async def test_create_inventario_fisico_detalle_cross_company_cabecera_404():
 @pytest.mark.asyncio
 async def test_list_kardex_without_session_403():
     with pytest.raises(AuthorizationError) as exc:
-        await kardex_service.list_kardex_servicio(client_id=CLIENT_ID)
+        await kardex_service.list_kardex_servicio(
+            client_id=CLIENT_ID,
+            producto_id=PRODUCTO_A,
+        )
     assert exc.value.internal_code == "MISSING_SESSION_EMPRESA"
 
 
@@ -1313,11 +1325,14 @@ async def test_list_kardex_uses_session_empresa_only():
             "app.modules.inv.application.services.kardex_service.list_kardex",
             new=AsyncMock(return_value=[]),
         ) as mock_list:
-            await kardex_service.list_kardex_servicio(client_id=CLIENT_ID)
+            await kardex_service.list_kardex_servicio(
+                client_id=CLIENT_ID,
+                producto_id=PRODUCTO_A,
+            )
             mock_list.assert_called_once_with(
                 client_id=CLIENT_ID,
                 empresa_id=EMPRESA_A,
-                producto_id=None,
+                producto_id=PRODUCTO_A,
                 almacen_id=None,
                 fecha_desde=None,
                 fecha_hasta=None,
@@ -1354,6 +1369,9 @@ async def test_list_kardex_almacen_cross_company_404():
     token = _set_empresa_ctx(EMPRESA_A)
     try:
         with patch(
+            "app.modules.inv.application.services.kardex_service.get_producto_by_id",
+            new=AsyncMock(return_value={"producto_id": PRODUCTO_A}),
+        ), patch(
             "app.modules.inv.application.services.kardex_service.get_almacen_by_id",
             new=AsyncMock(return_value=None),
         ), patch(
@@ -1363,6 +1381,7 @@ async def test_list_kardex_almacen_cross_company_404():
             with pytest.raises(NotFoundError):
                 await kardex_service.list_kardex_servicio(
                     client_id=CLIENT_ID,
+                    producto_id=PRODUCTO_A,
                     almacen_id=ALMACEN_B,
                 )
             mock_list.assert_not_called()
@@ -1402,7 +1421,10 @@ async def test_list_kardex_results_scoped_to_session_empresa():
             "app.modules.inv.application.services.kardex_service.list_kardex",
             new=AsyncMock(return_value=[row_a]),
         ) as mock_list:
-            result = await kardex_service.list_kardex_servicio(client_id=CLIENT_ID)
+            result = await kardex_service.list_kardex_servicio(
+                client_id=CLIENT_ID,
+                producto_id=PRODUCTO_A,
+            )
             assert len(result) == 1
             assert result[0].empresa_id == EMPRESA_A
             assert mock_list.call_args.kwargs["empresa_id"] == EMPRESA_A

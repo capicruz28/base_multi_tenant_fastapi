@@ -1,0 +1,192 @@
+{
+  "empresa": "c441e6e8-7552-46a2-8c43-6eccebbb38c4",
+  "cases": {
+    "productos_legacy": {
+      "status": 200,
+      "ms": 116.2,
+      "summary": {
+        "type": "list",
+        "count": 2,
+        "first_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6"
+      }
+    },
+    "productos_p1_l1": {
+      "status": 200,
+      "ms": 104.2,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 2,
+        "pagina_actual": 1,
+        "total_paginas": 2,
+        "limit": 1,
+        "first_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6"
+      }
+    },
+    "productos_p2_l1": {
+      "status": 200,
+      "ms": 122.7,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 2,
+        "pagina_actual": 2,
+        "total_paginas": 2,
+        "limit": 1,
+        "first_id": "524de107-dfff-4bc6-85cb-86c6b4bb02ec"
+      }
+    },
+    "productos_limit_no_page": {
+      "status": 200,
+      "ms": 114.7,
+      "summary": {
+        "type": "list",
+        "count": 2,
+        "first_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6"
+      }
+    },
+    "movimientos_legacy": {
+      "status": 200,
+      "ms": 118.9,
+      "summary": {
+        "type": "list",
+        "count": 14,
+        "first_id": "d2302e6a-22a9-490e-a956-14299363dc07"
+      }
+    },
+    "movimientos_p1_l5": {
+      "status": 200,
+      "ms": 101.4,
+      "summary": {
+        "type": "paginated",
+        "count": 5,
+        "total": 14,
+        "pagina_actual": 1,
+        "total_paginas": 3,
+        "limit": 5,
+        "first_id": "d2302e6a-22a9-490e-a956-14299363dc07"
+      }
+    },
+    "movimientos_p2_l5": {
+      "status": 200,
+      "ms": 120.4,
+      "summary": {
+        "type": "paginated",
+        "count": 5,
+        "total": 14,
+        "pagina_actual": 2,
+        "total_paginas": 3,
+        "limit": 5,
+        "first_id": "b40d49d9-8793-4ae1-b40a-f4be69624b65"
+      }
+    },
+    "movimientos_p3_l5": {
+      "status": 200,
+      "ms": 193.5,
+      "summary": {
+        "type": "paginated",
+        "count": 4,
+        "total": 14,
+        "pagina_actual": 3,
+        "total_paginas": 3,
+        "limit": 5,
+        "first_id": "2808b8cb-04c8-4bec-b789-b0f5ab10d728"
+      }
+    },
+    "kardex_no_producto": {
+      "status": 422,
+      "ms": 105.9,
+      "summary": {
+        "type": "object",
+        "detail": "query.producto_id: Field required"
+      }
+    },
+    "kardex_legacy": {
+      "status": 200,
+      "ms": 109.9,
+      "summary": {
+        "type": "list",
+        "count": 6,
+        "first_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6"
+      }
+    },
+    "kardex_p1_l3": {
+      "status": 200,
+      "ms": 145.3,
+      "summary": {
+        "type": "paginated",
+        "count": 3,
+        "total": 6,
+        "pagina_actual": 1,
+        "total_paginas": 2,
+        "limit": 3,
+        "first_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6"
+      }
+    },
+    "kardex_p2_l3": {
+      "status": 200,
+      "ms": 126.3,
+      "summary": {
+        "type": "paginated",
+        "count": 3,
+        "total": 6,
+        "pagina_actual": 2,
+        "total_paginas": 2,
+        "limit": 3,
+        "first_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6"
+      }
+    },
+    "kardex_cross": {
+      "status": 404,
+      "ms": 130.7,
+      "summary": {
+        "type": "object",
+        "detail": "Producto no encontrado"
+      }
+    },
+    "stock_cross": {
+      "status": 404,
+      "ms": 111.4,
+      "summary": {
+        "type": "object",
+        "detail": "Producto no encontrado"
+      }
+    },
+    "productos_cross_cat": {
+      "status": 200,
+      "ms": 89.3,
+      "summary": {
+        "type": "list",
+        "count": 0,
+        "first_id": null
+      }
+    },
+    "stock_alertas_legacy": {
+      "status": 422,
+      "ms": 76.6,
+      "summary": {
+        "type": "object",
+        "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+      }
+    }
+  },
+  "producto_id": "5d52f92d-47bb-4c81-9eb3-925dc646b3b6",
+  "math_productos": {
+    "legacy_eq_total": true,
+    "p2_count": 1,
+    "total_paginas": 2
+  },
+  "math_movimientos": {
+    "legacy_eq_total": true,
+    "p1": 5,
+    "p2": 5,
+    "p3": 4,
+    "total_paginas": 3
+  },
+  "math_kardex": {
+    "legacy_eq_total": true,
+    "p1": 3,
+    "p2": 3,
+    "total_paginas": 2
+  }
+}

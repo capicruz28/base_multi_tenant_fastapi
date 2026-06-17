@@ -5,23 +5,66 @@ Filtro tenant estricto: cliente_id obligatorio en todas las operaciones (Etapa C
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, and_, or_
 
 from app.infrastructure.database.tables_erp import OrgEmpresaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.tenant.company_scope import tenant_empresa_scoped_conditions
+from app.shared.pagination.query_helpers import apply_erp_sort
 
 _COLUMNS = {c.name for c in OrgEmpresaTable.c}
 
+_SORT_COLUMNS_EMPRESA = frozenset(
+    {"codigo_empresa", "razon_social", "nombre_comercial", "ruc", "fecha_creacion"}
+)
+_SORT_COLUMN_MAP = {
+    "codigo_empresa": OrgEmpresaTable.c.codigo_empresa,
+    "razon_social": OrgEmpresaTable.c.razon_social,
+    "nombre_comercial": OrgEmpresaTable.c.nombre_comercial,
+    "ruc": OrgEmpresaTable.c.ruc,
+    "fecha_creacion": OrgEmpresaTable.c.fecha_creacion,
+}
+_DEFAULT_EMPRESA_ORDER = [(OrgEmpresaTable.c.razon_social, "asc")]
 
-async def list_empresas(client_id: UUID, solo_activos: bool = True) -> List[Dict[str, Any]]:
-    """Lista empresas del tenant. Siempre filtra por cliente_id."""
-    query = select(OrgEmpresaTable).where(
-        OrgEmpresaTable.c.cliente_id == client_id
-    )
+
+def _build_empresa_list_conditions(
+    client_id: UUID,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> list:
+    conditions = [OrgEmpresaTable.c.cliente_id == client_id]
     if solo_activos:
-        query = query.where(OrgEmpresaTable.c.es_activo == True)
-    query = query.order_by(OrgEmpresaTable.c.razon_social)
+        conditions.append(OrgEmpresaTable.c.es_activo == True)
+    if buscar:
+        conditions.append(
+            or_(
+                OrgEmpresaTable.c.codigo_empresa.ilike(f"%{buscar}%"),
+                OrgEmpresaTable.c.razon_social.ilike(f"%{buscar}%"),
+                OrgEmpresaTable.c.nombre_comercial.ilike(f"%{buscar}%"),
+            )
+        )
+    return conditions
+
+
+async def list_empresas(
+    client_id: UUID,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Lista empresas del tenant. Siempre filtra por cliente_id."""
+    conditions = _build_empresa_list_conditions(client_id, solo_activos, buscar)
+    query = select(OrgEmpresaTable).where(and_(*conditions))
+    query = apply_erp_sort(
+        query,
+        allowed_columns=_SORT_COLUMNS_EMPRESA,
+        column_map=_SORT_COLUMN_MAP,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        default_order=_DEFAULT_EMPRESA_ORDER,
+        tie_breaker=("empresa_id", OrgEmpresaTable.c.empresa_id),
+    )
     return await execute_query(query, client_id=client_id)
 
 

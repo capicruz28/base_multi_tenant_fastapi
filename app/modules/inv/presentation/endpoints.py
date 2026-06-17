@@ -48,16 +48,17 @@ router.include_router(
     tags=["INV - Almacenes"]
 )
 
-router.include_router(
-    stock_router,
-    prefix="/stock",
-    tags=["INV - Stock"]
-)
-
+# BLK-001: alertas antes que stock — /stock/{stock_id} no debe capturar "alertas".
 router.include_router(
     stock_alertas_router,
     prefix="/stock/alertas",
     tags=["INV - Stock Alertas"]
+)
+
+router.include_router(
+    stock_router,
+    prefix="/stock",
+    tags=["INV - Stock"]
 )
 
 router.include_router(
@@ -70,6 +71,14 @@ router.include_router(
     movimientos_router,
     prefix="/movimientos",
     tags=["INV - Movimientos"]
+)
+
+# RC1.1 / BC-31: rutas canónicas REST bajo /movimientos/{id}/* (mismo router de proceso).
+# Las rutas legacy en raíz /inv/{movimiento_id}/* se conservan sin deprecated.
+router.include_router(
+    movimientos_proceso_router,
+    prefix="/movimientos",
+    tags=["INV - Movimientos Proceso"]
 )
 
 router.include_router(

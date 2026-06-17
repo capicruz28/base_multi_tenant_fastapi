@@ -40,6 +40,7 @@ from app.core.exceptions import CustomException
 # Importar Dependencias de Autorización
 from app.api.deps import get_current_active_user, RoleChecker
 from app.core.authorization.rbac import require_permission
+from app.modules.rbac.presentation.rbac_deps import get_rbac_session_client_id
 
 # Logging
 from app.core.logging_config import get_logger
@@ -179,7 +180,8 @@ async def read_roles_paginated(
     current_user: Any = Depends(get_current_active_user),
     page: int = Query(1, ge=1, description="Número de página a recuperar"),
     limit: int = Query(10, ge=1, le=100, description="Número de roles por página"),
-    search: Optional[str] = Query(None, description="Término de búsqueda para filtrar por nombre o descripción")
+    search: Optional[str] = Query(None, description="Término de búsqueda para filtrar por nombre o descripción"),
+    session_client_id: UUID = Depends(get_rbac_session_client_id),
 ):
     """
     Endpoint para obtener una lista paginada y filtrada de roles **del cliente del usuario y roles del sistema**.
@@ -196,37 +198,34 @@ async def read_roles_paginated(
     Raises:
         HTTPException: En caso de error en los parámetros o error interno.
     """
-    logger.info(f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'")
-    
-    # ✅ VALIDACIÓN: Verificar que cliente_id es válido (UUID)
-    from uuid import UUID
-    cliente_id_valido = current_user.cliente_id
-    if not cliente_id_valido:
-        logger.error(f"Cliente ID inválido en endpoint /roles/: {current_user.cliente_id} para usuario {current_user.usuario_id}")
+    logger.info(
+        f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} "
+        f"del cliente {session_client_id} - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'"
+    )
+
+    if session_client_id == UUID("00000000-0000-0000-0000-000000000000"):
+        logger.error(
+            f"Cliente ID es UUID nulo en endpoint /roles/ para usuario {current_user.usuario_id}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cliente ID no disponible en el contexto del usuario. No se puede obtener la lista de roles."
+            detail="Cliente ID no disponible en el contexto del usuario. No se puede obtener la lista de roles.",
         )
-    
-    # Verificar que no sea UUID nulo
-    if isinstance(cliente_id_valido, UUID) and cliente_id_valido == UUID('00000000-0000-0000-0000-000000000000'):
-        logger.error(f"Cliente ID es UUID nulo en endpoint /roles/ para usuario {current_user.usuario_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cliente ID no disponible en el contexto del usuario. No se puede obtener la lista de roles."
-        )
-    
+
     try:
         paginated_response = await RolService.obtener_roles_paginados(
-            cliente_id=current_user.cliente_id,
+            cliente_id=session_client_id,
             page=page,
             limit=limit,
             search=search
         )
-        logger.info(f"Respuesta exitosa para GET /roles/ - Cliente: {current_user.cliente_id}, Total roles: {paginated_response.get('total_roles', 0)}")
+        logger.info(
+            f"Respuesta exitosa para GET /roles/ - Cliente: {session_client_id}, "
+            f"Total roles: {paginated_response.get('total_roles', 0)}"
+        )
         return paginated_response
     except CustomException as ce:
-        logger.warning(f"Error de negocio al listar roles para cliente {current_user.cliente_id}: {ce.detail}")
+        logger.warning(f"Error de negocio al listar roles para cliente {session_client_id}: {ce.detail}")
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception("Error inesperado en endpoint GET /roles/ (paginado)")
@@ -254,7 +253,8 @@ async def read_roles_paginated(
     dependencies=[Depends(require_admin), Depends(require_permission("admin.rol.leer"))]
 )
 async def read_all_active_roles(
-    current_user: Any = Depends(get_current_active_user)
+    current_user: Any = Depends(get_current_active_user),
+    session_client_id: UUID = Depends(get_rbac_session_client_id),
 ):
     """
     Endpoint para obtener una lista simplificada de roles activos **del cliente y del sistema**.
@@ -268,18 +268,26 @@ async def read_all_active_roles(
     Raises:
         HTTPException: En caso de error interno del servidor.
     """
-    logger.info(f"Solicitud GET /roles/all-active/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para lista simple")
+    logger.info(
+        f"Solicitud GET /roles/all-active/ recibida por usuario {current_user.usuario_id} "
+        f"del cliente {session_client_id} para lista simple"
+    )
     try:
-        active_roles_dicts = await RolService.get_all_active_roles(cliente_id=current_user.cliente_id)
-        
+        active_roles_dicts = await RolService.get_all_active_roles(cliente_id=session_client_id)
+
         # ✅ Convertir dicts a RolRead para cumplir con el schema de respuesta
         from app.modules.rbac.presentation.schemas import RolRead
         active_roles = [RolRead(**rol_dict) for rol_dict in active_roles_dicts]
-        
-        logger.info(f"Lista simple de roles activos recuperada para cliente {current_user.cliente_id} - Total: {len(active_roles)}")
+
+        logger.info(
+            f"Lista simple de roles activos recuperada para cliente {session_client_id} "
+            f"- Total: {len(active_roles)}"
+        )
         return active_roles
     except CustomException as ce:
-        logger.error(f"Error de servicio en endpoint /roles/all-active/ para cliente {current_user.cliente_id}: {ce.detail}")
+        logger.error(
+            f"Error de servicio en endpoint /roles/all-active/ para cliente {session_client_id}: {ce.detail}"
+        )
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except Exception as e:
         logger.exception("Error inesperado en endpoint GET /roles/all-active/")

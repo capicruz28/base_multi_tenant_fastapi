@@ -1,11 +1,12 @@
 # app/modules/inv/presentation/endpoints_inventario_fisico.py
-"""Endpoints INV - Inventario Físico. client_id siempre desde current_user.cliente_id."""
+"""Endpoints INV - Inventario Físico. client_id desde sesión efectiva (inv_deps, patrón ORG)."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
 from typing import Optional
 from datetime import date
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import (
@@ -33,9 +34,9 @@ async def listar_inventarios_fisicos(
     fecha_hasta: Optional[date] = Query(None, description="Fecha hasta"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Lista inventarios físicos de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.list_inventarios_fisicos_servicio(
             client_id=client_id,
@@ -53,9 +54,9 @@ async def detalle_inventario_fisico(
     inventario_fisico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Detalle de un inventario físico de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.get_inventario_fisico_servicio(
             client_id=client_id,
@@ -72,9 +73,9 @@ async def crear_inventario_fisico(
     data: InventarioFisicoCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Crea un inventario físico. empresa_id debe coincidir con la sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.create_inventario_fisico_servicio(
             client_id=client_id, data=data
@@ -89,9 +90,9 @@ async def actualizar_inventario_fisico(
     data: InventarioFisicoUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Actualiza un inventario físico de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.update_inventario_fisico_servicio(
             client_id=client_id,
@@ -113,9 +114,9 @@ async def anular_inventario_fisico(
     inventario_fisico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.anular")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Anula un inventario físico de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.anular_inventario_fisico_servicio(
             client_id=client_id,
@@ -136,9 +137,9 @@ async def finalizar_inventario_fisico(
     inventario_fisico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.finalizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Finaliza el conteo de un inventario físico de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.finalizar_inventario_fisico_servicio(
             client_id=client_id,
@@ -159,9 +160,9 @@ async def detalle_inventario_fisico_con_detalles(
     inventario_fisico_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Retorna cabecera + detalles de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.get_inventario_fisico_con_detalles_servicio(
             client_id=client_id,
@@ -183,8 +184,8 @@ async def crear_inventario_fisico_con_detalles(
     data: InventarioFisicoConDetalleCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.create_inventario_fisico_con_detalles_servicio(
             client_id=client_id,
@@ -204,8 +205,8 @@ async def actualizar_inventario_fisico_con_detalles(
     data: InventarioFisicoConDetalleUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_service.update_inventario_fisico_con_detalles_servicio(
             client_id=client_id,

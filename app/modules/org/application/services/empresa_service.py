@@ -15,6 +15,7 @@ from app.core.tenant.session_scope import (
     log_org_empresa_scope,
     log_org_tenant_scope,
 )
+from app.shared.pagination import ErpSortParams
 from app.infrastructure.database.queries.org import (
     list_empresas,
     get_empresa_by_id,
@@ -56,20 +57,22 @@ async def list_empresas_servicio(
     client_id: UUID,
     solo_activos: bool = True,
     buscar: Optional[str] = None,
+    sort: Optional[ErpSortParams] = None,
 ) -> List[EmpresaRead]:
     log_org_tenant_scope(operation="list", client_id=client_id, resource=_RESOURCE)
-    rows = await list_empresas(client_id=client_id, solo_activos=solo_activos)
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
+    rows = await list_empresas(
+        client_id=client_id,
+        solo_activos=solo_activos,
+        buscar=buscar,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
     empresas: List[EmpresaRead] = []
     for r in rows:
         assert_row_tenant(r, client_id, not_found_detail=_NOT_FOUND)
         empresas.append(_row_to_read(r))
-    if buscar:
-        term = buscar.lower()
-        empresas = [
-            e
-            for e in empresas
-            if term in e.codigo_empresa.lower() or term in e.razon_social.lower()
-        ]
     return empresas
 
 

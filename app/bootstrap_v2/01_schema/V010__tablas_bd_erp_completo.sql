@@ -101,6 +101,7 @@ CREATE TABLE cat_departamento (
     pais_id UNIQUEIDENTIFIER NOT NULL,
     codigo NVARCHAR(10) NOT NULL,
     nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
     CONSTRAINT FK_depto_pais FOREIGN KEY (pais_id) 
         REFERENCES cat_pais(pais_id) ON DELETE NO ACTION
 );
@@ -118,6 +119,7 @@ CREATE TABLE cat_provincia (
     departamento_id UNIQUEIDENTIFIER NOT NULL,
     codigo NVARCHAR(10) NOT NULL,
     nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
     CONSTRAINT FK_prov_depto FOREIGN KEY (departamento_id) 
         REFERENCES cat_departamento(departamento_id) ON DELETE NO ACTION
 );
@@ -135,6 +137,7 @@ CREATE TABLE cat_distrito (
     provincia_id UNIQUEIDENTIFIER NOT NULL,
     codigo NVARCHAR(10) NOT NULL,
     nombre NVARCHAR(100) NOT NULL,
+    es_activo BIT DEFAULT 1,
     ubigeo NVARCHAR(6) NOT NULL,
     CONSTRAINT FK_dist_prov FOREIGN KEY (provincia_id) 
         REFERENCES cat_provincia(provincia_id) ON DELETE NO ACTION,

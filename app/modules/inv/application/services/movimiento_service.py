@@ -6,7 +6,7 @@ Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 from uuid import UUID, uuid4
 from datetime import date, datetime
 
@@ -20,12 +20,15 @@ from app.core.tenant.company_scope import (
     enforce_body_empresa_matches_session,
     ensure_empresa_in_tenant,
 )
+from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
+from app.shared.pagination.schemas import ErpPaginatedResponse
 from app.infrastructure.database.tables_erp import (
     InvMovimientoTable,
     InvMovimientoDetalleTable,
 )
 from app.infrastructure.database.queries.inv import (
     list_movimientos,
+    count_movimientos,
     get_movimiento_by_id,
     create_movimiento,
     update_movimiento,
@@ -35,6 +38,11 @@ from app.infrastructure.database.queries.inv import (
     get_almacen_by_id,
     get_producto_by_id,
     get_unidad_medida_by_id,
+)
+from app.modules.inv.application.services.inv_audit_context import apply_create_audit
+from app.modules.inv.application.services.inv_workflow_enforcement import (
+    reject_movimiento_workflow_in_update,
+    sanitize_movimiento_create_payload,
 )
 from app.modules.inv.presentation.schemas import (
     MovimientoCreate,
@@ -153,7 +161,9 @@ async def list_movimientos_servicio(
     estado: Optional[str] = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
-) -> List[MovimientoRead]:
+    pagination: Optional[ErpPaginationParams] = None,
+    sort: Optional[ErpSortParams] = None,
+) -> Union[List[MovimientoRead], ErpPaginatedResponse[MovimientoRead]]:
     empresa_id = require_session_empresa_id()
     await _validate_optional_list_filtros(
         client_id,
@@ -161,7 +171,9 @@ async def list_movimientos_servicio(
         tipo_movimiento_id=tipo_movimiento_id,
         almacen_id=almacen_id,
     )
-    rows = await list_movimientos(
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
+    filtros = dict(
         client_id=client_id,
         empresa_id=empresa_id,
         tipo_movimiento_id=tipo_movimiento_id,
@@ -170,7 +182,14 @@ async def list_movimientos_servicio(
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
     )
-    return [_row_to_read(r) for r in rows]
+    list_filtros = {**filtros, "sort_by": sort_by, "sort_dir": sort_dir}
+    if pagination is None or not pagination.is_paginated:
+        rows = await list_movimientos(**list_filtros)
+        return [_row_to_read(r) for r in rows]
+    total = await count_movimientos(**filtros)
+    rows = await list_movimientos(**list_filtros, pagination=pagination)
+    items = [_row_to_read(r) for r in rows]
+    return build_paginated_response(items, total, pagination)
 
 
 async def get_movimiento_servicio(
@@ -191,6 +210,7 @@ async def get_movimiento_servicio(
 async def create_movimiento_servicio(
     client_id: UUID,
     data: MovimientoCreate,
+    usuario_id: Optional[UUID] = None,
 ) -> MovimientoRead:
     empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
     await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
@@ -201,13 +221,14 @@ async def create_movimiento_servicio(
         almacen_origen_id=data.almacen_origen_id,
         almacen_destino_id=data.almacen_destino_id,
     )
-    payload = data.model_dump()
+    payload = sanitize_movimiento_create_payload(data.model_dump())
     payload["empresa_id"] = empresa_id
     payload["moneda_id"] = await _resolve_moneda_id(
         client_id=client_id,
         moneda_id=payload.get("moneda_id"),
         moneda_codigo=payload.get("moneda"),
     )
+    payload = apply_create_audit(payload, usuario_id)
     row = await create_movimiento(client_id=client_id, data=payload)
     return _row_to_read(row)
 
@@ -216,6 +237,7 @@ async def update_movimiento_servicio(
     client_id: UUID,
     movimiento_id: UUID,
     data: MovimientoUpdate,
+    usuario_id: Optional[UUID] = None,
 ) -> MovimientoRead:
     empresa_id = require_session_empresa_id()
     row = await get_movimiento_by_id(
@@ -231,10 +253,10 @@ async def update_movimiento_servicio(
             status_code=status.HTTP_409_CONFLICT,
             detail="No se puede editar un movimiento que no esté en estado 'borrador'",
         )
-    if data.empresa_id is not None:
-        enforce_body_empresa_matches_session(data.empresa_id)
     payload = data.model_dump(exclude_unset=True)
-    if data.empresa_id is not None:
+    reject_movimiento_workflow_in_update(payload)
+    if payload.get("empresa_id") is not None:
+        enforce_body_empresa_matches_session(payload["empresa_id"])
         payload["empresa_id"] = empresa_id
     tipo_id = payload.get("tipo_movimiento_id", row.get("tipo_movimiento_id"))
     if tipo_id:
@@ -321,6 +343,7 @@ async def _insert_movimiento_detalles(
 async def create_movimiento_con_detalles_servicio(
     client_id: UUID,
     data: MovimientoConDetalleCreate,
+    usuario_id: Optional[UUID] = None,
 ) -> MovimientoConDetalleRead:
     empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
     await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
@@ -332,12 +355,15 @@ async def create_movimiento_con_detalles_servicio(
         almacen_destino_id=data.almacen_destino_id,
     )
 
-    cab_payload = data.model_dump(exclude={"detalles"})
+    cab_payload = sanitize_movimiento_create_payload(
+        data.model_dump(exclude={"detalles"})
+    )
     cab_payload["moneda_id"] = await _resolve_moneda_id(
         client_id=client_id,
         moneda_id=cab_payload.get("moneda_id"),
         moneda_codigo=cab_payload.get("moneda"),
     )
+    cab_payload = apply_create_audit(cab_payload, usuario_id)
     cabecera_moneda_id = cab_payload["moneda_id"]
     detalles_data = data.detalles
 
@@ -403,6 +429,7 @@ async def update_movimiento_con_detalles_servicio(
     client_id: UUID,
     movimiento_id: UUID,
     data: MovimientoConDetalleUpdate,
+    usuario_id: Optional[UUID] = None,
 ) -> MovimientoConDetalleRead:
     empresa_id = require_session_empresa_id()
     row = await get_movimiento_by_id(
@@ -419,10 +446,10 @@ async def update_movimiento_con_detalles_servicio(
             detail="No se puede editar un movimiento que no esté en estado 'borrador'",
         )
 
-    if data.empresa_id is not None:
-        enforce_body_empresa_matches_session(data.empresa_id)
-
     cab_payload = data.model_dump(exclude_unset=True, exclude={"detalles"})
+    reject_movimiento_workflow_in_update(cab_payload)
+    if cab_payload.get("empresa_id") is not None:
+        enforce_body_empresa_matches_session(cab_payload["empresa_id"])
     if "moneda_id" in cab_payload or "moneda" in cab_payload:
         cab_payload["moneda_id"] = await _resolve_moneda_id(
             client_id=client_id,
@@ -468,7 +495,7 @@ async def update_movimiento_con_detalles_servicio(
 
         if cab_payload:
             cab_payload["fecha_actualizacion"] = now
-            if data.empresa_id is not None:
+            if cab_payload.get("empresa_id") is not None:
                 cab_payload["empresa_id"] = empresa_id
             tipo_id = cab_payload.get("tipo_movimiento_id", row.get("tipo_movimiento_id"))
             if tipo_id:

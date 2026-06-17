@@ -5,7 +5,7 @@ Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID, uuid4
 from datetime import date, datetime
 
@@ -23,14 +23,22 @@ from app.infrastructure.database.tables_erp import (
     InvInventarioFisicoTable,
     InvInventarioFisicoDetalleTable,
 )
+from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
+from app.shared.pagination.schemas import ErpPaginatedResponse
 from app.infrastructure.database.queries.inv import (
     list_inventarios_fisicos,
+    count_inventarios_fisicos,
     get_inventario_fisico_by_id,
     create_inventario_fisico,
     update_inventario_fisico,
     get_inventario_fisico_con_detalles,
     get_almacen_by_id,
     get_producto_by_id,
+)
+from app.modules.inv.application.services.inv_audit_context import apply_create_audit
+from app.modules.inv.application.services.inv_workflow_enforcement import (
+    reject_inventario_fisico_workflow_in_update,
+    sanitize_inventario_fisico_create_payload,
 )
 from app.modules.inv.presentation.schemas import (
     InventarioFisicoCreate,
@@ -44,6 +52,13 @@ from app.modules.inv.presentation.schemas import (
 
 _INV_COLUMNS = {c.name for c in InvInventarioFisicoTable.c}
 _INV_DET_COLUMNS = {c.name for c in InvInventarioFisicoDetalleTable.c}
+
+_MSG_FINALIZAR_SIN_DETALLE = "No se puede finalizar inventario físico sin detalle."
+
+
+def _count_lineas_conteo_pendiente(detalles: list[dict]) -> int:
+    """Pendiente solo si cantidad_contada IS NULL; 0 es conteo válido."""
+    return sum(1 for det in detalles if det.get("cantidad_contada") is None)
 
 
 def _row_to_read(row: dict) -> InventarioFisicoRead:
@@ -118,12 +133,16 @@ async def list_inventarios_fisicos_servicio(
     estado: Optional[str] = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
-) -> List[InventarioFisicoRead]:
+    pagination: Optional[ErpPaginationParams] = None,
+    sort: Optional[ErpSortParams] = None,
+) -> Union[List[InventarioFisicoRead], ErpPaginatedResponse[InventarioFisicoRead]]:
     empresa_id = require_session_empresa_id()
     await _validate_optional_list_filtros(
         client_id, empresa_id, almacen_id=almacen_id
     )
-    rows = await list_inventarios_fisicos(
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
+    filtros = dict(
         client_id=client_id,
         empresa_id=empresa_id,
         almacen_id=almacen_id,
@@ -131,7 +150,14 @@ async def list_inventarios_fisicos_servicio(
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
     )
-    return [_row_to_read(r) for r in rows]
+    list_filtros = {**filtros, "sort_by": sort_by, "sort_dir": sort_dir}
+    if pagination is None or not pagination.is_paginated:
+        rows = await list_inventarios_fisicos(**list_filtros)
+        return [_row_to_read(r) for r in rows]
+    total = await count_inventarios_fisicos(**filtros)
+    rows = await list_inventarios_fisicos(**list_filtros, pagination=pagination)
+    items = [_row_to_read(r) for r in rows]
+    return build_paginated_response(items, total, pagination)
 
 
 async def get_inventario_fisico_servicio(
@@ -152,14 +178,16 @@ async def get_inventario_fisico_servicio(
 async def create_inventario_fisico_servicio(
     client_id: UUID,
     data: InventarioFisicoCreate,
+    usuario_id: Optional[UUID] = None,
 ) -> InventarioFisicoRead:
     empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
     await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
     await _validate_cabecera_refs(
         client_id, empresa_id, almacen_id=data.almacen_id
     )
-    payload = data.model_dump()
+    payload = sanitize_inventario_fisico_create_payload(data.model_dump())
     payload["empresa_id"] = empresa_id
+    payload = apply_create_audit(payload, usuario_id)
     row = await create_inventario_fisico(client_id=client_id, data=payload)
     return _row_to_read(row)
 
@@ -168,6 +196,7 @@ async def update_inventario_fisico_servicio(
     client_id: UUID,
     inventario_fisico_id: UUID,
     data: InventarioFisicoUpdate,
+    usuario_id: Optional[UUID] = None,
 ) -> InventarioFisicoRead:
     empresa_id = require_session_empresa_id()
     row = await get_inventario_fisico_by_id(
@@ -178,15 +207,12 @@ async def update_inventario_fisico_servicio(
     if not row:
         raise NotFoundError(detail="Inventario físico no encontrado")
     _assert_editable_estado(row)
-    if data.empresa_id is not None:
-        enforce_body_empresa_matches_session(data.empresa_id)
     if data.almacen_id is not None:
         await _validate_cabecera_refs(
             client_id, empresa_id, almacen_id=data.almacen_id
         )
     payload = data.model_dump(exclude_unset=True)
-    if "empresa_id" in payload:
-        del payload["empresa_id"]
+    reject_inventario_fisico_workflow_in_update(payload)
     updated = await update_inventario_fisico(
         client_id=client_id,
         inventario_fisico_id=inventario_fisico_id,
@@ -247,6 +273,30 @@ async def finalizar_inventario_fisico_servicio(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"No se puede finalizar un inventario físico en estado '{row.get('estado')}'",
         )
+
+    combined = await get_inventario_fisico_con_detalles(
+        client_id=client_id,
+        inventario_fisico_id=inventario_fisico_id,
+        empresa_id=empresa_id,
+    )
+    if not combined:
+        raise NotFoundError(detail="Inventario físico no encontrado")
+    detalles = combined.get("detalles") or []
+    if not detalles:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=_MSG_FINALIZAR_SIN_DETALLE,
+        )
+    pendientes = _count_lineas_conteo_pendiente(detalles)
+    if pendientes > 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No se puede finalizar: {pendientes} línea(s) pendiente(s) de conteo "
+                "(cantidad_contada no informada)."
+            ),
+        )
+
     updated = await update_inventario_fisico(
         client_id=client_id,
         inventario_fisico_id=inventario_fisico_id,
@@ -308,6 +358,7 @@ async def _insert_inventario_fisico_detalles(
 async def create_inventario_fisico_con_detalles_servicio(
     client_id: UUID,
     data: InventarioFisicoConDetalleCreate,
+    usuario_id: Optional[UUID] = None,
 ) -> InventarioFisicoConDetalleRead:
     empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
     await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
@@ -318,7 +369,10 @@ async def create_inventario_fisico_con_detalles_servicio(
     if detalles_data:
         await _validate_detalle_productos(client_id, empresa_id, detalles_data)
 
-    cab_payload = data.model_dump(exclude={"detalles"})
+    cab_payload = sanitize_inventario_fisico_create_payload(
+        data.model_dump(exclude={"detalles"})
+    )
+    cab_payload = apply_create_audit(cab_payload, usuario_id)
     now = datetime.utcnow()
     inventario_fisico_id = uuid4()
 
@@ -375,6 +429,7 @@ async def update_inventario_fisico_con_detalles_servicio(
     client_id: UUID,
     inventario_fisico_id: UUID,
     data: InventarioFisicoConDetalleUpdate,
+    usuario_id: Optional[UUID] = None,
 ) -> InventarioFisicoConDetalleRead:
     empresa_id = require_session_empresa_id()
     row = await get_inventario_fisico_by_id(
@@ -386,16 +441,13 @@ async def update_inventario_fisico_con_detalles_servicio(
         raise NotFoundError(detail="Inventario físico no encontrado")
     _assert_editable_estado(row)
 
-    if data.empresa_id is not None:
-        enforce_body_empresa_matches_session(data.empresa_id)
     if data.almacen_id is not None:
         await _validate_cabecera_refs(
             client_id, empresa_id, almacen_id=data.almacen_id
         )
 
     cab_payload = data.model_dump(exclude_unset=True, exclude={"detalles"})
-    if "empresa_id" in cab_payload:
-        del cab_payload["empresa_id"]
+    reject_inventario_fisico_workflow_in_update(cab_payload)
     now = datetime.utcnow()
     detalles_data = data.detalles
 

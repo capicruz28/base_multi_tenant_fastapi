@@ -2,33 +2,95 @@
 Queries SQLAlchemy Core para org_centro_costo.
 Filtro tenant: cliente_id. Aislamiento empresa: empresa_id obligatorio (Etapa B).
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, and_, or_, func
 
 from app.infrastructure.database.tables_erp import OrgCentroCostoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.tenant.company_scope import empresa_scoped_conditions
+from app.shared.pagination.query_helpers import apply_erp_pagination, apply_erp_sort, extract_count
+
+if TYPE_CHECKING:
+    from app.shared.pagination.params import ErpPaginationParams
 
 _COLUMNS = {c.name for c in OrgCentroCostoTable.c}
+
+_SORT_COLUMNS_CENTRO_COSTO = frozenset(
+    {"codigo", "nombre", "tipo_centro_costo", "nivel", "fecha_creacion"}
+)
+_SORT_COLUMN_MAP = {
+    "codigo": OrgCentroCostoTable.c.codigo,
+    "nombre": OrgCentroCostoTable.c.nombre,
+    "tipo_centro_costo": OrgCentroCostoTable.c.tipo_centro_costo,
+    "nivel": OrgCentroCostoTable.c.nivel,
+    "fecha_creacion": OrgCentroCostoTable.c.fecha_creacion,
+}
+_DEFAULT_CENTRO_COSTO_ORDER = [(OrgCentroCostoTable.c.codigo, "asc")]
+
+
+def _build_centro_costo_list_conditions(
+    client_id: UUID,
+    empresa_id: UUID,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> list:
+    conditions = [
+        OrgCentroCostoTable.c.cliente_id == client_id,
+        OrgCentroCostoTable.c.empresa_id == empresa_id,
+    ]
+    if solo_activos:
+        conditions.append(OrgCentroCostoTable.c.es_activo == True)
+    if buscar:
+        conditions.append(
+            or_(
+                OrgCentroCostoTable.c.codigo.ilike(f"%{buscar}%"),
+                OrgCentroCostoTable.c.nombre.ilike(f"%{buscar}%"),
+            )
+        )
+    return conditions
+
+
+async def count_centros_costo(
+    client_id: UUID,
+    empresa_id: UUID,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> int:
+    conditions = _build_centro_costo_list_conditions(
+        client_id, empresa_id, solo_activos, buscar
+    )
+    query = select(func.count()).select_from(OrgCentroCostoTable).where(and_(*conditions))
+    result = await execute_query(query, client_id=client_id)
+    return extract_count(result)
 
 
 async def list_centros_costo(
     client_id: UUID,
     empresa_id: UUID,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
+    pagination: Optional["ErpPaginationParams"] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista centros de costo del tenant y empresa activa."""
-    query = select(OrgCentroCostoTable).where(
-        and_(
-            OrgCentroCostoTable.c.cliente_id == client_id,
-            OrgCentroCostoTable.c.empresa_id == empresa_id,
-        )
+    conditions = _build_centro_costo_list_conditions(
+        client_id, empresa_id, solo_activos, buscar
     )
-    if solo_activos:
-        query = query.where(OrgCentroCostoTable.c.es_activo == True)
-    query = query.order_by(OrgCentroCostoTable.c.codigo)
+    query = select(OrgCentroCostoTable).where(and_(*conditions))
+    query = apply_erp_sort(
+        query,
+        allowed_columns=_SORT_COLUMNS_CENTRO_COSTO,
+        column_map=_SORT_COLUMN_MAP,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        default_order=_DEFAULT_CENTRO_COSTO_ORDER,
+        tie_breaker=("centro_costo_id", OrgCentroCostoTable.c.centro_costo_id),
+    )
+    if pagination is not None and pagination.is_paginated:
+        query = apply_erp_pagination(query, pagination)
     return await execute_query(query, client_id=client_id)
 
 

@@ -492,6 +492,11 @@ class UserDataWithRoles(UserDataBase):
         examples=["AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"],
     )
 
+    requires_password_change: bool = Field(
+        False,
+        description="True si el usuario debe cambiar su contraseña antes de operar en el ERP",
+    )
+
     @field_serializer("empresa_activa", when_used="json-unless-none")
     def _serialize_empresa_activa(self, value: Optional[str]) -> Optional[str]:
         return value
@@ -655,6 +660,7 @@ def build_user_data_with_roles_dict(
     cliente_id: UUID,
     es_admin_cliente: bool,
     empresa_activa: Optional[str] = None,
+    requires_password_change: bool = False,
 ) -> Dict[str, Any]:
     """
     Perfil de usuario para user_data en login, Token y /me.
@@ -673,10 +679,49 @@ def build_user_data_with_roles_dict(
         "user_type": user_type,
         "cliente_id": cliente_id,
         "es_admin_cliente": es_admin_cliente,
+        "requires_password_change": requires_password_change,
     }
     if empresa_activa is not None:
         data["empresa_activa"] = empresa_activa
     return data
+
+
+class PasswordChangeRequest(BaseModel):
+    """POST /auth/password/change/ — cambio obligatorio o voluntario."""
+
+    current_password: str = Field(
+        ...,
+        min_length=1,
+        description="Contraseña actual del usuario",
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        description="Nueva contraseña (mínimo 8 caracteres, mayúscula, minúscula y número)",
+    )
+    refresh_token: Optional[str] = Field(
+        None,
+        description="Refresh token actual (solo cliente móvil; en web va en cookie HttpOnly)",
+    )
+
+    @field_validator("new_password")
+    @classmethod
+    def validar_nueva_contrasena(cls, valor: str) -> str:
+        if len(valor) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres")
+        errores = []
+        if not any(c.isupper() for c in valor):
+            errores.append("al menos una letra mayúscula")
+        if not any(c.islower() for c in valor):
+            errores.append("al menos una letra minúscula")
+        if not any(c.isdigit() for c in valor):
+            errores.append("al menos un número")
+        if errores:
+            raise ValueError(
+                "La contraseña no cumple con los requisitos de seguridad. "
+                f"Debe contener: {', '.join(errores)}."
+            )
+        return valor
 
 
 class EmpresaDisponible(BaseModel):

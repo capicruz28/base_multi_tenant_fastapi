@@ -31,6 +31,7 @@ from app.modules.auth.presentation.schemas import (
     LoginEmpresaSelectionResponse,
     EmpresaDisponible,
     EmpresaIdRequest,
+    PasswordChangeRequest,
     build_user_data_with_roles_dict,
     ImpersonationEndResponse,
 )
@@ -61,6 +62,7 @@ from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.modules.users.application.services.user_service import UsuarioService
 from app.modules.auth.application.services.auth_service import AuthService
+from app.modules.auth.application.services.password_change_service import PasswordChangeService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.modules.superadmin.application.services.audit_service import AuditService
@@ -316,6 +318,10 @@ async def login(
         )
         user_type_login = level_info.get("user_type", "user")
 
+        requires_password_change = AuthService.resolve_requires_password_change(
+            user_base_data
+        )
+
         user_profile = build_user_data_with_roles_dict(
             usuario_id=user_id,
             nombre_usuario=form_data.username,
@@ -332,12 +338,14 @@ async def login(
             empresa_activa=(
                 str(empresa_activa) if empresa_activa is not None else None
             ),
+            requires_password_change=requires_password_change,
         )
 
         token_data = {
             "sub": form_data.username,
             "cliente_id": str(target_cliente_id),
             "level_info": level_info,
+            "requires_password_change": requires_password_change,
         }
 
         if es_superadmin:
@@ -350,7 +358,11 @@ async def login(
 
         # Selección de empresa obligatoria: token temporal sin refresh
         if requiere_seleccion:
-            selection_payload = {**token_data, "empresa_selection_pending": True}
+            selection_payload = {
+                **token_data,
+                "empresa_selection_pending": True,
+                "requires_password_change": requires_password_change,
+            }
             selection_token, _selection_jti = create_access_token(
                 data=selection_payload,
                 empresa_id=None,
@@ -375,6 +387,7 @@ async def login(
                 user_type=user_type_login,
                 cliente_id=target_cliente_id,
                 es_admin_cliente=es_admin_cliente,
+                requires_password_change=requires_password_change,
             )
             return LoginEmpresaSelectionResponse(
                 requiere_seleccion_empresa=True,
@@ -557,6 +570,7 @@ async def cambiar_empresa(
     response: Response,
     body: EmpresaIdRequest,
     payload: Dict = Depends(get_current_user_data),
+    _current_user=Depends(get_current_active_user),
 ):
     if is_impersonation_payload(payload):
         raise HTTPException(
@@ -913,6 +927,18 @@ async def get_me(
                     EmpresaDisponible.model_validate(e) for e in empresas_ctx
                 ]
 
+        requires_password_change_me = AuthService.resolve_requires_password_change(
+            {
+                "requiere_cambio_contrasena": getattr(
+                    current_user, "requiere_cambio_contrasena", False
+                )
+            }
+        )
+        if usuario_completo.get("requiere_cambio_contrasena") is not None:
+            requires_password_change_me = AuthService.resolve_requires_password_change(
+                usuario_completo
+            )
+
         user_profile = build_user_data_with_roles_dict(
             usuario_id=user_id,
             nombre_usuario=current_user.nombre_usuario,
@@ -929,6 +955,7 @@ async def get_me(
             empresa_activa=(
                 str(empresa_activa_uuid) if empresa_activa_uuid is not None else None
             ),
+            requires_password_change=requires_password_change_me,
         )
         user_profile["empresa_activa"] = (
             str(empresa_activa_uuid) if empresa_activa_uuid is not None else None
@@ -1242,11 +1269,16 @@ async def refresh_access_token(
         refresh_expire_days = token_expiration["refresh_token_days"]
         refresh_cookie_max_age = refresh_expire_days * 24 * 60 * 60
 
+        requires_password_change = AuthService.resolve_requires_password_change(
+            current_user
+        )
+
         token_data = AuthService.build_token_data_from_level_info(
             username=username,
             cliente_id=current_user.get("cliente_id"),
             level_info=level_info,
             refresh_payload=refresh_payload,
+            requires_password_change=requires_password_change,
         )
 
         new_access_token, new_access_jti = create_access_token(
@@ -1392,6 +1424,65 @@ async def refresh_access_token(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al refrescar el token"
         )
+
+# ----
+# --- Cambio de contraseña (FORCE PASSWORD CHANGE) ---
+# ----
+@router.post(
+    "/password/change/",
+    response_model=Token,
+    summary="Cambiar contraseña del usuario autenticado",
+    description="""
+    Valida la contraseña actual, persiste el nuevo hash, limpia
+    `requiere_cambio_contrasena` y emite nuevos access/refresh tokens.
+
+    **Whitelist:** accesible aunque `requires_password_change=true`.
+    Revoca refresh tokens anteriores del usuario.
+    """,
+)
+async def change_password(
+    request: Request,
+    response: Response,
+    body: PasswordChangeRequest,
+    current_user=Depends(get_current_active_user),
+    payload: Dict = Depends(get_current_user_data),
+):
+    client_type = get_client_type(request)
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
+    old_refresh_token = None
+    if client_type == "web":
+        old_refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    else:
+        old_refresh_token = body.refresh_token
+
+    access_jti = payload.get("jti")
+    access_exp = payload.get("exp")
+
+    try:
+        session = await PasswordChangeService.change_password(
+            current_user=current_user,
+            current_password=body.current_password,
+            new_password=body.new_password,
+            payload=payload,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            old_refresh_token=old_refresh_token,
+            access_jti=access_jti,
+            access_exp=access_exp,
+        )
+        return _session_token_http_response(response, request, session)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en POST /password/change/: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al cambiar la contraseña",
+        )
+
 
 # ----
 # --- Endpoint para Cerrar Sesión (Logout) ---

@@ -1,6 +1,6 @@
 # app/modules/org/application/services/centro_costo_service.py
 """Servicio de Centro de Costo (ORG). Aislamiento multi-empresa: empresa_id desde sesión JWT."""
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from app.core.exceptions import ConflictError, NotFoundError
@@ -15,8 +15,11 @@ from app.core.tenant.session_scope import (
     log_org_company_scope,
     log_org_session_empresa,
 )
+from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
+from app.shared.pagination.schemas import ErpPaginatedResponse
 from app.infrastructure.database.queries.org import (
     list_centros_costo,
+    count_centros_costo,
     get_centro_costo_by_id,
     get_centro_costo_by_codigo,
     create_centro_costo,
@@ -46,7 +49,9 @@ async def list_centros_costo_servicio(
     client_id: UUID,
     solo_activos: bool = True,
     buscar: Optional[str] = None,
-) -> List[CentroCostoRead]:
+    pagination: Optional[ErpPaginationParams] = None,
+    sort: Optional[ErpSortParams] = None,
+) -> Union[List[CentroCostoRead], ErpPaginatedResponse[CentroCostoRead]]:
     empresa_id = _session_empresa("list")
     log_org_company_scope(
         operation="list",
@@ -54,20 +59,22 @@ async def list_centros_costo_servicio(
         session_empresa_id=empresa_id,
         resource=_RESOURCE,
     )
-    rows = await list_centros_costo(
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
+    filtros = dict(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
-    centros = [_row_to_read(r) for r in rows]
-    if buscar:
-        term = buscar.lower()
-        centros = [
-            c
-            for c in centros
-            if term in (c.codigo or "").lower() or term in (c.nombre or "").lower()
-        ]
-    return centros
+    list_filtros = {**filtros, "sort_by": sort_by, "sort_dir": sort_dir}
+    if pagination is None or not pagination.is_paginated:
+        rows = await list_centros_costo(**list_filtros)
+        return [_row_to_read(r) for r in rows]
+    total = await count_centros_costo(**filtros)
+    rows = await list_centros_costo(**list_filtros, pagination=pagination)
+    items = [_row_to_read(r) for r in rows]
+    return build_paginated_response(items, total, pagination)
 
 
 async def get_centro_costo_servicio(

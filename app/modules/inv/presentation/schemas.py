@@ -1171,3 +1171,44 @@ class InventarioFisicoConDetalleUpdate(InventarioFisicoUpdate):
 class InventarioFisicoConDetalleRead(InventarioFisicoRead):
     """Inventario físico con sus líneas de conteo embebidas en la respuesta."""
     detalles: List[InventarioFisicoDetalleRead] = Field(default_factory=list)
+
+
+# ----- Respuestas paginadas ERP (P0) -----
+
+from app.shared.pagination.schemas import ErpPaginatedResponse
+
+
+class PaginatedMovimientoResponse(ErpPaginatedResponse[MovimientoRead]):
+    """Listado paginado de movimientos."""
+
+
+class PaginatedKardexResponse(ErpPaginatedResponse[KardexLineaRead]):
+    """Listado paginado de kardex."""
+
+
+class PaginatedInventarioFisicoResponse(ErpPaginatedResponse[InventarioFisicoRead]):
+    """Listado paginado de inventarios físicos."""
+
+
+class PaginatedStockResponse(ErpPaginatedResponse[StockRead]):
+    """Listado paginado de stocks."""
+
+
+class PaginatedProductoResponse(ErpPaginatedResponse[ProductoRead]):
+    """Listado paginado de productos."""
+
+
+class PaginatedCategoriaResponse(ErpPaginatedResponse[CategoriaRead]):
+    """Listado paginado de categorías."""
+
+
+class PaginatedAlmacenResponse(ErpPaginatedResponse[AlmacenRead]):
+    """Listado paginado de almacenes."""
+
+
+class PaginatedUnidadMedidaResponse(ErpPaginatedResponse[UnidadMedidaRead]):
+    """Listado paginado de unidades de medida."""
+
+
+class PaginatedTipoMovimientoResponse(ErpPaginatedResponse[TipoMovimientoRead]):
+    """Listado paginado de tipos de movimiento."""

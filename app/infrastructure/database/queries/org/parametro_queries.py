@@ -76,6 +76,7 @@ async def list_parametros_hybrid(
     session_empresa_id: UUID,
     modulo_codigo: Optional[str] = None,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Filas candidatas para lectura ERP híbrida (sin precedencia aplicada)."""
     query = select(OrgParametroSistemaTable).where(
@@ -85,6 +86,14 @@ async def list_parametros_hybrid(
         query = query.where(OrgParametroSistemaTable.c.modulo_codigo == modulo_codigo)
     if solo_activos:
         query = query.where(OrgParametroSistemaTable.c.es_activo == True)
+    if buscar:
+        query = query.where(
+            or_(
+                OrgParametroSistemaTable.c.modulo_codigo.ilike(f"%{buscar}%"),
+                OrgParametroSistemaTable.c.codigo_parametro.ilike(f"%{buscar}%"),
+                OrgParametroSistemaTable.c.nombre_parametro.ilike(f"%{buscar}%"),
+            )
+        )
     query = query.order_by(
         OrgParametroSistemaTable.c.modulo_codigo,
         OrgParametroSistemaTable.c.codigo_parametro,

@@ -2,11 +2,12 @@
 """Endpoints ORG - Parámetros (HYBRID). Lectura contextual ERP + escritura por ámbito (Etapa C2)."""
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Union
 
 from app.api.deps import get_current_user_data
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import AuthorizationError, ConflictError, CustomException, NotFoundError
+from app.shared.pagination import erp_pagination_params, erp_sort_params, ErpPaginationParams, ErpSortParams
 from app.modules.org.presentation.org_deps import (
     get_org_session_client_id,
     reject_legacy_empresa_query,
@@ -17,17 +18,27 @@ from app.modules.org.presentation.schemas import (
     ParametroCreate,
     ParametroUpdate,
     ParametroRead,
+    PaginatedParametroResponse,
 )
 from app.modules.org.application.services import parametro_service
 
 router = APIRouter()
 
 
-@router.get("", response_model=list[ParametroRead], summary="Listar parámetros")
+@router.get(
+    "",
+    response_model=Union[list[ParametroRead], PaginatedParametroResponse],
+    summary="Listar parámetros",
+)
 async def listar_parametros(
     modulo_codigo: Optional[str] = Query(None),
     solo_activos: bool = True,
-    buscar: Optional[str] = Query(None),
+    buscar: Optional[str] = Query(
+        None,
+        description="Búsqueda por módulo, código o nombre de parámetro",
+    ),
+    pagination: ErpPaginationParams = Depends(erp_pagination_params),
+    sort: ErpSortParams = Depends(erp_sort_params),
     _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.parametro.leer")),
     client_id: UUID = Depends(get_org_session_client_id),
@@ -40,6 +51,8 @@ async def listar_parametros(
         modulo_codigo=modulo_codigo,
         solo_activos=solo_activos,
         buscar=buscar,
+        pagination=pagination,
+        sort=sort,
     )
 
 

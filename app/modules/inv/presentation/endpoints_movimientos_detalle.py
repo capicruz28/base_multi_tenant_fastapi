@@ -1,9 +1,10 @@
-"""Endpoints INV - Movimiento Detalle. client_id siempre desde current_user.cliente_id."""
+"""Endpoints INV - Movimiento Detalle. client_id desde sesión efectiva (inv_deps, patrón ORG)."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import NotFoundError, AuthorizationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -36,9 +37,9 @@ async def listar_movimientos_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Lista líneas de detalle de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await movimiento_detalle_service.list_movimientos_detalle_servicio(
             client_id=client_id,
@@ -60,8 +61,8 @@ async def detalle_movimiento_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await movimiento_detalle_service.get_movimiento_detalle_servicio(
             client_id=client_id,
@@ -84,8 +85,8 @@ async def crear_movimiento_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await movimiento_detalle_service.create_movimiento_detalle_servicio(
             client_id=client_id, data=data
@@ -109,8 +110,8 @@ async def actualizar_movimiento_detalle(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
-    client_id = current_user.cliente_id
     try:
         return await movimiento_detalle_service.update_movimiento_detalle_servicio(
             client_id=client_id,

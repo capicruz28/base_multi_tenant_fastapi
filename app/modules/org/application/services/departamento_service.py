@@ -15,6 +15,7 @@ from app.core.tenant.session_scope import (
     log_org_company_scope,
     log_org_session_empresa,
 )
+from app.shared.pagination import ErpSortParams
 from app.infrastructure.database.queries.org import (
     list_departamentos,
     get_departamento_by_id,
@@ -46,6 +47,7 @@ async def list_departamentos_servicio(
     client_id: UUID,
     solo_activos: bool = True,
     buscar: Optional[str] = None,
+    sort: Optional[ErpSortParams] = None,
 ) -> List[DepartamentoRead]:
     empresa_id = _session_empresa("list")
     log_org_company_scope(
@@ -54,20 +56,17 @@ async def list_departamentos_servicio(
         session_empresa_id=empresa_id,
         resource=_RESOURCE,
     )
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
     rows = await list_departamentos(
         client_id=client_id,
         empresa_id=empresa_id,
         solo_activos=solo_activos,
+        buscar=buscar,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
-    departamentos = [_row_to_read(r) for r in rows]
-    if buscar:
-        term = buscar.lower()
-        departamentos = [
-            d
-            for d in departamentos
-            if term in (d.codigo or "").lower() or term in (d.nombre or "").lower()
-        ]
-    return departamentos
+    return [_row_to_read(r) for r in rows]
 
 
 async def get_departamento_servicio(

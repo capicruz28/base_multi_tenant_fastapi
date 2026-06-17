@@ -2,10 +2,11 @@
 """Endpoints ORG - Centros de costo. Company-scoped: empresa desde sesión JWT (Etapa B)."""
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Union
 
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import AuthorizationError, CustomException, NotFoundError
+from app.shared.pagination import erp_pagination_params, erp_sort_params, ErpPaginationParams, ErpSortParams
 from app.modules.org.presentation.org_deps import (
     get_org_session_client_id,
     reject_legacy_empresa_query,
@@ -15,16 +16,23 @@ from app.modules.org.presentation.schemas import (
     CentroCostoCreate,
     CentroCostoUpdate,
     CentroCostoRead,
+    PaginatedCentroCostoResponse,
 )
 from app.modules.org.application.services import centro_costo_service
 
 router = APIRouter()
 
 
-@router.get("", response_model=list[CentroCostoRead], summary="Listar centros de costo")
+@router.get(
+    "",
+    response_model=Union[list[CentroCostoRead], PaginatedCentroCostoResponse],
+    summary="Listar centros de costo",
+)
 async def listar_centros_costo(
     solo_activos: bool = True,
-    buscar: Optional[str] = Query(None),
+    buscar: Optional[str] = Query(None, description="Búsqueda por código o nombre"),
+    pagination: ErpPaginationParams = Depends(erp_pagination_params),
+    sort: ErpSortParams = Depends(erp_sort_params),
     _: None = Depends(reject_legacy_empresa_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.centro_costo.leer")),
     client_id: UUID = Depends(get_org_session_client_id),
@@ -33,6 +41,8 @@ async def listar_centros_costo(
         client_id=client_id,
         solo_activos=solo_activos,
         buscar=buscar,
+        pagination=pagination,
+        sort=sort,
     )
 
 

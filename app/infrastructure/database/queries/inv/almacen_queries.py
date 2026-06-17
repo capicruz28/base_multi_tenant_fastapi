@@ -3,16 +3,69 @@ Queries SQLAlchemy Core para inv_almacen.
 Filtro tenant estricto: todas las operaciones usan cliente_id.
 Aislamiento empresa: get/update/list por empresa_id cuando se provee (INV).
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, and_, or_, func
 
 from app.infrastructure.database.tables_erp import InvAlmacenTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.tenant.company_scope import empresa_scoped_conditions
+from app.shared.pagination.query_helpers import apply_erp_pagination, apply_erp_sort, extract_count
+
+if TYPE_CHECKING:
+    from app.shared.pagination.params import ErpPaginationParams
 
 _COLUMNS = {c.name for c in InvAlmacenTable.c}
+
+_SORT_COLUMNS_ALMACEN = frozenset({"codigo", "nombre", "tipo_almacen", "fecha_creacion"})
+_SORT_COLUMN_MAP = {
+    "codigo": InvAlmacenTable.c.codigo,
+    "nombre": InvAlmacenTable.c.nombre,
+    "tipo_almacen": InvAlmacenTable.c.tipo_almacen,
+    "fecha_creacion": InvAlmacenTable.c.fecha_creacion,
+}
+_DEFAULT_ALMACEN_ORDER = [(InvAlmacenTable.c.nombre, "asc")]
+
+
+def _build_almacen_list_conditions(
+    client_id: UUID,
+    empresa_id: UUID,
+    sucursal_id: Optional[UUID] = None,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> list:
+    conditions = [
+        InvAlmacenTable.c.cliente_id == client_id,
+        InvAlmacenTable.c.empresa_id == empresa_id,
+    ]
+    if sucursal_id:
+        conditions.append(InvAlmacenTable.c.sucursal_id == sucursal_id)
+    if solo_activos:
+        conditions.append(InvAlmacenTable.c.es_activo == True)
+    if buscar:
+        conditions.append(
+            or_(
+                InvAlmacenTable.c.nombre.ilike(f"%{buscar}%"),
+                InvAlmacenTable.c.codigo.ilike(f"%{buscar}%"),
+            )
+        )
+    return conditions
+
+
+async def count_almacenes(
+    client_id: UUID,
+    empresa_id: UUID,
+    sucursal_id: Optional[UUID] = None,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> int:
+    conditions = _build_almacen_list_conditions(
+        client_id, empresa_id, sucursal_id, solo_activos, buscar
+    )
+    query = select(func.count()).select_from(InvAlmacenTable).where(and_(*conditions))
+    result = await execute_query(query, client_id=client_id)
+    return extract_count(result)
 
 
 async def list_almacenes(
@@ -20,19 +73,27 @@ async def list_almacenes(
     empresa_id: UUID,
     sucursal_id: Optional[UUID] = None,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
+    pagination: Optional["ErpPaginationParams"] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista almacenes del tenant y empresa."""
-    query = select(InvAlmacenTable).where(
-        and_(
-            InvAlmacenTable.c.cliente_id == client_id,
-            InvAlmacenTable.c.empresa_id == empresa_id,
-        )
+    conditions = _build_almacen_list_conditions(
+        client_id, empresa_id, sucursal_id, solo_activos, buscar
     )
-    if sucursal_id:
-        query = query.where(InvAlmacenTable.c.sucursal_id == sucursal_id)
-    if solo_activos:
-        query = query.where(InvAlmacenTable.c.es_activo == True)
-    query = query.order_by(InvAlmacenTable.c.nombre)
+    query = select(InvAlmacenTable).where(and_(*conditions))
+    query = apply_erp_sort(
+        query,
+        allowed_columns=_SORT_COLUMNS_ALMACEN,
+        column_map=_SORT_COLUMN_MAP,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        default_order=_DEFAULT_ALMACEN_ORDER,
+        tie_breaker=("almacen_id", InvAlmacenTable.c.almacen_id),
+    )
+    if pagination is not None and pagination.is_paginated:
+        query = apply_erp_pagination(query, pagination)
     return await execute_query(query, client_id=client_id)
 
 

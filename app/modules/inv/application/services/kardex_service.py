@@ -4,14 +4,17 @@ Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 from datetime import date
 
 from app.core.exceptions import NotFoundError
 from app.core.tenant.company_scope import require_session_empresa_id
+from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
+from app.shared.pagination.schemas import ErpPaginatedResponse
 from app.infrastructure.database.queries.inv import (
     list_kardex,
+    count_kardex,
     get_producto_by_id,
     get_almacen_by_id,
 )
@@ -26,17 +29,16 @@ async def _validate_optional_filtros_kardex(
     client_id: UUID,
     empresa_id: UUID,
     *,
-    producto_id: Optional[UUID] = None,
+    producto_id: UUID,
     almacen_id: Optional[UUID] = None,
 ) -> None:
-    if producto_id is not None:
-        prod = await get_producto_by_id(
-            client_id=client_id,
-            producto_id=producto_id,
-            empresa_id=empresa_id,
-        )
-        if not prod:
-            raise NotFoundError(detail="Producto no encontrado")
+    prod = await get_producto_by_id(
+        client_id=client_id,
+        producto_id=producto_id,
+        empresa_id=empresa_id,
+    )
+    if not prod:
+        raise NotFoundError(detail="Producto no encontrado")
     if almacen_id is not None:
         alm = await get_almacen_by_id(
             client_id=client_id,
@@ -49,14 +51,16 @@ async def _validate_optional_filtros_kardex(
 
 async def list_kardex_servicio(
     client_id: UUID,
-    producto_id: Optional[UUID] = None,
+    producto_id: UUID,
     almacen_id: Optional[UUID] = None,
     fecha_desde: Optional[date] = None,
     fecha_hasta: Optional[date] = None,
-) -> List[KardexLineaRead]:
+    pagination: Optional[ErpPaginationParams] = None,
+    sort: Optional[ErpSortParams] = None,
+) -> Union[List[KardexLineaRead], ErpPaginatedResponse[KardexLineaRead]]:
     """
     Lista líneas de kardex de la empresa activa en sesión.
-    Filtros producto/almacén cross-company → NotFoundError (404).
+    producto_id obligatorio. Filtros cross-company → NotFoundError (404).
     """
     empresa_id = require_session_empresa_id()
     await _validate_optional_filtros_kardex(
@@ -65,7 +69,9 @@ async def list_kardex_servicio(
         producto_id=producto_id,
         almacen_id=almacen_id,
     )
-    rows = await list_kardex(
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
+    filtros = dict(
         client_id=client_id,
         empresa_id=empresa_id,
         producto_id=producto_id,
@@ -73,4 +79,11 @@ async def list_kardex_servicio(
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
     )
-    return [_row_to_read(r) for r in rows]
+    list_filtros = {**filtros, "sort_by": sort_by, "sort_dir": sort_dir}
+    if pagination is None or not pagination.is_paginated:
+        rows = await list_kardex(**list_filtros)
+        return [_row_to_read(r) for r in rows]
+    total = await count_kardex(**filtros)
+    rows = await list_kardex(**list_filtros, pagination=pagination)
+    items = [_row_to_read(r) for r in rows]
+    return build_paginated_response(items, total, pagination)

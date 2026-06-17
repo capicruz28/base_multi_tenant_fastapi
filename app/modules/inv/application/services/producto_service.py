@@ -3,7 +3,7 @@
 Servicio de Producto (INV). client_id siempre desde contexto, nunca desde body.
 Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from app.core.exceptions import NotFoundError
@@ -12,14 +12,21 @@ from app.core.tenant.company_scope import (
     enforce_body_empresa_matches_session,
     ensure_empresa_in_tenant,
 )
+from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
+from app.shared.pagination.schemas import ErpPaginatedResponse
 from app.infrastructure.database.queries.inv import (
     list_productos,
+    count_productos,
     get_producto_by_id,
     get_producto_by_sku,
     create_producto,
     update_producto,
     get_categoria_by_id,
     get_unidad_medida_by_id,
+)
+from app.modules.inv.application.services.inv_audit_context import (
+    apply_create_audit,
+    apply_producto_update_audit,
 )
 from app.modules.inv.presentation.schemas import (
     ProductoCreate,
@@ -80,9 +87,13 @@ async def list_productos_servicio(
     tipo_producto: Optional[str] = None,
     solo_activos: bool = True,
     buscar: Optional[str] = None,
-) -> List[ProductoRead]:
+    pagination: Optional[ErpPaginationParams] = None,
+    sort: Optional[ErpSortParams] = None,
+) -> Union[List[ProductoRead], ErpPaginatedResponse[ProductoRead]]:
     empresa_id = require_session_empresa_id()
-    rows = await list_productos(
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
+    filtros = dict(
         client_id=client_id,
         empresa_id=empresa_id,
         categoria_id=categoria_id,
@@ -90,7 +101,14 @@ async def list_productos_servicio(
         solo_activos=solo_activos,
         buscar=buscar,
     )
-    return [_row_to_read(r) for r in rows]
+    list_filtros = {**filtros, "sort_by": sort_by, "sort_dir": sort_dir}
+    if pagination is None or not pagination.is_paginated:
+        rows = await list_productos(**list_filtros)
+        return [_row_to_read(r) for r in rows]
+    total = await count_productos(**filtros)
+    rows = await list_productos(**list_filtros, pagination=pagination)
+    items = [_row_to_read(r) for r in rows]
+    return build_paginated_response(items, total, pagination)
 
 
 async def get_producto_servicio(
@@ -111,6 +129,7 @@ async def get_producto_servicio(
 async def create_producto_servicio(
     client_id: UUID,
     data: ProductoCreate,
+    usuario_id: Optional[UUID] = None,
 ) -> ProductoRead:
     empresa_id = enforce_body_empresa_matches_session(data.empresa_id)
     await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
@@ -136,6 +155,7 @@ async def create_producto_servicio(
         )
     payload = data.model_dump()
     payload["empresa_id"] = empresa_id
+    payload = apply_create_audit(payload, usuario_id)
     row = await create_producto(client_id=client_id, data=payload)
     return _row_to_read(row)
 
@@ -144,6 +164,7 @@ async def update_producto_servicio(
     client_id: UUID,
     producto_id: UUID,
     data: ProductoUpdate,
+    usuario_id: Optional[UUID] = None,
 ) -> ProductoRead:
     empresa_id = require_session_empresa_id()
     row = await get_producto_by_id(
@@ -175,6 +196,7 @@ async def update_producto_servicio(
         unidad_medida_compra_id=payload.get("unidad_medida_compra_id"),
         unidad_medida_venta_id=payload.get("unidad_medida_venta_id"),
     )
+    payload = apply_producto_update_audit(payload, usuario_id)
     updated = await update_producto(
         client_id=client_id,
         producto_id=producto_id,

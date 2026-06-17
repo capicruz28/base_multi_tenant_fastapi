@@ -3,33 +3,94 @@ Queries SQLAlchemy Core para inv_unidad_medida.
 Filtro tenant estricto: todas las operaciones usan cliente_id.
 Aislamiento empresa: get/update/list por empresa_id cuando se provee (INV).
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, and_, or_, func
 
 from app.infrastructure.database.tables_erp import InvUnidadMedidaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
 from app.core.tenant.company_scope import empresa_scoped_conditions
+from app.shared.pagination.query_helpers import apply_erp_pagination, apply_erp_sort, extract_count
+
+if TYPE_CHECKING:
+    from app.shared.pagination.params import ErpPaginationParams
 
 _COLUMNS = {c.name for c in InvUnidadMedidaTable.c}
+
+_SORT_COLUMNS_UNIDAD_MEDIDA = frozenset({"codigo", "nombre", "tipo_unidad", "fecha_creacion"})
+_SORT_COLUMN_MAP = {
+    "codigo": InvUnidadMedidaTable.c.codigo,
+    "nombre": InvUnidadMedidaTable.c.nombre,
+    "tipo_unidad": InvUnidadMedidaTable.c.tipo_unidad,
+    "fecha_creacion": InvUnidadMedidaTable.c.fecha_creacion,
+}
+_DEFAULT_UNIDAD_MEDIDA_ORDER = [(InvUnidadMedidaTable.c.nombre, "asc")]
+
+
+def _build_unidad_medida_list_conditions(
+    client_id: UUID,
+    empresa_id: UUID,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> list:
+    conditions = [
+        InvUnidadMedidaTable.c.cliente_id == client_id,
+        InvUnidadMedidaTable.c.empresa_id == empresa_id,
+    ]
+    if solo_activos:
+        conditions.append(InvUnidadMedidaTable.c.es_activo == True)
+    if buscar:
+        conditions.append(
+            or_(
+                InvUnidadMedidaTable.c.nombre.ilike(f"%{buscar}%"),
+                InvUnidadMedidaTable.c.codigo.ilike(f"%{buscar}%"),
+            )
+        )
+    return conditions
+
+
+async def count_unidades_medida(
+    client_id: UUID,
+    empresa_id: UUID,
+    solo_activos: bool = True,
+    buscar: Optional[str] = None,
+) -> int:
+    conditions = _build_unidad_medida_list_conditions(
+        client_id, empresa_id, solo_activos, buscar
+    )
+    query = select(func.count()).select_from(InvUnidadMedidaTable).where(
+        and_(*conditions)
+    )
+    result = await execute_query(query, client_id=client_id)
+    return extract_count(result)
 
 
 async def list_unidades_medida(
     client_id: UUID,
     empresa_id: UUID,
     solo_activos: bool = True,
+    buscar: Optional[str] = None,
+    pagination: Optional["ErpPaginationParams"] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Lista unidades de medida del tenant y empresa."""
-    query = select(InvUnidadMedidaTable).where(
-        and_(
-            InvUnidadMedidaTable.c.cliente_id == client_id,
-            InvUnidadMedidaTable.c.empresa_id == empresa_id,
-        )
+    conditions = _build_unidad_medida_list_conditions(
+        client_id, empresa_id, solo_activos, buscar
     )
-    if solo_activos:
-        query = query.where(InvUnidadMedidaTable.c.es_activo == True)
-    query = query.order_by(InvUnidadMedidaTable.c.nombre)
+    query = select(InvUnidadMedidaTable).where(and_(*conditions))
+    query = apply_erp_sort(
+        query,
+        allowed_columns=_SORT_COLUMNS_UNIDAD_MEDIDA,
+        column_map=_SORT_COLUMN_MAP,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        default_order=_DEFAULT_UNIDAD_MEDIDA_ORDER,
+        tie_breaker=("unidad_medida_id", InvUnidadMedidaTable.c.unidad_medida_id),
+    )
+    if pagination is not None and pagination.is_paginated:
+        query = apply_erp_pagination(query, pagination)
     return await execute_query(query, client_id=client_id)
 
 

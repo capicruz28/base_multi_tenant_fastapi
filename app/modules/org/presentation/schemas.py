@@ -632,3 +632,14 @@ class ParametroRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+from app.shared.pagination.schemas import ErpPaginatedResponse
+
+
+class PaginatedCentroCostoResponse(ErpPaginatedResponse[CentroCostoRead]):
+    """Listado paginado de centros de costo."""
+
+
+class PaginatedParametroResponse(ErpPaginatedResponse[ParametroRead]):
+    """Listado paginado de parámetros."""

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from uuid import UUID
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import InventarioFisicoRead
@@ -28,9 +29,9 @@ async def aprobar_inventario_fisico(
     _: UsuarioReadWithRoles = Depends(
         require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.aprobar")
     ),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Aprueba un inventario físico de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await inventario_fisico_aprobacion_service.aprobar_inventario_fisico_servicio(
             client_id=client_id,

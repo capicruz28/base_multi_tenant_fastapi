@@ -5,6 +5,7 @@ Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -33,6 +34,14 @@ from app.modules.inv.application.services.movimiento_proceso_service import (
     procesar_movimiento_servicio,
 )
 
+_MSG_APROBAR_REQUIERE_FINALIZADO = (
+    "Debe finalizar el conteo antes de aprobar el ajuste de inventario."
+)
+_MSG_APROBAR_SIN_DIFERENCIAS = (
+    "No existen diferencias de inventario para aprobar. "
+    "Utilice POST /inventario-fisico/{id}/finalizar para cerrar el conteo sin ajuste de stock."
+)
+
 
 def _dec(v: Optional[object]) -> Decimal:
     if v is None:
@@ -46,6 +55,51 @@ def _gen_numero_movimiento(prefix: str = "INV-AJUS") -> str:
     stamp = datetime.utcnow().strftime("%y%m%d")
     micro = datetime.utcnow().strftime("%f")[-4:]
     return f"{prefix}-{stamp}-{micro}"[:20]
+
+
+@dataclass(frozen=True)
+class _LineaAjusteInventarioFisico:
+    det: dict
+    producto_id: UUID
+    diferencia: Decimal
+
+
+def _clasificar_lineas_aprobacion(
+    detalles: list[dict],
+) -> tuple[int, int, Decimal, list[_LineaAjusteInventarioFisico]]:
+    """
+    Clasifica el detalle del inventario físico en un solo recorrido.
+
+    Retorna:
+        total_productos_contados, total_items, total_cantidad_abs, lineas_ajuste
+    """
+    total_productos_contados = 0
+    total_items = 0
+    total_cantidad_abs = Decimal("0")
+    lineas_ajuste: list[_LineaAjusteInventarioFisico] = []
+
+    for det in detalles:
+        producto_id = det.get("producto_id")
+        if not producto_id:
+            continue
+        contada = det.get("cantidad_contada")
+        if contada is None:
+            continue
+        total_productos_contados += 1
+        diferencia = _dec(contada) - _dec(det.get("cantidad_sistema"))
+        if diferencia == 0:
+            continue
+        lineas_ajuste.append(
+            _LineaAjusteInventarioFisico(
+                det=det,
+                producto_id=producto_id,
+                diferencia=diferencia,
+            )
+        )
+        total_items += 1
+        total_cantidad_abs += abs(diferencia)
+
+    return total_productos_contados, total_items, total_cantidad_abs, lineas_ajuste
 
 
 async def aprobar_inventario_fisico_servicio(
@@ -95,7 +149,12 @@ async def aprobar_inventario_fisico_servicio(
         estado = (inv.get("estado") or "").lower()
         if estado in ("ajustado", "anulado"):
             return inv
-        if estado not in ("en_proceso", "finalizado"):
+        if estado == "en_proceso":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=_MSG_APROBAR_REQUIERE_FINALIZADO,
+            )
+        if estado != "finalizado":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"No se puede aprobar inventario físico en estado '{inv.get('estado')}'",
@@ -134,9 +193,22 @@ async def aprobar_inventario_fisico_servicio(
                 detail="No se puede aprobar inventario físico sin detalle",
             )
 
+        now = datetime.utcnow()
+        (
+            total_productos_contados,
+            total_items,
+            total_cantidad_abs,
+            lineas_ajuste,
+        ) = _clasificar_lineas_aprobacion(detalles)
+
+        if total_items == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=_MSG_APROBAR_SIN_DIFERENCIAS,
+            )
+
         numero_movimiento = _gen_numero_movimiento()
         movimiento_id = uuid.uuid4()
-        now = datetime.utcnow()
         await uow.execute(
             insert(InvMovimientoTable).values(
                 movimiento_id=movimiento_id,
@@ -156,7 +228,6 @@ async def aprobar_inventario_fisico_servicio(
                 total_cantidad=Decimal("0"),
                 total_costo=Decimal("0"),
                 moneda_id=moneda_id,
-                moneda="PEN",
                 estado="borrador",
                 observaciones=observaciones,
                 usuario_creacion_id=usuario_id,
@@ -164,21 +235,10 @@ async def aprobar_inventario_fisico_servicio(
             )
         )
 
-        total_items = 0
-        total_cantidad_abs = Decimal("0")
-        total_productos_contados = 0
-        for det in detalles:
-            producto_id = det.get("producto_id")
-            if not producto_id:
-                continue
-            sistema = _dec(det.get("cantidad_sistema"))
-            contada = det.get("cantidad_contada")
-            if contada is None:
-                continue
-            total_productos_contados += 1
-            diferencia = _dec(contada) - sistema
-            if diferencia == 0:
-                continue
+        for linea in lineas_ajuste:
+            det = linea.det
+            producto_id = linea.producto_id
+            diferencia = linea.diferencia
 
             prod = await get_producto_by_id(
                 client_id=client_id,
@@ -206,47 +266,13 @@ async def aprobar_inventario_fisico_servicio(
                     cantidad_base=diferencia,
                     costo_unitario=det.get("costo_unitario") or Decimal("0"),
                     moneda_id=moneda_id,
-                    moneda="PEN",
                     lote=det.get("lote"),
                     fecha_vencimiento=det.get("fecha_vencimiento"),
                     numero_serie=None,
                     ubicacion_almacen=det.get("ubicacion_almacen"),
                     observaciones=det.get("observaciones"),
-                    fecha_actualizacion=now,
                 )
             )
-            total_items += 1
-            total_cantidad_abs += abs(diferencia)
-
-        if total_items == 0:
-            await uow.execute(
-                update(InvInventarioFisicoTable)
-                .where(
-                    and_(
-                        InvInventarioFisicoTable.c.cliente_id == client_id,
-                        InvInventarioFisicoTable.c.empresa_id == empresa_id,
-                        InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
-                    )
-                )
-                .values(
-                    estado="finalizado",
-                    total_productos_contados=total_productos_contados,
-                    total_diferencias=0,
-                    valor_diferencias=Decimal("0"),
-                    fecha_finalizacion=now,
-                    fecha_actualizacion=now,
-                )
-            )
-            closed_rows = await uow.execute(
-                select(InvInventarioFisicoTable).where(
-                    and_(
-                        InvInventarioFisicoTable.c.cliente_id == client_id,
-                        InvInventarioFisicoTable.c.empresa_id == empresa_id,
-                        InvInventarioFisicoTable.c.inventario_fisico_id == inventario_fisico_id,
-                    )
-                )
-            )
-            return closed_rows[0] if closed_rows else inv
 
         await uow.execute(
             update(InvInventarioFisicoTable)
@@ -260,7 +286,6 @@ async def aprobar_inventario_fisico_servicio(
             .values(
                 total_productos_contados=total_productos_contados,
                 total_diferencias=total_items,
-                fecha_actualizacion=now,
             )
         )
 
@@ -301,7 +326,6 @@ async def aprobar_inventario_fisico_servicio(
                 movimiento_ajuste_id=movimiento_id,
                 fecha_ajuste=now,
                 fecha_finalizacion=now,
-                fecha_actualizacion=now,
             )
         )
 

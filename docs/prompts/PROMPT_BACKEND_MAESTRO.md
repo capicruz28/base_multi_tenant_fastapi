@@ -1,6 +1,6 @@
 # CAXIS ERP — Prompt Maestro (operativo)
 
-**Estándar oficial:** Backend V4 — 2026-06-03
+**Estándar oficial:** Backend V4 — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación consolidados)
 
 ---
 
@@ -22,7 +22,7 @@ Sustituir en ese documento:
 | Documento | Uso |
 |-----------|-----|
 | [`ERP_BACKEND_MASTER_PROMPT_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md) | Fases 0–4: análisis, auditoría, implementación, verificación |
-| [`ERP_BACKEND_RULES_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_RULES_V4.md) | Reglas operativas R01–R81 |
+| [`ERP_BACKEND_RULES_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_RULES_V4.md) | Reglas operativas R01–R112 |
 | [`ERP_BACKEND_STANDARDS_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_STANDARDS_V4.md) | Estándar técnico detallado |
 | [`ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`](../../app/docs/arquitectura/ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md) | Auditoría arquitectónica origen |
 | [`.cursorrules`](../../.cursorrules) | Reglas Cursor activas (resumen V4) |
@@ -33,8 +33,13 @@ Sustituir en ese documento:
 
 | Módulo | Usar para |
 |--------|-----------|
-| **ORG** | Session scope, `OrgScopePolicy`, `{codigo}_deps.py`, maestros tenant-wide |
-| **INV** | `require_erp_session`, transaccionales, cabecera-detalle embebido, tablas derivadas |
+| **ORG + INV (session scope)** | `get_{codigo}_session_client_id`, `require_session_cliente_id`, `{codigo}_deps.py` — ver `ERP_BACKEND_STANDARDS_V4.md` §3.7, §5.5 |
+| **ORG** | `OrgScopePolicy`, gates `require_org_*_erp_session`, maestros tenant-wide, **listados escalables** |
+| **INV** | `require_erp_session`, `inv_deps.py`, transaccionales, cabecera-detalle embebido, tablas derivadas, **listados escalables** |
+| **INV (post Fase 0)** | Workflow enforcement, write policy derivadas, permisos lifecycle, rutas proceso canónicas, reversión compensatoria, gate RC |
+| **ORG + INV (listados)** | Contrato PERF backend: `page`, `limit`, `buscar`, `sort_by`, `sort_dir` — `app/shared/pagination/` |
+
+Normas completas de sesión e impersonación: **no redefinir aquí** — consultar `ERP_BACKEND_STANDARDS_V4.md` y reglas R19–R25, R110–R112 en `ERP_BACKEND_RULES_V4.md`.
 
 ---
 

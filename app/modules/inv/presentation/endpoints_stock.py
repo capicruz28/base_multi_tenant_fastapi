@@ -1,10 +1,11 @@
 # app/modules/inv/presentation/endpoints_stock.py
-"""Endpoints INV - Stock. client_id siempre desde current_user.cliente_id."""
+"""Endpoints INV - Stock. client_id desde sesión efectiva (inv_deps, patrón ORG)."""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from uuid import UUID
 from typing import Optional
 
 from app.api.deps import get_current_active_user
+from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import NotFoundError, AuthorizationError, ValidationError
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -23,9 +24,9 @@ async def listar_stocks(
     almacen_id: Optional[UUID] = Query(None, description="Filtrar por almacén"),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Lista stocks de la empresa activa en sesión."""
-    client_id = current_user.cliente_id
     try:
         return await stock_service.list_stocks_servicio(
             client_id=client_id,
@@ -41,9 +42,9 @@ async def detalle_stock(
     stock_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Detalle de un stock de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await stock_service.get_stock_servicio(
             client_id=client_id,
@@ -63,9 +64,9 @@ async def stock_por_producto_almacen(
     almacen_id: UUID,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.leer")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """Stock por producto y almacén en la empresa activa. Sin fila → null."""
-    client_id = current_user.cliente_id
     try:
         return await stock_service.get_stock_by_producto_almacen_servicio(
             client_id=client_id,
@@ -89,9 +90,9 @@ async def crear_stock(
     data: StockCreate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.crear")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """(Interno) Crea un stock. empresa_id del body debe coincidir con la sesión."""
-    client_id = current_user.cliente_id
     try:
         return await stock_service.create_stock_servicio(client_id=client_id, data=data)
     except AuthorizationError as e:
@@ -113,9 +114,9 @@ async def actualizar_stock(
     data: StockUpdate,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
     _: UsuarioReadWithRoles = Depends(require_permission(f"{MODULE_CODE}.{RESOURCE_CODE}.actualizar")),
+    client_id: UUID = Depends(get_inv_session_client_id),
 ):
     """(Interno) Actualiza un stock de la empresa activa."""
-    client_id = current_user.cliente_id
     try:
         return await stock_service.update_stock_servicio(
             client_id=client_id,

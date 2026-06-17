@@ -1,0 +1,591 @@
+{
+  "meta": {
+    "tenant": "innova",
+    "empresa_id": "9d8d401a-742d-44a5-875f-84e8686ce9dd",
+    "producto_id": null,
+    "empresas": 2
+  },
+  "endpoints": {
+    "movimientos": {
+      "path": "/api/v1/inv/movimientos",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 92.3,
+          "detail": null
+        },
+        "page1_limit1": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 1,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 121.5,
+          "detail": null
+        },
+        "page2_limit1": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 1,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 96.8,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 99.1,
+          "detail": null
+        },
+        "page1_limit100": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 100,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 96.2,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 75.1,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 115.2,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        }
+      }
+    },
+    "inventario_fisico": {
+      "path": "/api/v1/inv/inventario-fisico",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 115.7,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 118.0,
+          "detail": null
+        },
+        "page2_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 119.2,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 104.4,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 127.2,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        }
+      }
+    },
+    "stock": {
+      "path": "/api/v1/inv/stock",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 110.4,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 127.3,
+          "detail": null
+        },
+        "page2_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 123.3,
+          "detail": null
+        },
+        "cross_producto": {
+          "status": 404,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail"
+            ],
+            "detail": "Producto no encontrado"
+          },
+          "ms": 143.2,
+          "detail": "Producto no encontrado"
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 109.3,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 105.2,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        }
+      }
+    },
+    "stock_alertas": {
+      "path": "/api/v1/inv/stock/alertas",
+      "cases": {
+        "legacy": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 94.6,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "page1_limit50": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 90.2,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "page2_limit50": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 93.4,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 118.5,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 107.8,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+      }
+    },
+    "productos": {
+      "path": "/api/v1/inv/productos",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 120.7,
+          "detail": null
+        },
+        "page1_limit1": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 1,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 130.8,
+          "detail": null
+        },
+        "page2_limit1": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 1,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 143.7,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 137.1,
+          "detail": null
+        },
+        "cross_categoria": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": [],
+            "first_id": null
+          },
+          "ms": 123.2,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 102.6,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 116.3,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        }
+      }
+    },
+    "kardex": {
+      "cases": {
+        "no_producto": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 90.7,
+          "detail": "query.producto_id: Field required"
+        },
+        "legacy_with_producto": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 96.1,
+          "detail": "query.producto_id: Field required"
+        },
+        "page1_limit1": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 98.1,
+          "detail": "query.producto_id: Field required"
+        },
+        "page2_limit1": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 114.9,
+          "detail": "query.producto_id: Field required"
+        },
+        "cross_producto": {
+          "status": 404,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail"
+            ],
+            "detail": "Producto no encontrado"
+          },
+          "ms": 149.3,
+          "detail": "Producto no encontrado"
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": [
+              "query.page: Input should be greater than or equal to 1",
+              "query.producto_id: Field required"
+            ]
+          },
+          "ms": 113.8,
+          "detail": [
+            "query.page: Input should be greater than or equal to 1",
+            "query.producto_id: Field required"
+          ]
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": [
+              "query.limit: Input should be less than or equal to 100",
+              "query.producto_id: Field required"
+            ]
+          },
+          "ms": 127.5,
+          "detail": [
+            "query.limit: Input should be less than or equal to 100",
+            "query.producto_id: Field required"
+          ]
+        }
+      }
+    }
+  },
+  "consistency": {
+    "movimientos": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    },
+    "inventario_fisico": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    },
+    "stock": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    },
+    "stock_alertas": {},
+    "productos": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    }
+  },
+  "routing": {
+    "/api/v1/inv/stock/alertas": {
+      "status": 422,
+      "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "ms": 77.1
+    },
+    "/api/v1/inv/stock/alertas/": {
+      "status": 404,
+      "detail": "Not Found",
+      "ms": 40.4
+    }
+  },
+  "limit_without_page": {
+    "status": 200,
+    "summary": {
+      "type": "list",
+      "count": 0,
+      "sample_keys": [],
+      "first_id": null
+    },
+    "ms": 110.8
+  }
+}

@@ -5,7 +5,7 @@ Servicio de Parámetro Sistema (ORG). Ámbito HYBRID (Etapa C2).
 Lectura ERP: globales tenant (empresa_id NULL) + overrides empresa sesión con precedencia.
 Escritura global: tenant_admin / platform. Escritura empresa: empresa_id = sesión JWT.
 """
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
 
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError
@@ -24,6 +24,9 @@ from app.core.tenant.session_scope import (
     log_org_param_global,
     log_org_param_precedence,
 )
+from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
+from app.shared.pagination.query_helpers import apply_memory_sort
+from app.shared.pagination.schemas import ErpPaginatedResponse
 from app.infrastructure.database.queries.org.parametro_queries import (
     apply_parametro_precedence,
     create_parametro,
@@ -40,6 +43,9 @@ from app.modules.org.presentation.schemas import (
 
 _RESOURCE = "parametro"
 _NOT_FOUND = "Parámetro no encontrado"
+_SORT_COLUMNS_PARAMETRO = frozenset(
+    {"modulo_codigo", "codigo_parametro", "nombre_parametro", "fecha_creacion", "fecha_actualizacion"}
+)
 
 
 def _row_to_read(row: dict) -> ParametroRead:
@@ -99,13 +105,18 @@ async def list_parametros_servicio(
     modulo_codigo: Optional[str] = None,
     solo_activos: bool = True,
     buscar: Optional[str] = None,
-) -> List[ParametroRead]:
+    pagination: Optional[ErpPaginationParams] = None,
+    sort: Optional[ErpSortParams] = None,
+) -> Union[List[ParametroRead], ErpPaginatedResponse[ParametroRead]]:
     session_empresa_id = require_session_empresa_id()
+    sort_by = sort.sort_by if sort else None
+    sort_dir = sort.sort_dir if sort and sort.is_active else None
     rows = await list_parametros_hybrid(
         client_id=client_id,
         session_empresa_id=session_empresa_id,
         modulo_codigo=modulo_codigo,
         solo_activos=solo_activos,
+        buscar=buscar,
     )
     log_org_hybrid_scope(
         operation="list_raw",
@@ -121,17 +132,22 @@ async def list_parametros_servicio(
         override_count=override_count,
         global_count=global_count,
     )
-    parametros = [_row_to_read(r) for r in merged]
-    if buscar:
-        term = buscar.lower()
-        parametros = [
-            p
-            for p in parametros
-            if term in (p.modulo_codigo or "").lower()
-            or term in (p.codigo_parametro or "").lower()
-            or term in (p.nombre_parametro or "").lower()
-        ]
-    return parametros
+    merged = apply_memory_sort(
+        merged,
+        allowed_columns=_SORT_COLUMNS_PARAMETRO,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        default_key=lambda r: (r.get("modulo_codigo"), r.get("codigo_parametro")),
+        tie_breaker_key=lambda r: str(r.get("parametro_id")),
+    )
+    total = len(merged)
+    if pagination is None or not pagination.is_paginated:
+        return [_row_to_read(r) for r in merged]
+    start = pagination.offset
+    end = start + pagination.limit
+    page_rows = merged[start:end]
+    items = [_row_to_read(r) for r in page_rows]
+    return build_paginated_response(items, total, pagination)
 
 
 async def get_parametro_servicio(

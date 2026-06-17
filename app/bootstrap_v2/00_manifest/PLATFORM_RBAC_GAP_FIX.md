@@ -26,7 +26,8 @@ El runtime onboarding **ADMIN_TENANT** no aplica al cliente SYSTEM — por dise�
 | Artefacto | Función |
 |-----------|---------|
 | `platform_rbac_bootstrap_service.py` | Activa `SYS_ADMIN` + grants idempotentes ADMIN_PLATFORM |
-| `repair_platform_rbac.py` | CLI `--audit-only` / `--dry-run` / `--apply` |
+| `repair_platform_rbac.py` | CLI legacy (deprecado → `bootstrap_platform.py`) |
+| `bootstrap_platform.py` | CLI oficial `--audit-only` / `--apply` / `--rbac-only` |
 | `core_permissions.py` | `admin.platform.access` en `PROTECTED_PERMISSION_CODIGOS` + registro estático |
 | `http_smoke_platform_rbac.py` | Smoke superadmin + Origin `platform.app.local` |
 

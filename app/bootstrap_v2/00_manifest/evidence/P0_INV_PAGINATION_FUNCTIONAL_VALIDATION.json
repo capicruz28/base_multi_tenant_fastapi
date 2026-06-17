@@ -1,0 +1,831 @@
+{
+  "meta": {
+    "base_url": "http://localhost:8000",
+    "tenant": "acme",
+    "empresa_id": "895d1616-3e3e-416e-b4a0-d148f588feda",
+    "producto_id": null
+  },
+  "endpoints": {
+    "movimientos": {
+      "path": "/api/v1/inv/movimientos",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": []
+          },
+          "ms": 104.3,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 115.9,
+          "detail": null
+        },
+        "page2_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 178.1,
+          "detail": null
+        },
+        "page1_limit100": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 100,
+            "sample_keys": []
+          },
+          "ms": 130.8,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 84.9,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 90.6,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        }
+      }
+    },
+    "inventario_fisico": {
+      "path": "/api/v1/inv/inventario-fisico",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": []
+          },
+          "ms": 92.7,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 118.3,
+          "detail": null
+        },
+        "page2_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 121.4,
+          "detail": null
+        },
+        "page1_limit100": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 100,
+            "sample_keys": []
+          },
+          "ms": 111.7,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 96.3,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 75.5,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        }
+      }
+    },
+    "stock": {
+      "path": "/api/v1/inv/stock",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": []
+          },
+          "ms": 116.5,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 130.9,
+          "detail": null
+        },
+        "page2_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 105.5,
+          "detail": null
+        },
+        "page1_limit100": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 100,
+            "sample_keys": []
+          },
+          "ms": 109.9,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 92.8,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 127.7,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        },
+        "cross_producto": {
+          "status": 404,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail"
+            ],
+            "detail": "Producto no encontrado"
+          },
+          "ms": 108.5,
+          "detail": "Producto no encontrado"
+        }
+      }
+    },
+    "stock_alertas": {
+      "path": "/api/v1/inv/stock/alertas",
+      "cases": {
+        "legacy": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 81.6,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "page1_limit50": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 97.1,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "page2_limit50": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 91.0,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "page1_limit100": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 114.7,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 121.8,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          },
+          "ms": 87.5,
+          "detail": "El parámetro 'path.stock_id' no es un UUID válido. Formato esperado: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+      }
+    },
+    "productos": {
+      "path": "/api/v1/inv/productos",
+      "cases": {
+        "legacy": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": []
+          },
+          "ms": 99.8,
+          "detail": null
+        },
+        "page1_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 124.8,
+          "detail": null
+        },
+        "page2_limit50": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 2,
+            "total_paginas": 0,
+            "limit": 50,
+            "sample_keys": []
+          },
+          "ms": 130.9,
+          "detail": null
+        },
+        "page1_limit100": {
+          "status": 200,
+          "summary": {
+            "type": "paginated",
+            "count": 0,
+            "total": 0,
+            "pagina_actual": 1,
+            "total_paginas": 0,
+            "limit": 100,
+            "sample_keys": []
+          },
+          "ms": 142.7,
+          "detail": null
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.page: Input should be greater than or equal to 1"
+          },
+          "ms": 96.0,
+          "detail": "query.page: Input should be greater than or equal to 1"
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.limit: Input should be less than or equal to 100"
+          },
+          "ms": 92.4,
+          "detail": "query.limit: Input should be less than or equal to 100"
+        },
+        "cross_categoria": {
+          "status": 200,
+          "summary": {
+            "type": "list",
+            "count": 0,
+            "sample_keys": []
+          },
+          "ms": 110.3,
+          "detail": null
+        }
+      }
+    },
+    "kardex": {
+      "path": "/api/v1/inv/kardex",
+      "cases": {
+        "no_producto": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 83.5,
+          "detail": "query.producto_id: Field required"
+        },
+        "legacy_with_producto": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 87.0,
+          "detail": "query.producto_id: Field required"
+        },
+        "page1_with_producto": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 108.5,
+          "detail": "query.producto_id: Field required"
+        },
+        "page2_with_producto": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": "query.producto_id: Field required"
+          },
+          "ms": 163.6,
+          "detail": "query.producto_id: Field required"
+        },
+        "cross_producto": {
+          "status": 404,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail"
+            ],
+            "detail": "Producto no encontrado"
+          },
+          "ms": 153.7,
+          "detail": "Producto no encontrado"
+        },
+        "invalid_page0": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": [
+              "query.page: Input should be greater than or equal to 1",
+              "query.producto_id: Field required"
+            ]
+          },
+          "ms": 102.4,
+          "detail": [
+            "query.page: Input should be greater than or equal to 1",
+            "query.producto_id: Field required"
+          ]
+        },
+        "invalid_limit101": {
+          "status": 422,
+          "summary": {
+            "type": "object",
+            "keys": [
+              "detail",
+              "error_code"
+            ],
+            "detail": [
+              "query.limit: Input should be less than or equal to 100",
+              "query.producto_id: Field required"
+            ]
+          },
+          "ms": 90.8,
+          "detail": [
+            "query.limit: Input should be less than or equal to 100",
+            "query.producto_id: Field required"
+          ]
+        }
+      }
+    }
+  },
+  "consistency": {
+    "movimientos": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    },
+    "inventario_fisico": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    },
+    "stock": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    },
+    "stock_alertas": {},
+    "productos": {
+      "legacy_count_eq_total": true,
+      "pagina_actual_is_1": true,
+      "page2_pagina_actual": true,
+      "page2_items_count": true
+    }
+  },
+  "openapi": {
+    "/api/v1/inv/movimientos": {
+      "operationId": "listar_movimientos_api_v1_inv_movimientos_get",
+      "params": [
+        {
+          "name": "tipo_movimiento_id",
+          "required": false
+        },
+        {
+          "name": "almacen_id",
+          "required": false
+        },
+        {
+          "name": "estado",
+          "required": false
+        },
+        {
+          "name": "fecha_desde",
+          "required": false
+        },
+        {
+          "name": "fecha_hasta",
+          "required": false
+        },
+        {
+          "name": "page",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "response_schema": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MovimientoRead"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/PaginatedMovimientoResponse"
+          }
+        ],
+        "title": "Response Listar Movimientos Api V1 Inv Movimientos Get"
+      },
+      "has_anyOf": true
+    },
+    "/api/v1/inv/kardex": {
+      "operationId": "obtener_kardex_api_v1_inv_kardex_get",
+      "params": [
+        {
+          "name": "producto_id",
+          "required": true
+        },
+        {
+          "name": "almacen_id",
+          "required": false
+        },
+        {
+          "name": "fecha_desde",
+          "required": false
+        },
+        {
+          "name": "fecha_hasta",
+          "required": false
+        },
+        {
+          "name": "page",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "response_schema": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KardexLineaRead"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/PaginatedKardexResponse"
+          }
+        ],
+        "title": "Response Obtener Kardex Api V1 Inv Kardex Get"
+      },
+      "has_anyOf": true
+    },
+    "/api/v1/inv/inventario-fisico": {
+      "operationId": "listar_inventarios_fisicos_api_v1_inv_inventario_fisico_get",
+      "params": [
+        {
+          "name": "almacen_id",
+          "required": false
+        },
+        {
+          "name": "estado",
+          "required": false
+        },
+        {
+          "name": "fecha_desde",
+          "required": false
+        },
+        {
+          "name": "fecha_hasta",
+          "required": false
+        },
+        {
+          "name": "page",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "response_schema": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventarioFisicoRead"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/PaginatedInventarioFisicoResponse"
+          }
+        ],
+        "title": "Response Listar Inventarios Fisicos Api V1 Inv Inventario Fisico Get"
+      },
+      "has_anyOf": true
+    },
+    "/api/v1/inv/stock": {
+      "operationId": "listar_stocks_api_v1_inv_stock_get",
+      "params": [
+        {
+          "name": "producto_id",
+          "required": false
+        },
+        {
+          "name": "almacen_id",
+          "required": false
+        },
+        {
+          "name": "page",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "response_schema": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockRead"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/PaginatedStockResponse"
+          }
+        ],
+        "title": "Response Listar Stocks Api V1 Inv Stock Get"
+      },
+      "has_anyOf": true
+    },
+    "/api/v1/inv/stock/alertas": {
+      "operationId": "alertas_stock_bajo_minimo_api_v1_inv_stock_alertas_get",
+      "params": [
+        {
+          "name": "almacen_id",
+          "required": false
+        },
+        {
+          "name": "page",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "response_schema": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockRead"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/PaginatedStockResponse"
+          }
+        ],
+        "title": "Response Alertas Stock Bajo Minimo Api V1 Inv Stock Alertas Get"
+      },
+      "has_anyOf": true
+    },
+    "/api/v1/inv/productos": {
+      "operationId": "listar_productos_api_v1_inv_productos_get",
+      "params": [
+        {
+          "name": "categoria_id",
+          "required": false
+        },
+        {
+          "name": "tipo_producto",
+          "required": false
+        },
+        {
+          "name": "solo_activos",
+          "required": false
+        },
+        {
+          "name": "buscar",
+          "required": false
+        },
+        {
+          "name": "page",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "response_schema": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductoRead"
+            }
+          },
+          {
+            "$ref": "#/components/schemas/PaginatedProductoResponse"
+          }
+        ],
+        "title": "Response Listar Productos Api V1 Inv Productos Get"
+      },
+      "has_anyOf": true
+    }
+  }
+}

@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.core.authorization.rbac import require_permission
 from app.core.exceptions import AuthorizationError, ConflictError, CustomException, NotFoundError
+from app.shared.pagination import erp_sort_params, ErpSortParams
 from app.modules.org.presentation.org_deps import (
     get_org_session_client_id,
     reject_legacy_cliente_query,
@@ -21,6 +22,7 @@ router = APIRouter()
 async def listar_empresas(
     solo_activos: bool = True,
     buscar: Optional[str] = Query(None),
+    sort: ErpSortParams = Depends(erp_sort_params),
     _: None = Depends(reject_legacy_cliente_query),
     current_user: UsuarioReadWithRoles = Depends(require_permission("org.empresa.leer")),
     client_id: UUID = Depends(get_org_session_client_id),
@@ -30,6 +32,7 @@ async def listar_empresas(
         client_id=client_id,
         solo_activos=solo_activos,
         buscar=buscar,
+        sort=sort,
     )
 
 

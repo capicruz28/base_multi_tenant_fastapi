@@ -1,0 +1,228 @@
+{
+  "meta": {
+    "tenant": "innova",
+    "phase": "P1",
+    "timestamp": "2026-06-15T17:29:49"
+  },
+  "inv_maestros": {
+    "categorias_legacy": {
+      "status": 200,
+      "ms": 122.2,
+      "summary": {
+        "type": "list",
+        "count": 3
+      }
+    },
+    "categorias_buscar": {
+      "status": 200,
+      "ms": 102.2,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    },
+    "categorias_p1": {
+      "status": 200,
+      "ms": 116.0,
+      "summary": {
+        "type": "paginated",
+        "count": 3,
+        "total": 3,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "almacenes_p1": {
+      "status": 200,
+      "ms": 135.9,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 1,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "unidades_p1": {
+      "status": 200,
+      "ms": 110.7,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 1,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "tipos_mov_p1": {
+      "status": 200,
+      "ms": 125.3,
+      "summary": {
+        "type": "paginated",
+        "count": 4,
+        "total": 4,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "productos_buscar_p1": {
+      "status": 200,
+      "ms": 145.8,
+      "summary": {
+        "type": "paginated",
+        "count": 0,
+        "total": 0,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    }
+  },
+  "org": {
+    "empresa_legacy": {
+      "status": 200,
+      "ms": 120.1,
+      "summary": {
+        "type": "list",
+        "count": 2
+      }
+    },
+    "empresa_buscar": {
+      "status": 200,
+      "ms": 105.2,
+      "summary": {
+        "type": "list",
+        "count": 1
+      }
+    },
+    "cargos_buscar": {
+      "status": 200,
+      "ms": 96.8,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    },
+    "centros_legacy": {
+      "status": 200,
+      "ms": 96.0,
+      "summary": {
+        "type": "list",
+        "count": 1
+      }
+    },
+    "centros_p1": {
+      "status": 200,
+      "ms": 129.1,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 1,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "centros_buscar": {
+      "status": 200,
+      "ms": 115.8,
+      "summary": {
+        "type": "paginated",
+        "count": 1,
+        "total": 1,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "parametros_legacy": {
+      "status": 200,
+      "ms": 141.8,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    },
+    "parametros_p1": {
+      "status": 200,
+      "ms": 200.5,
+      "summary": {
+        "type": "paginated",
+        "count": 0,
+        "total": 0,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    }
+  },
+  "p0_regression": {
+    "movimientos": {
+      "status": 200,
+      "ms": 159.7,
+      "summary": {
+        "type": "paginated",
+        "count": 5,
+        "total": 14,
+        "pagina_actual": 1,
+        "limit": 5
+      }
+    },
+    "kardex": {
+      "status": 200,
+      "ms": 187.5,
+      "summary": {
+        "type": "paginated",
+        "count": 6,
+        "total": 6,
+        "pagina_actual": 1,
+        "limit": 50
+      }
+    },
+    "stock_alertas": {
+      "status": 200,
+      "ms": 139.3,
+      "summary": {
+        "type": "list",
+        "count": 0
+      }
+    }
+  },
+  "openapi": {
+    "/api/v1/inv/categorias": {
+      "deprecated": null,
+      "has_anyOf": true,
+      "params": [
+        "solo_activos",
+        "buscar",
+        "page",
+        "limit"
+      ]
+    },
+    "/api/v1/inv/movimientos-detalle": {
+      "deprecated": true,
+      "has_anyOf": false,
+      "params": [
+        "movimiento_id",
+        "producto_id"
+      ]
+    },
+    "/api/v1/org/centros-costo": {
+      "deprecated": null,
+      "has_anyOf": true,
+      "params": [
+        "solo_activos",
+        "buscar",
+        "page",
+        "limit"
+      ]
+    },
+    "/api/v1/org/parametros": {
+      "deprecated": null,
+      "has_anyOf": true,
+      "params": [
+        "modulo_codigo",
+        "solo_activos",
+        "buscar",
+        "page",
+        "limit"
+      ]
+    }
+  }
+}

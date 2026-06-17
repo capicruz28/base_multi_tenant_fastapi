@@ -118,7 +118,7 @@ class PlatformRbacBootstrapService:
             raise DatabaseError(
                 detail=(
                     f"Rol {PLATFORM_ADMIN_ROL_CODIGO} no encontrado para cliente plataforma. "
-                    "Ejecute D010 o cree el rol antes del repair."
+                    "Ejecute: python scripts/bootstrap_platform.py --apply"
                 ),
                 internal_code="PLATFORM_ADMIN_ROLE_NOT_FOUND",
             )

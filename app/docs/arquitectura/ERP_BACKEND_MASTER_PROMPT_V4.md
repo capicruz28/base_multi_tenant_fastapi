@@ -2,6 +2,7 @@
 
 **Versión:** 4.0  
 **Fecha:** 2026-06-03  
+**Revisión:** 2026-06-16 — post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
 **Estado:** Oficial — reemplazo completo de `PROMPT_BACKEND_MAESTRO.md` v3  
 **Fuente:** `ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`  
 **Estándares:** `ERP_BACKEND_STANDARDS_V4.md` · **Reglas:** `ERP_BACKEND_RULES_V4.md`
@@ -20,8 +21,9 @@ El sistema ya tiene: autenticación JWT, RBAC, LBAC, impersonación, arquitectur
 
 | Referencia | Usar para |
 |------------|-----------|
-| **ORG** | Session scope, políticas TENANT/COMPANY/HYBRID, maestros, `{codigo}_deps.py` |
-| **INV** | `require_erp_session`, transaccionales, cabecera-detalle embebido, tablas derivadas |
+| **ORG** | Session scope, políticas TENANT/COMPANY/HYBRID, `get_org_session_client_id`, maestros, listados escalables, `{codigo}_deps.py` |
+| **INV** | `require_erp_session`, `get_inv_session_client_id` (`inv_deps.py`), transaccionales, cabecera-detalle embebido, tablas derivadas, listados escalables |
+| **shared/pagination** | Infra listados: `erp_pagination_params`, `erp_sort_params`, `apply_erp_sort` |
 
 **Arquitectura oficial V4:**
 
@@ -44,8 +46,8 @@ Consultar `ERP_BACKEND_RULES_V4.md` para el listado completo. Resumen crítico:
 ❌ NO usar `except Exception → HTTPException(500)`  
 ❌ NO aceptar `cliente_id` / `empresa_id` en body/query para autorización  
 
-✅ Reutilizar patrones ORG + INV  
-✅ Validar `cliente_id` y `empresa_id` desde sesión  
+✅ Reutilizar patrones ORG + INV (session scope: §3.7 y §5.5 STANDARDS)  
+✅ Validar `cliente_id` operativo via `get_{cod}_session_client_id`; `empresa_id` desde sesión  
 ✅ RBAC: `{modulo}.{recurso}.{accion}` via `require_permission`  
 ✅ `require_erp_session` en router padre del módulo  
 ✅ Queries en `app/infrastructure/database/queries/{cod}/`  
@@ -143,7 +145,7 @@ Revisar y documentar:
 | Aspecto | Archivo ORG | Qué extraer |
 |---------|-------------|-------------|
 | Router agregador | `modules/org/presentation/endpoints.py` | Prefijos, tags, sub-routers |
-| Session deps | `modules/org/presentation/org_deps.py` | `get_org_session_client_id`, `OrgScopePolicy` |
+| Session deps | `modules/org/presentation/org_deps.py` | `get_org_session_client_id`, `OrgScopePolicy`, delegación a `require_session_cliente_id` |
 | Scope gates | `org_deps.py` | `require_org_tenant_erp_session`, `require_org_company_erp_session` |
 | Legacy rejection | `org_deps.py` | `reject_legacy_cliente_query`, `reject_legacy_empresa_query` |
 | Endpoints maestro | `endpoints_empresa.py` | CRUD, soft delete, reactivar, RBAC |
@@ -159,8 +161,15 @@ Revisar y documentar:
 | Aspecto | Archivo INV | Qué extraer |
 |---------|-------------|-------------|
 | ERP session gate | `modules/inv/presentation/endpoints.py` | `require_erp_session` en router padre |
+| Session deps | `modules/inv/presentation/inv_deps.py` | `get_inv_session_client_id` → `require_session_cliente_id` (patrón obligatorio todo módulo ERP) |
+| Endpoints con client_id | `endpoints_categorias.py`, `endpoints_productos.py` | `Depends(get_inv_session_client_id)` — **no** `current_user.cliente_id` |
 | Company scope | `producto_service.py` | `require_session_empresa_id`, `enforce_body_empresa_matches_session` |
 | Transaccional | `endpoints_movimientos.py` | Cabecera-detalle embebido |
+| Workflow enforcement | `inv_workflow_enforcement.py` | Campos proceso no editables; estado inicial forzado |
+| Write policy derivada | `inv_stock_write_policy.py` | Bloqueo escritura directa 409 |
+| Rutas proceso | `endpoints.py` + `endpoints_movimientos_proceso.py` | Montaje canónico bajo `/movimientos/{id}/*`; alias RC1.1 |
+| Reversión compensatoria | `inv_estorno_proceso.py` + `estornar_movimiento_servicio` | Patrón post-proceso en UoW |
+| Auditoría usuario | `inv_audit_context.py` | `usuario_creacion_id` / `usuario_actualizacion_id` desde sesión |
 | Deprecated | `endpoints_movimientos_detalle.py`, `endpoints_stock.py` | Patrón `deprecated=True` |
 | Queries | `infrastructure/database/queries/inv/` | Filtro `cliente_id` + `empresa_id`, ILIKE |
 | RBAC | endpoints | `require_permission("inv.{recurso}.{accion}")` |
@@ -175,7 +184,7 @@ app/modules/[codigo]/
 │   ├── endpoints.py                  # + require_erp_session
 │   ├── endpoints_{entidad}.py
 │   ├── schemas.py
-│   └── [codigo]_deps.py              # Si scope mixto
+│   └── [codigo]_deps.py              # Obligatorio: get_{cod}_session_client_id; + gates si scope mixto
 ├── application/services/
 │   └── {entidad}_service.py
 app/infrastructure/database/queries/[codigo]/
@@ -193,9 +202,10 @@ Clasificar cada entidad confirmada (Fase 0) con scope policy:
 Responder únicamente:
 
 1. ¿Qué aspectos tomarás de ORG y cuáles de INV para [CODIGO]?
-2. ¿Necesitas `[codigo]_deps.py`? ¿Qué políticas de scope aplican?
+2. ¿Implementarás `[codigo]_deps.py` con `get_{cod}_session_client_id`? (obligatorio — STANDARDS §5.5). ¿Qué políticas TENANT/COMPANY adicionales aplican?
 3. ¿Hay entidades cabecera-detalle? ¿Cuál es la referencia INV?
 4. ¿Hay tablas derivadas? ¿Cuáles endpoints deben deprecarse?
+5. ¿Algún endpoint legacy usa `current_user.cliente_id` para datos? → migrar en Fase 3 (R110).
 
 ⛔ **DETENTE AQUÍ.** Espera confirmación antes de Fase 2.
 
@@ -246,6 +256,7 @@ Tabla obligatoria:
 | MAESTRO tenant | listar, detalle, crear, actualizar, desactivar, reactivar |
 | MAESTRO company | listar, detalle, crear, actualizar, desactivar, reactivar |
 | TRANSACCIONAL | listar, detalle, crear-con-detalle, actualizar-con-detalle (borrador), aprobar, procesar, anular |
+| TRANSACCIONAL (post-proceso) | estornar / reversar — si el dominio muta efectos no revertibles con anular |
 | DETALLE | embebido — lectura opcional |
 | DERIVADA | listar, detalle (solo GET) |
 
@@ -272,10 +283,17 @@ Verificar para cada endpoint:
 | Check | Detalle |
 |-------|---------|
 | `require_erp_session` | ¿Router padre lo tiene? |
-| `cliente_id` | ¿Desde sesión, no body/query? |
+| `cliente_id` operativo | ¿`Depends(get_{cod}_session_client_id)` — no body/query, no `current_user.cliente_id`? (R110) |
+| Impersonación | ¿Resolución vía `require_session_cliente_id` (STANDARDS §3.4)? |
+| Identidad vs operativo | ¿Presentation separa `current_user` de `client_id` de datos? (§3.7) |
 | `empresa_id` | ¿Desde sesión si tabla lo requiere? |
 | Scope policy | ¿TENANT/COMPANY/HYBRID correcto? |
+| `{codigo}_deps.py` | ¿Existe con `get_{cod}_session_client_id`? |
 | Cross-scope | ¿404 en lugar de 403? |
+| Workflow forgeable | ¿CREATE/UPDATE aceptan `estado` o campos de proceso? → ⚠ |
+| Rutas proceso | ¿Montadas bajo `/{recurso}/{id}/` o incorrectamente en raíz del módulo? → ⚠ |
+| Derivadas | ¿POST/PUT activos sin política de bloqueo runtime? → 🔴 |
+| Permisos lifecycle | ¿Acciones de proceso usan permiso específico o solo `actualizar`? → ⚠ |
 
 ## Paso 2.6 — Auditoría de exception handling
 
@@ -287,13 +305,26 @@ Verificar en cada archivo presentation:
 | Mapeo explícito por tipo (Conflict, NotFound) | ✅ |
 | `except Exception → 500` | 🔴 Anti-patrón — corregir en Fase 3 |
 
-## Paso 2.7 — Auditoría de paginación
+## Paso 2.7 — Auditoría de listados escalables
 
 | Check | Estándar V4 |
 |-------|-------------|
-| Listas grandes | `page` + `limit` + `Paginated*Response` |
-| Maestros pequeños (< 50) | `list[Read]` aceptable |
+| Paginación opt-in | Sin `page` → `list[Read]`; con `page` → envelope |
+| `limit` | Default 50, max 100; ignorado sin `page` |
+| `buscar` | SQL ILIKE/LIKE en queries — no in-memory |
 | Estilos legacy (`skip/limit`, `page_size`) | ⚠ Migrar |
+| Union response | `Union[list[Read], Paginated*Response]` si endpoint expone `page` |
+
+## Paso 2.10 — Auditoría de ordenamiento (sort)
+
+| Check | Estándar V4 |
+|-------|-------------|
+| `sort_by` + `sort_dir` en listados operativos | Whitelist por recurso |
+| Sin `sort_by` | ORDER BY legacy preservado |
+| `sort_by` inválido | 422 `INVALID_SORT_COLUMN` |
+| Tie-breaker PK | Segundo criterio en SQL |
+| Híbrido con merge | Sort post-merge (ej. ORG parámetros) |
+| Detalle global standalone | `deprecated=True` si aplica (P1-INV-08) |
 
 ## Paso 2.8 — Auditoría de auditoría (meta)
 
@@ -387,7 +418,9 @@ Obligatorio en cada query:
 - `execute_query(..., client_id=UUID, connection_type=DEFAULT)`
 - Funciones lookup para unicidad con `exclude_id` opcional
 - Búsqueda `buscar` via SQL ILIKE/LIKE
-- Paginación: `OFFSET :skip ROWS FETCH NEXT :limit ROWS ONLY`
+- Paginación: `apply_erp_pagination` — solo si `page` presente
+- Sort: `apply_erp_sort` con whitelist + tie-breaker PK
+- Híbrido: `apply_memory_sort` post-merge cuando aplique
 
 ## Paso 3.4 — Services
 
@@ -406,17 +439,23 @@ enforce_body_empresa_matches_session(...)         # si body tiene empresa_id
 - Validación estado transaccional → 422
 - Transacciones cabecera+detalle: BEGIN/COMMIT/ROLLBACK
 - Helper auditoría ERP en operaciones CRUD críticas
+- Auditoría usuario: `{cod}_audit_context` — campos solo desde sesión
+- Política derivadas: `assert_*_direct_write_allowed` en writes legacy
 - Lanzar subclases de `CustomException` — nunca HTTPException en services
 
 ## Paso 3.5 — Routers
 
 - Router padre: `dependencies=[Depends(require_erp_session)]`
-- Crear `[codigo]_deps.py` si scope mixto
+- Crear `[codigo]_deps.py` con `get_{cod}_session_client_id` (**obligatorio**); gates TENANT/COMPANY si scope mixto (patrón ORG)
 - Cada endpoint: `Depends(require_permission("[cod].[recurso].[accion]"))`
-- `cliente_id` via dependency de sesión (patrón ORG)
+- `client_id: UUID = Depends(get_{cod}_session_client_id)` — patrón ORG **e INV** (STANDARDS §5.5); PROHIBIDO `current_user.cliente_id` para datos (R110)
 - Exception handling V4 — PROHIBIDO `except Exception → 500`
 - Detalle embebido en router de cabecera — NO routers detalle escritura
-- Paginación estándar en listas grandes
+- Rutas proceso bajo `/{recurso}/{id}/{accion}` — NO en raíz del módulo
+- Período alias: doble `include_router` del mismo router proceso (legacy + canónico) sin duplicar lógica
+- Listados: `Depends(erp_pagination_params)` + `Depends(erp_sort_params)`
+- `response_model=Union[list[Read], Paginated*Response]` solo si el endpoint expone `page`
+- `response_model=list[Read]` válido en maestros Tier A sin `page` (referencia ORG empresa)
 
 ## Paso 3.6 — Seeds RBAC
 
@@ -434,9 +473,11 @@ Registrar permisos faltantes identificados en Fase 2.9.
 ### TRANSACCIONALES
 
 - Detalle embebido en POST/PUT cabecera
-- Actualizar solo en estado borrador
-- Validar estado antes de aprobar/procesar/anular → 422
+- Actualizar solo en estado borrador (o equivalente editable del dominio)
+- Validar estado antes de aprobar/procesar/anular → 422; terminales / doble operación → 409
 - Transacción SQL cabecera + detalle
+- Workflow: `sanitize_*_create_payload` / `reject_*_workflow_in_update` en service layer
+- Reversión post-proceso (si aplica): compensatorio + pipeline canónico en UoW única; diferenciar anulación pre-efecto vs reversión post-efecto
 
 ### DERIVADAS
 
@@ -453,6 +494,7 @@ Antes de implementar: leer `app/core/exceptions.py`. Usar clases existentes.
 | No encontrado / cross-scope | `NotFoundError` 404 |
 | Sin permiso / sesión | `AuthorizationError` 403 |
 | Estado inválido | 422 — `"Esta operación solo está permitida en estado [requerido]. Estado actual: [actual]."` |
+| Terminal / doble operación / derivada bloqueada | `ConflictError` 409 |
 | SQL Server error | Capturar y mapear — nunca 500 genérico al cliente |
 
 En presentation: propagar `CustomException` o mapear explícitamente.  
@@ -482,12 +524,15 @@ Al terminar Fase 3:
 | Check | ✅/❌ |
 |-------|------|
 | `require_erp_session` en router padre | |
-| `cliente_id` desde sesión | |
+| `cliente_id` via `get_{cod}_session_client_id` (no `current_user.cliente_id`) | |
+| `{codigo}_deps.py` presente | |
 | `empresa_id` desde sesión (si aplica) | |
 | Scope policy correcto (TENANT/COMPANY/HYBRID) | |
 | RBAC `require_permission` | |
 | Exception handling V4 (sin anti-patrón) | |
-| Paginación estándar (si lista grande) | |
+| Paginación opt-in (`page` activa envelope) | |
+| `buscar` SQL (si aplica) | |
+| `sort_by`/`sort_dir` con whitelist (si listado operativo) | |
 | Soft delete + reactivar | |
 | Auditoría en operaciones críticas | |
 
@@ -509,6 +554,8 @@ Al terminar Fase 3:
 | Queries parametrizadas | |
 | `DatabaseConnection.DEFAULT` + `client_id=` | |
 | Lookup unicidad con exclude_id | |
+| `buscar` en SQL (si aplica) | |
+| `apply_erp_sort` con whitelist (si listado) | |
 
 ## 4.5 — Regresión
 
@@ -522,6 +569,19 @@ Incluir: archivos modificados, deprecated, checklist completo, evidencia de test
 
 Opcional: `app/bootstrap_v2/00_manifest/evidence/[CODIGO]_VALIDATION.json`
 
+## 4.7 — Gate RC (Release Candidate)
+
+Antes de declarar el módulo listo para consumo Frontend:
+
+| Check | ✅/❌ |
+|-------|------|
+| Suite de regresión acumulada del módulo 100% verde | |
+| OpenAPI revisado (rutas canónicas, sin colisión `operationId`) | |
+| Auditoría de contratos API del módulo cerrada | |
+| Rutas proceso bajo `/{recurso}/{id}/` (alias legacy documentado si aplica) | |
+
+Referencia gate INV: 202 tests (196 baseline P0 + extensiones RC1.1).
+
 ---
 
 # ANEXO A — OPERACIONES POR TIPO DE ENTIDAD
@@ -530,7 +590,7 @@ Opcional: `app/bootstrap_v2/00_manifest/evidence/[CODIGO]_VALIDATION.json`
 |------|-------------|-------|------|------------|
 | MAESTRO tenant | CRUD + desactivar + reactivar | TENANT | tenant ERP session | ORG empresa |
 | MAESTRO company | CRUD + desactivar + reactivar | COMPANY | company ERP session | INV productos |
-| TRANSACCIONAL | CRUD embebido + ciclo de vida | COMPANY | require_erp_session | INV movimientos |
+| TRANSACCIONAL | CRUD embebido + ciclo de vida + reversión (si aplica) | COMPANY | require_erp_session | INV movimientos |
 | DETALLE | Embebido; lectura opcional | — | — | INV movimientos |
 | DERIVADA | GET only | COMPANY | require_erp_session | INV stock |
 
@@ -547,6 +607,24 @@ Este prompt cubre módulos **ERP operativos**. Para Platform Administration (cli
 - Exception handling V4
 
 Prompt dedicado futuro: `PROMPT_PLATFORM_V4.md` (pendiente).
+
+---
+
+# ANEXO C — Checklist transaccional (heredado INV Fase 0)
+
+Patrones validados en INV que deben evaluarse en todo módulo con entidades transaccionales y derivadas:
+
+| Check | Referencia INV | Regla V4 |
+|-------|----------------|----------|
+| Derivada solo GET + policy 409 | P0-002 | R82–R85, §14.4 |
+| Workflow no forgeable | P0-006 | R86–R91, §13.6 |
+| Permisos lifecycle en seed RBAC | S042 | R92–R93 |
+| Rutas proceso bajo recurso | RC1.1 | R100–R102, §17.2 |
+| Reversión compensatoria UoW | P0-003 | R96–R99, §13.7 |
+| Anulación vs reversión semántica distinta | P0-003 | R97 |
+| Auditoría usuario en CRUD | P0-004 | R94–R95, §8.5 |
+| Costeo vía proceso (si aplica) | P0-001/005 | Helpers dominio en service layer |
+| Gate RC antes de freeze FE | RC1 | R104, §4.7 |
 
 ---
 
@@ -579,9 +657,11 @@ Entidades del mapa ideal ausentes en BD → ignorar completamente.
 |------|----|----|--------|
 | `require_erp_session` | No mencionado | Obligatorio en router padre ERP | **Agrega** |
 | Scope policy TENANT/COMPANY/HYBRID | No mencionado | Clasificación obligatoria por entidad | **Agrega** |
-| `{codigo}_deps.py` | No mencionado | Obligatorio si scope mixto | **Agrega** |
-| `cliente_id` desde sesión | "Validar siempre" (genérico) | Prohibido body/query; patrón ORG deps | **Cambia** |
-| Resolución impersonación | No mencionado | Prioridad JWT impersonation > request > context > user | **Agrega** |
+| `{codigo}_deps.py` | No mencionado | Obligatorio en todo módulo ERP (`get_{cod}_session_client_id`); gates adicionales si scope mixto | **Cambia** |
+| `cliente_id` desde sesión | "Validar siempre" (genérico) | `Depends(get_{cod}_session_client_id)`; prohibido body/query y `current_user.cliente_id` en presentation | **Cambia** |
+| Resolución impersonación | No mencionado | `require_session_cliente_id`: JWT impersonation > ContextVar > request.state > user legacy | **Agrega** |
+| Identidad vs contexto operativo | No mencionado | Separación explícita §3.7 STANDARDS; ORG + INV co-referencia | **Agrega** |
+| Anti-patrón `current_user.cliente_id` | No mencionado | R110 — listados vacíos en impersonación | **Agrega** |
 | Cross-scope → 404 | No mencionado | 404, no 403 | **Agrega** |
 
 ## Seguridad
@@ -605,13 +685,27 @@ Entidades del mapa ideal ausentes en BD → ignorar completamente.
 
 | Tema | V3 | V4 | Acción |
 |------|----|----|--------|
-| Paginación | No especificada | `page` + `limit` + `Paginated*Response` | **Agrega** |
+| Paginación | No especificada | Opt-in: `page` + `limit` + envelope | **Agrega** (ref. ORG/INV 2026-06-15) |
 | Soft delete + reactivar | Sí (`es_activo = 0`) | Sí + permiso `actualizar` para reactivar | **Mantiene** + refina |
 | UUID | Implícito | Explícito como estándar | **Agrega** |
 | Búsqueda `buscar` | No especificada | SQL ILIKE, no in-memory | **Agrega** |
+| Sort server-side | No especificada | `sort_by` + `sort_dir`, whitelist, 422 | **Agrega** (P2-001) |
 | Cabecera-detalle embebido | Sí | Sí, con referencia INV explícita | **Mantiene** |
 | Tablas derivadas solo GET | Sí | Sí, con referencia INV stock | **Mantiene** |
 | Endpoints deprecated | Sí | Sí | **Mantiene** |
+| Rutas proceso bajo `/{recurso}/{id}/` | No especificado | Canónico V4; alias legacy vía doble include (RC1.1) | **Agrega** (rev. 2026-06-12) |
+| Permisos lifecycle granulares | Genérico `actualizar` | `{mod}.{recurso}.{accion}` por acción de proceso | **Agrega** (rev. 2026-06-12) |
+
+## Transaccional y derivadas (rev. 2026-06-12 — post INV Fase 0)
+
+| Tema | V4 base (2026-06-03) | V4 extendido (2026-06-12) | Acción |
+|------|----------------------|---------------------------|--------|
+| Write policy derivadas | Solo deprecated OpenAPI | + bloqueo runtime 409 + flag ops | **Agrega** |
+| Workflow enforcement | Implícito en transaccional | Service layer obligatorio (R86–R91) | **Agrega** |
+| Reversión post-proceso | No documentado | Patrón compensatorio + UoW; semántica anulación vs reversión (R96–R99) | **Agrega** |
+| Auditoría usuario CRUD | Genérico R66 | Campos solo desde sesión (R94–R95) | **Refina** |
+| Gate RC pre-Frontend | No documentado | Suite regresión + OpenAPI (R104, §4.7) | **Agrega** |
+| Locking concurrente | No documentado | Mecanismo apropiado por tecnología; ej. SQL Server INV | **Agrega** |
 
 ## Errores HTTP
 
@@ -672,4 +766,4 @@ Entidades del mapa ideal ausentes en BD → ignorar completamente.
 
 ---
 
-*CAXIS ERP Prompt Maestro V4 — Oficial — 2026-06-03*
+*CAXIS ERP Prompt Maestro V4 — Oficial — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación)*
