@@ -841,6 +841,8 @@ class UsuarioService(BaseService):
         - Solo actualiza campos proporcionados
         - Valida duplicados dentro del cliente si se cambian campos únicos
         - Actualiza automáticamente la fecha de modificación
+        - Desactivar (es_activo=false): suspensión operativa; no modifica es_eliminado
+        - es_eliminado no es editable vía PUT (usar DELETE o POST reactivate)
         
         Args:
             cliente_id: ID del cliente
@@ -898,6 +900,31 @@ class UsuarioService(BaseService):
                              internal_code="EMAIL_CONFLICT"
                          )
 
+            if 'es_eliminado' in usuario_data:
+                raise ValidationError(
+                    detail=(
+                        "El campo es_eliminado no es editable vía actualización. "
+                        "Use DELETE para eliminar o POST reactivate para reactivar."
+                    ),
+                    internal_code="USER_ELIMINADO_NOT_EDITABLE",
+                )
+
+            from app.shared.usuario_lifecycle import (
+                assert_usuario_deactivate_payload,
+                assert_usuario_lifecycle_valid,
+            )
+
+            if 'es_activo' in usuario_data and usuario_data['es_activo'] is not None:
+                nuevo_es_activo = bool(usuario_data['es_activo'])
+                if not nuevo_es_activo:
+                    assert_usuario_deactivate_payload(nuevo_es_activo)
+                    logger.info(
+                        "Desactivación operativa usuario %s: es_activo=false (es_eliminado sin cambios)",
+                        usuario_id,
+                    )
+                else:
+                    assert_usuario_lifecycle_valid(es_activo=True, es_eliminado=False)
+
             # 🛠️ CONSTRUIR ACTUALIZACIÓN DINÁMICA
             update_parts = []
             params_update = []
@@ -948,6 +975,32 @@ class UsuarioService(BaseService):
                 )
 
             logger.info(f"Usuario ID {usuario_id} actualizado exitosamente en cliente {cliente_id}")
+            if 'es_activo' in usuario_data and usuario_data['es_activo'] is not None:
+                assert_usuario_lifecycle_valid(
+                    es_activo=bool(result.get('es_activo')),
+                    es_eliminado=False,
+                )
+                if not bool(result.get('es_activo')):
+                    from app.modules.auth.application.services.refresh_token_service import (
+                        RefreshTokenService,
+                    )
+                    from app.modules.auth.application.session.revoked_reason import (
+                        RevokedReason,
+                    )
+
+                    await RefreshTokenService.blacklist_access_for_user_active_sessions(
+                        cliente_id, usuario_id
+                    )
+                    revoked = await RefreshTokenService.revoke_all_user_tokens(
+                        cliente_id,
+                        usuario_id,
+                        revoked_reason=RevokedReason.USER_DEACTIVATED,
+                    )
+                    logger.info(
+                        "Usuario %s desactivado: %s refresh tokens revocados",
+                        usuario_id,
+                        revoked,
+                    )
             return result
 
         except (ValidationError, NotFoundError, ConflictError):
@@ -973,8 +1026,8 @@ class UsuarioService(BaseService):
         """
         Realiza un borrado lógico del usuario y desactiva sus roles.
         
-        🗑️ ELIMINACIÓN SEGURA:
-        - Borrado lógico (no físico)
+        🗑️ ELIMINACIÓN SEGURA (soft delete — distinto de desactivar vía PUT):
+        - Borrado lógico (es_eliminado=1, es_activo=0)
         - Desactiva automáticamente al usuario
         - Desactiva todas sus asignaciones de roles
         
@@ -1047,7 +1100,29 @@ class UsuarioService(BaseService):
             except Exception as inv:
                 logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
 
+            from app.modules.auth.application.services.refresh_token_service import (
+                RefreshTokenService,
+            )
+            from app.modules.auth.application.session.revoked_reason import RevokedReason
+
+            await RefreshTokenService.blacklist_access_for_user_active_sessions(
+                cliente_id, usuario_id
+            )
+            revoked = await RefreshTokenService.revoke_all_user_tokens(
+                cliente_id,
+                usuario_id,
+                revoked_reason=RevokedReason.USER_DELETED,
+            )
+            logger.info(
+                "Usuario %s eliminado: %s refresh tokens revocados",
+                usuario_id,
+                revoked,
+            )
+
             logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente en cliente {cliente_id}")
+            from app.shared.usuario_lifecycle import assert_usuario_delete_state
+
+            assert_usuario_delete_state(es_activo=False, es_eliminado=bool(result['es_eliminado']))
             return {
                 "message": "Usuario eliminado lógicamente exitosamente",
                 "usuario_id": result['usuario_id'],
@@ -1070,6 +1145,97 @@ class UsuarioService(BaseService):
                 detail="Error interno al eliminar usuario",
                 internal_code="USER_DELETION_UNEXPECTED_ERROR"
             )
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def obtener_usuario_incluyendo_eliminados(
+        cliente_id: UUID, usuario_id: UUID
+    ) -> Optional[Dict]:
+        """Obtiene un usuario por ID incluyendo registros eliminados lógicamente."""
+        query = """
+            SELECT
+                usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
+                dni, telefono, proveedor_autenticacion, es_activo, correo_confirmado,
+                fecha_creacion, fecha_ultimo_acceso, fecha_actualizacion, es_eliminado
+            FROM dbo.usuario
+            WHERE usuario_id = ? AND cliente_id = ?
+        """
+        resultados = await execute_query(query, (usuario_id, cliente_id))
+        return resultados[0] if resultados else None
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def reactivar_usuario(*, cliente_id: UUID, usuario_id: UUID) -> Dict:
+        """
+        Reactiva un usuario desactivado o eliminado lógicamente (es_eliminado=0, es_activo=1).
+
+        Patrón equivalente a RolService.reactivar_rol.
+        """
+        logger.info(f"Intentando reactivar usuario ID: {usuario_id} en cliente {cliente_id}")
+
+        usuario_actual = await UsuarioService.obtener_usuario_incluyendo_eliminados(
+            cliente_id, usuario_id
+        )
+        if not usuario_actual:
+            raise NotFoundError(
+                detail="Usuario no encontrado en este cliente",
+                internal_code="USER_NOT_FOUND",
+            )
+
+        if not usuario_actual.get("es_eliminado") and usuario_actual.get("es_activo"):
+            logger.info(f"Usuario ID {usuario_id} ya se encontraba activo")
+            return await UsuarioService.obtener_usuario_por_id(cliente_id, usuario_id)
+
+        from app.shared.usuario_lifecycle import assert_usuario_reactivate_state
+
+        if usuario_actual.get("es_eliminado") and usuario_actual.get("es_activo"):
+            logger.warning(
+                "Usuario %s en estado inválido (activo+eliminado); reactivación lo corregirá",
+                usuario_id,
+            )
+
+        from sqlalchemy import text
+        from app.infrastructure.database.queries.users.user_queries import REACTIVATE_USUARIO
+
+        result = await execute_update(
+            text(REACTIVATE_USUARIO).bindparams(
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+            ),
+            client_id=cliente_id,
+        )
+
+        if not result:
+            revisado = await UsuarioService.obtener_usuario_incluyendo_eliminados(
+                cliente_id, usuario_id
+            )
+            if revisado and not revisado.get("es_eliminado") and revisado.get("es_activo"):
+                return await UsuarioService.obtener_usuario_por_id(cliente_id, usuario_id)
+            raise ServiceError(
+                status_code=500,
+                detail="Error al reactivar el usuario",
+                internal_code="USER_REACTIVATION_FAILED",
+            )
+
+        reactivado = await UsuarioService.obtener_usuario_por_id(cliente_id, usuario_id)
+        if not reactivado:
+            raise ServiceError(
+                status_code=500,
+                detail="Error al reactivar el usuario",
+                internal_code="USER_REACTIVATION_FAILED",
+            )
+
+        revisado = await UsuarioService.obtener_usuario_incluyendo_eliminados(
+            cliente_id, usuario_id
+        )
+        if revisado:
+            assert_usuario_reactivate_state(
+                es_activo=bool(revisado.get("es_activo")),
+                es_eliminado=bool(revisado.get("es_eliminado")),
+            )
+
+        logger.info(f"Usuario ID {usuario_id} reactivado exitosamente en cliente {cliente_id}")
+        return reactivado
 
     _SELECT_USUARIO_ROL_BY_ID = """
         SELECT usuario_rol_id, usuario_id, rol_id, cliente_id, empresa_id,
@@ -1666,7 +1832,9 @@ class UsuarioService(BaseService):
         cliente_id: int,
         page: int = 1,
         limit: int = 10,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        solo_activos: bool = True,
+        solo_inactivos: bool = False,
     ) -> Dict:
         """
         Obtiene una lista paginada de usuarios con sus roles.
@@ -1689,7 +1857,10 @@ class UsuarioService(BaseService):
             ValidationError: Si los parámetros son inválidos
             ServiceError: Si hay errores en la consulta
         """
-        logger.info(f"Obteniendo usuarios paginados para cliente {cliente_id}: page={page}, limit={limit}, search='{search}'")
+        logger.info(
+            f"Obteniendo usuarios paginados para cliente {cliente_id}: page={page}, limit={limit}, "
+            f"search='{search}', solo_activos={solo_activos}, solo_inactivos={solo_inactivos}"
+        )
 
         # 🚫 VALIDAR PARÁMETROS
         if page < 1:
@@ -1705,6 +1876,9 @@ class UsuarioService(BaseService):
 
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
+        from app.shared.vigencia_filters import vigencia_bind_params
+
+        vigencia_params = vigencia_bind_params(solo_activos, solo_inactivos)
 
         # ✅ Obtener database_type del contexto para determinar si es BD dedicada
         from app.core.tenant.context import try_get_tenant_context
@@ -1721,7 +1895,8 @@ class UsuarioService(BaseService):
                 from sqlalchemy import text
                 COUNT_QUERY = text(COUNT_USUARIOS_PAGINATED_MULTI_DB).bindparams(
                     buscar=search_param,
-                    buscar_pattern=f"%{search_param}%" if search_param else None
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    **vigencia_params,
                 )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Contando usuarios sin filtrar por cliente_id")
             else:
@@ -1730,7 +1905,8 @@ class UsuarioService(BaseService):
                 COUNT_QUERY = text(COUNT_USUARIOS_PAGINATED).bindparams(
                     cliente_id=cliente_id,
                     buscar=search_param,
-                    buscar_pattern=f"%{search_param}%" if search_param else None
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    **vigencia_params,
                 )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD compartida: Contando usuarios con cliente_id {cliente_id}")
             
@@ -1770,7 +1946,8 @@ class UsuarioService(BaseService):
                     buscar=search_param,
                     buscar_pattern=f"%{search_param}%" if search_param else None,
                     offset=offset,
-                    limit=limit
+                    limit=limit,
+                    **vigencia_params,
                 )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD dedicada: Obteniendo usuarios sin filtrar por cliente_id")
             else:
@@ -1781,7 +1958,8 @@ class UsuarioService(BaseService):
                     buscar=search_param,
                     buscar_pattern=f"%{search_param}%" if search_param else None,
                     offset=offset,
-                    limit=limit
+                    limit=limit,
+                    **vigencia_params,
                 )
                 logger.debug(f"[USUARIOS-PAGINADOS] BD compartida: Obteniendo usuarios con cliente_id {cliente_id}")
             

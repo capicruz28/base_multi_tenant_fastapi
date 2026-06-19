@@ -13,6 +13,10 @@ QUERIES INCLUIDAS:
 - INSERT_PERMISO_ROL
 """
 
+from app.shared.vigencia_filters import VIGENCIA_ES_ACTIVO_CLAUSE
+
+_ROL_VIGENCIA = VIGENCIA_ES_ACTIVO_CLAUSE.format(alias="r")
+
 # ============================================
 # QUERIES PARA ROLES (MULTI-TENANT)
 # ============================================
@@ -30,7 +34,7 @@ SELECT
 FROM rol r
 WHERE 
     (r.cliente_id = :cliente_id OR r.cliente_id IS NULL)
-    AND r.es_activo = 1
+""" + _ROL_VIGENCIA + """
     AND (:buscar IS NULL OR (
         r.nombre LIKE :buscar_pattern OR
         r.descripcion LIKE :buscar_pattern
@@ -44,7 +48,7 @@ SELECT COUNT(*) as total
 FROM rol r
 WHERE 
     (r.cliente_id = :cliente_id OR r.cliente_id IS NULL)
-    AND r.es_activo = 1
+""" + _ROL_VIGENCIA + """
     AND (:buscar IS NULL OR (
         r.nombre LIKE :buscar_pattern OR
         r.descripcion LIKE :buscar_pattern

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -132,4 +132,44 @@ class CatDistritoRead(CatDistritoBase):
 
     class Config:
         from_attributes = True
+
+
+class PaginatedCatMonedaResponse(BaseModel):
+    monedas: List[CatMonedaRead] = Field(..., description="Monedas de la página actual")
+    total_monedas: int = Field(..., ge=0, description="Total post-filtro")
+    pagina_actual: int = Field(..., ge=1, description="Página actual")
+    total_paginas: int = Field(..., ge=0, description="Total de páginas")
+    items_por_pagina: int = Field(..., ge=1, description="Items por página")
+
+
+class PaginatedCatPaisResponse(BaseModel):
+    paises: List[CatPaisRead] = Field(..., description="Países de la página actual")
+    total_paises: int = Field(..., ge=0, description="Total post-filtro")
+    pagina_actual: int = Field(..., ge=1, description="Página actual")
+    total_paginas: int = Field(..., ge=0, description="Total de páginas")
+    items_por_pagina: int = Field(..., ge=1, description="Items por página")
+
+
+class PaginatedCatDepartamentoResponse(BaseModel):
+    departamentos: List[CatDepartamentoRead] = Field(..., description="Departamentos de la página actual")
+    total_departamentos: int = Field(..., ge=0, description="Total post-filtro")
+    pagina_actual: int = Field(..., ge=1, description="Página actual")
+    total_paginas: int = Field(..., ge=0, description="Total de páginas")
+    items_por_pagina: int = Field(..., ge=1, description="Items por página")
+
+
+class PaginatedCatProvinciaResponse(BaseModel):
+    provincias: List[CatProvinciaRead] = Field(..., description="Provincias de la página actual")
+    total_provincias: int = Field(..., ge=0, description="Total post-filtro")
+    pagina_actual: int = Field(..., ge=1, description="Página actual")
+    total_paginas: int = Field(..., ge=0, description="Total de páginas")
+    items_por_pagina: int = Field(..., ge=1, description="Items por página")
+
+
+class PaginatedCatDistritoResponse(BaseModel):
+    distritos: List[CatDistritoRead] = Field(..., description="Distritos de la página actual")
+    total_distritos: int = Field(..., ge=0, description="Total post-filtro")
+    pagina_actual: int = Field(..., ge=1, description="Página actual")
+    total_paginas: int = Field(..., ge=0, description="Total de páginas")
+    items_por_pagina: int = Field(..., ge=1, description="Items por página")
 

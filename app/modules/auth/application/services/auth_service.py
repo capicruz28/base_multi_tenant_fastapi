@@ -35,6 +35,10 @@ from app.infrastructure.database.tables import UsuarioTable
 from sqlalchemy import update, func, text
 from app.modules.auth.presentation.schemas import TokenPayload
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
+from app.modules.auth.application.session.revoked_reason import RevokedReason
+from app.infrastructure.database.queries.auth.refresh_token_queries_core import (
+    get_refresh_token_by_hash_any_state_core,
+)
 from app.modules.superadmin.application.services.audit_service import AuditService
 from app.core.tenant.context import get_current_client_id
 
@@ -1070,233 +1074,7 @@ class AuthService:
         # 3. Buscar en la tabla `usuario` con `proveedor_autenticacion = 'google'` y `referencia_externa_id = <sub>`.
         logger.info(f"Autenticando usuario SSO (Google) para cliente {cliente_id}")
         raise NotImplementedError("Autenticación SSO con Google no implementada.")
-    
-    @staticmethod
-    async def get_current_user(token: str) -> Dict:
-        """
-        Obtiene el usuario actual basado en el access token (Bearer).
-        
-        ✅ CORRECCIÓN MULTI-TENANT HÍBRIDO:
-        - Superadmin: Busca en BD ADMIN
-        - Usuario regular: Busca en BD del contexto
-        
-        AHORA INCLUYE: access_level, is_super_admin, user_type del token
-        """
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No se pudieron validar las credenciales",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
-        try:
-            # Usa SECRET_KEY para validar access tokens
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            token_data = TokenPayload(**payload)
-
-            if not token_data.sub or token_data.type != "access":
-                raise credentials_exception
-
-            # ✅ REVOCACIÓN: Verificar si el token está en la blacklist
-            jti = payload.get("jti")
-            if jti:
-                try:
-                    from app.infrastructure.redis.client import RedisService
-                    is_blacklisted = await RedisService.is_token_blacklisted(jti)
-                    
-                    if is_blacklisted:
-                        logger.warning(
-                            f"[REVOCACIÓN] Token revocado detectado en AuthService. "
-                            f"jti={jti}, usuario={token_data.sub}"
-                        )
-                        raise HTTPException(
-                            status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Token revocado",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                except HTTPException:
-                    # Re-lanzar HTTPException (token revocado)
-                    raise
-                except Exception as redis_error:
-                    # Fail-soft: Si Redis falla, loguear pero continuar (no bloquear acceso)
-                    logger.error(
-                        f"[REVOCACIÓN] Error verificando blacklist en Redis (fail-soft): {redis_error}. "
-                        f"Continuando sin verificación de revocación. jti={jti}, usuario={token_data.sub}",
-                        exc_info=True
-                    )
-                    # NO bloquear acceso si Redis falla (fail-soft)
-            else:
-                logger.warning(
-                    f"[REVOCACIÓN] Token sin jti en AuthService. "
-                    f"No se puede verificar revocación. usuario={token_data.sub}"
-                )
-
-            username = token_data.sub
-            es_superadmin = payload.get("es_superadmin", False)
-            target_cliente_id = payload.get("cliente_id")  # Cliente al que accede
-            token_cliente_id = payload.get("cliente_id")  # Cliente del token
-            
-            # ✅ EXTRAER CAMPOS DE NIVEL DEL TOKEN
-            access_level = payload.get("access_level", 1)
-            is_super_admin = payload.get("is_super_admin", False)
-            user_type = payload.get("user_type", "user")
-            
-            # ============================================
-            # ✅ FASE 1: VALIDACIÓN DE TENANT EN TOKEN (CON FEATURE FLAG)
-            # ============================================
-            # IMPORTANTE: Solo se valida si el flag está activo
-            # Por defecto está desactivado (comportamiento actual)
-            if settings.ENABLE_TENANT_TOKEN_VALIDATION:
-                try:
-                    current_cliente_id = get_current_client_id()
-                    
-                    # ✅ Convertir token_cliente_id a UUID si es string
-                    token_cliente_id_uuid = None
-                    if token_cliente_id is not None:
-                        if isinstance(token_cliente_id, str):
-                            try:
-                                token_cliente_id_uuid = UUID(token_cliente_id)
-                            except (ValueError, AttributeError):
-                                logger.warning(
-                                    f"[SECURITY] token_cliente_id inválido en token: {token_cliente_id}"
-                                )
-                                token_cliente_id_uuid = None
-                        elif isinstance(token_cliente_id, UUID):
-                            token_cliente_id_uuid = token_cliente_id
-                    
-                    # Superadmin puede cambiar de tenant (comportamiento actual)
-                    # Solo validamos para usuarios regulares
-                    if not es_superadmin and token_cliente_id_uuid is not None:
-                        if token_cliente_id_uuid != current_cliente_id:
-                            logger.warning(
-                                f"[SECURITY] Token de tenant {token_cliente_id_uuid} usado en tenant {current_cliente_id}. "
-                                f"Usuario: {username}"
-                            )
-                            raise HTTPException(
-                                status_code=status.HTTP_403_FORBIDDEN,
-                                detail="Token no válido para este tenant. Por favor, inicie sesión nuevamente."
-                            )
-                        logger.debug(
-                            f"[SECURITY] Validación de tenant exitosa: token_cliente_id={token_cliente_id_uuid}, "
-                            f"current_cliente_id={current_cliente_id}"
-                        )
-                except RuntimeError:
-                    # Si no hay contexto (script de fondo, inicialización), permitir
-                    # Esto mantiene compatibilidad con código que no tiene contexto
-                    logger.debug(
-                        "[AUTH] Sin contexto de tenant disponible, validación omitida "
-                        "(comportamiento esperado para scripts de fondo)"
-                    )
-                except HTTPException:
-                    # Re-lanzar excepciones HTTP (como la de validación de tenant)
-                    raise
-                except Exception as e:
-                    # Si hay cualquier otro error en la validación, loggear pero NO bloquear
-                    # Esto previene que errores en la validación rompan el sistema
-                    logger.error(
-                        f"[SECURITY] Error en validación de tenant (no bloqueante): {str(e)}",
-                        exc_info=True
-                    )
-
-        except JWTError as e:
-            logger.error(f"Error decodificando token: {str(e)}")
-            raise credentials_exception
-        except Exception as e:
-            logger.error(f"Error procesando payload del token: {str(e)}")
-            raise credentials_exception
-
-        # ✅ CORRECCIÓN: Buscar usuario en BD apropiada
-        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
-        from app.core.tenant.context import try_get_tenant_context
-        
-        tenant_context = try_get_tenant_context()
-        database_type = tenant_context.database_type if tenant_context else "single"
-        
-        # Query base (sin filtro de cliente_id para BD dedicadas)
-        query = """
-        SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido, es_activo
-        FROM usuario
-        WHERE nombre_usuario = ? AND es_eliminado = 0
-        """
-        
-        # ✅ FASE 2: Usar await
-        if es_superadmin:
-            # Superadmin: Buscar en BD ADMIN
-            result = await execute_query(
-                text(query.replace("?", ":username")).bindparams(username=username),
-                connection_type=DatabaseConnection.ADMIN,
-                client_id=None
-            )
-            user = result[0] if result else None
-            
-            # Agregar contexto multi-tenant
-            if user:
-                user['target_cliente_id'] = target_cliente_id
-                user['es_superadmin'] = True
-        else:
-            # Usuario regular: Buscar en BD del contexto
-            # ✅ Para BD dedicadas, execute_auth_query ya busca sin cliente_id
-            user = await execute_auth_query(query, (username,))
-
-        if not user:
-            raise credentials_exception
-
-        if not user['es_activo']:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Usuario inactivo"
-            )
-        
-        # ✅ CORRECCIÓN CRÍTICA: Para BD dedicadas, el cliente_id del usuario puede ser NULL o UUID nulo
-        # Usar el cliente_id del token o del contexto en su lugar
-        if database_type == "multi":
-            # Convertir cliente_id del usuario a UUID si es string para comparar
-            user_cliente_id = user.get('cliente_id')
-            if user_cliente_id:
-                if isinstance(user_cliente_id, str):
-                    try:
-                        user_cliente_id = UUID(user_cliente_id)
-                    except (ValueError, AttributeError):
-                        user_cliente_id = None
-                elif not isinstance(user_cliente_id, UUID):
-                    user_cliente_id = None
-            
-            # Verificar si es None o UUID nulo
-            if not user_cliente_id or (isinstance(user_cliente_id, UUID) and user_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
-                if token_cliente_id:
-                    # Convertir token_cliente_id a UUID si es string
-                    if isinstance(token_cliente_id, str):
-                        try:
-                            user['cliente_id'] = UUID(token_cliente_id)
-                        except (ValueError, AttributeError):
-                            # Si falla, usar el contexto actual
-                            from app.core.tenant.context import try_get_current_client_id
-                            user['cliente_id'] = try_get_current_client_id()
-                    else:
-                        user['cliente_id'] = token_cliente_id
-                    logger.debug(
-                        f"[AUTH] BD dedicada: cliente_id del usuario era NULL/nulo, "
-                        f"usando cliente_id del token: {user['cliente_id']}"
-                    )
-                else:
-                    # Si no hay cliente_id en el token, usar el contexto actual
-                    from app.core.tenant.context import try_get_current_client_id
-                    user['cliente_id'] = try_get_current_client_id()
-                    logger.debug(
-                        f"[AUTH] BD dedicada: cliente_id del usuario y token eran NULL/nulo, "
-                        f"usando cliente_id del contexto: {user['cliente_id']}"
-                    )
-            else:
-                user['cliente_id'] = user_cliente_id
-        
-        # ✅ AGREGAR CAMPOS DE NIVEL AL USUARIO
-        user['access_level'] = access_level
-        user['is_super_admin'] = is_super_admin
-        user['user_type'] = user_type
-        from app.core.tenant.empresa_context import coerce_empresa_id
-        user['empresa_id'] = coerce_empresa_id(payload.get('empresa_id'))
-
-        return user
-    
     @staticmethod
     async def get_current_user_from_refresh(
         request: Request,
@@ -1346,8 +1124,30 @@ class AuthService:
             )
 
             if not db_token_data:
-                # Si el servicio retorna None, significa que está revocado, expirado, o no existe
                 username = payload.get("sub")
+                token_hash = RefreshTokenService.hash_token(refresh_token)
+                revoked_row = await get_refresh_token_by_hash_any_state_core(
+                    token_hash, token_cliente_id
+                ) if token_cliente_id else None
+
+                if revoked_row and revoked_row.get("is_revoked"):
+                    reuse_usuario_id = revoked_row.get("usuario_id")
+                    if (
+                        token_cliente_id
+                        and reuse_usuario_id
+                        and RefreshTokenService.is_revoked_refresh_reuse_candidate(
+                            revoked_row
+                        )
+                    ):
+                        await RefreshTokenService.handle_revoked_refresh_reuse(
+                            cliente_id=token_cliente_id,
+                            usuario_id=reuse_usuario_id,
+                            username=username,
+                            ip_address=request.client.host if request.client else None,
+                            user_agent=request.headers.get("user-agent"),
+                            context="refresh",
+                        )
+
                 logger.warning(
                     f"[REFRESH] Token JWT válido, pero inactivo/revocado en BD. Usuario: {username}"
                 )
@@ -1670,7 +1470,7 @@ class AuthService:
         access_expire_minutes = token_expiration["access_token_minutes"]
         refresh_expire_days = token_expiration["refresh_token_days"]
 
-        access_token, _access_jti = create_access_token(
+        access_token, access_jti = create_access_token(
             data=token_data,
             empresa_id=empresa_id,
             es_admin_cliente=es_admin_cliente,
@@ -1685,9 +1485,17 @@ class AuthService:
 
         user_full_data["requires_password_change"] = requires_password_change
 
+        access_exp = int(
+            (
+                datetime.utcnow() + timedelta(minutes=access_expire_minutes)
+            ).timestamp()
+        )
+
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
+            "access_jti": access_jti,
+            "access_exp": access_exp,
             "user_data": user_full_data,
             "access_expire_minutes": access_expire_minutes,
             "refresh_expire_days": refresh_expire_days,
@@ -1796,6 +1604,12 @@ class AuthService:
             logger.warning(
                 "[EMPRESA] Refresh no almacenado tras seleccionar empresa usuario=%s",
                 username,
+            )
+        elif session.get("access_jti"):
+            await RefreshTokenService.link_session_access_jti(
+                stored["token_id"],
+                session["access_jti"],
+                session.get("access_exp"),
             )
 
         selection_jti = payload.get("jti")
@@ -1941,12 +1755,20 @@ class AuthService:
             refresh_token_expire_days=refresh_expire_days,
         )
 
+        if stored and stored.get("token_id") and session.get("access_jti"):
+            await RefreshTokenService.link_session_access_jti(
+                stored["token_id"],
+                session["access_jti"],
+                session.get("access_exp"),
+            )
+
         if old_refresh_token and stored and not stored.get("duplicate_ignored"):
             try:
                 await RefreshTokenService.revoke_token(
                     cliente_id=request_cliente_id,
                     usuario_id=context.usuario_id,
                     token=old_refresh_token,
+                    revoked_reason=RevokedReason.SESSION_ROTATED,
                 )
             except Exception as revoke_err:
                 logger.warning(
@@ -2064,7 +1886,9 @@ class AuthService:
 
                         token_hash = RefreshTokenService.hash_token(refresh_token)
                         rev = await revoke_refresh_token_core(
-                            token_hash, token_cliente_id
+                            token_hash,
+                            token_cliente_id,
+                            revoked_reason=str(RevokedReason.USER_LOGOUT),
                         )
                         outcome["refresh_revoked"] = bool(rev)
 
@@ -2137,33 +1961,6 @@ class AuthService:
 
         return outcome
 
-    @staticmethod
-    async def revoke_session_by_token_id(token_id: str) -> None:
-        """
-        Revoca un refresh token específico en la base de datos por su ID (jti).
-        Esta función es utilizada por los endpoints de cierre de sesión/revocación.
-        """
-        try:
-            await RefreshTokenService.revoke_refresh_token_by_id(token_id)
-            logger.info(f"Sesión con ID '{token_id}' revocada exitosamente.")
-        except Exception as e:
-            logger.error(f"Error al revocar sesión con ID '{token_id}': {str(e)}", exc_info=True)
-            # La lógica de la ruta debe manejar el error, aquí solo loggeamos.
-            # No levantamos HTTPException aquí.
-    
-    @staticmethod
-    async def get_all_active_sessions(user_id: int) -> list[Dict]:
-        """
-        Obtiene todas las sesiones (refresh tokens) activas para un usuario.
-        Retorna los datos de la BD listos para ser usados en la capa de API.
-        """
-        try:
-            return await RefreshTokenService.get_all_active_sessions(user_id)
-        except Exception as e:
-            logger.error(f"Error al obtener sesiones activas para usuario {user_id}: {str(e)}", exc_info=True)
-            # En caso de error, retornamos lista vacía.
-            return []
-
 
 # ✅ FUNCIONES DE COMPATIBILIDAD: Mantener funciones globales para no romper imports existentes
 # Estas funciones son wrappers que llaman a AuthService
@@ -2225,12 +2022,4 @@ async def usuario_tiene_es_admin_cliente(
 async def get_token_expiration_for_cliente(cliente_id: UUID) -> Dict[str, int]:
     """Wrapper para expiración de tokens por tenant."""
     return await AuthService.get_token_expiration_for_cliente(cliente_id)
-
-async def revoke_session_by_token_id(token_id: str) -> None:
-    """Wrapper para mantener compatibilidad."""
-    return await AuthService.revoke_session_by_token_id(token_id)
-
-async def get_all_active_sessions(user_id: int) -> list[Dict]:
-    """Wrapper para mantener compatibilidad."""
-    return await AuthService.get_all_active_sessions(user_id)
 

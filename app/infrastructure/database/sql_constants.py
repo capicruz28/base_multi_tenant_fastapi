@@ -76,22 +76,6 @@ from app.infrastructure.database.queries.rbac import (
 )
 
 # ============================================
-# ✅ FASE 2: RE-EXPORTS DESDE queries.auth (REFRESH TOKENS)
-# ============================================
-
-from app.infrastructure.database.queries.auth import (
-    INSERT_REFRESH_TOKEN,
-    GET_REFRESH_TOKEN_BY_HASH,
-    REVOKE_REFRESH_TOKEN,
-    REVOKE_REFRESH_TOKEN_BY_USER,
-    REVOKE_ALL_USER_TOKENS,
-    DELETE_EXPIRED_TOKENS,
-    GET_ACTIVE_SESSIONS_BY_USER,
-    GET_ALL_ACTIVE_SESSIONS,
-    REVOKE_REFRESH_TOKEN_BY_ID,
-)
-
-# ============================================
 # ✅ FASE 2: RE-EXPORTS DESDE queries.audit (COMPATIBILIDAD)
 # ============================================
 

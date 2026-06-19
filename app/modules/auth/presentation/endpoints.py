@@ -14,7 +14,7 @@ Características principales:
 """
 from typing import List, Dict, Optional, Union, Any
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body
+from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from app.core.auth import get_user_access_level_info
@@ -50,12 +50,12 @@ from app.api.deps_auth import (
 )
 from app.core.auth import (
     authenticate_user,
-    get_current_user,
     get_current_user_from_refresh,
     authenticate_user_sso_azure_ad,
     authenticate_user_sso_google
 )
-from app.api.deps import get_current_active_user, get_current_user_data
+from app.api.deps import get_current_active_user, get_current_user_data, RoleChecker
+from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.core.authorization.rbac import has_permission
 from app.core.security.jwt import create_access_token, create_refresh_token
 from app.core.config import settings
@@ -64,9 +64,15 @@ from app.modules.users.application.services.user_service import UsuarioService
 from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.password_change_service import PasswordChangeService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
+from app.modules.auth.application.session.revoked_reason import RevokedReason
+from app.modules.auth.application.services.admin_sessions_service import AdminSessionsService
+from app.modules.auth.presentation.schemas_admin_sessions import (
+    AdminSessionRead,
+    PaginatedAdminSessionsResponse,
+)
+from app.shared.pagination.params import erp_pagination_params, ErpPaginationParams
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.modules.superadmin.application.services.audit_service import AuditService
-from app.api.deps import RoleChecker, get_current_active_user
 from app.core.exceptions import AuthenticationError, CustomException
 from app.infrastructure.database.connection import DatabaseConnection, get_db_connection
 
@@ -433,6 +439,11 @@ async def login(
             
             if stored and stored.get('token_id'):
                 logger.info(f"[LOGIN-{client_type.upper()}] Token almacenado - ID: {stored['token_id']}")
+                await RefreshTokenService.link_session_access_jti(
+                    stored['token_id'],
+                    access_jti,
+                    access_expire_minutes=access_expire_minutes,
+                )
             else:
                 logger.warning(f"[LOGIN-{client_type.upper()}] Token duplicado en login (revisar)")
                 
@@ -1328,7 +1339,8 @@ async def refresh_access_token(
                     revoked = await RefreshTokenService.revoke_token(
                         cliente_id=current_user.get("cliente_id"),
                         usuario_id=current_user.get("usuario_id"),
-                        token=old_refresh_token
+                        token=old_refresh_token,
+                        revoked_reason=RevokedReason.SESSION_ROTATED,
                     )
                     if revoked:
                         logger.info(f"[REFRESH] Token antiguo revocado después de rotación exitosa")
@@ -1340,6 +1352,11 @@ async def refresh_access_token(
             # Logging según resultado
             if stored and stored.get('token_id'):
                 logger.info(f"[REFRESH-{client_type.upper()}] Token rotado exitosamente - ID: {stored['token_id']}")
+                await RefreshTokenService.link_session_access_jti(
+                    stored['token_id'],
+                    new_access_jti,
+                    access_expire_minutes=access_expire_minutes,
+                )
             elif stored and stored.get('duplicate_ignored'):
                 logger.info(f"[REFRESH-{client_type.upper()}] Duplicado ignorado (doble refresh simultáneo)")
             else:
@@ -1550,19 +1567,21 @@ async def logout(request: Request, response: Response):
     - 401: Token inválido o expirado.
     """
 )
-async def get_active_sessions_endpoint(current_user: dict = Depends(get_current_user)):
+async def get_active_sessions_endpoint(
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
     """
     Obtiene la lista de sesiones activas para el usuario actual.
 
     Args:
-        current_user: Diccionario con los datos del usuario.
+        current_user: Usuario autenticado (PATH A — get_current_active_user).
 
     Returns:
         List[Dict]: Lista de diccionarios que representan las sesiones.
     """
-    user_id = current_user.get('usuario_id')
-    cliente_id = current_user.get('cliente_id')
-    username = current_user.get('nombre_usuario')
+    user_id = current_user.usuario_id
+    cliente_id = current_user.cliente_id
+    username = current_user.nombre_usuario
     logger.info(f"Solicitud /sessions/ recibida para usuario: {username}")
     try:
         sessions = await RefreshTokenService.get_active_sessions(cliente_id=cliente_id, usuario_id=user_id)
@@ -1594,21 +1613,34 @@ async def get_active_sessions_endpoint(current_user: dict = Depends(get_current_
     - 401: Token inválido o expirado.
     """
 )
-async def logout_all_sessions(current_user: dict = Depends(get_current_user)):
+async def logout_all_sessions(
+    request: Request,
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+    payload: Dict = Depends(get_current_user_data),
+):
     """
     Revoca todos los refresh tokens activos para el usuario actual.
 
     Args:
-        current_user: Diccionario con los datos del usuario.
+        current_user: Usuario autenticado (PATH A — get_current_active_user).
 
     Returns:
         Dict[str, str]: Mensaje de éxito con el número de sesiones cerradas.
     """
-    user_id = current_user.get('usuario_id')
-    cliente_id = current_user.get('cliente_id')
-    username = current_user.get('nombre_usuario')
+    user_id = current_user.usuario_id
+    cliente_id = current_user.cliente_id
+    username = current_user.nombre_usuario
     logger.info(f"Solicitud /logout_all/ recibida para usuario: {username}")
     try:
+        await RefreshTokenService.blacklist_access_for_user_active_sessions(
+            cliente_id=cliente_id, usuario_id=user_id
+        )
+        access_jti = payload.get("jti")
+        if access_jti:
+            await AuthService.blacklist_access_token_jti(
+                access_jti, payload.get("exp")
+            )
+
         rows_affected = await RefreshTokenService.revoke_all_user_tokens(
             cliente_id=cliente_id, usuario_id=user_id
         )
@@ -1650,7 +1682,7 @@ async def logout_all_sessions(current_user: dict = Depends(get_current_user)):
 
 @router.get(
     "/sessions/admin/",
-    response_model=List[Dict],
+    response_model=Union[List[AdminSessionRead], PaginatedAdminSessionsResponse],
     summary="[ADMIN] Listar TODAS las sesiones activas del sistema",
     description="""
     Retorna una lista de todas las sesiones activas (refresh tokens) en el sistema.
@@ -1664,34 +1696,72 @@ async def logout_all_sessions(current_user: dict = Depends(get_current_user)):
     - 403: Permiso denegado.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
 )
-async def admin_list_all_active_sessions(current_user: dict = Depends(get_current_user)):
+async def admin_list_all_active_sessions(
+    current_user: UsuarioReadWithRoles = Depends(require_admin),
+    pagination: ErpPaginationParams = Depends(erp_pagination_params),
+    search: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Búsqueda en nombre_usuario, nombre, apellido, ip_address, device_name",
+    ),
+    sort_by: Optional[str] = Query(None, description="Columna de ordenamiento (whitelist server-side)"),
+    sort_order: Optional[str] = Query(
+        None,
+        pattern="^(asc|desc)$",
+        description="Dirección de orden; solo aplica con sort_by",
+    ),
+    client_type: Optional[str] = Query(
+        None,
+        pattern="^(web|mobile)$",
+        description="Filtrar por tipo de cliente",
+    ),
+    usuario_id: Optional[UUID] = Query(None, description="Filtrar por usuario"),
+):
     """
-    Obtiene la lista global de todas las sesiones activas en el sistema para auditoría.
-    
-    Args:
-        current_user: Usuario que realiza la petición (solo para logging, ya validado por RoleChecker).
+    Obtiene sesiones activas del tenant para auditoría administrativa.
 
-    Returns:
-        List[Dict]: Lista de diccionarios que representan todas las sesiones activas.
+    Sin `page` → array legacy (comportamiento anterior). Con `page` → envelope paginado.
     """
-    cliente_id = current_user.get("cliente_id")
-    username = current_user.get('nombre_usuario', 'N/A')
-    logger.info(f"[ADMIN] Solicitud /sessions/admin/ por usuario: {username}")
+    cliente_id = current_user.cliente_id
+    username = current_user.nombre_usuario or "N/A"
+    logger.info(
+        "[ADMIN] Solicitud /sessions/admin/ por usuario: %s (page=%s, search=%s)",
+        username,
+        pagination.page,
+        search,
+    )
     try:
-        sessions = await RefreshTokenService.get_all_active_sessions_for_admin(cliente_id=cliente_id)
-        
-        logger.info(f"[ADMIN] Recuperadas {len(sessions)} sesiones activas totales.")
-        return sessions
-    
+        result = await AdminSessionsService.list_admin_active_sessions(
+            cliente_id=cliente_id,
+            pagination=pagination,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order if sort_by else None,
+            client_type=client_type,
+            usuario_id=usuario_id,
+        )
+        if pagination.is_paginated:
+            logger.info(
+                "[ADMIN] Recuperadas %s sesiones (página %s/%s).",
+                len(result.sessions),
+                result.pagina_actual,
+                result.total_paginas,
+            )
+        else:
+            logger.info("[ADMIN] Recuperadas %s sesiones activas totales.", len(result))
+        return result
+
+    except CustomException as ce:
+        raise HTTPException(status_code=ce.status_code, detail=ce.detail)
     except HTTPException:
         raise
     except Exception as e:
         logger.exception(f"[ADMIN] Error en /sessions/admin/ (usuario: {username}): {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener la lista global de sesiones activas."
+            detail="Error al obtener la lista global de sesiones activas.",
         )
 
 
@@ -1714,18 +1784,17 @@ async def admin_list_all_active_sessions(current_user: dict = Depends(get_curren
     - 403: Permiso denegado.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
 )
 async def admin_revoke_session_by_id(
-    token_id: UUID = Path(..., description="ID del token de sesión a revocar (PK en refresh_tokens)"), 
-    current_user: dict = Depends(get_current_user) # Para contexto/logging
+    token_id: UUID = Path(..., description="ID del token de sesión a revocar (PK en refresh_tokens)"),
+    current_user: UsuarioReadWithRoles = Depends(require_admin),
 ):
     """
     Revoca un refresh token específico por su ID.
 
     Args:
         token_id: ID numérico del token a revocar.
-        current_user: Usuario que realiza la petición (solo para logging).
+        current_user: Administrador autenticado (PATH A — require_admin).
 
     Returns:
         Dict[str, str]: Mensaje de éxito.
@@ -1733,10 +1802,11 @@ async def admin_revoke_session_by_id(
     Raises:
         HTTPException: En caso de errores de autorización, no encontrado o interno.
     """
-    username = current_user.get('nombre_usuario', 'N/A')
+    username = current_user.nombre_usuario or "N/A"
     logger.info(f"[ADMIN] Solicitud de revocación de Token ID {token_id} por: {username}")
     
     try:
+        await RefreshTokenService.blacklist_access_for_token_id(token_id)
         revoked = await RefreshTokenService.revoke_refresh_token_by_id(token_id=token_id)
         
         if revoked:
@@ -1780,18 +1850,17 @@ async def admin_revoke_session_by_id(
     - 403: Permiso denegado.
     - 500: Error interno del servidor.
     """,
-    dependencies=[Depends(require_admin)]
 )
 async def admin_cleanup_expired_tokens_all_tenants(
-    current_user: dict = Depends(get_current_user)
+    current_user: UsuarioReadWithRoles = Depends(require_admin),
 ):
     """
     Endpoint administrativo para limpiar tokens expirados en todos los tenants.
     Solo accesible para administradores.
-    
+
     ✅ FASE 4: Ejecuta RefreshTokenCleanupJob.cleanup_all_tenants()
     """
-    username = current_user.get('nombre_usuario', 'N/A')
+    username = current_user.nombre_usuario or "N/A"
     logger.info(f"[ADMIN] Solicitud /admin/cleanup-expired-tokens/ por usuario: {username}")
     
     try:

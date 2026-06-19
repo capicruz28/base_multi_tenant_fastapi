@@ -12,7 +12,7 @@ Características principales:
 - Validaciones de dependencias entre módulos
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path, Body
-from typing import List, Optional
+from typing import List, Optional, Annotated
 from uuid import UUID
 import logging
 import math
@@ -47,6 +47,7 @@ router = APIRouter()
     - limit: Límite de registros a retornar (paginación)
     - solo_activos: Filtrar solo módulos activos (por defecto: False, devuelve todos)
     - categoria: Filtrar por categoría
+    - buscar: Texto opcional para buscar en código, nombre o descripción del módulo
     
     **Respuestas:**
     - 200: Catálogo de módulos recuperado exitosamente con metadata de paginación
@@ -59,23 +60,36 @@ async def listar_modulos(
     limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(False, description="Filtrar solo módulos activos (False = devuelve todos)"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
+    buscar: Annotated[
+        Optional[str],
+        Query(
+            max_length=100,
+            description="Texto para buscar en código, nombre o descripción del módulo",
+        ),
+    ] = None,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Lista todos los módulos del catálogo del sistema con paginación completa."""
-    logger.info(f"Solicitud GET /modulos/ recibida - skip: {skip}, limit: {limit}, solo_activos: {solo_activos}")
+    logger.info(
+        f"Solicitud GET /modulos/ recibida - skip: {skip}, limit: {limit}, "
+        f"solo_activos: {solo_activos}, buscar: {buscar}"
+    )
+
+    filtros_listado = {
+        "solo_activos": solo_activos,
+        "categoria": categoria,
+    }
+    if buscar is not None:
+        filtros_listado["buscar"] = buscar
     
     try:
         modulos = await ModuloService.obtener_modulos(
-            skip=skip, 
-            limit=limit, 
-            solo_activos=solo_activos,
-            categoria=categoria
+            skip=skip,
+            limit=limit,
+            **filtros_listado,
         )
         
-        total = await ModuloService.contar_modulos(
-            solo_activos=solo_activos,
-            categoria=categoria,
-        )
+        total = await ModuloService.contar_modulos(**filtros_listado)
         
         # Calcular metadata de paginación
         total_pages = math.ceil(total / limit) if limit > 0 else 0

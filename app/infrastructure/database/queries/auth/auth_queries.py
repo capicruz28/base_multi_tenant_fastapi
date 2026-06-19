@@ -7,15 +7,8 @@ QUERIES INCLUIDAS:
 - GET_USER_MAX_ACCESS_LEVEL
 - IS_USER_SUPER_ADMIN
 - GET_USER_ACCESS_LEVEL_INFO_COMPLETE
-- INSERT_REFRESH_TOKEN
-- GET_REFRESH_TOKEN_BY_HASH
-- REVOKE_REFRESH_TOKEN
-- REVOKE_REFRESH_TOKEN_BY_USER
-- REVOKE_ALL_USER_TOKENS
-- DELETE_EXPIRED_TOKENS
-- GET_ACTIVE_SESSIONS_BY_USER
-- GET_ALL_ACTIVE_SESSIONS
-- REVOKE_REFRESH_TOKEN_BY_ID
+
+Refresh tokens: usar refresh_token_queries_core (SQLAlchemy Core).
 
 TODAS LAS QUERIES USAN:
 - Parámetros nombrados (:param) para seguridad
@@ -62,102 +55,8 @@ WHERE ur.usuario_id = :usuario_id
   AND (ur.empresa_id IS NULL OR ur.empresa_id = :empresa_id)
 """
 
-# ============================================
-# QUERIES PARA REFRESH TOKENS
-# ============================================
-
-INSERT_REFRESH_TOKEN = """
-INSERT INTO refresh_tokens (
-    usuario_id, token_hash, expires_at, client_type, ip_address, user_agent, cliente_id
-)
-OUTPUT INSERTED.token_id, INSERTED.usuario_id, INSERTED.cliente_id, INSERTED.expires_at, INSERTED.created_at
-VALUES (:usuario_id, :token_hash, :expires_at, :client_type, :ip_address, :user_agent, :cliente_id);
-"""
-
-GET_REFRESH_TOKEN_BY_HASH = """
-SELECT 
-    token_id, usuario_id, token_hash, expires_at, 
-    is_revoked, created_at, client_type, cliente_id
-FROM refresh_tokens
-WHERE token_hash = :token_hash
-  AND cliente_id = :cliente_id
-  AND is_revoked = 0
-  AND expires_at > GETDATE();
-"""
-
-REVOKE_REFRESH_TOKEN = """
-UPDATE refresh_tokens
-SET is_revoked = 1, revoked_at = GETDATE()
-OUTPUT INSERTED.token_id, INSERTED.is_revoked, INSERTED.cliente_id
-WHERE token_hash = :token_hash
-  AND cliente_id = :cliente_id;
-"""
-
-REVOKE_REFRESH_TOKEN_BY_USER = """
-UPDATE refresh_tokens
-SET is_revoked = 1, revoked_at = GETDATE()
-OUTPUT INSERTED.token_id, INSERTED.is_revoked, INSERTED.cliente_id
-WHERE usuario_id = :usuario_id
-  AND cliente_id = :cliente_id
-  AND is_revoked = 0;
-"""
-
-REVOKE_ALL_USER_TOKENS = """
-UPDATE refresh_tokens
-SET is_revoked = 1, revoked_at = GETDATE()
-WHERE usuario_id = :usuario_id
-  AND cliente_id = :cliente_id;
-"""
-
-DELETE_EXPIRED_TOKENS = """
-DELETE FROM refresh_tokens
-WHERE expires_at < GETDATE()
-  AND is_revoked = 1
-  AND cliente_id = :cliente_id;
-"""
-
-GET_ACTIVE_SESSIONS_BY_USER = """
-SELECT 
-    token_id, usuario_id, cliente_id, created_at, last_used_at,
-    device_name, device_id, ip_address, client_type
-FROM refresh_tokens
-WHERE usuario_id = :usuario_id
-  AND cliente_id = :cliente_id
-  AND is_revoked = 0
-  AND expires_at > GETDATE()
-ORDER BY last_used_at DESC;
-"""
-
-GET_ALL_ACTIVE_SESSIONS = """
-SELECT 
-    token_id, usuario_id, cliente_id, created_at, last_used_at,
-    device_name, device_id, ip_address, client_type
-FROM refresh_tokens
-WHERE cliente_id = :cliente_id
-  AND is_revoked = 0
-  AND expires_at > GETDATE()
-ORDER BY last_used_at DESC;
-"""
-
-REVOKE_REFRESH_TOKEN_BY_ID = """
-UPDATE refresh_tokens
-SET is_revoked = 1, revoked_at = GETDATE()
-OUTPUT INSERTED.token_id, INSERTED.is_revoked, INSERTED.usuario_id, INSERTED.cliente_id
-WHERE token_id = :token_id
-  AND cliente_id = :cliente_id;
-"""
-
 __all__ = [
     "GET_USER_MAX_ACCESS_LEVEL",
     "IS_USER_SUPER_ADMIN",
     "GET_USER_ACCESS_LEVEL_INFO_COMPLETE",
-    "INSERT_REFRESH_TOKEN",
-    "GET_REFRESH_TOKEN_BY_HASH",
-    "REVOKE_REFRESH_TOKEN",
-    "REVOKE_REFRESH_TOKEN_BY_USER",
-    "REVOKE_ALL_USER_TOKENS",
-    "DELETE_EXPIRED_TOKENS",
-    "GET_ACTIVE_SESSIONS_BY_USER",
-    "GET_ALL_ACTIVE_SESSIONS",
-    "REVOKE_REFRESH_TOKEN_BY_ID",
 ]

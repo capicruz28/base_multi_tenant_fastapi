@@ -271,7 +271,7 @@ Todo módulo ERP operativo (PUR, SLS, FIN, CRM, HCM, etc.) debe replicar el patr
 async def get_{codigo}_session_client_id(
     request: Request,
     payload: dict = Depends(get_token_payload),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> UUID:
     return require_session_cliente_id(
         payload=payload,

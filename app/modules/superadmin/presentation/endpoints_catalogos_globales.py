@@ -1,3 +1,4 @@
+from math import ceil
 from typing import Optional
 from uuid import UUID
 
@@ -25,6 +26,11 @@ from app.modules.superadmin.presentation.schemas_catalogos_globales import (
     CatDistritoCreate,
     CatDistritoUpdate,
     CatDistritoRead,
+    PaginatedCatMonedaResponse,
+    PaginatedCatPaisResponse,
+    PaginatedCatDepartamentoResponse,
+    PaginatedCatProvinciaResponse,
+    PaginatedCatDistritoResponse,
 )
 
 
@@ -38,23 +44,42 @@ def _resolve_target_client_id(current_user, cliente_id: Optional[UUID]) -> UUID:
     return target
 
 
+def _paginated_metadata(total: int, skip: int, limit: int) -> tuple[int, int]:
+    total_paginas = ceil(total / limit) if limit > 0 else 0
+    pagina_actual = (skip // limit) + 1 if limit > 0 else 1
+    return pagina_actual, total_paginas
+
+
 # ----------------------------------------------------------------------
 # Monedas (cat_moneda)
 # ----------------------------------------------------------------------
 @router.get(
     "/monedas",
-    response_model=list[CatMonedaRead],
+    response_model=PaginatedCatMonedaResponse,
     summary="Listar monedas (cat_moneda) (Superadmin)",
 )
 @require_super_admin()
 async def list_monedas(
+    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True),
+    buscar: Optional[str] = Query(None, max_length=100, description="Texto para buscar en código, nombre o símbolo"),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_monedas(client_id=target, solo_activos=solo_activos)
+        filtros = {"client_id": target, "solo_activos": solo_activos, "buscar": buscar}
+        rows = await CatalogosGlobalesService.list_monedas(skip=skip, limit=limit, **filtros)
+        total = await CatalogosGlobalesService.contar_monedas(**filtros)
+        pagina_actual, total_paginas = _paginated_metadata(total, skip, limit)
+        return PaginatedCatMonedaResponse(
+            monedas=[CatMonedaRead(**row) for row in rows],
+            total_monedas=total,
+            pagina_actual=pagina_actual,
+            total_paginas=total_paginas,
+            items_por_pagina=limit,
+        )
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 
@@ -124,18 +149,31 @@ async def deactivate_moneda(
 # ----------------------------------------------------------------------
 @router.get(
     "/paises",
-    response_model=list[CatPaisRead],
+    response_model=PaginatedCatPaisResponse,
     summary="Listar países (cat_pais) (Superadmin)",
 )
 @require_super_admin()
 async def list_paises(
+    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True),
+    buscar: Optional[str] = Query(None, max_length=100, description="Texto para buscar en códigos ISO o nombre"),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_paises(client_id=target, solo_activos=solo_activos)
+        filtros = {"client_id": target, "solo_activos": solo_activos, "buscar": buscar}
+        rows = await CatalogosGlobalesService.list_paises(skip=skip, limit=limit, **filtros)
+        total = await CatalogosGlobalesService.contar_paises(**filtros)
+        pagina_actual, total_paginas = _paginated_metadata(total, skip, limit)
+        return PaginatedCatPaisResponse(
+            paises=[CatPaisRead(**row) for row in rows],
+            total_paises=total,
+            pagina_actual=pagina_actual,
+            total_paginas=total_paginas,
+            items_por_pagina=limit,
+        )
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 
@@ -205,19 +243,37 @@ async def deactivate_pais(
 # ----------------------------------------------------------------------
 @router.get(
     "/departamentos",
-    response_model=list[CatDepartamentoRead],
+    response_model=PaginatedCatDepartamentoResponse,
     summary="Listar departamentos (cat_departamento) (Superadmin)",
 )
 @require_super_admin()
 async def list_departamentos(
+    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True),
     pais_id: Optional[UUID] = Query(None),
+    buscar: Optional[str] = Query(None, max_length=100, description="Texto para buscar en código o nombre"),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_departamentos(client_id=target, pais_id=pais_id, solo_activos=solo_activos)
+        filtros = {
+            "client_id": target,
+            "solo_activos": solo_activos,
+            "buscar": buscar,
+            "pais_id": pais_id,
+        }
+        rows = await CatalogosGlobalesService.list_departamentos(skip=skip, limit=limit, **filtros)
+        total = await CatalogosGlobalesService.contar_departamentos(**filtros)
+        pagina_actual, total_paginas = _paginated_metadata(total, skip, limit)
+        return PaginatedCatDepartamentoResponse(
+            departamentos=[CatDepartamentoRead(**row) for row in rows],
+            total_departamentos=total,
+            pagina_actual=pagina_actual,
+            total_paginas=total_paginas,
+            items_por_pagina=limit,
+        )
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 
@@ -287,19 +343,37 @@ async def delete_departamento(
 # ----------------------------------------------------------------------
 @router.get(
     "/provincias",
-    response_model=list[CatProvinciaRead],
+    response_model=PaginatedCatProvinciaResponse,
     summary="Listar provincias (cat_provincia) (Superadmin)",
 )
 @require_super_admin()
 async def list_provincias(
+    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True),
     departamento_id: Optional[UUID] = Query(None),
+    buscar: Optional[str] = Query(None, max_length=100, description="Texto para buscar en código o nombre"),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_provincias(client_id=target, departamento_id=departamento_id, solo_activos=solo_activos)
+        filtros = {
+            "client_id": target,
+            "solo_activos": solo_activos,
+            "buscar": buscar,
+            "departamento_id": departamento_id,
+        }
+        rows = await CatalogosGlobalesService.list_provincias(skip=skip, limit=limit, **filtros)
+        total = await CatalogosGlobalesService.contar_provincias(**filtros)
+        pagina_actual, total_paginas = _paginated_metadata(total, skip, limit)
+        return PaginatedCatProvinciaResponse(
+            provincias=[CatProvinciaRead(**row) for row in rows],
+            total_provincias=total,
+            pagina_actual=pagina_actual,
+            total_paginas=total_paginas,
+            items_por_pagina=limit,
+        )
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)
 
@@ -369,24 +443,42 @@ async def delete_provincia(
 # ----------------------------------------------------------------------
 @router.get(
     "/distritos",
-    response_model=list[CatDistritoRead],
+    response_model=PaginatedCatDistritoResponse,
     summary="Listar distritos (cat_distrito) (Superadmin)",
 )
 @require_super_admin()
 async def list_distritos(
+    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True),
+    pais_id: Optional[UUID] = Query(None, description="Filtrar por país (cascada geográfica)"),
+    departamento_id: Optional[UUID] = Query(None, description="Filtrar por departamento (cascada geográfica)"),
     provincia_id: Optional[UUID] = Query(None),
     ubigeo: Optional[str] = Query(None, min_length=1, max_length=6),
+    buscar: Optional[str] = Query(None, max_length=100, description="Texto para buscar en código, nombre o ubigeo"),
     cliente_id: Optional[UUID] = Query(None, description="Opcional: ejecutar contra otro tenant"),
     current_user=Depends(get_current_active_user),
 ):
     try:
         target = _resolve_target_client_id(current_user, cliente_id)
-        return await CatalogosGlobalesService.list_distritos(
-            client_id=target,
-            provincia_id=provincia_id,
-            ubigeo=ubigeo,
-            solo_activos=solo_activos,
+        filtros = {
+            "client_id": target,
+            "solo_activos": solo_activos,
+            "buscar": buscar,
+            "pais_id": pais_id,
+            "departamento_id": departamento_id,
+            "provincia_id": provincia_id,
+            "ubigeo": ubigeo,
+        }
+        rows = await CatalogosGlobalesService.list_distritos(skip=skip, limit=limit, **filtros)
+        total = await CatalogosGlobalesService.contar_distritos(**filtros)
+        pagina_actual, total_paginas = _paginated_metadata(total, skip, limit)
+        return PaginatedCatDistritoResponse(
+            distritos=[CatDistritoRead(**row) for row in rows],
+            total_distritos=total,
+            pagina_actual=pagina_actual,
+            total_paginas=total_paginas,
+            items_por_pagina=limit,
         )
     except CustomException as ce:
         raise HTTPException(status_code=ce.status_code, detail=ce.detail)

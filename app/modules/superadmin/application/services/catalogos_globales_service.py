@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import and_, delete, func as sql_func, insert, or_, select, update
 
 from app.core.application.base_service import BaseService
 from app.core.exceptions import NotFoundError, ValidationError
@@ -23,17 +23,201 @@ class CatalogosGlobalesService(BaseService):
     Solo accesible por Superadmin (la capa de endpoints aplica la restricción).
     """
 
+    @staticmethod
+    def _normalizar_buscar(buscar: Optional[str]) -> Optional[str]:
+        if buscar is None:
+            return None
+        trimmed = buscar.strip()
+        return trimmed if trimmed else None
+
+    @staticmethod
+    def _extract_count(resultado: List[Dict[str, Any]]) -> int:
+        if not resultado:
+            return 0
+        row = resultado[0]
+        return int(row.get("count_1") or row.get("count") or next(iter(row.values()), 0))
+
+    @staticmethod
+    async def _contar_registros(*, client_id: UUID, table, conditions: list) -> int:
+        query = select(sql_func.count()).select_from(table)
+        if conditions:
+            query = query.where(and_(*conditions))
+        resultado = await execute_query(query, client_id=client_id)
+        return CatalogosGlobalesService._extract_count(resultado)
+
+    @staticmethod
+    def _condiciones_listado_cat_moneda(
+        solo_activos: bool,
+        buscar: Optional[str] = None,
+    ) -> list:
+        conditions = []
+        if solo_activos:
+            conditions.append(CatMonedaTable.c.es_activo == True)
+        termino = CatalogosGlobalesService._normalizar_buscar(buscar)
+        if termino:
+            pattern = f"%{termino.lower()}%"
+            conditions.append(
+                or_(
+                    sql_func.lower(CatMonedaTable.c.codigo).like(pattern),
+                    sql_func.lower(CatMonedaTable.c.nombre).like(pattern),
+                    sql_func.lower(CatMonedaTable.c.simbolo).like(pattern),
+                )
+            )
+        return conditions
+
+    @staticmethod
+    def _condiciones_listado_cat_pais(
+        solo_activos: bool,
+        buscar: Optional[str] = None,
+    ) -> list:
+        conditions = []
+        if solo_activos:
+            conditions.append(CatPaisTable.c.es_activo == True)
+        termino = CatalogosGlobalesService._normalizar_buscar(buscar)
+        if termino:
+            pattern = f"%{termino.lower()}%"
+            conditions.append(
+                or_(
+                    sql_func.lower(CatPaisTable.c.codigo_iso2).like(pattern),
+                    sql_func.lower(CatPaisTable.c.codigo_iso3).like(pattern),
+                    sql_func.lower(CatPaisTable.c.nombre).like(pattern),
+                )
+            )
+        return conditions
+
+    @staticmethod
+    def _condiciones_listado_cat_departamento(
+        solo_activos: bool,
+        pais_id: Optional[UUID] = None,
+        buscar: Optional[str] = None,
+    ) -> list:
+        conditions = []
+        if pais_id:
+            conditions.append(CatDepartamentoTable.c.pais_id == pais_id)
+        if solo_activos:
+            conditions.append(CatDepartamentoTable.c.es_activo == True)
+        termino = CatalogosGlobalesService._normalizar_buscar(buscar)
+        if termino:
+            pattern = f"%{termino.lower()}%"
+            conditions.append(
+                or_(
+                    sql_func.lower(CatDepartamentoTable.c.codigo).like(pattern),
+                    sql_func.lower(CatDepartamentoTable.c.nombre).like(pattern),
+                )
+            )
+        return conditions
+
+    @staticmethod
+    def _condiciones_listado_cat_provincia(
+        solo_activos: bool,
+        departamento_id: Optional[UUID] = None,
+        buscar: Optional[str] = None,
+    ) -> list:
+        conditions = []
+        if departamento_id:
+            conditions.append(CatProvinciaTable.c.departamento_id == departamento_id)
+        if solo_activos:
+            conditions.append(CatProvinciaTable.c.es_activo == True)
+        termino = CatalogosGlobalesService._normalizar_buscar(buscar)
+        if termino:
+            pattern = f"%{termino.lower()}%"
+            conditions.append(
+                or_(
+                    sql_func.lower(CatProvinciaTable.c.codigo).like(pattern),
+                    sql_func.lower(CatProvinciaTable.c.nombre).like(pattern),
+                )
+            )
+        return conditions
+
+    @staticmethod
+    def _aplicar_joins_listado_cat_distrito(
+        query,
+        *,
+        pais_id: Optional[UUID] = None,
+        departamento_id: Optional[UUID] = None,
+    ):
+        if pais_id or departamento_id:
+            query = query.join(
+                CatProvinciaTable,
+                CatDistritoTable.c.provincia_id == CatProvinciaTable.c.provincia_id,
+            )
+        if pais_id:
+            query = query.join(
+                CatDepartamentoTable,
+                CatProvinciaTable.c.departamento_id == CatDepartamentoTable.c.departamento_id,
+            )
+        return query
+
+    @staticmethod
+    def _condiciones_listado_cat_distrito(
+        solo_activos: bool,
+        provincia_id: Optional[UUID] = None,
+        departamento_id: Optional[UUID] = None,
+        pais_id: Optional[UUID] = None,
+        ubigeo: Optional[str] = None,
+        buscar: Optional[str] = None,
+    ) -> list:
+        conditions = []
+        if provincia_id:
+            conditions.append(CatDistritoTable.c.provincia_id == provincia_id)
+        if departamento_id:
+            conditions.append(CatProvinciaTable.c.departamento_id == departamento_id)
+        if pais_id:
+            conditions.append(CatDepartamentoTable.c.pais_id == pais_id)
+        if ubigeo:
+            conditions.append(CatDistritoTable.c.ubigeo == ubigeo)
+        if solo_activos:
+            conditions.append(CatDistritoTable.c.es_activo == True)
+        termino = CatalogosGlobalesService._normalizar_buscar(buscar)
+        if termino:
+            pattern = f"%{termino.lower()}%"
+            conditions.append(
+                or_(
+                    sql_func.lower(CatDistritoTable.c.codigo).like(pattern),
+                    sql_func.lower(CatDistritoTable.c.nombre).like(pattern),
+                    sql_func.lower(CatDistritoTable.c.ubigeo).like(pattern),
+                )
+            )
+        return conditions
+
     # -------------------------
     # cat_moneda
     # -------------------------
     @staticmethod
     @BaseService.handle_service_errors
-    async def list_monedas(*, client_id: UUID, solo_activos: bool = True) -> List[Dict[str, Any]]:
+    async def list_monedas(
+        *,
+        client_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_moneda(
+            solo_activos, buscar
+        )
         q = select(CatMonedaTable)
-        if solo_activos:
-            q = q.where(CatMonedaTable.c.es_activo == True)
-        q = q.order_by(CatMonedaTable.c.codigo)
+        if conditions:
+            q = q.where(and_(*conditions))
+        q = q.order_by(CatMonedaTable.c.codigo).offset(skip).limit(limit)
         return await execute_query(q, client_id=client_id)
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_monedas(
+        *,
+        client_id: UUID,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> int:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_moneda(
+            solo_activos, buscar
+        )
+        return await CatalogosGlobalesService._contar_registros(
+            client_id=client_id,
+            table=CatMonedaTable,
+            conditions=conditions,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -85,12 +269,39 @@ class CatalogosGlobalesService(BaseService):
     # -------------------------
     @staticmethod
     @BaseService.handle_service_errors
-    async def list_paises(*, client_id: UUID, solo_activos: bool = True) -> List[Dict[str, Any]]:
+    async def list_paises(
+        *,
+        client_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_pais(
+            solo_activos, buscar
+        )
         q = select(CatPaisTable)
-        if solo_activos:
-            q = q.where(CatPaisTable.c.es_activo == True)
-        q = q.order_by(CatPaisTable.c.nombre)
+        if conditions:
+            q = q.where(and_(*conditions))
+        q = q.order_by(CatPaisTable.c.nombre).offset(skip).limit(limit)
         return await execute_query(q, client_id=client_id)
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_paises(
+        *,
+        client_id: UUID,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> int:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_pais(
+            solo_activos, buscar
+        )
+        return await CatalogosGlobalesService._contar_registros(
+            client_id=client_id,
+            table=CatPaisTable,
+            conditions=conditions,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -153,16 +364,38 @@ class CatalogosGlobalesService(BaseService):
     async def list_departamentos(
         *,
         client_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
         pais_id: Optional[UUID] = None,
         solo_activos: bool = True,
+        buscar: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_departamento(
+            solo_activos, pais_id, buscar
+        )
         q = select(CatDepartamentoTable)
-        if pais_id:
-            q = q.where(CatDepartamentoTable.c.pais_id == pais_id)
-        if solo_activos:
-            q = q.where(CatDepartamentoTable.c.es_activo == True)
-        q = q.order_by(CatDepartamentoTable.c.nombre)
+        if conditions:
+            q = q.where(and_(*conditions))
+        q = q.order_by(CatDepartamentoTable.c.nombre).offset(skip).limit(limit)
         return await execute_query(q, client_id=client_id)
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_departamentos(
+        *,
+        client_id: UUID,
+        pais_id: Optional[UUID] = None,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> int:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_departamento(
+            solo_activos, pais_id, buscar
+        )
+        return await CatalogosGlobalesService._contar_registros(
+            client_id=client_id,
+            table=CatDepartamentoTable,
+            conditions=conditions,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -224,16 +457,38 @@ class CatalogosGlobalesService(BaseService):
     async def list_provincias(
         *,
         client_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
         departamento_id: Optional[UUID] = None,
         solo_activos: bool = True,
+        buscar: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_provincia(
+            solo_activos, departamento_id, buscar
+        )
         q = select(CatProvinciaTable)
-        if departamento_id:
-            q = q.where(CatProvinciaTable.c.departamento_id == departamento_id)
-        if solo_activos:
-            q = q.where(CatProvinciaTable.c.es_activo == True)
-        q = q.order_by(CatProvinciaTable.c.nombre)
+        if conditions:
+            q = q.where(and_(*conditions))
+        q = q.order_by(CatProvinciaTable.c.nombre).offset(skip).limit(limit)
         return await execute_query(q, client_id=client_id)
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_provincias(
+        *,
+        client_id: UUID,
+        departamento_id: Optional[UUID] = None,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> int:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_provincia(
+            solo_activos, departamento_id, buscar
+        )
+        return await CatalogosGlobalesService._contar_registros(
+            client_id=client_id,
+            table=CatProvinciaTable,
+            conditions=conditions,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -287,19 +542,50 @@ class CatalogosGlobalesService(BaseService):
     async def list_distritos(
         *,
         client_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
+        pais_id: Optional[UUID] = None,
+        departamento_id: Optional[UUID] = None,
         provincia_id: Optional[UUID] = None,
         ubigeo: Optional[str] = None,
         solo_activos: bool = True,
+        buscar: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_distrito(
+            solo_activos, provincia_id, departamento_id, pais_id, ubigeo, buscar
+        )
         q = select(CatDistritoTable)
-        if provincia_id:
-            q = q.where(CatDistritoTable.c.provincia_id == provincia_id)
-        if ubigeo:
-            q = q.where(CatDistritoTable.c.ubigeo == ubigeo)
-        if solo_activos:
-            q = q.where(CatDistritoTable.c.es_activo == True)
-        q = q.order_by(CatDistritoTable.c.nombre)
+        q = CatalogosGlobalesService._aplicar_joins_listado_cat_distrito(
+            q, pais_id=pais_id, departamento_id=departamento_id
+        )
+        if conditions:
+            q = q.where(and_(*conditions))
+        q = q.order_by(CatDistritoTable.c.nombre).offset(skip).limit(limit)
         return await execute_query(q, client_id=client_id)
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def contar_distritos(
+        *,
+        client_id: UUID,
+        pais_id: Optional[UUID] = None,
+        departamento_id: Optional[UUID] = None,
+        provincia_id: Optional[UUID] = None,
+        ubigeo: Optional[str] = None,
+        solo_activos: bool = True,
+        buscar: Optional[str] = None,
+    ) -> int:
+        conditions = CatalogosGlobalesService._condiciones_listado_cat_distrito(
+            solo_activos, provincia_id, departamento_id, pais_id, ubigeo, buscar
+        )
+        q = select(sql_func.count()).select_from(CatDistritoTable)
+        q = CatalogosGlobalesService._aplicar_joins_listado_cat_distrito(
+            q, pais_id=pais_id, departamento_id=departamento_id
+        )
+        if conditions:
+            q = q.where(and_(*conditions))
+        resultado = await execute_query(q, client_id=client_id)
+        return CatalogosGlobalesService._extract_count(resultado)
 
     @staticmethod
     @BaseService.handle_service_errors

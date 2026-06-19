@@ -181,6 +181,11 @@ async def read_roles_paginated(
     page: int = Query(1, ge=1, description="Número de página a recuperar"),
     limit: int = Query(10, ge=1, le=100, description="Número de roles por página"),
     search: Optional[str] = Query(None, description="Término de búsqueda para filtrar por nombre o descripción"),
+    solo_activos: bool = Query(True, description="Filtrar solo roles activos"),
+    solo_inactivos: bool = Query(
+        False,
+        description="Filtrar solo roles inactivos (es_activo=0); tiene precedencia sobre solo_activos",
+    ),
     session_client_id: UUID = Depends(get_rbac_session_client_id),
 ):
     """
@@ -200,7 +205,8 @@ async def read_roles_paginated(
     """
     logger.info(
         f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} "
-        f"del cliente {session_client_id} - Paginación: page={page}, limit={limit}, Búsqueda: '{search}'"
+        f"del cliente {session_client_id} - Paginación: page={page}, limit={limit}, "
+        f"Búsqueda: '{search}', solo_activos={solo_activos}, solo_inactivos={solo_inactivos}"
     )
 
     if session_client_id == UUID("00000000-0000-0000-0000-000000000000"):
@@ -217,7 +223,9 @@ async def read_roles_paginated(
             cliente_id=session_client_id,
             page=page,
             limit=limit,
-            search=search
+            search=search,
+            solo_activos=solo_activos,
+            solo_inactivos=solo_inactivos,
         )
         logger.info(
             f"Respuesta exitosa para GET /roles/ - Cliente: {session_client_id}, "

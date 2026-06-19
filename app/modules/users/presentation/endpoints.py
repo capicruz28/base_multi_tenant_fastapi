@@ -87,7 +87,12 @@ async def list_usuarios(
     page: int = Query(1, ge=1, description="Número de página a mostrar"),
     limit: int = Query(10, ge=1, le=100, description="Número de usuarios por página"),
     search: Optional[str] = Query(None, min_length=1, max_length=50, 
-                                 description="Término de búsqueda opcional (nombre, apellido, correo, nombre_usuario)")
+                                 description="Término de búsqueda opcional (nombre, apellido, correo, nombre_usuario)"),
+    solo_activos: bool = Query(True, description="Filtrar solo usuarios activos"),
+    solo_inactivos: bool = Query(
+        False,
+        description="Filtrar solo usuarios inactivos (es_activo=0); tiene precedencia sobre solo_activos",
+    ),
 ):
     """
     Endpoint para obtener una lista paginada y filtrada de usuarios activos **del cliente del usuario actual**.
@@ -107,7 +112,7 @@ async def list_usuarios(
     logger.info(
         f"Solicitud GET /usuarios/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - "
         f"Paginación: page={page}, limit={limit}, "
-        f"Búsqueda: '{search}'"
+        f"Búsqueda: '{search}', solo_activos={solo_activos}, solo_inactivos={solo_inactivos}"
     )
     
     try:
@@ -115,7 +120,9 @@ async def list_usuarios(
             cliente_id=current_user.cliente_id, # ✅ MULTI-TENANT: Filtrar por cliente
             page=page,
             limit=limit,
-            search=search
+            search=search,
+            solo_activos=solo_activos,
+            solo_inactivos=solo_inactivos,
         )
         
         logger.info(
@@ -442,6 +449,56 @@ async def eliminar_usuario(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor al eliminar el usuario."
+        )
+
+
+@router.post(
+    "/{usuario_id}/reactivate/",
+    response_model=UsuarioRead,
+    status_code=status.HTTP_200_OK,
+    summary="Reactivar un usuario desactivado o eliminado",
+    description="""
+    Reactiva un usuario previamente desactivado o eliminado lógicamente
+    estableciendo `es_eliminado=False` y `es_activo=True`.
+
+    **Permisos requeridos:**
+    - Rol 'Administrador'
+
+    **Respuestas:**
+    - 200: Usuario reactivado exitosamente
+    - 403: Acceso denegado (usuario de otro cliente)
+    - 404: Usuario no encontrado
+    - 500: Error interno del servidor
+    """,
+    dependencies=[Depends(require_admin), Depends(require_permission("admin.usuario.actualizar"))]
+)
+async def reactivate_usuario(
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    """Reactiva un usuario inactivo o eliminado lógicamente del tenant."""
+    logger.info(
+        f"Solicitud POST /usuarios/{usuario_id}/reactivate/ recibida en cliente {current_user.cliente_id}"
+    )
+    try:
+        reactivated = await UsuarioService.reactivar_usuario(
+            cliente_id=current_user.cliente_id,
+            usuario_id=usuario_id,
+        )
+        logger.info(f"Usuario ID {usuario_id} reactivado exitosamente en cliente {current_user.cliente_id}")
+        return reactivated
+    except CustomException as ce:
+        logger.warning(
+            f"No se pudo reactivar usuario {usuario_id} en cliente {current_user.cliente_id}: {ce.detail}"
+        )
+        raise HTTPException(status_code=ce.status_code, detail=ce.detail)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(f"Error inesperado en endpoint POST /usuarios/{usuario_id}/reactivate/")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor al reactivar el usuario.",
         )
 
 

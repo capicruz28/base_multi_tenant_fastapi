@@ -48,7 +48,8 @@ class ModuloService(BaseService):
         skip: int = 0, 
         limit: int = 100,
         solo_activos: bool = True,
-        categoria: Optional[str] = None
+        categoria: Optional[str] = None,
+        buscar: Optional[str] = None,
     ) -> List[ModuloRead]:
         """
         Obtiene la lista de módulos del sistema con paginación.
@@ -57,7 +58,9 @@ class ModuloService(BaseService):
 
         query = select(ModuloTable)
 
-        conditions = ModuloService._condiciones_listado_modulos(solo_activos, categoria)
+        conditions = ModuloService._condiciones_listado_modulos(
+            solo_activos, categoria, buscar
+        )
         if conditions:
             query = query.where(and_(*conditions))
         
@@ -73,9 +76,17 @@ class ModuloService(BaseService):
         return [ModuloRead(**modulo) for modulo in resultados]
 
     @staticmethod
+    def _normalizar_buscar(buscar: Optional[str]) -> Optional[str]:
+        if buscar is None:
+            return None
+        trimmed = buscar.strip()
+        return trimmed if trimmed else None
+
+    @staticmethod
     def _condiciones_listado_modulos(
         solo_activos: bool,
         categoria: Optional[str],
+        buscar: Optional[str] = None,
     ) -> list:
         """Filtros compartidos entre listado y conteo (F-004)."""
         conditions = []
@@ -83,6 +94,16 @@ class ModuloService(BaseService):
             conditions.append(ModuloTable.c.es_activo == True)
         if categoria:
             conditions.append(ModuloTable.c.categoria == categoria)
+        termino = ModuloService._normalizar_buscar(buscar)
+        if termino:
+            pattern = f"%{termino.lower()}%"
+            conditions.append(
+                or_(
+                    sql_func.lower(ModuloTable.c.codigo).like(pattern),
+                    sql_func.lower(ModuloTable.c.nombre).like(pattern),
+                    sql_func.lower(ModuloTable.c.descripcion).like(pattern),
+                )
+            )
         return conditions
 
     @staticmethod
@@ -90,11 +111,14 @@ class ModuloService(BaseService):
     async def contar_modulos(
         solo_activos: bool = True,
         categoria: Optional[str] = None,
+        buscar: Optional[str] = None,
     ) -> int:
         """
         Cuenta módulos del catálogo con los mismos filtros que obtener_modulos.
         """
-        conditions = ModuloService._condiciones_listado_modulos(solo_activos, categoria)
+        conditions = ModuloService._condiciones_listado_modulos(
+            solo_activos, categoria, buscar
+        )
         query = select(sql_func.count()).select_from(ModuloTable)
         if conditions:
             query = query.where(and_(*conditions))

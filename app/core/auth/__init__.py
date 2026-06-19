@@ -20,24 +20,8 @@ from app.modules.auth.application.services.auth_service import (
     authenticate_user_sso_azure_ad,
     authenticate_user_sso_google,
     get_user_access_level_info,
-    revoke_session_by_token_id,
-    get_all_active_sessions,
     AuthService
 )
-
-# ✅ Re-exportar get_current_user (necesita oauth2_scheme como dependencia)
-# Esta función necesita ser un wrapper porque usa Depends(oauth2_scheme)
-from fastapi import Depends
-from app.modules.auth.application.services.auth_service import AuthService as _AuthService
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """
-    Obtiene el usuario actual basado en el access token (Bearer).
-    
-    ✅ COMPATIBILIDAD: Wrapper que mantiene la firma original.
-    """
-    return await _AuthService.get_current_user(token)
-
 
 # ✅ Re-exportar get_current_user_from_refresh (necesita Request, Cookie, Body)
 from fastapi import Request, Cookie, Body
@@ -58,7 +42,7 @@ async def get_current_user_from_refresh(
     
     ✅ COMPATIBILIDAD: Wrapper que mantiene la firma original.
     """
-    return await _AuthService.get_current_user_from_refresh(
+    return await AuthService.get_current_user_from_refresh(
         request,
         refresh_token_cookie,
         body.refresh_token
@@ -70,13 +54,9 @@ __all__ = [
     'authenticate_user',
     'authenticate_user_sso_azure_ad',
     'authenticate_user_sso_google',
-    'get_current_user',
     'get_current_user_from_refresh',
     'get_user_access_level_info',
-    'revoke_session_by_token_id',
-    'get_all_active_sessions',
     'AuthService',
     'RefreshTokenBody'
 ]
-
 

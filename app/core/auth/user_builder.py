@@ -60,12 +60,17 @@ async def build_user_with_roles(
         # 1. Obtener usuario básico
         # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los usuarios pertenecen al mismo cliente)
         if database_type == "multi":
-            # BD dedicada: buscar solo por nombre_usuario
+            # BD dedicada: buscar solo por nombre_usuario (paridad con get_user_auth_context)
             user_query = select(UsuarioTable).where(
                 and_(
                     UsuarioTable.c.nombre_usuario == username,
                     UsuarioTable.c.es_eliminado == False
                 )
+            )
+            user_result = await fetch_usuario_auth_row(
+                user_query,
+                username=username,
+                request_cliente_id=request_cliente_id,
             )
         elif request_cliente_id:
             # BD compartida: primero intentar con cliente_id del tenant

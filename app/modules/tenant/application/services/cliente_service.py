@@ -471,6 +471,7 @@ class ClienteService(BaseService):
         skip: int = 0,
         limit: int = 100,
         solo_activos: bool = True,
+        solo_inactivos: bool = False,
         buscar: Optional[str] = None
     ) -> tuple[List[ClienteRead], int]:
         """
@@ -479,13 +480,18 @@ class ClienteService(BaseService):
         Returns:
             Tuple[List[ClienteRead], int]: (lista de clientes, total de registros)
         """
-        logger.info(f"Listando clientes - skip: {skip}, limit: {limit}, solo_activos: {solo_activos}, buscar: {buscar}")
+        logger.info(
+            f"Listando clientes - skip: {skip}, limit: {limit}, "
+            f"solo_activos: {solo_activos}, solo_inactivos: {solo_inactivos}, buscar: {buscar}"
+        )
         
         # Construir WHERE clause
         where_conditions = []
         bind_params = {}
         
-        if solo_activos:
+        if solo_inactivos:
+            where_conditions.append("es_activo = 0")
+        elif solo_activos:
             where_conditions.append("es_activo = 1")
         
         if buscar:

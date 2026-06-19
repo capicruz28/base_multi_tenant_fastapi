@@ -73,6 +73,82 @@ async def leer_expiracion_tokens_cliente(cliente_id: UUID) -> Dict[str, int]:
     }
 
 
+async def leer_session_idle_timeout_minutos(cliente_id: UUID) -> Optional[int]:
+    """
+    Lee session_idle_timeout_minutes desde cliente_auth_config (solo lectura).
+
+    Returns:
+        Minutos de idle timeout activos, o None si está deshabilitado
+        (sin fila, NULL o <= 0).
+    """
+    try:
+        query = text("""
+            SELECT session_idle_timeout_minutes
+            FROM cliente_auth_config
+            WHERE cliente_id = :cliente_id
+        """)
+        rows = await execute_query(
+            query.bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None,
+        )
+        if not rows:
+            return None
+        value = rows[0].get("session_idle_timeout_minutes")
+        if value is None:
+            return None
+        minutes = int(value)
+        if minutes <= 0:
+            return None
+        return minutes
+    except Exception as e:
+        logger.warning(
+            "[AUTH_CONFIG] No se pudo leer session_idle_timeout_minutes "
+            "para cliente %s: %s. Idle timeout deshabilitado.",
+            cliente_id,
+            e,
+        )
+        return None
+
+
+async def leer_max_active_sessions(cliente_id: UUID) -> Optional[int]:
+    """
+    Lee max_active_sessions desde cliente_auth_config (solo lectura).
+
+    Returns:
+        Límite activo de sesiones simultáneas, o None si está deshabilitado
+        (sin fila, NULL o <= 0).
+    """
+    try:
+        query = text("""
+            SELECT max_active_sessions
+            FROM cliente_auth_config
+            WHERE cliente_id = :cliente_id
+        """)
+        rows = await execute_query(
+            query.bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None,
+        )
+        if not rows:
+            return None
+        value = rows[0].get("max_active_sessions")
+        if value is None:
+            return None
+        limit = int(value)
+        if limit <= 0:
+            return None
+        return limit
+    except Exception as e:
+        logger.warning(
+            "[AUTH_CONFIG] No se pudo leer max_active_sessions "
+            "para cliente %s: %s. Límite de sesiones deshabilitado.",
+            cliente_id,
+            e,
+        )
+        return None
+
+
 class AuthConfigService(BaseService):
     """
     Servicio central para la administración de configuraciones de autenticación por cliente.

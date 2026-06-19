@@ -14,6 +14,7 @@ from app.core.tenant.empresa_context import coerce_empresa_id
 from app.infrastructure.database.tables import UsuarioTable
 from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
+from app.modules.auth.application.session.revoked_reason import RevokedReason
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.infrastructure.database.queries_async import execute_update
 
@@ -90,8 +91,11 @@ class PasswordChangeService:
         )
         await execute_update(update_query, client_id=cliente_id)
 
-        revoked_count = await RefreshTokenService.revoke_all_user_tokens(
+        await RefreshTokenService.blacklist_access_for_user_active_sessions(
             cliente_id, usuario_id
+        )
+        revoked_count = await RefreshTokenService.revoke_all_user_tokens(
+            cliente_id, usuario_id, revoked_reason=RevokedReason.PASSWORD_CHANGE
         )
         logger.info(
             "[PASSWORD_CHANGE] usuario=%s cliente=%s refresh_revocados=%s",
@@ -103,7 +107,10 @@ class PasswordChangeService:
         if old_refresh_token:
             try:
                 await RefreshTokenService.revoke_token(
-                    cliente_id, usuario_id, old_refresh_token
+                    cliente_id,
+                    usuario_id,
+                    old_refresh_token,
+                    revoked_reason=RevokedReason.PASSWORD_CHANGE,
                 )
             except Exception:
                 pass
@@ -147,6 +154,12 @@ class PasswordChangeService:
             logger.warning(
                 "[PASSWORD_CHANGE] Refresh no almacenado usuario=%s",
                 current_user.nombre_usuario,
+            )
+        elif session.get("access_jti"):
+            await RefreshTokenService.link_session_access_jti(
+                stored["token_id"],
+                session["access_jti"],
+                session.get("access_exp"),
             )
 
         return session

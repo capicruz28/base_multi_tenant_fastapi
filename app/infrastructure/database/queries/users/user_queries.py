@@ -12,17 +12,37 @@ QUERIES INCLUIDAS:
 - GET_USER_COMPLETE_OPTIMIZED_XML
 """
 
+from app.shared.vigencia_filters import VIGENCIA_ES_ACTIVO_CLAUSE
+
+_USUARIO_VIGENCIA = VIGENCIA_ES_ACTIVO_CLAUSE.format(alias="u")
+
 # ============================================
 # QUERIES PARA USUARIOS (MULTI-TENANT)
 # ============================================
 
 SELECT_USUARIOS_PAGINATED = """
-WITH UserRoles AS (
+WITH PaginatedUsers AS (
+    SELECT u.usuario_id
+    FROM usuario u
+    WHERE
+        u.es_eliminado = 0
+""" + _USUARIO_VIGENCIA + """
+        AND u.cliente_id = :cliente_id
+        AND (:buscar IS NULL OR (
+            u.nombre_usuario LIKE :buscar_pattern OR
+            u.correo LIKE :buscar_pattern OR
+            u.nombre LIKE :buscar_pattern OR
+            u.apellido LIKE :buscar_pattern
+        ))
+    ORDER BY u.usuario_id
+    OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
+),
+UserRoles AS (
     SELECT
         u.usuario_id,
         u.nombre_usuario,
         u.correo,
-        u.contrasena, 
+        u.contrasena,
         u.nombre,
         u.apellido,
         u.es_activo,
@@ -51,21 +71,12 @@ WITH UserRoles AS (
         r.cliente_id AS rol_cliente_id,
         r.codigo_rol AS rol_codigo_rol
     FROM usuario u
+    INNER JOIN PaginatedUsers pu ON u.usuario_id = pu.usuario_id
     LEFT JOIN usuario_rol ur ON u.usuario_id = ur.usuario_id AND ur.es_activo = 1
     LEFT JOIN rol r ON ur.rol_id = r.rol_id AND (r.es_activo = 1 OR r.cliente_id IS NULL)
-    WHERE
-        u.es_eliminado = 0
-        AND u.cliente_id = :cliente_id 
-        AND (:buscar IS NULL OR (
-            u.nombre_usuario LIKE :buscar_pattern OR
-            u.correo LIKE :buscar_pattern OR
-            u.nombre LIKE :buscar_pattern OR
-            u.apellido LIKE :buscar_pattern
-        ))
 )
 SELECT * FROM UserRoles
-ORDER BY usuario_id 
-OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY;
+ORDER BY usuario_id;
 """
 
 COUNT_USUARIOS_PAGINATED = """
@@ -73,6 +84,7 @@ SELECT COUNT(DISTINCT u.usuario_id)
 FROM usuario u
 WHERE
     u.es_eliminado = 0
+""" + _USUARIO_VIGENCIA + """
     AND u.cliente_id = :cliente_id 
     AND (:buscar IS NULL OR (
         u.nombre_usuario LIKE :buscar_pattern OR
@@ -84,12 +96,27 @@ WHERE
 
 # Query para BD dedicadas (multi-DB) - no filtra por cliente_id
 SELECT_USUARIOS_PAGINATED_MULTI_DB = """
-WITH UserRoles AS (
+WITH PaginatedUsers AS (
+    SELECT u.usuario_id
+    FROM usuario u
+    WHERE
+        u.es_eliminado = 0
+""" + _USUARIO_VIGENCIA + """
+        AND (:buscar IS NULL OR (
+            u.nombre_usuario LIKE :buscar_pattern OR
+            u.correo LIKE :buscar_pattern OR
+            u.nombre LIKE :buscar_pattern OR
+            u.apellido LIKE :buscar_pattern
+        ))
+    ORDER BY u.usuario_id
+    OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
+),
+UserRoles AS (
     SELECT
         u.usuario_id,
         u.nombre_usuario,
         u.correo,
-        u.contrasena, 
+        u.contrasena,
         u.nombre,
         u.apellido,
         u.es_activo,
@@ -118,20 +145,12 @@ WITH UserRoles AS (
         r.cliente_id AS rol_cliente_id,
         r.codigo_rol AS rol_codigo_rol
     FROM usuario u
+    INNER JOIN PaginatedUsers pu ON u.usuario_id = pu.usuario_id
     LEFT JOIN usuario_rol ur ON u.usuario_id = ur.usuario_id AND ur.es_activo = 1
     LEFT JOIN rol r ON ur.rol_id = r.rol_id AND r.es_activo = 1
-    WHERE
-        u.es_eliminado = 0
-        AND (:buscar IS NULL OR (
-            u.nombre_usuario LIKE :buscar_pattern OR
-            u.correo LIKE :buscar_pattern OR
-            u.nombre LIKE :buscar_pattern OR
-            u.apellido LIKE :buscar_pattern
-        ))
 )
 SELECT * FROM UserRoles
-ORDER BY usuario_id 
-OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY;
+ORDER BY usuario_id;
 """
 
 # Count para BD dedicadas (multi-DB) - no filtra por cliente_id
@@ -140,6 +159,7 @@ SELECT COUNT(DISTINCT u.usuario_id)
 FROM usuario u
 WHERE
     u.es_eliminado = 0
+""" + _USUARIO_VIGENCIA + """
     AND (:buscar IS NULL OR (
         u.nombre_usuario LIKE :buscar_pattern OR
         u.correo LIKE :buscar_pattern OR
@@ -275,11 +295,23 @@ WHERE u.nombre_usuario = :nombre_usuario
   AND u.cliente_id = :cliente_id_usuario
 """
 
+REACTIVATE_USUARIO = """
+UPDATE dbo.usuario
+SET es_eliminado = 0, es_activo = 1, fecha_actualizacion = GETDATE()
+OUTPUT
+    INSERTED.usuario_id, INSERTED.cliente_id, INSERTED.nombre_usuario, INSERTED.correo,
+    INSERTED.nombre, INSERTED.apellido, INSERTED.dni, INSERTED.telefono,
+    INSERTED.proveedor_autenticacion, INSERTED.es_activo, INSERTED.correo_confirmado,
+    INSERTED.fecha_creacion, INSERTED.fecha_actualizacion
+WHERE cliente_id = :cliente_id AND usuario_id = :usuario_id
+"""
+
 __all__ = [
     "SELECT_USUARIOS_PAGINATED",
     "COUNT_USUARIOS_PAGINATED",
     "SELECT_USUARIOS_PAGINATED_MULTI_DB",
     "COUNT_USUARIOS_PAGINATED_MULTI_DB",
+    "REACTIVATE_USUARIO",
     "GET_USER_COMPLETE_OPTIMIZED_JSON",
     "GET_USER_COMPLETE_OPTIMIZED_XML",
 ]

@@ -464,7 +464,9 @@ class RolService(BaseService):
         cliente_id: int,
         page: int = 1,
         limit: int = 10,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        solo_activos: bool = True,
+        solo_inactivos: bool = False,
     ) -> Dict:
         """
         Obtiene una lista paginada de roles **de un cliente** con búsqueda.
@@ -487,7 +489,10 @@ class RolService(BaseService):
             ValidationError: Si los parámetros son inválidos
             ServiceError: Si hay errores en la consulta
         """
-        logger.info(f"Obteniendo roles paginados para cliente {cliente_id}: page={page}, limit={limit}, search='{search}'")
+        logger.info(
+            f"Obteniendo roles paginados para cliente {cliente_id}: page={page}, limit={limit}, "
+            f"search='{search}', solo_activos={solo_activos}, solo_inactivos={solo_inactivos}"
+        )
 
         # 🚫 VALIDAR PARÁMETROS
         if page < 1:
@@ -503,6 +508,10 @@ class RolService(BaseService):
 
         offset = (page - 1) * limit
         search_param = f"%{search}%" if search else None
+        from app.shared.vigencia_filters import VIGENCIA_ES_ACTIVO_CLAUSE, vigencia_bind_params
+
+        vigencia_params = vigencia_bind_params(solo_activos, solo_inactivos)
+        rol_vigencia = VIGENCIA_ES_ACTIVO_CLAUSE.format(alias="r")
         
         # ✅ VALIDACIÓN: Verificar que cliente_id es válido (UUID)
         from uuid import UUID
@@ -533,16 +542,24 @@ class RolService(BaseService):
             # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
             # ✅ Para BD compartidas, filtrar SOLO por cliente_id (NO incluir roles del sistema)
             if database_type == "multi":
-                COUNT_QUERY = """
-                SELECT COUNT(rol_id) as total 
-                FROM dbo.rol
-                WHERE 
-                    (? IS NULL OR (
-                        LOWER(nombre) LIKE LOWER(?) OR
-                        LOWER(descripcion) LIKE LOWER(?)
-                    ));
+                from sqlalchemy import text
+
+                COUNT_QUERY = text(
+                    f"""
+                SELECT COUNT(rol_id) as total
+                FROM dbo.rol r
+                WHERE
+                    (:buscar IS NULL OR (
+                        LOWER(r.nombre) LIKE LOWER(:buscar_pattern) OR
+                        LOWER(r.descripcion) LIKE LOWER(:buscar_pattern)
+                    ))
+                {rol_vigencia}
                 """
-                count_params = (search_param, search_param, search_param)
+                ).bindparams(
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    **vigencia_params,
+                )
                 logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Contando roles sin filtrar por cliente_id")
             else:
                 # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
@@ -550,7 +567,8 @@ class RolService(BaseService):
                 COUNT_QUERY = text(COUNT_ROLES_PAGINATED).bindparams(
                     cliente_id=cliente_id,
                     buscar=search_param,
-                    buscar_pattern=f"%{search_param}%" if search_param else None
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    **vigencia_params,
                 )
                 logger.debug(f"[ROLES-PAGINADOS] BD compartida: Contando roles SOLO del cliente_id {cliente_id} (sin roles del sistema)")
             
@@ -573,21 +591,31 @@ class RolService(BaseService):
             # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
             # ✅ Para BD compartidas, filtrar SOLO por cliente_id (NO incluir roles del sistema)
             if database_type == "multi":
-                SELECT_QUERY = """
+                from sqlalchemy import text
+
+                SELECT_QUERY = text(
+                    f"""
                 SELECT
                     rol_id, nombre, descripcion, es_activo, fecha_creacion, cliente_id, codigo_rol
                 FROM
-                    dbo.rol
-                WHERE 
-                    (? IS NULL OR (
-                        LOWER(nombre) LIKE LOWER(?) OR
-                        LOWER(descripcion) LIKE LOWER(?)
+                    dbo.rol r
+                WHERE
+                    (:buscar IS NULL OR (
+                        LOWER(r.nombre) LIKE LOWER(:buscar_pattern) OR
+                        LOWER(r.descripcion) LIKE LOWER(:buscar_pattern)
                     ))
+                {rol_vigencia}
                 ORDER BY
-                    rol_id 
-                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;
+                    rol_id
+                OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
                 """
-                select_params = (search_param, search_param, search_param, offset, limit)
+                ).bindparams(
+                    buscar=search_param,
+                    buscar_pattern=f"%{search_param}%" if search_param else None,
+                    offset=offset,
+                    limit=limit,
+                    **vigencia_params,
+                )
                 logger.debug(f"[ROLES-PAGINADOS] BD dedicada: Obteniendo roles sin filtrar por cliente_id")
             else:
                 # ✅ FASE 4B: Usar parámetros nombrados con text().bindparams()
@@ -597,7 +625,8 @@ class RolService(BaseService):
                     buscar=search_param,
                     buscar_pattern=f"%{search_param}%" if search_param else None,
                     offset=offset,
-                    limit=limit
+                    limit=limit,
+                    **vigencia_params,
                 )
                 logger.debug(f"[ROLES-PAGINADOS] BD compartida: Obteniendo roles SOLO del cliente_id {cliente_id} (sin roles del sistema)")
             
@@ -919,24 +948,33 @@ class RolService(BaseService):
                 client_id=current_client_id
             )
 
-            if not result:
+            rows_affected = (
+                int(result.get("rows_affected", 0))
+                if isinstance(result, dict)
+                else 0
+            )
+            if rows_affected < 1:
                 logger.warning(f"No se pudo reactivar el rol ID {rol_id}")
-                # 🔄 VERIFICAR ESTADO ACTUAL
                 rol_revisado = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
                 if rol_revisado and rol_revisado.get('es_activo'):
                     return rol_revisado
-                    
+
                 raise ServiceError(
                     status_code=500,
                     detail="Error al reactivar el rol",
                     internal_code="ROLE_REACTIVATION_FAILED"
                 )
 
-            # 🔄 NORMALIZAR DATOS
-            result_normalizado = RolService._normalizar_rol_dict(result)
-                
+            rol_reactivado = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
+            if not rol_reactivado:
+                raise ServiceError(
+                    status_code=500,
+                    detail="Error al reactivar el rol",
+                    internal_code="ROLE_REACTIVATION_FAILED"
+                )
+
             logger.info(f"Rol ID {rol_id} reactivado exitosamente")
-            return result_normalizado
+            return rol_reactivado
 
         except (ValidationError, NotFoundError):
             raise

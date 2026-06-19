@@ -98,6 +98,7 @@ async def crear_cliente(
     - skip: Número de registros a saltar (paginación)
     - limit: Límite de registros a retornar (paginación)
     - solo_activos: Filtrar solo clientes activos
+    - solo_inactivos: Filtrar solo clientes inactivos (es_activo=0); tiene precedencia sobre solo_activos
     - buscar: Texto para buscar en razón social, nombre comercial, código o subdominio
     
     **Respuestas:**
@@ -112,6 +113,10 @@ async def listar_clientes(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(100, ge=1, le=1000, description="Límite de registros a retornar"),
     solo_activos: bool = Query(True, description="Filtrar solo clientes activos"),
+    solo_inactivos: bool = Query(
+        False,
+        description="Filtrar solo clientes inactivos (es_activo=0); excluye suspendidos",
+    ),
     buscar: Optional[str] = Query(None, description="Texto para buscar en razón social, nombre comercial, código o subdominio"),
     current_user=Depends(get_current_active_user)
 ):
@@ -120,12 +125,14 @@ async def listar_clientes(
     """
     logger.info(
         f"Solicitud GET /clientes/ recibida - skip: {skip}, limit: {limit}, "
-        f"solo_activos: {solo_activos}, buscar: {buscar} por usuario: {current_user.nombre_usuario}"
+        f"solo_activos: {solo_activos}, solo_inactivos: {solo_inactivos}, buscar: {buscar} "
+        f"por usuario: {current_user.nombre_usuario}"
     )
     clientes, total = await ClienteService.listar_clientes(
         skip=skip,
         limit=limit,
         solo_activos=solo_activos,
+        solo_inactivos=solo_inactivos,
         buscar=buscar
     )
 
