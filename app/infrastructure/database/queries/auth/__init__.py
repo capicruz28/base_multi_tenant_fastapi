@@ -29,6 +29,11 @@ from .refresh_token_queries_core import (
     revoke_refresh_token_by_id_core,
 )
 
+from .refresh_token_rotate_queries_core import (
+    SQL_LOCK_REFRESH_TOKEN_BY_HASH,
+    rotate_refresh_token_core,
+)
+
 __all__ = [
     "GET_USER_MAX_ACCESS_LEVEL",
     "IS_USER_SUPER_ADMIN",
@@ -44,4 +49,6 @@ __all__ = [
     "get_active_sessions_by_user_oldest_first_core",
     "delete_expired_tokens_core",
     "revoke_refresh_token_by_id_core",
+    "SQL_LOCK_REFRESH_TOKEN_BY_HASH",
+    "rotate_refresh_token_core",
 ]

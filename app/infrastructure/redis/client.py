@@ -38,11 +38,27 @@ async def _get_redis_client() -> Optional[aioredis.Redis]:
     
     # Si ya está inicializado, retornarlo
     if _redis_client is not None:
+        logger.warning(
+            "[REDIS-TRACE-01] _get_redis_client singleton existente "
+            "id(_redis_client)=%s HOST=%s PORT=%s DB=%s "
+            "decode_responses=True retry_on_timeout=True",
+            id(_redis_client),
+            settings.REDIS_HOST,
+            settings.REDIS_PORT,
+            settings.REDIS_DB,
+        )
         return _redis_client
     
     # Si Redis está deshabilitado, retornar None
     if not settings.ENABLE_REDIS_CACHE:
         logger.debug("[REDIS_BLACKLIST] Redis desactivado en configuración")
+        logger.warning(
+            "[REDIS-TRACE-01] _get_redis_client return None "
+            "(ENABLE_REDIS_CACHE=false) HOST=%s PORT=%s DB=%s",
+            settings.REDIS_HOST,
+            settings.REDIS_PORT,
+            settings.REDIS_DB,
+        )
         return None
     
     try:
@@ -63,6 +79,15 @@ async def _get_redis_client() -> Optional[aioredis.Redis]:
             f"[REDIS_BLACKLIST] Cliente Redis asíncrono conectado. "
             f"Host={settings.REDIS_HOST}:{settings.REDIS_PORT}, DB={settings.REDIS_DB}"
         )
+        logger.warning(
+            "[REDIS-TRACE-01] _get_redis_client nuevo cliente creado "
+            "id(_redis_client)=%s HOST=%s PORT=%s DB=%s "
+            "decode_responses=True retry_on_timeout=True",
+            id(_redis_client),
+            settings.REDIS_HOST,
+            settings.REDIS_PORT,
+            settings.REDIS_DB,
+        )
         
         return _redis_client
         
@@ -73,6 +98,13 @@ async def _get_redis_client() -> Optional[aioredis.Redis]:
             "Blacklist de tokens desactivada (fail-soft)."
         )
         _redis_enabled = False
+        logger.warning(
+            "[REDIS-TRACE-01] _get_redis_client return None (ImportError) "
+            "HOST=%s PORT=%s DB=%s",
+            settings.REDIS_HOST,
+            settings.REDIS_PORT,
+            settings.REDIS_DB,
+        )
         return None
     except Exception as e:
         logger.error(
@@ -80,9 +112,17 @@ async def _get_redis_client() -> Optional[aioredis.Redis]:
             f"Host={settings.REDIS_HOST}:{settings.REDIS_PORT}, DB={settings.REDIS_DB}. "
             "Blacklist de tokens desactivada (fail-soft). "
             "El sistema continuará funcionando pero sin revocación de tokens.",
-            exc_info=True
+            exc_info=True,
         )
         _redis_enabled = False
+        logger.warning(
+            "[REDIS-TRACE-01] _get_redis_client return None (Exception) "
+            "HOST=%s PORT=%s DB=%s error=%s",
+            settings.REDIS_HOST,
+            settings.REDIS_PORT,
+            settings.REDIS_DB,
+            e,
+        )
         return None
 
 
@@ -251,13 +291,38 @@ class RedisService:
     async def get_json(key: str) -> Optional[dict]:
         """Lee un dict JSON; None si no existe o Redis no está disponible."""
         client = await _get_redis_client()
+        logger.warning(
+            "[REDIS-TRACE-01] get_json id(client)=%s HOST=%s PORT=%s DB=%s KEY=%s",
+            id(client) if client else None,
+            settings.REDIS_HOST,
+            settings.REDIS_PORT,
+            settings.REDIS_DB,
+            key,
+        )
         if not client:
             return None
         try:
             raw = await client.get(key)
+            logger.warning(
+                "[REDIS-TRACE-01] get_json repr(raw)=%r type(raw)=%s",
+                raw,
+                type(raw).__name__,
+            )
             if not raw:
+                logger.warning("[REDIS-TRACE-01] get_json RAW ES NONE")
                 return None
-            return json.loads(raw)
+            logger.warning("[REDIS-TRACE-01] get_json RAW ENCONTRADO")
+            logger.warning(
+                "[REDIS-TRACE-01] get_json pre-json.loads repr(raw)=%r",
+                raw,
+            )
+            payload = json.loads(raw)
+            logger.warning(
+                "[REDIS-TRACE-01] get_json post-json.loads payload=%r type(payload)=%s",
+                payload,
+                type(payload).__name__,
+            )
+            return payload
         except Exception as e:
             logger.error("[REDIS] Error en get_json key=%s: %s", key, e, exc_info=True)
             return None
@@ -269,7 +334,17 @@ class RedisService:
         if not client:
             return False
         try:
-            await client.delete(key)
+            exists_antes = await client.exists(key)
+            delete_result = await client.delete(key)
+            exists_despues = await client.exists(key)
+            logger.warning(
+                "[REDIS-TRACE-01] delete_key KEY=%s DELETE RESULT=%s "
+                "EXISTS ANTES=%s EXISTS DESPUÉS=%s",
+                key,
+                delete_result,
+                exists_antes,
+                exists_despues,
+            )
             return True
         except Exception as e:
             logger.warning("[REDIS] Error eliminando key=%s: %s", key, e)

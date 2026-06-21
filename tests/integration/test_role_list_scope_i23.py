@@ -177,8 +177,17 @@ async def test_get_me_tenant_admin_with_empresa_returns_profile():
     ), patch(
         "app.core.tenant.context.try_get_tenant_context",
         return_value=None,
+    ), patch(
+        "app.modules.auth.presentation.endpoints.get_client_type",
+        return_value="web",
     ):
-        response = await get_me(_payload_ok=payload, current_user=mock_user)
+        request = MagicMock()
+        request.cookies.get.return_value = None
+        response = await get_me(
+            request=request,
+            _payload_ok=payload,
+            current_user=mock_user,
+        )
 
     assert response is not None
     assert response.nombre_usuario == "tenant_admin"

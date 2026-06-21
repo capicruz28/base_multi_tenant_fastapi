@@ -762,6 +762,14 @@ class MeResponse(UserDataWithRoles):
         None,
         description="Username del operador que inició la impersonación",
     )
+    current_token_id: Optional[UUID] = Field(
+        None,
+        description=(
+            "Identificador de la fila refresh_tokens asociada al refresh JWT "
+            "de la cookie (web). Identificador de sesión, no implica refresh activo. "
+            "null sin cookie, sin fila, impersonación o cliente mobile en GET."
+        ),
+    )
 
 
 class EmpresaIdRequest(BaseModel):

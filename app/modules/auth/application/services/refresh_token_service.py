@@ -16,6 +16,7 @@ from app.infrastructure.database.queries.auth.refresh_token_queries_core import 
     record_refresh_token_activity_core,
     is_refresh_token_session_idle_expired_core,
     get_refresh_token_by_hash_core,
+    get_refresh_token_by_hash_any_state_core,
     insert_refresh_token_core,
     revoke_refresh_token_core,
     revoke_all_user_tokens_core,
@@ -54,8 +55,51 @@ class RefreshTokenService(BaseService):
         return hashlib.sha256(token.encode()).hexdigest()
 
     @staticmethod
+    async def resolve_current_token_id_from_refresh(
+        refresh_token: Optional[str],
+        cliente_id: Optional[UUID],
+    ) -> Optional[UUID]:
+        """
+        Resuelve refresh_tokens.token_id desde el JWT refresh (read-only).
+
+        Usa hash_token + get_refresh_token_by_hash_any_state_core.
+        Sin validate_refresh_token: no idle revoke, no activity tracking.
+        Fail-soft: retorna None ante ausencia de datos o errores.
+        """
+        if not refresh_token or not cliente_id:
+            return None
+        try:
+            token_hash = RefreshTokenService.hash_token(refresh_token)
+            row = await get_refresh_token_by_hash_any_state_core(
+                token_hash, cliente_id
+            )
+            if not row or not row.get("token_id"):
+                return None
+            token_id = row["token_id"]
+            if isinstance(token_id, UUID):
+                return token_id
+            return UUID(str(token_id))
+        except (ValueError, TypeError, AttributeError):
+            logger.warning(
+                "[SESSION-ACCESS] token_id inválido resolviendo current_token_id "
+                "cliente=%s",
+                cliente_id,
+            )
+            return None
+        except Exception as exc:
+            logger.warning(
+                "[SESSION-ACCESS] Error resolviendo current_token_id (fail-soft): %s",
+                exc,
+            )
+            return None
+
+    @staticmethod
     def _session_access_redis_key(token_id: UUID) -> str:
-        return f"{SESSION_ACCESS_JTI_PREFIX}{token_id}"
+        if isinstance(token_id, UUID):
+            normalized = token_id
+        else:
+            normalized = UUID(str(token_id))
+        return f"{SESSION_ACCESS_JTI_PREFIX}{normalized}"
 
     @staticmethod
     async def link_session_access_jti(
@@ -101,22 +145,140 @@ class RefreshTokenService(BaseService):
     @staticmethod
     async def blacklist_access_for_token_id(token_id: UUID) -> bool:
         """Blacklistea el access token vinculado a token_id, si existe en Redis."""
+        logger.warning(
+            "[BLACKLIST-DIAG] token_id recibido: %r (type=%s)",
+            token_id,
+            type(token_id).__name__,
+        )
         if not token_id:
             return False
         try:
-            from app.infrastructure.redis.client import RedisService
+            import traceback
+
+            from app.infrastructure.redis.client import RedisService, _get_redis_client
             from app.modules.auth.application.services.auth_service import AuthService
+            from app.core.config import settings
 
             key = RefreshTokenService._session_access_redis_key(token_id)
+            logger.warning("[BLACKLIST-DIAG] Redis key construida: %s", key)
+
+            diag_client = await _get_redis_client()
+            logger.warning(
+                "[REDIS-TRACE-01] blacklist_access_for_token_id pre-get_json "
+                "HOST=%s PORT=%s DB=%s id(client)=%s key=%s",
+                settings.REDIS_HOST,
+                settings.REDIS_PORT,
+                settings.REDIS_DB,
+                id(diag_client) if diag_client else None,
+                key,
+            )
+            if diag_client:
+                dbsize_result = await diag_client.dbsize()
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] dbsize=%s id(client)=%s",
+                    dbsize_result,
+                    id(diag_client),
+                )
+                scan_result = await diag_client.scan(
+                    cursor=0, match="session:access_jti:*", count=100
+                )
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] scan cursor=0 match=session:access_jti:* "
+                    "count=100 result=%r",
+                    scan_result,
+                )
+                keys_result = await diag_client.keys("session:access_jti:*")
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] keys session:access_jti:* result=%r",
+                    keys_result,
+                )
+                info_server = await diag_client.info("server")
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] info(server)=%r",
+                    info_server,
+                )
+                info_keyspace = await diag_client.info("keyspace")
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] info(keyspace)=%r",
+                    info_keyspace,
+                )
+                info_clients = await diag_client.info("clients")
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] info(clients)=%r",
+                    info_clients,
+                )
+                exists_result = await diag_client.exists(key)
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] exists(key=%s)=%s",
+                    key,
+                    exists_result,
+                )
+                get_after_exists = await diag_client.get(key)
+                logger.warning(
+                    "[REDIS-RUNTIME-FINAL] get(key=%s)=%r type=%s",
+                    key,
+                    get_after_exists,
+                    type(get_after_exists).__name__,
+                )
+                raw_direct = await diag_client.get(key)
+                logger.warning(
+                    "[REDIS-TRACE-01] blacklist_access_for_token_id "
+                    "RAW DIRECT=%r TYPE(raw)=%s",
+                    raw_direct,
+                    type(raw_direct).__name__,
+                )
+            else:
+                logger.warning(
+                    "[REDIS-TRACE-01] blacklist_access_for_token_id "
+                    "RAW DIRECT omitido (client None)"
+                )
+
             payload = await RedisService.get_json(key)
+            logger.warning(
+                "[BLACKLIST-DIAG] get_json(key) resultado completo: %r",
+                payload,
+            )
+            logger.warning(
+                "[BLACKLIST-DIAG] type(payload): %s",
+                type(payload).__name__,
+            )
+            logger.warning(
+                "[BLACKLIST-DIAG] isinstance(payload, dict): %s",
+                isinstance(payload, dict),
+            )
+            if isinstance(payload, dict):
+                logger.warning(
+                    "[BLACKLIST-DIAG] payload.keys(): %s",
+                    list(payload.keys()),
+                )
+                logger.warning(
+                    "[BLACKLIST-DIAG] payload.get('jti'): %r",
+                    payload.get("jti"),
+                )
+                logger.warning(
+                    "[BLACKLIST-DIAG] payload.get('exp'): %r",
+                    payload.get("exp"),
+                )
+
             if not payload or not payload.get("jti"):
                 return False
+            logger.warning("[BLACKLIST-DIAG] BLACKLIST ABOUT TO BE WRITTEN")
             await AuthService.blacklist_access_token_jti(
                 payload["jti"], payload.get("exp")
             )
+            logger.warning("[BLACKLIST-DIAG] BLACKLIST WRITTEN")
             await RedisService.delete_key(key)
+            logger.warning("[BLACKLIST-DIAG] MAPPING DELETED")
             return True
         except Exception as e:
+            import traceback
+
+            logger.warning(
+                "[BLACKLIST-DIAG] excepción tipo=%s mensaje=%s traceback:\n%s",
+                type(e).__name__,
+                e,
+                traceback.format_exc(),
+            )
             logger.warning(
                 "[SESSION-ACCESS] Error blacklist access token_id=%s (fail-soft): %s",
                 token_id,

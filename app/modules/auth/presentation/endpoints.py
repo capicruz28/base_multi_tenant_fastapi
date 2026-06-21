@@ -14,7 +14,7 @@ Características principales:
 """
 from typing import List, Dict, Optional, Union, Any
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Response, Request, Path, Body, Query, Cookie
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from app.core.auth import get_user_access_level_info
@@ -52,7 +52,8 @@ from app.core.auth import (
     authenticate_user,
     get_current_user_from_refresh,
     authenticate_user_sso_azure_ad,
-    authenticate_user_sso_google
+    authenticate_user_sso_google,
+    RefreshTokenBody,
 )
 from app.api.deps import get_current_active_user, get_current_user_data, RoleChecker
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
@@ -64,7 +65,11 @@ from app.modules.users.application.services.user_service import UsuarioService
 from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.password_change_service import PasswordChangeService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
+from app.modules.auth.application.services.rotate_refresh_token_service import (
+    rotate_refresh_token_service,
+)
 from app.modules.auth.application.session.revoked_reason import RevokedReason
+from app.modules.auth.application.session.rotate_result import RotateOutcome
 from app.modules.auth.application.services.admin_sessions_service import AdminSessionsService
 from app.modules.auth.presentation.schemas_admin_sessions import (
     AdminSessionRead,
@@ -768,6 +773,7 @@ async def finalizar_impersonacion(
     summary="Obtener usuario actual"
 )
 async def get_me(
+    request: Request,
     _payload_ok: Dict = Depends(reject_selection_token_for_me),
     current_user=Depends(get_current_active_user),
 ):
@@ -977,6 +983,35 @@ async def get_me(
             f"user_type: {user_type_me}, is_super_admin: {is_super_admin_me}, Roles: {len(role_names)}"
         )
         imp_by = payload.get("impersonated_by")
+        current_token_id = None
+        if not payload.get("is_impersonation") and get_client_type(request) == "web":
+            refresh_jwt = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+            if refresh_jwt:
+                cliente_id_for_session = AuthService._coerce_uuid(
+                    payload.get("cliente_id")
+                )
+                if not cliente_id_for_session:
+                    cliente_id_for_session = AuthService._coerce_uuid(
+                        getattr(current_user, "cliente_id", None)
+                    )
+                if not cliente_id_for_session:
+                    try:
+                        from app.core.security.jwt import decode_refresh_token
+
+                        refresh_payload = decode_refresh_token(refresh_jwt)
+                        cliente_id_for_session = AuthService._coerce_uuid(
+                            refresh_payload.get("cliente_id")
+                        )
+                    except Exception:
+                        pass
+                if cliente_id_for_session:
+                    current_token_id = (
+                        await RefreshTokenService.resolve_current_token_id_from_refresh(
+                            refresh_jwt,
+                            cliente_id_for_session,
+                        )
+                    )
+
         return MeResponse(
             **user_profile,
             requiere_seleccion_empresa=requiere_seleccion_me,
@@ -984,6 +1019,7 @@ async def get_me(
             is_impersonation=bool(payload.get("is_impersonation")),
             impersonated_by=str(imp_by) if imp_by is not None else None,
             impersonated_by_username=payload.get("impersonated_by_username"),
+            current_token_id=current_token_id,
         )
 
     except HTTPException:
@@ -1205,11 +1241,34 @@ async def get_menu(
 # ----
 # --- Endpoint para Refrescar Access Token ---
 # ----
+
+_REFRESH_UNAUTHORIZED_DETAIL = (
+    "Sesión expirada o cerrada remotamente. Por favor, vuelva a iniciar sesión."
+)
+
+
+async def get_current_user_for_refresh_endpoint(
+    request: Request,
+    refresh_token_cookie: Optional[str] = Cookie(None, alias="refresh_token"),
+    body: RefreshTokenBody = Body(default=RefreshTokenBody()),
+) -> dict:
+    """
+    Depends del endpoint /auth/refresh/ con supresión de TOKEN_REUSE en SESSION_ROTATED
+    concurrente (rotación atómica P1-04).
+    """
+    return await AuthService.get_current_user_from_refresh(
+        request,
+        refresh_token_cookie,
+        body.refresh_token,
+        suppress_session_rotated_reuse=True,
+    )
+
+
 @router.post("/refresh/", response_model=Token)
 async def refresh_access_token(
     request: Request,
     response: Response,
-    current_user: dict = Depends(get_current_user_from_refresh)
+    current_user: dict = Depends(get_current_user_for_refresh_endpoint)
 ):
     try:
         client_type = get_client_type(request)
@@ -1309,7 +1368,8 @@ async def refresh_access_token(
         #new_access_token = create_access_token(data={"sub": username})
         #new_refresh_token = create_refresh_token(data={"sub": username})
 
-        # === PASO 3: ALMACENAR EL NUEVO TOKEN CON is_rotation=True ===
+        # === PASO 3: ROTACIÓN ATÓMICA (P1-04) ===
+        issue_refresh_in_response = True
         try:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
@@ -1319,55 +1379,65 @@ async def refresh_access_token(
             if not cliente_id_for_token:
                 from app.core.tenant.context import try_get_current_client_id
                 cliente_id_for_token = try_get_current_client_id()
-            
-            stored = await RefreshTokenService.store_refresh_token(
+
+            rotate_result = await rotate_refresh_token_service(
+                old_refresh_token=old_refresh_token,
+                new_refresh_token=new_refresh_token,
                 cliente_id=cliente_id_for_token,
                 usuario_id=current_user.get("usuario_id"),
-                token=new_refresh_token,
                 client_type=client_type,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                is_rotation=True,
                 empresa_id=refresh_empresa_id,
                 refresh_token_expire_days=refresh_expire_days,
             )
-            
-            # === PASO 4: REVOCAR TOKEN ANTIGUO SOLO SI EL NUEVO SE GUARDÓ ===
-            if stored and not stored.get('duplicate_ignored'):
-                # Nuevo token guardado exitosamente, revocar el antiguo
-                try:
-                    revoked = await RefreshTokenService.revoke_token(
-                        cliente_id=current_user.get("cliente_id"),
-                        usuario_id=current_user.get("usuario_id"),
-                        token=old_refresh_token,
-                        revoked_reason=RevokedReason.SESSION_ROTATED,
-                    )
-                    if revoked:
-                        logger.info(f"[REFRESH] Token antiguo revocado después de rotación exitosa")
-                    else:
-                        logger.warning(f"[REFRESH] Token antiguo no encontrado para revocar (no crítico)")
-                except Exception as revoke_err:
-                    logger.warning(f"[REFRESH] Error revocando token antiguo (no crítico): {str(revoke_err)}")
-            
-            # Logging según resultado
-            if stored and stored.get('token_id'):
-                logger.info(f"[REFRESH-{client_type.upper()}] Token rotado exitosamente - ID: {stored['token_id']}")
+
+            if rotate_result.outcome == RotateOutcome.IDLE_TIMEOUT:
+                logger.info(
+                    "[REFRESH-%s] Idle timeout en rotación atómica - Usuario: %s",
+                    client_type.upper(),
+                    username,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=_REFRESH_UNAUTHORIZED_DETAIL,
+                )
+
+            if rotate_result.outcome == RotateOutcome.ALREADY_ROTATED:
+                logger.info(
+                    "[REFRESH-%s] Rotación concurrente (already_rotated) - "
+                    "Usuario: %s, access emitido sin actualizar refresh",
+                    client_type.upper(),
+                    username,
+                )
+                issue_refresh_in_response = False
+            elif rotate_result.success:
+                logger.info(
+                    "[REFRESH-%s] Token rotado atómicamente - ID: %s",
+                    client_type.upper(),
+                    rotate_result.new_token_id,
+                )
                 await RefreshTokenService.link_session_access_jti(
-                    stored['token_id'],
+                    rotate_result.new_token_id,
                     new_access_jti,
                     access_expire_minutes=access_expire_minutes,
                 )
-            elif stored and stored.get('duplicate_ignored'):
-                logger.info(f"[REFRESH-{client_type.upper()}] Duplicado ignorado (doble refresh simultáneo)")
             else:
-                logger.warning(f"[REFRESH-{client_type.upper()}] Almacenamiento devolvió resultado inesperado")
-                
-        except AuthenticationError:
-            # Si hay error de seguridad (reuso real), propagar
+                logger.warning(
+                    "[REFRESH-%s] Rotación atómica rechazada outcome=%s usuario=%s",
+                    client_type.upper(),
+                    rotate_result.outcome,
+                    username,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=_REFRESH_UNAUTHORIZED_DETAIL,
+                )
+
+        except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"[REFRESH] Error en rotación de token: {str(e)}")
-            # Si falla el almacenamiento, NO continuar con el refresh
+            logger.error(f"[REFRESH] Error en rotación atómica de token: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error al rotar el refresh token"
@@ -1381,21 +1451,21 @@ async def refresh_access_token(
         }
         
         if client_type == "web":
-            # WEB: Nuevo refresh en cookie
-            response.set_cookie(
-                key=settings.REFRESH_COOKIE_NAME,
-                value=new_refresh_token,
-                httponly=True,
-                secure=settings.COOKIE_SECURE,
-                samesite=settings.COOKIE_SAMESITE,
-                max_age=refresh_cookie_max_age,
-                path="/",
-                domain=settings.COOKIE_DOMAIN,
-            )
+            if issue_refresh_in_response:
+                response.set_cookie(
+                    key=settings.REFRESH_COOKIE_NAME,
+                    value=new_refresh_token,
+                    httponly=True,
+                    secure=settings.COOKIE_SECURE,
+                    samesite=settings.COOKIE_SAMESITE,
+                    max_age=refresh_cookie_max_age,
+                    path="/",
+                    domain=settings.COOKIE_DOMAIN,
+                )
             logger.info(f"[REFRESH-WEB] Token refrescado exitosamente - Usuario: {username}")
         else:  # mobile
-            # MÓVIL: Nuevo refresh en JSON
-            response_data["refresh_token"] = new_refresh_token
+            if issue_refresh_in_response:
+                response_data["refresh_token"] = new_refresh_token
             logger.info(f"[REFRESH-MOBILE] Token refrescado exitosamente - Usuario: {username}")
         
         # Registrar refresh exitoso en auditoría (no bloquear flujo si falla)

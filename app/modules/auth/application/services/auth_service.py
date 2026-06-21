@@ -35,7 +35,11 @@ from app.infrastructure.database.tables import UsuarioTable
 from sqlalchemy import update, func, text
 from app.modules.auth.presentation.schemas import TokenPayload
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
+from app.modules.auth.application.services.rotate_refresh_token_service import (
+    rotate_refresh_token_service,
+)
 from app.modules.auth.application.session.revoked_reason import RevokedReason
+from app.modules.auth.application.session.rotate_result import RotateOutcome
 from app.infrastructure.database.queries.auth.refresh_token_queries_core import (
     get_refresh_token_by_hash_any_state_core,
 )
@@ -1079,7 +1083,9 @@ class AuthService:
     async def get_current_user_from_refresh(
         request: Request,
         refresh_token_cookie: Optional[str] = None,
-        refresh_token_body: Optional[str] = None
+        refresh_token_body: Optional[str] = None,
+        *,
+        suppress_session_rotated_reuse: bool = False,
     ) -> Dict:
         """
         Obtiene el usuario actual validando el refresh token.
@@ -1132,12 +1138,21 @@ class AuthService:
 
                 if revoked_row and revoked_row.get("is_revoked"):
                     reuse_usuario_id = revoked_row.get("usuario_id")
+                    reuse_candidate = (
+                        RefreshTokenService.is_revoked_refresh_reuse_candidate(
+                            revoked_row
+                        )
+                    )
+                    if (
+                        suppress_session_rotated_reuse
+                        and str(revoked_row.get("revoked_reason"))
+                        == RevokedReason.SESSION_ROTATED
+                    ):
+                        reuse_candidate = False
                     if (
                         token_cliente_id
                         and reuse_usuario_id
-                        and RefreshTokenService.is_revoked_refresh_reuse_candidate(
-                            revoked_row
-                        )
+                        and reuse_candidate
                     ):
                         await RefreshTokenService.handle_revoked_refresh_reuse(
                             cliente_id=token_cliente_id,
@@ -1302,13 +1317,27 @@ class AuthService:
         if not jti:
             return
         try:
-            from app.infrastructure.redis.client import RedisService
+            from app.infrastructure.redis.client import RedisService, _get_redis_client
 
             now_ts = int(datetime.utcnow().timestamp())
             ttl = 900
             if exp is not None:
                 ttl = max(int(exp) - now_ts, 60)
-            await RedisService.set_token_blacklist(jti, ttl)
+            blacklist_key = f"{RedisService.BLACKLIST_PREFIX}{jti}"
+            set_result = await RedisService.set_token_blacklist(jti, ttl)
+            exists_despues = None
+            trace_client = await _get_redis_client()
+            if trace_client:
+                exists_despues = await trace_client.exists(blacklist_key)
+            logger.warning(
+                "[REDIS-TRACE-01] blacklist_access_token_jti JTI=%s TTL=%s "
+                "KEY blacklist=%s set_result=%s exists_despues=%s",
+                jti,
+                ttl,
+                blacklist_key,
+                set_result,
+                exists_despues,
+            )
         except Exception as e:
             logger.warning(
                 "[AUTH] No se pudo blacklistear jti %s (fail-soft): %s", jti, e
@@ -1743,37 +1772,81 @@ class AuthService:
         )
 
         refresh_expire_days = session["refresh_expire_days"]
-        stored = await RefreshTokenService.store_refresh_token(
-            cliente_id=request_cliente_id,
-            usuario_id=context.usuario_id,
-            token=session["refresh_token"],
-            client_type=client_type,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            is_rotation=True,
-            empresa_id=empresa_id,
-            refresh_token_expire_days=refresh_expire_days,
-        )
 
-        if stored and stored.get("token_id") and session.get("access_jti"):
-            await RefreshTokenService.link_session_access_jti(
-                stored["token_id"],
-                session["access_jti"],
-                session.get("access_exp"),
+        if old_refresh_token:
+            rotate_result = await rotate_refresh_token_service(
+                old_refresh_token=old_refresh_token,
+                new_refresh_token=session["refresh_token"],
+                cliente_id=request_cliente_id,
+                usuario_id=context.usuario_id,
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                empresa_id=empresa_id,
+                refresh_token_expire_days=refresh_expire_days,
             )
 
-        if old_refresh_token and stored and not stored.get("duplicate_ignored"):
-            try:
-                await RefreshTokenService.revoke_token(
-                    cliente_id=request_cliente_id,
-                    usuario_id=context.usuario_id,
-                    token=old_refresh_token,
-                    revoked_reason=RevokedReason.SESSION_ROTATED,
+            if rotate_result.outcome == RotateOutcome.IDLE_TIMEOUT:
+                logger.info(
+                    "[EMPRESA] Idle timeout en rotación atómica usuario=%s",
+                    username,
                 )
-            except Exception as revoke_err:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=(
+                        "Sesión expirada o cerrada remotamente. "
+                        "Por favor, vuelva a iniciar sesión."
+                    ),
+                )
+
+            if rotate_result.outcome == RotateOutcome.ALREADY_ROTATED:
+                logger.info(
+                    "[EMPRESA] Rotación concurrente (already_rotated) usuario=%s",
+                    username,
+                )
+            elif rotate_result.success:
+                if session.get("access_jti") and rotate_result.new_token_id:
+                    await RefreshTokenService.link_session_access_jti(
+                        rotate_result.new_token_id,
+                        session["access_jti"],
+                        session.get("access_exp"),
+                    )
+                logger.info(
+                    "[EMPRESA] Refresh rotado atómicamente token_id=%s usuario=%s",
+                    rotate_result.new_token_id,
+                    username,
+                )
+            else:
                 logger.warning(
-                    "[EMPRESA] Error revocando refresh anterior al cambiar empresa: %s",
-                    revoke_err,
+                    "[EMPRESA] Rotación atómica rechazada outcome=%s usuario=%s",
+                    rotate_result.outcome,
+                    username,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=(
+                        "Sesión expirada o cerrada remotamente. "
+                        "Por favor, vuelva a iniciar sesión."
+                    ),
+                )
+        else:
+            stored = await RefreshTokenService.store_refresh_token(
+                cliente_id=request_cliente_id,
+                usuario_id=context.usuario_id,
+                token=session["refresh_token"],
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                is_rotation=True,
+                empresa_id=empresa_id,
+                refresh_token_expire_days=refresh_expire_days,
+            )
+
+            if stored and stored.get("token_id") and session.get("access_jti"):
+                await RefreshTokenService.link_session_access_jti(
+                    stored["token_id"],
+                    session["access_jti"],
+                    session.get("access_exp"),
                 )
 
         try:
