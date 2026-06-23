@@ -402,19 +402,11 @@ async def get_active_sessions_by_user_core(
     """
     # Importación tardía para evitar circular imports
     from app.infrastructure.database.queries_async import execute_query
-    
-    query = select(
-        RefreshTokensTable.c.token_id,
-        RefreshTokensTable.c.usuario_id,
-        RefreshTokensTable.c.cliente_id,
-        RefreshTokensTable.c.created_at,
-        RefreshTokensTable.c.last_used_at,
-        RefreshTokensTable.c.uso_count,
-        RefreshTokensTable.c.device_name,
-        RefreshTokensTable.c.device_id,
-        RefreshTokensTable.c.ip_address,
-        RefreshTokensTable.c.client_type
-    ).where(
+    from app.modules.auth.application.session.active_session_read_columns import (
+        active_session_token_columns,
+    )
+
+    query = select(*active_session_token_columns()).where(
         and_(
             RefreshTokensTable.c.usuario_id == usuario_id,
             RefreshTokensTable.c.cliente_id == cliente_id,  # ✅ Filtro explícito + automático

@@ -946,18 +946,80 @@ Si el backend detecta reuse malicioso → 401 con mensaje de seguridad; **todas*
 
 ---
 
-## 22. Estado del dominio
+## 22. Sesiones Activas V1 Enterprise (RC1)
+
+**Ticket:** ERP-IAM-SESSIONS-BE-RC1-STABILIZATION  
+**Estado:** Backend congelado — contrato oficial en `ERP-IAM-SESSIONS-API-CONTRACT-V1.md`  
+**Fecha:** 2026-06-21  
+
+### Endpoints V1 Enterprise
+
+| Método | Ruta | Audiencia |
+|--------|------|-----------|
+| `GET` | `/api/v1/auth/sessions/` | Usuario — sesiones activas propias |
+| `GET` | `/api/v1/auth/sessions/admin/` | Admin tenant — sesiones activas del tenant |
+| `POST` | `/api/v1/auth/sessions/{token_id}/revoke/` | Usuario — self-revoke (idempotente) |
+| `POST` | `/api/v1/auth/sessions/{token_id}/revoke_admin/` | Admin — revocación (sin cambios RC1) |
+
+### Servicio único de lectura
+
+`ActiveSessionsReadService` + `session_read_mapper.py` (UA parse inline) → `UserSessionRead` / `AdminSessionRead`.
+
+### DTOs
+
+- **`UserSessionRead`:** listado usuario enriquecido (`device`, `is_current`, `status`, `duration_seconds`, `empresa_nombre`).
+- **`AdminSessionRead`:** extiende base + `nombre_usuario`, `nombre`, `apellido`, `user_agent` (diagnóstico).
+- **`SessionDeviceRead`:** `client_type`, `browser`, `browser_version`, `os`, `platform`, `device_label`, `ip_address`, `device_id`.
+
+### Alias legacy (compatibilidad FE)
+
+| Campo legacy | Equivalente enriquecido | Notas |
+|--------------|-------------------------|-------|
+| `created_at` | `issued_at` | Mismo valor — emisión refresh vigente |
+| `last_used_at` | `last_refresh_at` | Mismo valor — último refresh, no actividad API |
+| `ip_address` (raíz) | `device.ip_address` | Restaurado RC1 HF-01 — ambos presentes |
+| `device_name` | `device.device_label` | `device_name` puede ser null |
+| Envelope `sessions` / `total_sesiones` | `items` / `total` | Admin paginado — dual |
+
+### Self-revoke (`POST .../revoke/`)
+
+1. Verifica ownership (`token_id` + `cliente_id` + `usuario_id`).
+2. Si no pertenece → **404**.
+3. Si activa → blacklist access + revoke refresh (`USER_LOGOUT`) + audit `session_self_revoked` → **200**.
+4. Si ya revocada/expirada pero es del usuario → **200** idempotente (sin re-auditar).
+
+### Auditoría aditiva (post-acción, fail-soft)
+
+| Evento | Trigger |
+|--------|---------|
+| `session_self_revoked` | Self-revoke exitoso |
+| `session_admin_revoked` | Admin revoke exitoso |
+
+### Semántica aceptada (sin migración V2)
+
+- `issued_at` ≠ inicio de sesión lógica pre-rotación.
+- `last_refresh_at` ≠ última actividad API.
+- Identificador estable API: `token_id` (PK `refresh_tokens`).
+
+### Fuera de alcance V1 (postergado V2)
+
+`session_id`, `session_started_at`, `last_activity_at`, device_id persistente, migraciones SQL.
+
+---
+
+## 23. Estado del dominio
 
 | Atributo | Valor |
 |----------|-------|
-| **Versión arquitectónica** | IAM Session Management V2 |
-| **Estado** | Production Ready (P1-04 cerrado) |
-| **Fases implementadas** | P1-01 (reuse), P1-02 (idle), P1-03 (session limit), P1-04 (rotación atómica), HOTFIX-01 (USER_MISMATCH UUID), CLEANUP-01 (eliminación TRACE) |
-| **Fecha documento** | 2026-06-17 |
+| **Versión arquitectónica** | IAM Session Management V2 + Sesiones Activas V1 Enterprise (RC1) |
+| **Estado** | Production Ready (P1-04 cerrado; Sesiones Activas BE congelado RC1) |
+| **Fases implementadas** | P1-01 (reuse), P1-02 (idle), P1-03 (session limit), P1-04 (rotación atómica), HOTFIX-01 (USER_MISMATCH UUID), CLEANUP-01 (eliminación TRACE), **IAM-SESSIONS-V1-ENTERPRISE (RC1)** |
+| **Fecha documento** | 2026-06-21 |
 | **Fuente de verdad código** | `app/modules/auth/`, `app/infrastructure/database/queries/auth/`, `app/api/deps.py` |
-| **Tests de referencia** | `tests/unit/test_iam_sessions_p*.py`, `test_iam_sessions_pa001.py` |
+| **Tests de referencia** | `tests/unit/test_iam_sessions_p*.py`, `test_iam_sessions_pa001.py`, `test_iam_sessions_v1_enterprise.py`, `test_iam_sessions_rc1.py` |
+| **Contrato FE oficial** | `docs/arquitectura/ERP-IAM-SESSIONS-API-CONTRACT-V1.md` |
 
-Esta documentación corresponde al **estado posterior a P1-04** y refleja exclusivamente el comportamiento del código desplegado en el repositorio al momento de su generación.
+Esta documentación corresponde al **estado posterior a P1-04 y RC1 Sesiones Activas** y refleja el comportamiento del código desplegado en el repositorio al momento de su generación.
 
 ---
 

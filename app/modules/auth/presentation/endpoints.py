@@ -70,11 +70,14 @@ from app.modules.auth.application.services.rotate_refresh_token_service import (
 )
 from app.modules.auth.application.session.revoked_reason import RevokedReason
 from app.modules.auth.application.session.rotate_result import RotateOutcome
-from app.modules.auth.application.services.admin_sessions_service import AdminSessionsService
+from app.modules.auth.application.services.active_sessions_read_service import (
+    ActiveSessionsReadService,
+)
 from app.modules.auth.presentation.schemas_admin_sessions import (
     AdminSessionRead,
     PaginatedAdminSessionsResponse,
 )
+from app.modules.auth.presentation.schemas_sessions import UserSessionRead
 from app.shared.pagination.params import erp_pagination_params, ErpPaginationParams
 from app.modules.tenant.application.services.cliente_service import ClienteService
 from app.modules.superadmin.application.services.audit_service import AuditService
@@ -1623,40 +1626,47 @@ async def logout(request: Request, response: Response):
 
 @router.get(
     "/sessions/",
-    response_model=List[Dict], # Retorna una lista de diccionarios de la BD (asumiendo estructura: token_id, client_type, ip_address, created_at, etc.)
+    response_model=List[UserSessionRead],
     summary="Listar sesiones activas",
     description="""
-    Retorna una lista de todas las sesiones activas del usuario, usando el Access Token para identificar al usuario. 
-    Ideal para mostrar al usuario dónde ha iniciado sesión (auditoría).
+    Retorna las sesiones activas del usuario autenticado con dispositivo enriquecido,
+    expiración, empresa activa e indicador de sesión actual (`is_current`).
 
-    **Permisos requeridos:**
-    - Autenticación (Access Token válido).
+    **Alias legacy:** `created_at` (= `issued_at`), `last_used_at` (= `last_refresh_at`).
+
+    **Semántica:** `issued_at` es la emisión del refresh vigente (puede cambiar tras rotación).
+    `last_refresh_at` refleja la última renovación refresh, no actividad API.
+
+    **Permisos:** Access Token válido.
 
     **Respuestas:**
-    - 200: Lista de sesiones activas.
+    - 200: Lista de sesiones activas enriquecidas.
     - 401: Token inválido o expirado.
     """
 )
 async def get_active_sessions_endpoint(
+    request: Request,
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
 ):
     """
     Obtiene la lista de sesiones activas para el usuario actual.
-
-    Args:
-        current_user: Usuario autenticado (PATH A — get_current_active_user).
-
-    Returns:
-        List[Dict]: Lista de diccionarios que representan las sesiones.
     """
     user_id = current_user.usuario_id
     cliente_id = current_user.cliente_id
     username = current_user.nombre_usuario
     logger.info(f"Solicitud /sessions/ recibida para usuario: {username}")
     try:
-        sessions = await RefreshTokenService.get_active_sessions(cliente_id=cliente_id, usuario_id=user_id)
-        # Asegurarse de que el servicio no devuelva el hash del token por seguridad.
-        return sessions
+        client_type = get_client_type(request)
+        current_token_id = await ActiveSessionsReadService.resolve_current_token_id(
+            request,
+            client_type,
+            cliente_id,
+        )
+        return await ActiveSessionsReadService.list_user_sessions(
+            cliente_id=cliente_id,
+            usuario_id=user_id,
+            current_token_id=current_token_id,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1755,16 +1765,13 @@ async def logout_all_sessions(
     response_model=Union[List[AdminSessionRead], PaginatedAdminSessionsResponse],
     summary="[ADMIN] Listar TODAS las sesiones activas del sistema",
     description="""
-    Retorna una lista de todas las sesiones activas (refresh tokens) en el sistema.
-    Incluye detalles como nombre de usuario, tipo de cliente, IP, y fechas de creación/expiración.
+    Retorna sesiones activas (refresh tokens) del tenant con dispositivo enriquecido,
+    empresa, expiración y datos de usuario.
 
-    **Permisos requeridos:**
-    - Rol 'Administrador'
+    Sin `page` → array legacy. Con `page` → envelope paginado dual:
+    `items`/`total` (ERP estándar) y `sessions`/`total_sesiones` (legacy).
 
-    **Respuestas:**
-    - 200: Lista de sesiones activas del sistema.
-    - 403: Permiso denegado.
-    - 500: Error interno del servidor.
+    **Permisos requeridos:** Rol 'Administrador'
     """,
 )
 async def admin_list_all_active_sessions(
@@ -1803,7 +1810,7 @@ async def admin_list_all_active_sessions(
         search,
     )
     try:
-        result = await AdminSessionsService.list_admin_active_sessions(
+        result = await ActiveSessionsReadService.list_admin_sessions(
             cliente_id=cliente_id,
             pagination=pagination,
             search=search,
@@ -1815,7 +1822,7 @@ async def admin_list_all_active_sessions(
         if pagination.is_paginated:
             logger.info(
                 "[ADMIN] Recuperadas %s sesiones (página %s/%s).",
-                len(result.sessions),
+                len(result.items),
                 result.pagina_actual,
                 result.total_paginas,
             )
@@ -1836,17 +1843,113 @@ async def admin_list_all_active_sessions(
 
 
 @router.post(
+    "/sessions/{token_id}/revoke/",
+    summary="Revocar sesión propia por ID",
+    description="""
+    Cierra una sesión activa del usuario autenticado utilizando su `token_id`
+    (PK en `refresh_tokens`). Solo permite revocar sesiones propias.
+
+    **Respuestas:**
+    - 200: Sesión revocada (idempotente si ya estaba revocada).
+    - 404: Sesión no encontrada o no pertenece al usuario.
+    - 401: Token inválido o expirado.
+    """,
+)
+async def revoke_own_session_by_id(
+    request: Request,
+    token_id: UUID = Path(..., description="UUID del refresh token de sesión a revocar"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    """Self-revoke: revoca refresh propio por token_id."""
+    cliente_id = current_user.cliente_id
+    usuario_id = current_user.usuario_id
+    username = current_user.nombre_usuario or "N/A"
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
+    owned_row = await ActiveSessionsReadService.get_owned_session_row_for_user(
+        token_id, cliente_id, usuario_id
+    )
+    if not owned_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sesión no encontrada o no pertenece al usuario.",
+        )
+
+    active_row = await ActiveSessionsReadService.get_active_session_row_for_user(
+        token_id, cliente_id, usuario_id
+    )
+    if not active_row:
+        return {
+            "message": f"Sesión (Token ID: {token_id}) ya estaba cerrada.",
+            "token_id": str(token_id),
+        }
+
+    device_label = None
+    try:
+        from app.modules.auth.application.session.session_read_mapper import (
+            map_row_to_user_session,
+        )
+
+        session_dto = map_row_to_user_session(active_row)
+        device_label = session_dto.device.device_label
+    except Exception:
+        pass
+
+    await RefreshTokenService.blacklist_access_for_token_id(token_id)
+    revoked = await RefreshTokenService.revoke_refresh_token_by_id(
+        token_id=token_id,
+        revoked_reason=RevokedReason.USER_LOGOUT,
+    )
+
+    if revoked:
+        try:
+            await AuditService.registrar_auth_event(
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+                evento="session_self_revoked",
+                nombre_usuario_intento=username,
+                descripcion="Revocación de sesión propia por token_id",
+                exito=True,
+                codigo_error=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_info=device_label,
+                metadata={
+                    "token_id": str(token_id),
+                    "client_type": active_row.get("client_type"),
+                    "device_label": device_label,
+                    "ip_address": ip_address,
+                    "empresa_id": str(active_row["empresa_id"])
+                    if active_row.get("empresa_id")
+                    else None,
+                    "actor_usuario_id": str(usuario_id),
+                    "actor_type": "self",
+                },
+            )
+        except Exception:
+            logger.exception(
+                "[AUDIT] Error registrando session_self_revoked (no crítico)"
+            )
+
+    return {
+        "message": f"Sesión (Token ID: {token_id}) revocada exitosamente.",
+        "token_id": str(token_id),
+    }
+
+
+@router.post(
     "/sessions/{token_id}/revoke_admin/",
     summary="[ADMIN] Revocar sesión activa por ID",
     description="""
     Permite a un administrador revocar (cerrar) una sesión activa específica
-    utilizando su `token_id` (ID primario en la tabla `refresh_tokens`).
+    utilizando su `token_id` (UUID, PK en la tabla `refresh_tokens`).
 
     **Permisos requeridos:**
     - Rol 'Administrador'
 
     **Parámetros de ruta:**
-    - token_id: ID numérico del refresh token a revocar.
+    - token_id: UUID del refresh token a revocar.
 
     **Respuestas:**
     - 200: Sesión revocada exitosamente.
@@ -1856,7 +1959,8 @@ async def admin_list_all_active_sessions(
     """,
 )
 async def admin_revoke_session_by_id(
-    token_id: UUID = Path(..., description="ID del token de sesión a revocar (PK en refresh_tokens)"),
+    request: Request,
+    token_id: UUID = Path(..., description="UUID del token de sesión a revocar (PK en refresh_tokens)"),
     current_user: UsuarioReadWithRoles = Depends(require_admin),
 ):
     """
@@ -1874,13 +1978,37 @@ async def admin_revoke_session_by_id(
     """
     username = current_user.nombre_usuario or "N/A"
     logger.info(f"[ADMIN] Solicitud de revocación de Token ID {token_id} por: {username}")
-    
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
     try:
         await RefreshTokenService.blacklist_access_for_token_id(token_id)
         revoked = await RefreshTokenService.revoke_refresh_token_by_id(token_id=token_id)
-        
+
         if revoked:
             logger.info(f"[ADMIN-REVOKE] Token ID {token_id} revocado exitosamente por {username}.")
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=current_user.cliente_id,
+                    usuario_id=current_user.usuario_id,
+                    evento="session_admin_revoked",
+                    nombre_usuario_intento=username,
+                    descripcion="Revocación administrativa de sesión por token_id",
+                    exito=True,
+                    codigo_error=None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "token_id": str(token_id),
+                        "actor_usuario_id": str(current_user.usuario_id),
+                        "actor_type": "admin",
+                        "ip_address": ip_address,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "[AUDIT] Error registrando session_admin_revoked (no crítico)"
+                )
             return {"message": f"Sesión (Token ID: {token_id}) revocada exitosamente."}
         else:
             logger.warning(f"[ADMIN-REVOKE] Intento de revocación fallido: Token ID {token_id} no encontrado o ya inactivo.")

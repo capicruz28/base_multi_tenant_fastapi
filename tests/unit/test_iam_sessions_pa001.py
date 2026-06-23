@@ -1,15 +1,16 @@
 """IAM-SESSIONS-PA-001: listado admin sesiones activas paginado."""
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
 from app.core.exceptions import CustomException
-from app.modules.auth.application.services.admin_sessions_service import (
+from app.modules.auth.application.services.active_sessions_read_service import (
     ADMIN_SESSIONS_SORT_COLUMNS,
-    AdminSessionsService,
+    ActiveSessionsReadService,
 )
+from app.modules.auth.application.session.session_read_mapper import map_row_to_admin_session
 from app.modules.auth.presentation.schemas_admin_sessions import AdminSessionRead
 from app.shared.pagination.params import ErpPaginationParams
 
@@ -24,6 +25,7 @@ def _session_row() -> dict:
         "token_id": TOKEN_ID,
         "usuario_id": USUARIO_ID,
         "cliente_id": CLIENTE_ID,
+        "empresa_id": uuid4(),
         "created_at": NOW,
         "last_used_at": NOW,
         "expires_at": NOW,
@@ -32,6 +34,7 @@ def _session_row() -> dict:
         "ip_address": "10.0.0.1",
         "user_agent": "Mozilla/5.0",
         "client_type": "web",
+        "empresa_nombre": "ACME",
         "nombre_usuario": "admin",
         "nombre": "Admin",
         "apellido": "User",
@@ -42,10 +45,10 @@ def _session_row() -> dict:
 async def test_legacy_mode_returns_list_without_count():
     mock_query = AsyncMock(return_value=[_session_row()])
     with patch(
-        "app.modules.auth.application.services.admin_sessions_service.execute_query",
+        "app.modules.auth.application.services.active_sessions_read_service.execute_query",
         mock_query,
     ):
-        result = await AdminSessionsService.list_admin_active_sessions(
+        result = await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,
             pagination=ErpPaginationParams(page=None, limit=50),
         )
@@ -60,24 +63,26 @@ async def test_legacy_mode_returns_list_without_count():
 async def test_paginated_mode_returns_envelope():
     mock_query = AsyncMock(side_effect=[[{"count_1": 1}], [_session_row()]])
     with patch(
-        "app.modules.auth.application.services.admin_sessions_service.execute_query",
+        "app.modules.auth.application.services.active_sessions_read_service.execute_query",
         mock_query,
     ):
-        result = await AdminSessionsService.list_admin_active_sessions(
+        result = await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,
             pagination=ErpPaginationParams(page=1, limit=10),
         )
 
     assert result.total_sesiones == 1
+    assert result.total == 1
     assert result.pagina_actual == 1
     assert len(result.sessions) == 1
+    assert len(result.items) == 1
     assert mock_query.await_count == 2
 
 
 @pytest.mark.asyncio
 async def test_invalid_sort_by_raises_422():
     with pytest.raises(CustomException) as exc:
-        await AdminSessionsService.list_admin_active_sessions(
+        await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,
             pagination=ErpPaginationParams(page=None, limit=50),
             sort_by="token_hash",
@@ -92,10 +97,11 @@ def test_sort_whitelist_includes_domain_columns():
 
 
 def test_admin_session_read_includes_enriched_fields():
-    item = AdminSessionRead.model_validate(_session_row())
+    item = map_row_to_admin_session(_session_row())
     assert item.expires_at == NOW
     assert item.user_agent == "Mozilla/5.0"
     assert item.nombre_usuario == "admin"
+    assert item.device.device_label
 
 
 def test_openapi_admin_sessions_includes_new_params():
