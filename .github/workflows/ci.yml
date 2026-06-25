@@ -168,6 +168,120 @@ jobs:
       run: |
         python scripts/run_rc_validation_pipeline.py --iam-v2-rc2
 
+  hybrid-harness-f0:
+    name: F0 — Hybrid harness (PR-F0-02..04)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio
+    - name: Ejecutar suite hybrid harness F0
+      env:
+        ALLOW_TENANT_FILTER_BYPASS: "false"
+        ENABLE_QUERY_TENANT_VALIDATION: "true"
+      run: |
+        pytest tests/integration/test_hybrid_*.py -v
+
+  shared-baseline-capture:
+    name: F0 — Shared baseline capture (pre-F1)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio
+    - name: Ejecutar suite shared pre-F1 y capturar baseline
+      env:
+        SKIP_DB_INTEGRATION_TESTS: "1"
+        ALLOW_TENANT_FILTER_BYPASS: "false"
+        ENABLE_QUERY_TENANT_VALIDATION: "true"
+      run: |
+        set -o pipefail
+        pytest tests/unit/ tests/integration/ \
+          --ignore=tests/integration/test_hybrid_wrong_route.py \
+          --ignore=tests/integration/test_hybrid_tenant_isolation.py \
+          --ignore=tests/integration/test_hybrid_impersonation_harness.py \
+          --junitxml=shared-baseline-junit.xml \
+          -v 2>&1 | tee shared-baseline-pytest.log
+        python <<'PY'
+        import json
+        import os
+        import xml.etree.ElementTree as ET
+        from datetime import datetime, timezone
+
+        root = ET.parse("shared-baseline-junit.xml").getroot()
+        if root.tag == "testsuites":
+            suites = root.findall("testsuite")
+        else:
+            suites = [root]
+
+        collected = failures = errors = skipped = 0
+        for suite in suites:
+            collected += int(suite.attrib.get("tests", 0))
+            failures += int(suite.attrib.get("failures", 0))
+            errors += int(suite.attrib.get("errors", 0))
+            skipped += int(suite.attrib.get("skipped", 0))
+
+        passed = collected - failures - errors - skipped
+        summary = {
+            "artifact_type": "f0_shared_baseline",
+            "baseline_version": "BL-1.0",
+            "ip_version": "IP-1.0",
+            "gate_target": "G-F0",
+            "commit_sha": os.environ.get("GITHUB_SHA", ""),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scope_paths": [
+                "tests/unit/",
+                "tests/integration/ (excl. test_hybrid_*)",
+            ],
+            "env_flags": {
+                "SKIP_DB_INTEGRATION_TESTS": os.environ.get("SKIP_DB_INTEGRATION_TESTS", ""),
+                "ALLOW_TENANT_FILTER_BYPASS": os.environ.get("ALLOW_TENANT_FILTER_BYPASS", ""),
+                "ENABLE_QUERY_TENANT_VALIDATION": os.environ.get("ENABLE_QUERY_TENANT_VALIDATION", ""),
+            },
+            "collected": collected,
+            "passed": passed,
+            "failed": failures + errors,
+            "skipped": skipped,
+            "hybrid_test_count_reference": 16,
+        }
+        with open("f0-shared-baseline-summary.json", "w", encoding="utf-8") as fh:
+            json.dump(summary, fh, indent=2)
+            fh.write("\n")
+
+        step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+        if step_summary:
+            with open(step_summary, "a", encoding="utf-8") as fh:
+                fh.write("## F0 Shared Baseline (pre-F1)\n\n")
+                fh.write(f"- collected: {collected}\n")
+                fh.write(f"- passed: {passed}\n")
+                fh.write(f"- failed: {failures + errors}\n")
+                fh.write(f"- skipped: {skipped}\n")
+                fh.write(f"- commit: `{summary['commit_sha']}`\n")
+        PY
+    - name: Publicar artifact baseline F0
+      uses: actions/upload-artifact@v4
+      with:
+        name: f0-shared-baseline
+        path: |
+          shared-baseline-junit.xml
+          shared-baseline-pytest.log
+          f0-shared-baseline-summary.json
+        retention-days: 90
+
   build:
     name: Verificar Build
     runs-on: ubuntu-latest
