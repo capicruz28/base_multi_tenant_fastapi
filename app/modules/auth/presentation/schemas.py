@@ -770,6 +770,13 @@ class MeResponse(UserDataWithRoles):
             "null sin cookie, sin fila, impersonación o cliente mobile en GET."
         ),
     )
+    current_session_id: Optional[UUID] = Field(
+        None,
+        description=(
+            "Identificador canónico de la sesión del access/refresh actual (V2). "
+            "Preferir sobre current_token_id para comparar is_current en listados."
+        ),
+    )
 
 
 class EmpresaIdRequest(BaseModel):

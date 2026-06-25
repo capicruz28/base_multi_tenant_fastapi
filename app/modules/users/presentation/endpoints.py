@@ -18,7 +18,7 @@ Características principales:
 - **✅ MULTI-TENANT: Todas las operaciones están aisladas por cliente_id.**
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query, Path, Body
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Path, Body, Request
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
@@ -31,11 +31,15 @@ from app.modules.users.presentation.schemas import (
     PaginatedUsuarioResponse,
     UsuarioRolRead,
     UsuarioRolAssignBody,
+    AdminPasswordResetResponse,
 )
 from app.modules.rbac.presentation.schemas import RolRead
 
 # Importar Servicios
 from app.modules.users.application.services.user_service import UsuarioService
+from app.modules.users.application.services.admin_password_reset_service import (
+    AdminPasswordResetService,
+)
 
 # Importar Excepciones personalizadas - CORREGIDO
 from app.core.exceptions import CustomException
@@ -499,6 +503,82 @@ async def reactivate_usuario(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor al reactivar el usuario.",
+        )
+
+
+@router.post(
+    "/{usuario_id}/reset-password/",
+    response_model=AdminPasswordResetResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Restablecer contraseña de un usuario (administrativo)",
+    description="""
+    Restablece la contraseña local de un usuario del tenant, genera una contraseña
+    temporal segura, activa el cambio obligatorio en el próximo acceso e invalida
+    todas sus sesiones activas.
+
+    **Permisos requeridos:**
+    - Rol 'Administrador'
+    - Permiso 'admin.usuario.reset_password'
+
+    **Parámetros de ruta:**
+    - usuario_id: UUID del usuario objetivo
+
+    **Body:** no requerido (contraseña autogenerada por el Backend).
+
+    **Respuestas:**
+    - 200: Contraseña restablecida; credenciales temporales en la respuesta (una sola vez)
+    - 400: Usuario SSO o auto-reset del administrador
+    - 403: Acceso denegado
+    - 404: Usuario no encontrado en el tenant
+    - 500: Error interno del servidor
+    """,
+    operation_id="reset_usuario_password_admin",
+    dependencies=[
+        Depends(require_admin),
+        Depends(require_permission("admin.usuario.reset_password")),
+    ],
+)
+async def reset_usuario_password_admin(
+    request: Request,
+    usuario_id: UUID = Path(..., description="ID del usuario"),
+    current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
+):
+    """Reset administrativo de contraseña con entrega única de credencial temporal."""
+    logger.info(
+        "Solicitud POST /usuarios/%s/reset-password/ por admin %s en cliente %s",
+        usuario_id,
+        current_user.usuario_id,
+        current_user.cliente_id,
+    )
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    try:
+        result = await AdminPasswordResetService.reset_password_admin(
+            cliente_id=current_user.cliente_id,
+            admin_usuario_id=current_user.usuario_id,
+            target_usuario_id=usuario_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        return result
+    except CustomException as ce:
+        logger.warning(
+            "Reset administrativo rechazado usuario=%s cliente=%s: %s",
+            usuario_id,
+            current_user.cliente_id,
+            ce.detail,
+        )
+        raise HTTPException(status_code=ce.status_code, detail=ce.detail)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Error inesperado en POST /usuarios/%s/reset-password/",
+            usuario_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor al restablecer la contraseña.",
         )
 
 

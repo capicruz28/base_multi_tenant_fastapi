@@ -17,11 +17,10 @@ USO:
 from sqlalchemy import (
     Table, Column, Integer, String, Boolean, DateTime, Date, 
     ForeignKey, Text, Index, UniqueConstraint, CheckConstraint,
-    MetaData, Numeric
+    MetaData, Numeric, CHAR
 )
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
-from sqlalchemy.sql import func
-from datetime import datetime
+from sqlalchemy.sql import func, text
 
 # Metadata para todas las tablas
 metadata = MetaData()
@@ -261,48 +260,187 @@ RolMenuPermisoTable = Table(
 )
 
 # ============================================================================
-# TABLA: refresh_tokens
+# TABLA: user_session (IAM Session Management V3 — F1)
 # ============================================================================
-RefreshTokensTable = Table(
-    'refresh_tokens',
+UserSessionTable = Table(
+    'user_session',
     metadata,
-    Column('token_id', UNIQUEIDENTIFIER, primary_key=True),
-    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=False),
+    Column('session_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='CASCADE'), nullable=False),
+    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
     Column(
         'empresa_id',
         UNIQUEIDENTIFIER,
         ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
         nullable=True,
     ),
-    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='CASCADE'), nullable=False),
-    
-    # Token
-    Column('token_hash', String(255), nullable=False, unique=True),
-    
-    # Expiración y revocación
-    Column('expires_at', DateTime, nullable=False),
-    Column('is_revoked', Boolean, nullable=False, server_default='0'),
-    Column('revoked_at', DateTime, nullable=True),
-    Column('revoked_reason', String(100), nullable=True),
-    
-    # Información de la sesión
-    Column('client_type', String(10), nullable=False, server_default='web'),
+    Column('login_method', String(20), nullable=False, server_default='password'),
+    Column('selection_token_completed', Boolean, nullable=False, server_default='0'),
+    Column('platform', String(20), nullable=False),
     Column('device_name', String(100), nullable=True),
     Column('device_id', String(100), nullable=True),
-    Column('ip_address', String(45), nullable=True),
-    Column('user_agent', String(500), nullable=True),
-    
-    # Control de uso
+    Column('device_fingerprint', CHAR(64), nullable=True),
+    Column('user_agent', String(1000), nullable=True),
+    Column('login_ip', String(45), nullable=True),
+    Column('last_seen_ip', String(45), nullable=True),
+    Column('is_active', Boolean, nullable=False, server_default='1'),
+    Column('revoked_at', DateTime, nullable=True),
+    Column('revoked_reason', String(50), nullable=True),
+    Column('last_refresh_at', DateTime, nullable=True),
+    Column('last_business_activity_at', DateTime, nullable=True),
+    Column('created_at', DateTime, nullable=False, server_default=func.getdate()),
+    Column('expires_at', DateTime, nullable=False),
+    CheckConstraint(
+        "login_method IN ('password', 'sso', '2fa', 'api_key')",
+        name='CK_session_login_method',
+    ),
+    CheckConstraint(
+        "platform IN ('web', 'mobile', 'desktop', 'api')",
+        name='CK_session_platform',
+    ),
+    CheckConstraint(
+        "revoked_reason IS NULL OR revoked_reason IN ("
+        "'logout', 'admin_force', 'security', 'expired', 'password_reset')",
+        name='CK_session_revoked_reason',
+    ),
+    Index('IDX_session_usuario_activo', 'usuario_id', 'is_active', mssql_where=text('is_active = 1')),
+    Index('IDX_session_cliente', 'cliente_id', 'is_active'),
+    Index(
+        'IDX_session_device_usuario',
+        'device_id',
+        'usuario_id',
+        mssql_where=text('device_id IS NOT NULL'),
+    ),
+    Index('IDX_session_expires', 'expires_at', 'is_active', mssql_where=text('is_active = 1')),
+    Index('IDX_session_empresa', 'empresa_id', 'is_active', mssql_where=text('empresa_id IS NOT NULL')),
+    Index('IDX_session_login_method', 'login_method', 'is_active'),
+    Index(
+        'IDX_session_last_seen_ip',
+        'last_seen_ip',
+        'is_active',
+        mssql_where=text('last_seen_ip IS NOT NULL'),
+    ),
+    Index(
+        'IDX_session_business_activity',
+        'last_business_activity_at',
+        'is_active',
+        mssql_where=text('is_active = 1'),
+    ),
+)
+
+# ============================================================================
+# TABLA: token_family (IAM Session Management V3 — F1)
+# ============================================================================
+TokenFamilyTable = Table(
+    'token_family',
+    metadata,
+    Column('family_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column(
+        'session_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('user_session.session_id', ondelete='CASCADE'),
+        nullable=False,
+    ),
+    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='NO ACTION'), nullable=False),
+    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
+    Column('current_token_id', UNIQUEIDENTIFIER, nullable=True),
+    Column('is_compromised', Boolean, nullable=False, server_default='0'),
+    Column('compromised_at', DateTime, nullable=True),
+    Column('invalidation_reason', String(50), nullable=True),
+    Column('created_at', DateTime, nullable=False, server_default=func.getdate()),
+    CheckConstraint(
+        "invalidation_reason IS NULL OR invalidation_reason IN ("
+        "'replay_detected', 'session_revoked', 'admin_force', "
+        "'password_reset', 'security_policy')",
+        name='CK_family_invalidation_reason',
+    ),
+    Index('IDX_family_session', 'session_id', 'is_compromised'),
+    Index(
+        'IDX_family_comprometida',
+        'is_compromised',
+        'compromised_at',
+        mssql_where=text('is_compromised = 1'),
+    ),
+    Index('IDX_family_usuario', 'usuario_id', 'is_compromised'),
+    Index('IDX_family_cliente', 'cliente_id', 'is_compromised'),
+    Index(
+        'IDX_family_current_token',
+        'current_token_id',
+        mssql_where=text('current_token_id IS NOT NULL'),
+    ),
+)
+
+# ============================================================================
+# TABLA: refresh_tokens (IAM Session Management V3 — F1)
+# ============================================================================
+RefreshTokensTable = Table(
+    'refresh_tokens',
+    metadata,
+    Column('token_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column(
+        'family_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('token_family.family_id', ondelete='NO ACTION'),
+        nullable=False,
+    ),
+    Column(
+        'session_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('user_session.session_id', ondelete='NO ACTION'),
+        nullable=False,
+    ),
+    Column(
+        'parent_token_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('refresh_tokens.token_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
+    Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
+    Column(
+        'empresa_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
+    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='NO ACTION'), nullable=False),
+    Column('token_hash', String(255), nullable=False),
+    Column('expires_at', DateTime, nullable=False),
     Column('created_at', DateTime, nullable=False, server_default=func.getdate()),
     Column('last_used_at', DateTime, nullable=True),
-    Column('uso_count', Integer, nullable=True, server_default='0'),
-    
-    # Índices
-    Index('IDX_refresh_token_usuario_cliente', 'usuario_id', 'cliente_id'),
-    Index('IDX_refresh_token_active', 'usuario_id', 'is_revoked', 'expires_at'),
-    Index('IDX_refresh_token_cleanup', 'expires_at', 'is_revoked'),
-    Index('IDX_refresh_token_device', 'device_id'),
-    Index('IDX_refresh_token_empresa', 'empresa_id'),
+    Column('is_used', Boolean, nullable=False, server_default='0'),
+    Column('used_at', DateTime, nullable=True),
+    Column('is_revoked', Boolean, nullable=False, server_default='0'),
+    Column('revoked_at', DateTime, nullable=True),
+    Column('revoked_reason', String(50), nullable=True),
+    UniqueConstraint('token_hash', name='UQ_token_hash'),
+    CheckConstraint(
+        "revoked_reason IS NULL OR revoked_reason IN ("
+        "'logout', 'replay_detected', 'admin_force', "
+        "'password_reset', 'family_compromised')",
+        name='CK_token_revoked_reason',
+    ),
+    Index('IDX_token_hash_activo', 'token_hash', 'is_used', 'is_revoked', 'expires_at'),
+    Index('IDX_token_family_estado', 'family_id', 'is_used', 'is_revoked', 'expires_at'),
+    Index(
+        'IDX_token_session_activo',
+        'session_id',
+        'is_revoked',
+        'expires_at',
+        mssql_where=text('is_revoked = 0'),
+    ),
+    Index(
+        'IDX_token_parent',
+        'parent_token_id',
+        mssql_where=text('parent_token_id IS NOT NULL'),
+    ),
+    Index('IDX_token_usuario_cliente', 'usuario_id', 'cliente_id', 'is_revoked', 'expires_at'),
+    Index('IDX_token_cleanup', 'expires_at', 'is_revoked', 'is_used'),
+    Index(
+        'IDX_token_used_activo',
+        'is_used',
+        'expires_at',
+        mssql_where=text('is_used = 1'),
+    ),
 )
 
 # ============================================================================
@@ -577,6 +715,8 @@ __all__ = [
     'RolTable',
     'UsuarioRolTable',
     'RolMenuPermisoTable',
+    'UserSessionTable',
+    'TokenFamilyTable',
     'RefreshTokensTable',
     'ClienteConexionTable',
     'ClienteAuthConfigTable',

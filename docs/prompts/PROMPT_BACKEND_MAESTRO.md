@@ -1,6 +1,6 @@
 # CAXIS ERP — Prompt Maestro (operativo)
 
-**Estándar oficial:** Backend V4 — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación consolidados)
+**Estándar oficial:** Backend V4 — 2026-06-03 (rev. 2026-06-24 patch gobernanza documental post auditoría V2; rev. previa 2026-06-16 post ORG+INV session scope e impersonación consolidados)
 
 ---
 
@@ -21,11 +21,13 @@ Sustituir en ese documento:
 
 | Documento | Uso |
 |-----------|-----|
-| [`ERP_BACKEND_MASTER_PROMPT_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md) | Fases 0–4: análisis, auditoría, implementación, verificación |
-| [`ERP_BACKEND_RULES_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_RULES_V4.md) | Reglas operativas R01–R112 |
 | [`ERP_BACKEND_STANDARDS_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_STANDARDS_V4.md) | Estándar técnico detallado |
+| [`ERP_BACKEND_RULES_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_RULES_V4.md) | Reglas operativas R01–R112 |
+| [`.cursorrules`](../../.cursorrules) | Resumen operativo Cursor (reglas críticas V4) |
+| [`ERP_BACKEND_MASTER_PROMPT_V4.md`](../../app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md) | Fases 0–4: análisis, auditoría, implementación, verificación |
 | [`ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`](../../app/docs/arquitectura/ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md) | Auditoría arquitectónica origen |
-| [`.cursorrules`](../../.cursorrules) | Reglas Cursor activas (resumen V4) |
+
+**Nota:** Este documento es el **punto de entrada operativo** para refactorización de módulos ERP. La **norma técnica** reside en `ERP_BACKEND_STANDARDS_V4.md`; las reglas ejecutables en `ERP_BACKEND_RULES_V4.md`. La ejecución del proceso delega íntegramente en `ERP_BACKEND_MASTER_PROMPT_V4.md` (§ Documento canónico de refactorización).
 
 ---
 

@@ -2,8 +2,8 @@
 
 **Versión:** 4.0  
 **Fecha:** 2026-06-03  
-**Revisión:** 2026-06-16 — post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
-**Estado:** Oficial — reemplazo completo de `PROMPT_BACKEND_MAESTRO.md` v3  
+**Revisión:** 2026-06-24 — patch gobernanza documental post auditoría V2 (H-01, H-02, H-03, F-01, jerarquía); rev. previa 2026-06-16 post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
+**Estado:** Oficial — proceso canónico de refactorización por módulo; `PROMPT_BACKEND_MAESTRO.md` es punto de entrada operativo  
 **Fuente:** `ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`  
 **Estándares:** `ERP_BACKEND_STANDARDS_V4.md` · **Reglas:** `ERP_BACKEND_RULES_V4.md`
 
@@ -659,7 +659,7 @@ Entidades del mapa ideal ausentes en BD → ignorar completamente.
 | Scope policy TENANT/COMPANY/HYBRID | No mencionado | Clasificación obligatoria por entidad | **Agrega** |
 | `{codigo}_deps.py` | No mencionado | Obligatorio en todo módulo ERP (`get_{cod}_session_client_id`); gates adicionales si scope mixto | **Cambia** |
 | `cliente_id` desde sesión | "Validar siempre" (genérico) | `Depends(get_{cod}_session_client_id)`; prohibido body/query y `current_user.cliente_id` en presentation | **Cambia** |
-| Resolución impersonación | No mencionado | `require_session_cliente_id`: JWT impersonation > ContextVar > request.state > user legacy | **Agrega** |
+| Resolución impersonación | No mencionado | `require_session_cliente_id`: JWT impersonation → request.state → ContextVar → user legacy | **Agrega** |
 | Identidad vs contexto operativo | No mencionado | Separación explícita §3.7 STANDARDS; ORG + INV co-referencia | **Agrega** |
 | Anti-patrón `current_user.cliente_id` | No mencionado | R110 — listados vacíos en impersonación | **Agrega** |
 | Cross-scope → 404 | No mencionado | 404, no 403 | **Agrega** |
@@ -766,4 +766,4 @@ Entidades del mapa ideal ausentes en BD → ignorar completamente.
 
 ---
 
-*CAXIS ERP Prompt Maestro V4 — Oficial — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación)*
+*CAXIS ERP Prompt Maestro V4 — Oficial — 2026-06-03 (rev. 2026-06-24 patch gobernanza documental post auditoría V2; rev. previa 2026-06-16 post ORG+INV session scope e impersonación)*

@@ -46,7 +46,7 @@ from app.api.deps_auth import (
     require_full_session_payload,
     require_erp_session,
     get_current_active_user_full_session,
-    reject_selection_token_for_me,
+    require_active_password_session_v2_for_me,
 )
 from app.core.auth import (
     authenticate_user,
@@ -65,9 +65,6 @@ from app.modules.users.application.services.user_service import UsuarioService
 from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.password_change_service import PasswordChangeService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
-from app.modules.auth.application.services.rotate_refresh_token_service import (
-    rotate_refresh_token_service,
-)
 from app.modules.auth.application.session.revoked_reason import RevokedReason
 from app.modules.auth.application.session.rotate_result import RotateOutcome
 from app.modules.auth.application.services.active_sessions_read_service import (
@@ -432,32 +429,32 @@ async def login(
             refresh_token_expire_days=refresh_expire_days,
         )
 
-        try:
-            stored = await RefreshTokenService.store_refresh_token(
-                cliente_id=target_cliente_id,
-                usuario_id=user_id,
-                token=refresh_token,
-                client_type=client_type,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                is_rotation=False,
-                empresa_id=empresa_activa,
-                refresh_token_expire_days=refresh_expire_days,
+        login_used_v2 = await AuthService.persist_login_session(
+            cliente_id=target_cliente_id,
+            usuario_id=user_id,
+            refresh_token=refresh_token,
+            access_jti=access_jti,
+            access_expire_minutes=access_expire_minutes,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            empresa_id=empresa_activa,
+            refresh_expire_days=refresh_expire_days,
+        )
+
+        if login_used_v2:
+            v2_session_id = await AuthService._resolve_v2_session_id_from_refresh(
+                refresh_token,
+                target_cliente_id,
             )
-            
-            if stored and stored.get('token_id'):
-                logger.info(f"[LOGIN-{client_type.upper()}] Token almacenado - ID: {stored['token_id']}")
-                await RefreshTokenService.link_session_access_jti(
-                    stored['token_id'],
-                    access_jti,
-                    access_expire_minutes=access_expire_minutes,
+            if v2_session_id:
+                access_token, access_jti = create_access_token(
+                    data=token_data,
+                    empresa_id=empresa_activa,
+                    es_admin_cliente=es_admin_cliente,
+                    access_token_expire_minutes=access_expire_minutes,
+                    session_id=v2_session_id,
                 )
-            else:
-                logger.warning(f"[LOGIN-{client_type.upper()}] Token duplicado en login (revisar)")
-                
-        except Exception as e:
-            logger.error(f"[LOGIN] Error almacenando refresh token: {str(e)}")
-            # No fallar el login
 
         # ✅ NUEVO: Lógica diferenciada según tipo de cliente
         response_data = {
@@ -483,28 +480,29 @@ async def login(
             response_data["refresh_token"] = refresh_token
             logger.info(f"Usuario {form_data.username} autenticado exitosamente (MOBILE) para cliente {cliente_id}")
 
-        # Registrar login exitoso en auditoría (no bloquear login si falla)
-        try:
-            await AuditService.registrar_auth_event(
-                cliente_id=target_cliente_id,
-                usuario_id=user_id,
-                evento="login_success",
-                nombre_usuario_intento=form_data.username,
-                descripcion="Login exitoso",
-                exito=True,
-                codigo_error=None,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                metadata={
-                    "client_type": client_type,
-                    "es_superadmin": es_superadmin,
-                    "auth_method": "password",
-                },
-            )
-        except Exception:
-            logger.exception(
-                "[AUDIT] Error registrando evento login_success (no crítico)"
-            )
+        # Registrar login exitoso en auditoría (V2 emite vía SessionCreationService)
+        if not login_used_v2:
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=target_cliente_id,
+                    usuario_id=user_id,
+                    evento="login_success",
+                    nombre_usuario_intento=form_data.username,
+                    descripcion="Login exitoso",
+                    exito=True,
+                    codigo_error=None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "client_type": client_type,
+                        "es_superadmin": es_superadmin,
+                        "auth_method": "password",
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "[AUDIT] Error registrando evento login_success (no crítico)"
+                )
 
         return response_data
 
@@ -546,6 +544,13 @@ async def seleccionar_empresa(
     body: EmpresaIdRequest,
     payload: Dict = Depends(require_selection_token_payload),
 ):
+    from app.core.auth.impersonation_trace_diag import (
+        log_impersonation_trace_request,
+        log_impersonation_trace_response,
+    )
+
+    _trace_ep = "POST /auth/empresa/seleccionar/"
+    log_impersonation_trace_request(endpoint=_trace_ep, payload=payload, jwt_kind="access")
     client_type = get_client_type(request)
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
@@ -558,12 +563,44 @@ async def seleccionar_empresa(
             user_agent=user_agent,
         )
         if not session.get("refresh_token"):
-            return _access_only_token_response(session)
-        return _session_token_http_response(response, request, session)
-    except HTTPException:
+            result = _access_only_token_response(session)
+            log_impersonation_trace_response(
+                endpoint=_trace_ep,
+                http_status=200,
+                request_payload=payload,
+                issued_access_token=result.get("access_token"),
+                emission_reason=(
+                    "seleccionar_empresa_impersonacion_access_only"
+                    if payload.get("is_impersonation")
+                    else "seleccionar_empresa_access_only"
+                ),
+            )
+            return result
+        result = _session_token_http_response(response, request, session)
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=200,
+            request_payload=payload,
+            issued_access_token=result.get("access_token"),
+            emission_reason="seleccionar_empresa_full_session_with_refresh",
+        )
+        return result
+    except HTTPException as exc:
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=exc.status_code,
+            request_payload=payload,
+            emission_reason=f"rejected:{exc.detail}",
+        )
         raise
     except Exception as e:
         logger.exception("Error en POST /empresa/seleccionar/: %s", e)
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=500,
+            request_payload=payload,
+            emission_reason=f"error:{type(e).__name__}",
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al seleccionar empresa",
@@ -591,7 +628,21 @@ async def cambiar_empresa(
     payload: Dict = Depends(get_current_user_data),
     _current_user=Depends(get_current_active_user),
 ):
+    from app.core.auth.impersonation_trace_diag import (
+        log_impersonation_trace_request,
+        log_impersonation_trace_response,
+    )
+
+    _trace_ep = "POST /auth/empresa/cambiar/"
+    log_impersonation_trace_request(endpoint=_trace_ep, payload=payload, jwt_kind="access")
+
     if is_impersonation_payload(payload):
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=status.HTTP_403_FORBIDDEN,
+            request_payload=payload,
+            emission_reason="rejected:impersonation_active",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -601,6 +652,12 @@ async def cambiar_empresa(
         )
 
     if payload.get("empresa_selection_pending"):
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=status.HTTP_409_CONFLICT,
+            request_payload=payload,
+            emission_reason="rejected:empresa_selection_pending",
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -628,11 +685,31 @@ async def cambiar_empresa(
             user_agent=user_agent,
             old_refresh_token=old_refresh_token,
         )
-        return _session_token_http_response(response, request, session)
-    except HTTPException:
+        result = _session_token_http_response(response, request, session)
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=200,
+            request_payload=payload,
+            issued_access_token=result.get("access_token"),
+            emission_reason="cambiar_empresa_sesion",
+        )
+        return result
+    except HTTPException as exc:
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=exc.status_code,
+            request_payload=payload,
+            emission_reason=f"rejected:{exc.detail}",
+        )
         raise
     except Exception as e:
         logger.exception("Error en POST /empresa/cambiar/: %s", e)
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=500,
+            request_payload=payload,
+            emission_reason=f"error:{type(e).__name__}",
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al cambiar empresa",
@@ -777,14 +854,13 @@ async def finalizar_impersonacion(
 )
 async def get_me(
     request: Request,
-    _payload_ok: Dict = Depends(reject_selection_token_for_me),
+    payload: Dict = Depends(require_active_password_session_v2_for_me),
     current_user=Depends(get_current_active_user),
 ):
     """
     Recupera los datos del usuario identificado por el Access Token.
     ✅ CORRECCIÓN CRÍTICA: Usar niveles del TOKEN, no recalcularlos.
     """
-    payload = _payload_ok
     from app.core.auth.platform_user_lookup import is_system_request_client
 
     lookup_db = "tenant_routing"
@@ -987,33 +1063,25 @@ async def get_me(
         )
         imp_by = payload.get("impersonated_by")
         current_token_id = None
-        if not payload.get("is_impersonation") and get_client_type(request) == "web":
-            refresh_jwt = request.cookies.get(settings.REFRESH_COOKIE_NAME)
-            if refresh_jwt:
-                cliente_id_for_session = AuthService._coerce_uuid(
-                    payload.get("cliente_id")
+        current_session_id = None
+        if not payload.get("is_impersonation"):
+            client_type_me = get_client_type(request)
+            session_cliente_id = AuthService._coerce_uuid(cliente_id)
+            if session_cliente_id and client_type_me == "web":
+                current_token_id = (
+                    await ActiveSessionsReadService.resolve_current_token_id(
+                        request,
+                        client_type_me,
+                        session_cliente_id,
+                    )
                 )
-                if not cliente_id_for_session:
-                    cliente_id_for_session = AuthService._coerce_uuid(
-                        getattr(current_user, "cliente_id", None)
+                current_session_id = (
+                    await ActiveSessionsReadService.resolve_current_session_id(
+                        request,
+                        client_type_me,
+                        session_cliente_id,
                     )
-                if not cliente_id_for_session:
-                    try:
-                        from app.core.security.jwt import decode_refresh_token
-
-                        refresh_payload = decode_refresh_token(refresh_jwt)
-                        cliente_id_for_session = AuthService._coerce_uuid(
-                            refresh_payload.get("cliente_id")
-                        )
-                    except Exception:
-                        pass
-                if cliente_id_for_session:
-                    current_token_id = (
-                        await RefreshTokenService.resolve_current_token_id_from_refresh(
-                            refresh_jwt,
-                            cliente_id_for_session,
-                        )
-                    )
+                )
 
         return MeResponse(
             **user_profile,
@@ -1023,6 +1091,7 @@ async def get_me(
             impersonated_by=str(imp_by) if imp_by is not None else None,
             impersonated_by_username=payload.get("impersonated_by_username"),
             current_token_id=current_token_id,
+            current_session_id=current_session_id,
         )
 
     except HTTPException:
@@ -1273,6 +1342,13 @@ async def refresh_access_token(
     response: Response,
     current_user: dict = Depends(get_current_user_for_refresh_endpoint)
 ):
+    from app.core.auth.impersonation_trace_diag import (
+        log_impersonation_trace_request,
+        log_impersonation_trace_response,
+    )
+
+    _trace_ep = "POST /auth/refresh/"
+    refresh_payload_for_trace: Optional[Dict[str, Any]] = None
     try:
         client_type = get_client_type(request)
         username = current_user.get("nombre_usuario")
@@ -1305,6 +1381,12 @@ async def refresh_access_token(
 
         try:
             refresh_payload = decode_refresh_token(old_refresh_token)
+            refresh_payload_for_trace = refresh_payload
+            log_impersonation_trace_request(
+                endpoint=_trace_ep,
+                payload=refresh_payload,
+                jwt_kind="refresh",
+            )
             if refresh_payload.get("is_impersonation"):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -1354,12 +1436,6 @@ async def refresh_access_token(
             requires_password_change=requires_password_change,
         )
 
-        new_access_token, new_access_jti = create_access_token(
-            data=token_data,
-            empresa_id=refresh_empresa_id,
-            es_admin_cliente=es_admin_cliente,
-            access_token_expire_minutes=access_expire_minutes,
-        )
         new_refresh_token, new_refresh_jti = create_refresh_token(
             data=token_data,
             empresa_id=refresh_empresa_id,
@@ -1367,23 +1443,27 @@ async def refresh_access_token(
             refresh_token_expire_days=refresh_expire_days,
         )
 
-        # === PASO 2: GENERAR NUEVOS TOKENS ===
-        #new_access_token = create_access_token(data={"sub": username})
-        #new_refresh_token = create_refresh_token(data={"sub": username})
+        from uuid import uuid4
 
-        # === PASO 3: ROTACIÓN ATÓMICA (P1-04) ===
+        from app.modules.auth.application.session.session_v2_feature import (
+            is_session_v2_enabled,
+        )
+
+        new_access_jti = str(uuid4())
+
+        cliente_id_for_token = current_user.get("cliente_id")
+        if not cliente_id_for_token:
+            from app.core.tenant.context import try_get_current_client_id
+            cliente_id_for_token = try_get_current_client_id()
+
+        # === PASO 2: ROTACIÓN ATÓMICA (antes de emitir access — DESIGN §7.2) ===
         issue_refresh_in_response = True
+        v2_session_id: Optional[UUID] = None
         try:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
 
-            # ✅ Obtener cliente_id del contexto si no está en current_user
-            cliente_id_for_token = current_user.get("cliente_id")
-            if not cliente_id_for_token:
-                from app.core.tenant.context import try_get_current_client_id
-                cliente_id_for_token = try_get_current_client_id()
-
-            rotate_result = await rotate_refresh_token_service(
+            rotate_result = await AuthService.rotate_refresh_session(
                 old_refresh_token=old_refresh_token,
                 new_refresh_token=new_refresh_token,
                 cliente_id=cliente_id_for_token,
@@ -1392,8 +1472,13 @@ async def refresh_access_token(
                 ip_address=ip_address,
                 user_agent=user_agent,
                 empresa_id=refresh_empresa_id,
-                refresh_token_expire_days=refresh_expire_days,
+                refresh_expire_days=refresh_expire_days,
+                new_access_jti=new_access_jti,
+                access_expire_minutes=access_expire_minutes,
             )
+
+            if rotate_result.session_id:
+                v2_session_id = rotate_result.session_id
 
             if rotate_result.outcome == RotateOutcome.IDLE_TIMEOUT:
                 logger.info(
@@ -1420,11 +1505,6 @@ async def refresh_access_token(
                     client_type.upper(),
                     rotate_result.new_token_id,
                 )
-                await RefreshTokenService.link_session_access_jti(
-                    rotate_result.new_token_id,
-                    new_access_jti,
-                    access_expire_minutes=access_expire_minutes,
-                )
             else:
                 logger.warning(
                     "[REFRESH-%s] Rotación atómica rechazada outcome=%s usuario=%s",
@@ -1445,6 +1525,20 @@ async def refresh_access_token(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error al rotar el refresh token"
             )
+
+        use_v2 = bool(
+            cliente_id_for_token and is_session_v2_enabled(cliente_id_for_token)
+        )
+        if use_v2 and v2_session_id is None:
+            v2_session_id = AuthService._coerce_uuid(refresh_payload.get("sid"))
+
+        new_access_token, new_access_jti = create_access_token(
+            data=token_data,
+            empresa_id=refresh_empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            access_token_expire_minutes=access_expire_minutes,
+            session_id=v2_session_id if use_v2 else None,
+        )
 
         # === PASO 5: PREPARAR RESPUESTA ===
         response_data = {
@@ -1498,18 +1592,46 @@ async def refresh_access_token(
                 "[AUDIT] Error registrando evento token_refresh (no crítico)"
             )
 
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=200,
+            request_payload=refresh_payload_for_trace,
+            issued_access_token=response_data.get("access_token"),
+            emission_reason=(
+                "refresh_token_rotation"
+                if issue_refresh_in_response
+                else "refresh_access_only_already_rotated"
+            ),
+        )
         return response_data
         
-    except HTTPException:
+    except HTTPException as exc:
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=exc.status_code,
+            request_payload=refresh_payload_for_trace,
+            emission_reason=f"rejected:{exc.detail}",
+        )
         raise
     except AuthenticationError:
-        # Convertir AuthenticationError a HTTPException
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=status.HTTP_401_UNAUTHORIZED,
+            request_payload=refresh_payload_for_trace,
+            emission_reason="rejected:authentication_error",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Error de autenticación durante el refresh"
         )
     except Exception as e:
         logger.exception(f"[REFRESH] Error inesperado: {str(e)}")
+        log_impersonation_trace_response(
+            endpoint=_trace_ep,
+            http_status=500,
+            request_payload=refresh_payload_for_trace,
+            emission_reason=f"error:{type(e).__name__}",
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al refrescar el token"
@@ -1662,10 +1784,16 @@ async def get_active_sessions_endpoint(
             client_type,
             cliente_id,
         )
+        current_session_id = await ActiveSessionsReadService.resolve_current_session_id(
+            request,
+            client_type,
+            cliente_id,
+        )
         return await ActiveSessionsReadService.list_user_sessions(
             cliente_id=cliente_id,
             usuario_id=user_id,
             current_token_id=current_token_id,
+            current_session_id=current_session_id,
         )
     except HTTPException:
         raise
@@ -1712,37 +1840,55 @@ async def logout_all_sessions(
     username = current_user.nombre_usuario
     logger.info(f"Solicitud /logout_all/ recibida para usuario: {username}")
     try:
-        await RefreshTokenService.blacklist_access_for_user_active_sessions(
-            cliente_id=cliente_id, usuario_id=user_id
+        from app.modules.auth.application.session.session_v2_feature import (
+            is_session_v2_enabled,
         )
+
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
         access_jti = payload.get("jti")
         if access_jti:
             await AuthService.blacklist_access_token_jti(
                 access_jti, payload.get("exp")
             )
 
-        rows_affected = await RefreshTokenService.revoke_all_user_tokens(
-            cliente_id=cliente_id, usuario_id=user_id
-        )
+        if is_session_v2_enabled(cliente_id):
+            from app.modules.auth.application.services.session_revocation_service import (
+                SessionRevocationService,
+            )
 
-        # Registrar logout global en auditoría
-        try:
-            await AuditService.registrar_auth_event(
-                cliente_id=cliente_id,
+            rows_affected = await SessionRevocationService.revoke_all_sessions(
                 usuario_id=user_id,
-                evento="logout_forced",
-                nombre_usuario_intento=username,
-                descripcion="Logout global de todas las sesiones del usuario",
-                exito=True,
-                codigo_error=None,
-                ip_address=None,
-                user_agent=None,
-                metadata={"revoked_sessions": rows_affected},
+                cliente_id=cliente_id,
+                reason=RevokedReason.LOGOUT_ALL,
+                ip_address=ip_address,
+                user_agent=user_agent,
             )
-        except Exception:
-            logger.exception(
-                "[AUDIT] Error registrando evento logout_forced (no crítico)"
+        else:
+            await RefreshTokenService.blacklist_access_for_user_active_sessions(
+                cliente_id=cliente_id, usuario_id=user_id
             )
+            rows_affected = await RefreshTokenService.revoke_all_user_tokens(
+                cliente_id=cliente_id, usuario_id=user_id
+            )
+
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=cliente_id,
+                    usuario_id=user_id,
+                    evento="logout_forced",
+                    nombre_usuario_intento=username,
+                    descripcion="Logout global de todas las sesiones del usuario",
+                    exito=True,
+                    codigo_error=None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={"revoked_sessions": rows_affected},
+                )
+            except Exception:
+                logger.exception(
+                    "[AUDIT] Error registrando evento logout_forced (no crítico)"
+                )
 
         return {
             "message": f"Se han cerrado {rows_affected} sesiones activas para el usuario {username}."
@@ -1755,6 +1901,7 @@ async def logout_all_sessions(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al cerrar todas las sesiones"
         )
+
 
 # ----
 # --- NUEVOS Endpoints para ADMINISTRACIÓN (Requiere Rol 'Administrador') ---
@@ -1857,32 +2004,44 @@ async def admin_list_all_active_sessions(
 )
 async def revoke_own_session_by_id(
     request: Request,
-    token_id: UUID = Path(..., description="UUID del refresh token de sesión a revocar"),
+    token_id: UUID = Path(
+        ...,
+        description="UUID de sesión (session_id, preferido V2) o refresh token vigente (token_id)",
+    ),
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
 ):
-    """Self-revoke: revoca refresh propio por token_id."""
+    """Self-revoke: revoca sesión propia por session_id (V2) o token_id (alias V1)."""
     cliente_id = current_user.cliente_id
     usuario_id = current_user.usuario_id
     username = current_user.nombre_usuario or "N/A"
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
 
-    owned_row = await ActiveSessionsReadService.get_owned_session_row_for_user(
-        token_id, cliente_id, usuario_id
+    from app.modules.auth.application.session.session_v2_feature import (
+        is_session_v2_enabled,
     )
-    if not owned_row:
+
+    target = await ActiveSessionsReadService.resolve_user_revoke_target(
+        token_id,
+        cliente_id,
+        usuario_id,
+    )
+    if not target.row and not target.session_id and not target.token_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Sesión no encontrada o no pertenece al usuario.",
         )
 
-    active_row = await ActiveSessionsReadService.get_active_session_row_for_user(
-        token_id, cliente_id, usuario_id
-    )
-    if not active_row:
+    if not target.is_active:
+        resolved_id = target.session_id or target.token_id or token_id
         return {
-            "message": f"Sesión (Token ID: {token_id}) ya estaba cerrada.",
-            "token_id": str(token_id),
+            "message": f"Sesión (ID: {resolved_id}) ya estaba cerrada.",
+            "token_id": str(target.token_id or token_id),
+            **(
+                {"session_id": str(target.session_id)}
+                if target.session_id
+                else {}
+            ),
         }
 
     device_label = None
@@ -1891,16 +2050,37 @@ async def revoke_own_session_by_id(
             map_row_to_user_session,
         )
 
-        session_dto = map_row_to_user_session(active_row)
-        device_label = session_dto.device.device_label
+        if target.row:
+            session_dto = map_row_to_user_session(
+                target.row,
+                v2=is_session_v2_enabled(cliente_id),
+            )
+            device_label = session_dto.device.device_label
     except Exception:
         pass
 
-    await RefreshTokenService.blacklist_access_for_token_id(token_id)
-    revoked = await RefreshTokenService.revoke_refresh_token_by_id(
-        token_id=token_id,
-        revoked_reason=RevokedReason.USER_LOGOUT,
-    )
+    if is_session_v2_enabled(cliente_id) and target.session_id:
+        from app.modules.auth.application.services.session_revocation_service import (
+            SessionRevocationService,
+        )
+
+        await SessionRevocationService.revoke_session(
+            session_id=target.session_id,
+            cliente_id=cliente_id,
+            reason=RevokedReason.USER_LOGOUT,
+            usuario_id=usuario_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        revoked = True
+        revoke_token_id = target.token_id or token_id
+    else:
+        revoke_token_id = target.token_id or token_id
+        await RefreshTokenService.blacklist_access_for_token_id(revoke_token_id)
+        revoked = await RefreshTokenService.revoke_refresh_token_by_id(
+            token_id=revoke_token_id,
+            revoked_reason=RevokedReason.USER_LOGOUT,
+        )
 
     if revoked:
         try:
@@ -1909,19 +2089,21 @@ async def revoke_own_session_by_id(
                 usuario_id=usuario_id,
                 evento="session_self_revoked",
                 nombre_usuario_intento=username,
-                descripcion="Revocación de sesión propia por token_id",
+                descripcion="Revocación de sesión propia",
                 exito=True,
                 codigo_error=None,
                 ip_address=ip_address,
                 user_agent=user_agent,
                 device_info=device_label,
                 metadata={
-                    "token_id": str(token_id),
-                    "client_type": active_row.get("client_type"),
+                    "token_id": str(revoke_token_id),
+                    "session_id": str(target.session_id) if target.session_id else None,
+                    "client_type": (target.row or {}).get("client_type")
+                    or (target.row or {}).get("platform"),
                     "device_label": device_label,
                     "ip_address": ip_address,
-                    "empresa_id": str(active_row["empresa_id"])
-                    if active_row.get("empresa_id")
+                    "empresa_id": str((target.row or {})["empresa_id"])
+                    if (target.row or {}).get("empresa_id")
                     else None,
                     "actor_usuario_id": str(usuario_id),
                     "actor_type": "self",
@@ -1932,10 +2114,14 @@ async def revoke_own_session_by_id(
                 "[AUDIT] Error registrando session_self_revoked (no crítico)"
             )
 
-    return {
-        "message": f"Sesión (Token ID: {token_id}) revocada exitosamente.",
-        "token_id": str(token_id),
+    resolved_id = target.session_id or revoke_token_id
+    response: Dict[str, Any] = {
+        "message": f"Sesión (ID: {resolved_id}) revocada exitosamente.",
+        "token_id": str(revoke_token_id),
     }
+    if target.session_id:
+        response["session_id"] = str(target.session_id)
+    return response
 
 
 @router.post(
@@ -1960,46 +2146,84 @@ async def revoke_own_session_by_id(
 )
 async def admin_revoke_session_by_id(
     request: Request,
-    token_id: UUID = Path(..., description="UUID del token de sesión a revocar (PK en refresh_tokens)"),
+    token_id: UUID = Path(
+        ...,
+        description="UUID de sesión (session_id, preferido V2) o refresh token vigente (token_id)",
+    ),
     current_user: UsuarioReadWithRoles = Depends(require_admin),
 ):
     """
-    Revoca un refresh token específico por su ID.
-
-    Args:
-        token_id: ID numérico del token a revocar.
-        current_user: Administrador autenticado (PATH A — require_admin).
-
-    Returns:
-        Dict[str, str]: Mensaje de éxito.
-
-    Raises:
-        HTTPException: En caso de errores de autorización, no encontrado o interno.
+    Revoca una sesión activa por session_id (V2) o token_id (alias V1).
     """
     username = current_user.nombre_usuario or "N/A"
-    logger.info(f"[ADMIN] Solicitud de revocación de Token ID {token_id} por: {username}")
+    logger.info(f"[ADMIN] Solicitud de revocación de sesión {token_id} por: {username}")
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
+    cliente_id = current_user.cliente_id
+
+    from app.modules.auth.application.session.session_v2_feature import (
+        is_session_v2_enabled,
+    )
 
     try:
-        await RefreshTokenService.blacklist_access_for_token_id(token_id)
-        revoked = await RefreshTokenService.revoke_refresh_token_by_id(token_id=token_id)
+        target = await ActiveSessionsReadService.resolve_admin_revoke_target(
+            token_id,
+            cliente_id,
+        )
+        if not target.row and not target.session_id and not target.token_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"La sesión {token_id} no se encontró activa o ya ha sido revocada.",
+            )
+
+        if not target.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"La sesión {token_id} no se encontró activa o ya ha sido revocada.",
+            )
+
+        if is_session_v2_enabled(cliente_id) and target.session_id:
+            from app.modules.auth.application.services.session_revocation_service import (
+                SessionRevocationService,
+            )
+
+            await SessionRevocationService.revoke_session(
+                session_id=target.session_id,
+                cliente_id=cliente_id,
+                reason=RevokedReason.ADMIN_REVOKE,
+                usuario_id=target.usuario_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            revoked = True
+            revoke_token_id = target.token_id or token_id
+        else:
+            revoke_token_id = target.token_id or token_id
+            await RefreshTokenService.blacklist_access_for_token_id(revoke_token_id)
+            revoked = await RefreshTokenService.revoke_refresh_token_by_id(
+                token_id=revoke_token_id
+            )
 
         if revoked:
-            logger.info(f"[ADMIN-REVOKE] Token ID {token_id} revocado exitosamente por {username}.")
+            logger.info(
+                "[ADMIN-REVOKE] Sesión %s revocada exitosamente por %s.",
+                token_id,
+                username,
+            )
             try:
                 await AuditService.registrar_auth_event(
-                    cliente_id=current_user.cliente_id,
+                    cliente_id=cliente_id,
                     usuario_id=current_user.usuario_id,
                     evento="session_admin_revoked",
                     nombre_usuario_intento=username,
-                    descripcion="Revocación administrativa de sesión por token_id",
+                    descripcion="Revocación administrativa de sesión",
                     exito=True,
                     codigo_error=None,
                     ip_address=ip_address,
                     user_agent=user_agent,
                     metadata={
-                        "token_id": str(token_id),
+                        "token_id": str(revoke_token_id),
+                        "session_id": str(target.session_id) if target.session_id else None,
                         "actor_usuario_id": str(current_user.usuario_id),
                         "actor_type": "admin",
                         "ip_address": ip_address,
@@ -2009,13 +2233,24 @@ async def admin_revoke_session_by_id(
                 logger.exception(
                     "[AUDIT] Error registrando session_admin_revoked (no crítico)"
                 )
-            return {"message": f"Sesión (Token ID: {token_id}) revocada exitosamente."}
-        else:
-            logger.warning(f"[ADMIN-REVOKE] Intento de revocación fallido: Token ID {token_id} no encontrado o ya inactivo.")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"El token ID {token_id} no se encontró activo o ya ha sido revocado."
-            )
+            resolved = target.session_id or revoke_token_id
+            return {
+                "message": f"Sesión (ID: {resolved}) revocada exitosamente.",
+                **(
+                    {"session_id": str(target.session_id)}
+                    if target.session_id
+                    else {}
+                ),
+            }
+
+        logger.warning(
+            "[ADMIN-REVOKE] Intento de revocación fallido: %s no encontrado o inactivo.",
+            token_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"La sesión {token_id} no se encontró activa o ya ha sido revocada.",
+        )
             
     except HTTPException:
         raise

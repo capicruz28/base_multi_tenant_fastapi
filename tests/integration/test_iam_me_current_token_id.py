@@ -112,7 +112,7 @@ async def test_get_me_integration_resolves_token_id_via_any_state_core():
     ) as mock_validate:
         response = await get_me(
             request=_web_request(),
-            _payload_ok=_payload(),
+            payload=_payload(),
             current_user=_mock_user(),
         )
 
@@ -161,7 +161,7 @@ async def test_get_me_integration_revoked_session_still_exposes_token_id():
     ):
         response = await get_me(
             request=_web_request(),
-            _payload_ok=_payload(),
+            payload=_payload(),
             current_user=_mock_user(),
         )
 
@@ -198,7 +198,7 @@ async def test_get_me_integration_fail_soft_no_row():
     ):
         response = await get_me(
             request=_web_request(),
-            _payload_ok=_payload(),
+            payload=_payload(),
             current_user=_mock_user(),
         )
 

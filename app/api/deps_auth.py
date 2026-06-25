@@ -19,13 +19,47 @@ Matriz sin empresa_id obligatorio (ver validate_erp_operational_session):
   - platform_admin / superadmin plataforma (es_superadmin)
   - Rutas auth de login, refresh, selección (no usan require_erp_session)
 """
-from typing import Any, Dict
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
 
 from app.api.deps import get_current_active_user, get_current_user_data
+from app.core.config import settings
 from app.core.tenant.company_scope import validate_erp_operational_session
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
+
+_SESSION_UNAUTHORIZED_DETAIL = (
+    "Sesión expirada o cerrada remotamente. Por favor, vuelva a iniciar sesión."
+)
+
+
+def _coerce_uuid(value: Any) -> Optional[UUID]:
+    if value is None:
+        return None
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+async def _extract_refresh_token_for_me_probe(request: Request) -> Optional[str]:
+    client_type = request.headers.get("X-Client-Type", "web").lower()
+    if client_type == "web":
+        return request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            refresh = body.get("refresh_token")
+            if refresh:
+                return str(refresh)
+    except Exception:
+        pass
+    return None
 
 
 async def require_selection_token_payload(
@@ -136,5 +170,47 @@ async def reject_selection_token_for_me(
                 "Debe seleccionar una empresa antes de continuar. "
                 "Use POST /api/v1/auth/empresa/seleccionar/ con el selection_token."
             ),
+        )
+    return payload
+
+
+async def require_active_password_session_v2_for_me(
+    request: Request,
+    payload: Dict[str, Any] = Depends(reject_selection_token_for_me),
+) -> Dict[str, Any]:
+    """
+    GET /auth/me — ResolveSessionContext (V2): rechaza sesión password revocada vía probe.
+
+    Fail-soft si no hay refresh en el request o el probe no resuelve session_id.
+    """
+    from app.core.auth.impersonation import is_impersonation_payload
+    from app.modules.auth.application.session.session_v2_feature import (
+        is_session_v2_enabled,
+    )
+
+    if is_impersonation_payload(payload):
+        return payload
+
+    cliente_id = _coerce_uuid(payload.get("cliente_id"))
+    if not cliente_id or not is_session_v2_enabled(cliente_id):
+        return payload
+
+    refresh_token = await _extract_refresh_token_for_me_probe(request)
+    if not refresh_token:
+        return payload
+
+    from app.modules.auth.application.services.session_probe_service import (
+        SessionProbeService,
+    )
+
+    probe = await SessionProbeService.resolve_context(
+        cliente_id,
+        refresh_token=refresh_token,
+    )
+    if probe.current_session_id is not None and not probe.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_SESSION_UNAUTHORIZED_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
         )
     return payload

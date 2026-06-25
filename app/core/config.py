@@ -104,7 +104,19 @@ class Settings(BaseSettings):
                 )
             # Forzar a True en producción
             self._enable_tenant_token_validation_raw = "true"
+            if self._iam_session_management_v2_enabled_raw.lower() == "true":
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "[IAM-SESSION-V2] IAM_SESSION_MANAGEMENT_V2_ENABLED=true en producción. "
+                    "Solo debe activarse tras cutover F14."
+                )
         return self
+
+    @property
+    def IAM_SESSION_MANAGEMENT_V2_ENABLED(self) -> bool:
+        """Session Management V2 — desactivado por defecto hasta cutover F14."""
+        return self._iam_session_management_v2_enabled_raw.lower() == "true"
     
     @property
     def ENABLE_TENANT_TOKEN_VALIDATION(self) -> bool:
@@ -159,6 +171,15 @@ class Settings(BaseSettings):
 
     # INV-P0-002: escritura directa POST/PUT /inv/stock (tabla derivada). Default false = bloqueado.
     INV_ALLOW_STOCK_DIRECT_WRITE: bool = os.getenv("INV_ALLOW_STOCK_DIRECT_WRITE", "false").lower() == "true"
+
+    # ============================================
+    # IAM SESSION MANAGEMENT V2 (F0 — gobernanza)
+    # ============================================
+    # Default false en todos los entornos. Activar solo en dev/staging o F14 producción.
+    _iam_session_management_v2_enabled_raw: str = os.getenv(
+        "IAM_SESSION_MANAGEMENT_V2_ENABLED", "false"
+    )
+    IAM_SESSION_V2_TENANT_ALLOWLIST: str = os.getenv("IAM_SESSION_V2_TENANT_ALLOWLIST", "")
     
     # Stage 2: Menú puede recibir permisos efectivos ya calculados (evita lógica duplicada).
     # Por defecto False; cuando True, el endpoint /modulos-menus/me/ pasa user.permisos al servicio.

@@ -133,6 +133,41 @@ jobs:
       run: |
         python scripts/run_rc_validation_pipeline.py --unit-only
 
+  iam-v2-rc2:
+    name: RC2 — IAM Session V2 suite §12.2
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio
+    - name: Suite IAM V2 unit + integration (skip sin SQL Server)
+      env:
+        SKIP_DB_INTEGRATION_TESTS: "1"
+        ENABLE_REDIS_CACHE: "true"
+        REDIS_HOST: localhost
+        REDIS_PORT: "6379"
+        IAM_SESSION_MANAGEMENT_V2_ENABLED: "true"
+        IAM_SESSION_V2_TENANT_ALLOWLIST: ""
+      run: |
+        python scripts/run_rc_validation_pipeline.py --iam-v2-rc2
+
   build:
     name: Verificar Build
     runs-on: ubuntu-latest

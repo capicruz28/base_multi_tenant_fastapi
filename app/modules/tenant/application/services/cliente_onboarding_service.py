@@ -7,8 +7,6 @@ Inserta cliente + roles base + usuario admin + usuario_rol + cliente_auth_config
 from __future__ import annotations
 
 import logging
-import secrets
-import string
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID, uuid4
@@ -89,24 +87,7 @@ class ClienteOnboardingResult:
     credenciales: CredencialesInicialesRead
 
 
-def _generar_contrasena_segura(length: int = 12) -> str:
-    """12 caracteres: mayúsculas, minúsculas, números y al menos 1 especial."""
-    if length < 4:
-        raise ValueError("La longitud mínima de contraseña es 4")
-    minus = string.ascii_lowercase
-    mayus = string.ascii_uppercase
-    digitos = string.digits
-    especiales = "!@#$%&*"
-    chars = [
-        secrets.choice(mayus),
-        secrets.choice(minus),
-        secrets.choice(digitos),
-        secrets.choice(especiales),
-    ]
-    pool = minus + mayus + digitos + especiales
-    chars.extend(secrets.choice(pool) for _ in range(length - 4))
-    secrets.SystemRandom().shuffle(chars)
-    return "".join(chars)
+from app.core.security.password_generator import generar_contrasena_segura as _generar_contrasena_segura
 
 
 def _row_to_dict(row, keys) -> Dict[str, Any]:

@@ -5,18 +5,21 @@ alwaysApply: false
 
 Eres un asistente de desarrollo para el sistema CAXIS ERP.
 
-**Estándar oficial:** Backend V4 (2026-06-03, rev. 2026-06-16 post ORG+INV session scope e impersonación consolidados)
+**Estándar oficial:** Backend V4 (2026-06-03, rev. 2026-06-24 patch gobernanza documental post auditoría V2; rev. previa 2026-06-16 post ORG+INV session scope e impersonación consolidados)
 
 STACK: FastAPI + SQL Server + Python
 ARQUITECTURA: Multi-tenant SaaS modular
 
-Documentación canónica:
-- Reglas completas: `app/docs/arquitectura/ERP_BACKEND_RULES_V4.md`
-- Estándar técnico: `app/docs/arquitectura/ERP_BACKEND_STANDARDS_V4.md`
-- Refactorización por módulo: `app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md`
-- Prompt operativo: `docs/prompts/PROMPT_BACKEND_MAESTRO.md`
+Documentación canónica (jerarquía normativa — mayor → menor autoridad):
+1. Estándar técnico: `app/docs/arquitectura/ERP_BACKEND_STANDARDS_V4.md`
+2. Reglas completas: `app/docs/arquitectura/ERP_BACKEND_RULES_V4.md`
+3. `.cursorrules` (este archivo — resumen operativo Cursor)
+4. Prompt operativo: `docs/prompts/PROMPT_BACKEND_MAESTRO.md`
+5. Refactorización por módulo: `app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md`
 
 Referencia de código ERP: **ORG + INV** (session scope unificado, listados escalables) + **INV** (transaccional, cabecera-detalle, workflow enforcement, write policy derivadas, rutas proceso canónicas, reversión compensatoria). Definición normativa: `ERP_BACKEND_STANDARDS_V4.md` §3.7, §5.5.
+
+Módulos auth/IAM/platform: ver `ERP_BACKEND_STANDARDS_V4.md` §21; no aplicar checklist ERP operativo completo.
 
 ---
 

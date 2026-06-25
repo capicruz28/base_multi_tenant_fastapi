@@ -128,24 +128,38 @@ def _build_device(row: Dict[str, Any]) -> SessionDeviceRead:
 def _base_payload(
     row: Dict[str, Any],
     *,
-    current_token_id: Optional[UUID],
+    current_token_id: Optional[UUID] = None,
+    current_session_id: Optional[UUID] = None,
     now: Optional[datetime] = None,
+    v2: bool = False,
 ) -> Dict[str, Any]:
     now = now or datetime.utcnow()
     created_at = row.get("created_at") or now
     last_used_at = row.get("last_used_at")
+    last_refresh_at = row.get("last_refresh_at", last_used_at)
     expires_at = row.get("expires_at") or now
     token_id = row.get("token_id")
+    session_id = row.get("session_id")
 
     is_current = False
-    if current_token_id and token_id:
+    if current_session_id and session_id:
+        is_current = str(session_id) == str(current_session_id)
+    elif current_token_id and token_id:
         is_current = str(token_id) == str(current_token_id)
 
-    duration = max(0, int((now - created_at).total_seconds()))
+    duration_source = created_at
+    duration = max(0, int((now - duration_source).total_seconds()))
 
-    device = _build_device(row)
+    client_type = str(row.get("client_type") or row.get("platform") or "web")
+    device = _build_device({**row, "client_type": client_type})
 
-    return {
+    ip_address = row.get("ip_address")
+    if v2:
+        ip_address = row.get("last_seen_ip") or row.get("login_ip")
+
+    platform = row.get("platform") or client_type
+
+    payload: Dict[str, Any] = {
         "token_id": token_id,
         "usuario_id": row.get("usuario_id"),
         "cliente_id": row.get("cliente_id"),
@@ -153,28 +167,52 @@ def _base_payload(
         "empresa_nombre": row.get("empresa_nombre"),
         "issued_at": created_at,
         "created_at": created_at,
-        "last_refresh_at": last_used_at,
-        "last_used_at": last_used_at,
+        "last_refresh_at": last_refresh_at,
+        "last_used_at": last_refresh_at if v2 else last_used_at,
         "expires_at": expires_at,
         "is_current": is_current,
         "status": _derive_status(expires_at, now),
         "duration_seconds": duration,
         "device": device,
-        "client_type": str(row.get("client_type") or "web"),
-        "ip_address": row.get("ip_address"),
+        "client_type": client_type,
+        "ip_address": ip_address,
         "device_name": row.get("device_name"),
         "device_id": row.get("device_id"),
     }
+
+    if v2:
+        payload.update(
+            {
+                "session_id": session_id,
+                "family_id": row.get("family_id"),
+                "platform": platform,
+                "login_ip": row.get("login_ip"),
+                "login_method": row.get("login_method"),
+                "last_seen_ip": row.get("last_seen_ip"),
+                "revoked_at": row.get("revoked_at"),
+                "revoked_reason": row.get("revoked_reason"),
+            }
+        )
+
+    return payload
 
 
 def map_row_to_user_session(
     row: Dict[str, Any],
     *,
     current_token_id: Optional[UUID] = None,
+    current_session_id: Optional[UUID] = None,
     now: Optional[datetime] = None,
+    v2: bool = False,
 ) -> UserSessionRead:
     return UserSessionRead.model_validate(
-        _base_payload(row, current_token_id=current_token_id, now=now)
+        _base_payload(
+            row,
+            current_token_id=current_token_id,
+            current_session_id=current_session_id,
+            now=now,
+            v2=v2,
+        )
     )
 
 
@@ -182,9 +220,17 @@ def map_row_to_admin_session(
     row: Dict[str, Any],
     *,
     current_token_id: Optional[UUID] = None,
+    current_session_id: Optional[UUID] = None,
     now: Optional[datetime] = None,
+    v2: bool = False,
 ) -> AdminSessionRead:
-    payload = _base_payload(row, current_token_id=current_token_id, now=now)
+    payload = _base_payload(
+        row,
+        current_token_id=current_token_id,
+        current_session_id=current_session_id,
+        now=now,
+        v2=v2,
+    )
     payload.update(
         {
             "nombre_usuario": row.get("nombre_usuario"),

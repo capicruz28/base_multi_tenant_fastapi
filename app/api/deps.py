@@ -38,6 +38,31 @@ forbidden_exception = HTTPException(
 )
 
 
+async def _touch_business_activity_from_payload(payload: Dict[str, Any]) -> None:
+    """C05 — touch throttled desde claim `sid` (fail-soft)."""
+    if payload.get("is_impersonation"):
+        return
+
+    sid_raw = payload.get("sid")
+    cliente_raw = payload.get("cliente_id")
+    if not sid_raw or not cliente_raw:
+        return
+
+    try:
+        from uuid import UUID
+
+        from app.modules.auth.application.services.business_activity_service import (
+            BusinessActivityService,
+        )
+
+        await BusinessActivityService.touch(
+            UUID(str(sid_raw)),
+            UUID(str(cliente_raw)),
+        )
+    except Exception as exc:
+        logger.debug("[DEPS] business activity touch skipped: %s", exc)
+
+
 async def get_current_user_data(
     request: Request,
     token: str = Depends(oauth2_scheme),
@@ -112,6 +137,9 @@ async def get_current_user_data(
             log_impersonate_payload_summary(
                 payload, phase="get_current_user_data_ok"
             )
+
+        await _touch_business_activity_from_payload(payload)
+
         return payload
     except HTTPException as exc:
         if is_impersonate_diag_request():

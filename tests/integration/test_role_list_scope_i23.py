@@ -185,7 +185,7 @@ async def test_get_me_tenant_admin_with_empresa_returns_profile():
         request.cookies.get.return_value = None
         response = await get_me(
             request=request,
-            _payload_ok=payload,
+            payload=payload,
             current_user=mock_user,
         )
 

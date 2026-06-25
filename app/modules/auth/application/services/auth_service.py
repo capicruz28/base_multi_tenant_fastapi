@@ -39,7 +39,8 @@ from app.modules.auth.application.services.rotate_refresh_token_service import (
     rotate_refresh_token_service,
 )
 from app.modules.auth.application.session.revoked_reason import RevokedReason
-from app.modules.auth.application.session.rotate_result import RotateOutcome
+from app.modules.auth.application.session.rotate_result import RotateOutcome, RotateResult
+from app.modules.auth.application.session.session_v2_feature import is_session_v2_enabled
 from app.infrastructure.database.queries.auth.refresh_token_queries_core import (
     get_refresh_token_by_hash_any_state_core,
 )
@@ -120,6 +121,24 @@ class AuthService:
             return None if parsed == null_uuid else parsed
         except (ValueError, AttributeError, TypeError):
             return None
+
+    @staticmethod
+    def _materialize_auth_user_row(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Normaliza identificadores del row de usuario (query → servicio auth).
+
+        execute_query puede devolver UNIQUEIDENTIFIER como str; el motor IAM V2
+        y rotate_refresh_session contratan UUID nativos.
+        """
+        if not row:
+            return None
+        usuario_id = AuthService._coerce_uuid(row.get("usuario_id"))
+        if usuario_id is not None:
+            row["usuario_id"] = usuario_id
+        cliente_id = AuthService._coerce_uuid(row.get("cliente_id"))
+        if cliente_id is not None:
+            row["cliente_id"] = cliente_id
+        return row
 
     @staticmethod
     def _empresa_disponible_from_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -324,7 +343,7 @@ class AuthService:
                 connection_type=DatabaseConnection.DEFAULT,
                 client_id=search_cliente_id,
             )
-            return result[0] if result else None
+            return AuthService._materialize_auth_user_row(result[0] if result else None)
 
         if database_type == "multi":
             query = """
@@ -333,7 +352,8 @@ class AuthService:
             FROM usuario
             WHERE nombre_usuario = ? AND es_eliminado = 0
             """
-            return await execute_auth_query(query, (username,))
+            row = await execute_auth_query(query, (username,))
+            return AuthService._materialize_auth_user_row(row)
 
         search_cliente_id = token_cliente_id
         if not search_cliente_id:
@@ -359,7 +379,7 @@ class AuthService:
             connection_type=DatabaseConnection.DEFAULT,
             client_id=search_cliente_id,
         )
-        return result[0] if result else None
+        return AuthService._materialize_auth_user_row(result[0] if result else None)
 
     @staticmethod
     async def _detect_platform_superadmin(
@@ -1080,6 +1100,300 @@ class AuthService:
         raise NotImplementedError("Autenticación SSO con Google no implementada.")
 
     @staticmethod
+    async def persist_login_session(
+        *,
+        cliente_id: UUID,
+        usuario_id: UUID,
+        refresh_token: str,
+        access_jti: str,
+        access_expire_minutes: int,
+        client_type: str,
+        ip_address: Optional[str],
+        user_agent: Optional[str],
+        empresa_id: Optional[UUID],
+        refresh_expire_days: int,
+        remember_me: bool = False,
+    ) -> bool:
+        """
+        Persiste la sesión tras login: V2 (SessionCreationService) o V1 (RefreshTokenService).
+        Returns:
+            True si se usó el motor V2 (auditoría/redis ya aplicados por C01).
+        """
+        access_exp = int(
+            (datetime.utcnow() + timedelta(minutes=access_expire_minutes)).timestamp()
+        )
+        if is_session_v2_enabled(cliente_id):
+            from app.modules.auth.application.services.session_creation_service import (
+                DeviceContext,
+                SessionCreationService,
+            )
+            from app.modules.auth.application.services.session_query_service import (
+                SessionQueryService,
+            )
+
+            platform = (
+                client_type
+                if client_type in {"web", "mobile", "desktop", "api"}
+                else "web"
+            )
+            token_hash = SessionQueryService.hash_token(refresh_token)
+            token_expires_at = datetime.utcnow() + timedelta(days=refresh_expire_days)
+            await SessionCreationService.create(
+                usuario_id=usuario_id,
+                cliente_id=cliente_id,
+                token_hash=token_hash,
+                device_context=DeviceContext(
+                    platform=platform,
+                    user_agent=user_agent,
+                    login_ip=ip_address,
+                ),
+                remember_me=remember_me,
+                empresa_id=empresa_id,
+                selection_token_completed=empresa_id is not None,
+                token_expires_at=token_expires_at,
+                refresh_token_days=refresh_expire_days,
+                access_jti=access_jti,
+                access_exp=access_exp,
+            )
+            logger.info(
+                "[LOGIN-V2] Sesión persistida usuario=%s cliente=%s",
+                usuario_id,
+                cliente_id,
+            )
+            return True
+
+        try:
+            stored = await RefreshTokenService.store_refresh_token(
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+                token=refresh_token,
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                is_rotation=False,
+                empresa_id=empresa_id,
+                refresh_token_expire_days=refresh_expire_days,
+            )
+            if stored and stored.get("token_id"):
+                logger.info(
+                    "[LOGIN-%s] Token almacenado - ID: %s",
+                    client_type.upper(),
+                    stored["token_id"],
+                )
+                await RefreshTokenService.link_session_access_jti(
+                    stored["token_id"],
+                    access_jti,
+                    access_expire_minutes=access_expire_minutes,
+                )
+            else:
+                logger.warning(
+                    "[LOGIN-%s] Token duplicado en login (revisar)",
+                    client_type.upper(),
+                )
+        except Exception as e:
+            logger.error("[LOGIN] Error almacenando refresh token: %s", e)
+        return False
+
+    @staticmethod
+    async def rotate_refresh_session(
+        *,
+        old_refresh_token: str,
+        new_refresh_token: str,
+        cliente_id: UUID,
+        usuario_id: UUID,
+        client_type: str,
+        ip_address: Optional[str],
+        user_agent: Optional[str],
+        empresa_id: Optional[UUID],
+        refresh_expire_days: int,
+        new_access_jti: str,
+        access_expire_minutes: int,
+    ) -> RotateResult:
+        """Rota refresh: V2 (SessionRotationService) o V1 (rotate_refresh_token_service)."""
+        access_exp = int(
+            (datetime.utcnow() + timedelta(minutes=access_expire_minutes)).timestamp()
+        )
+        motor_cliente_id = AuthService._coerce_uuid(cliente_id) or cliente_id
+        motor_usuario_id = AuthService._coerce_uuid(usuario_id)
+        if is_session_v2_enabled(motor_cliente_id):
+            from app.modules.auth.application.services.session_rotation_service import (
+                SessionRotationService,
+            )
+
+            return await SessionRotationService.rotate(
+                refresh_token=old_refresh_token,
+                new_refresh_token=new_refresh_token,
+                cliente_id=motor_cliente_id,
+                new_token_expires_at=datetime.utcnow()
+                + timedelta(days=refresh_expire_days),
+                usuario_id=motor_usuario_id,
+                request_ip=ip_address,
+                user_agent=user_agent,
+                access_jti=new_access_jti,
+                access_exp=access_exp,
+                empresa_id=empresa_id,
+            )
+
+        result = await rotate_refresh_token_service(
+            old_refresh_token=old_refresh_token,
+            new_refresh_token=new_refresh_token,
+            cliente_id=motor_cliente_id,
+            usuario_id=motor_usuario_id,
+            client_type=client_type,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            empresa_id=empresa_id,
+            refresh_token_expire_days=refresh_expire_days,
+        )
+        if result.success and result.new_token_id:
+            await RefreshTokenService.link_session_access_jti(
+                result.new_token_id,
+                new_access_jti,
+                access_expire_minutes=access_expire_minutes,
+            )
+        return result
+
+    @staticmethod
+    async def _resolve_v2_session_id_from_refresh(
+        refresh_token: str,
+        cliente_id: UUID,
+    ) -> Optional[UUID]:
+        """Resuelve session_id V2 tras persistencia (orquestación F11)."""
+        from app.modules.auth.application.services.session_query_service import (
+            SessionQueryService,
+        )
+
+        token_hash = SessionQueryService.hash_token(refresh_token)
+        context = await SessionQueryService.get_by_hash(token_hash, cliente_id)
+        return context.session_id if context else None
+
+    @staticmethod
+    async def _reissue_access_token_with_sid(
+        session: Dict[str, Any],
+        *,
+        token_data: Dict[str, Any],
+        empresa_id: Optional[UUID],
+        es_admin_cliente: bool,
+        session_id: UUID,
+    ) -> None:
+        """Re-emite access JWT con claim sid (P0-04) sobre dict de sesión existente."""
+        access_token, access_jti = create_access_token(
+            data=token_data,
+            empresa_id=empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            access_token_expire_minutes=session["access_expire_minutes"],
+            session_id=session_id,
+        )
+        session["access_token"] = access_token
+        session["access_jti"] = access_jti
+        session["access_exp"] = int(
+            (
+                datetime.utcnow()
+                + timedelta(minutes=session["access_expire_minutes"])
+            ).timestamp()
+        )
+
+    @staticmethod
+    async def _attach_v2_sid_after_persist(
+        session: Dict[str, Any],
+        *,
+        cliente_id: UUID,
+        refresh_token: str,
+        token_data: Dict[str, Any],
+        empresa_id: Optional[UUID],
+        es_admin_cliente: bool,
+    ) -> Optional[UUID]:
+        """Tras persistencia V2, emite access con sid de la sesión creada."""
+        session_id = await AuthService._resolve_v2_session_id_from_refresh(
+            refresh_token,
+            cliente_id,
+        )
+        if session_id is None:
+            return None
+        await AuthService._reissue_access_token_with_sid(
+            session,
+            token_data=token_data,
+            empresa_id=empresa_id,
+            es_admin_cliente=es_admin_cliente,
+            session_id=session_id,
+        )
+        return session_id
+
+    @staticmethod
+    async def _get_current_user_from_refresh_v2(
+        *,
+        request: Request,
+        refresh_token: str,
+        payload: Dict[str, Any],
+        token_cliente_id: UUID,
+        client_type: str,
+    ) -> Dict:
+        """Identidad refresh V2: JWT validado en caller; elegibilidad RTR en C02."""
+        from app.modules.auth.application.services.session_query_service import (
+            SessionQueryService,
+        )
+        from app.core.tenant.empresa_context import coerce_empresa_id
+
+        token_hash = SessionQueryService.hash_token(refresh_token)
+        username = payload.get("sub")
+
+        try:
+            token_data = TokenPayload(**payload)
+        except Exception as validation_err:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token payload",
+            ) from validation_err
+
+        if not token_data.sub:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token payload",
+            )
+
+        user = await AuthService._fetch_user_row_for_refresh(
+            username,
+            payload=payload,
+            token_cliente_id=token_cliente_id,
+        )
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario no encontrado",
+            )
+        if not user["es_activo"]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Usuario inactivo",
+            )
+
+        user["cliente_id"] = token_cliente_id
+        user["access_level"] = payload.get("access_level", 1)
+        user["is_super_admin"] = payload.get("is_super_admin", False)
+        user["user_type"] = payload.get("user_type", "user")
+        context = await SessionQueryService.get_by_hash_any_state(
+            token_hash,
+            token_cliente_id,
+        )
+        db_empresa_id = (
+            coerce_empresa_id(context.token_row.get("empresa_id"))
+            if context
+            else None
+        )
+        jwt_empresa_id = coerce_empresa_id(payload.get("empresa_id"))
+        user["empresa_id"] = (
+            db_empresa_id if db_empresa_id is not None else jwt_empresa_id
+        )
+
+        logger.info(
+            "[REFRESH-V2] Identidad refresh resuelta usuario=%s cliente=%s empresa=%s",
+            username,
+            token_cliente_id,
+            user["empresa_id"],
+        )
+        return user
+
+    @staticmethod
     async def get_current_user_from_refresh(
         request: Request,
         refresh_token_cookie: Optional[str] = None,
@@ -1120,6 +1434,15 @@ class AuthService:
             # 1. Validación JWT (firma y expiración de 7 días)
             payload = decode_refresh_token(refresh_token)
             token_cliente_id = AuthService._coerce_uuid(payload.get("cliente_id"))
+
+            if token_cliente_id and is_session_v2_enabled(token_cliente_id):
+                return await AuthService._get_current_user_from_refresh_v2(
+                    request=request,
+                    refresh_token=refresh_token,
+                    payload=payload,
+                    token_cliente_id=token_cliente_id,
+                    client_type=client_type,
+                )
 
             # 2. ✅ CRÍTICO: VALIDACIÓN DE ESTADO EN BASE DE DATOS
             # Fuente de verdad: cliente_id del JWT (no solo Host/Origin del request).
@@ -1618,54 +1941,111 @@ class AuthService:
         )
 
         refresh_expire_days = session["refresh_expire_days"]
-        stored = await RefreshTokenService.store_refresh_token(
-            cliente_id=request_cliente_id,
-            usuario_id=context.usuario_id,
-            token=session["refresh_token"],
-            client_type=client_type,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            is_rotation=False,
-            empresa_id=empresa_id,
-            refresh_token_expire_days=refresh_expire_days,
-        )
-        if not stored or not stored.get("token_id"):
-            logger.warning(
-                "[EMPRESA] Refresh no almacenado tras seleccionar empresa usuario=%s",
-                username,
+        used_v2 = False
+        if is_session_v2_enabled(request_cliente_id):
+            used_v2 = await AuthService.persist_login_session(
+                cliente_id=request_cliente_id,
+                usuario_id=context.usuario_id,
+                refresh_token=session["refresh_token"],
+                access_jti=session["access_jti"],
+                access_expire_minutes=session["access_expire_minutes"],
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                empresa_id=empresa_id,
+                refresh_expire_days=refresh_expire_days,
             )
-        elif session.get("access_jti"):
-            await RefreshTokenService.link_session_access_jti(
-                stored["token_id"],
-                session["access_jti"],
-                session.get("access_exp"),
+        if not used_v2:
+            stored = await RefreshTokenService.store_refresh_token(
+                cliente_id=request_cliente_id,
+                usuario_id=context.usuario_id,
+                token=session["refresh_token"],
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                is_rotation=False,
+                empresa_id=empresa_id,
+                refresh_token_expire_days=refresh_expire_days,
             )
+            if not stored or not stored.get("token_id"):
+                logger.warning(
+                    "[EMPRESA] Refresh no almacenado tras seleccionar empresa usuario=%s",
+                    username,
+                )
+            elif session.get("access_jti"):
+                await RefreshTokenService.link_session_access_jti(
+                    stored["token_id"],
+                    session["access_jti"],
+                    session.get("access_exp"),
+                )
 
         selection_jti = payload.get("jti")
         await AuthService.blacklist_access_token_jti(
             selection_jti, payload.get("exp")
         )
 
-        try:
-            await AuditService.registrar_auth_event(
-                cliente_id=request_cliente_id,
-                usuario_id=context.usuario_id,
-                evento="empresa_seleccionada",
-                nombre_usuario_intento=username,
-                descripcion="Empresa seleccionada tras login multi-empresa",
-                exito=True,
-                codigo_error=None,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                metadata={
-                    "empresa_id_anterior": None,
-                    "empresa_id_nueva": str(empresa_id),
-                    "client_type": client_type,
-                    "selection_jti": selection_jti,
-                },
+        if used_v2:
+            from app.modules.auth.application.services.session_audit_emitter import (
+                SessionAuditEmitter,
             )
-        except Exception:
-            logger.exception("[AUDIT] Error registrando empresa_seleccionada")
+
+            session_id = await AuthService._attach_v2_sid_after_persist(
+                session,
+                cliente_id=request_cliente_id,
+                refresh_token=session["refresh_token"],
+                token_data={
+                    "sub": username,
+                    "cliente_id": str(request_cliente_id),
+                    "level_info": {
+                        "access_level": session["user_data"].get("access_level", 1),
+                        "is_super_admin": session["user_data"].get("is_super_admin", False),
+                        "user_type": session["user_data"].get("user_type", "user"),
+                    },
+                    "requires_password_change": session["user_data"].get(
+                        "requires_password_change",
+                        False,
+                    ),
+                    **(
+                        {"es_superadmin": True}
+                        if es_superadmin
+                        else {}
+                    ),
+                },
+                empresa_id=empresa_id,
+                es_admin_cliente=bool(
+                    session["user_data"].get("es_admin_cliente", False)
+                ),
+            )
+            if session_id:
+                await SessionAuditEmitter.emit_empresa_selected(
+                    cliente_id=request_cliente_id,
+                    usuario_id=context.usuario_id,
+                    session_id=session_id,
+                    empresa_id=empresa_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+        else:
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=request_cliente_id,
+                    usuario_id=context.usuario_id,
+                    evento="empresa_seleccionada",
+                    nombre_usuario_intento=username,
+                    descripcion="Empresa seleccionada tras login multi-empresa",
+                    exito=True,
+                    codigo_error=None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "empresa_id_anterior": None,
+                        "empresa_id_nueva": str(empresa_id),
+                        "client_type": client_type,
+                        "selection_jti": selection_jti,
+                    },
+                )
+            except Exception:
+                logger.exception("[AUDIT] Error registrando empresa_seleccionada")
 
         return session
 
@@ -1772,18 +2152,58 @@ class AuthService:
         )
 
         refresh_expire_days = session["refresh_expire_days"]
+        used_v2 = is_session_v2_enabled(request_cliente_id)
+        v2_session_id: Optional[UUID] = None
 
         if old_refresh_token:
-            rotate_result = await rotate_refresh_token_service(
-                old_refresh_token=old_refresh_token,
-                new_refresh_token=session["refresh_token"],
-                cliente_id=request_cliente_id,
-                usuario_id=context.usuario_id,
-                client_type=client_type,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                empresa_id=empresa_id,
-                refresh_token_expire_days=refresh_expire_days,
+            if used_v2:
+                from app.modules.auth.application.services.session_creation_service import (
+                    SessionCreationService,
+                )
+                from app.modules.auth.application.services.session_query_service import (
+                    SessionQueryService,
+                )
+
+                token_hash = SessionQueryService.hash_token(old_refresh_token)
+                ctx = await SessionQueryService.get_by_hash_any_state(
+                    token_hash,
+                    request_cliente_id,
+                )
+                if ctx:
+                    v2_session_id = ctx.session_id
+                    await SessionCreationService.update_empresa(
+                        session_id=ctx.session_id,
+                        cliente_id=request_cliente_id,
+                        empresa_id=empresa_id,
+                        selection_token_completed=True,
+                    )
+
+            rotate_result = (
+                await AuthService.rotate_refresh_session(
+                    old_refresh_token=old_refresh_token,
+                    new_refresh_token=session["refresh_token"],
+                    cliente_id=request_cliente_id,
+                    usuario_id=context.usuario_id,
+                    client_type=client_type,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    empresa_id=empresa_id,
+                    refresh_expire_days=refresh_expire_days,
+                    new_access_jti=session["access_jti"],
+                    access_expire_minutes=session["access_expire_minutes"],
+                )
+                if used_v2
+                else await rotate_refresh_token_service(
+                    old_refresh_token=old_refresh_token,
+                    new_refresh_token=session["refresh_token"],
+                    cliente_id=request_cliente_id,
+                    usuario_id=context.usuario_id,
+                    client_type=client_type,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    empresa_id=empresa_id,
+                    refresh_token_expire_days=refresh_expire_days,
+                )
             )
 
             if rotate_result.outcome == RotateOutcome.IDLE_TIMEOUT:
@@ -1805,7 +2225,7 @@ class AuthService:
                     username,
                 )
             elif rotate_result.success:
-                if session.get("access_jti") and rotate_result.new_token_id:
+                if not used_v2 and session.get("access_jti") and rotate_result.new_token_id:
                     await RefreshTokenService.link_session_access_jti(
                         rotate_result.new_token_id,
                         session["access_jti"],
@@ -1829,6 +2249,27 @@ class AuthService:
                         "Por favor, vuelva a iniciar sesión."
                     ),
                 )
+        elif used_v2:
+            from app.modules.auth.application.services.session_creation_service import (
+                SessionCreationService,
+            )
+
+            sid = AuthService._coerce_uuid(payload.get("sid"))
+            if sid is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Se requiere claim sid en el access token para cambiar "
+                        "de empresa sin refresh token"
+                    ),
+                )
+            await SessionCreationService.update_empresa(
+                session_id=sid,
+                cliente_id=request_cliente_id,
+                empresa_id=empresa_id,
+                selection_token_completed=True,
+            )
+            v2_session_id = sid
         else:
             stored = await RefreshTokenService.store_refresh_token(
                 cliente_id=request_cliente_id,
@@ -1849,27 +2290,74 @@ class AuthService:
                     session.get("access_exp"),
                 )
 
-        try:
-            await AuditService.registrar_auth_event(
-                cliente_id=request_cliente_id,
-                usuario_id=context.usuario_id,
-                evento="empresa_cambiada",
-                nombre_usuario_intento=username,
-                descripcion="Cambio de empresa activa en sesión",
-                exito=True,
-                codigo_error=None,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                metadata={
-                    "empresa_id_anterior": (
-                        str(empresa_anterior) if empresa_anterior else None
-                    ),
-                    "empresa_id_nueva": str(empresa_id),
-                    "client_type": client_type,
-                },
+        if used_v2:
+            from app.modules.auth.application.services.session_audit_emitter import (
+                SessionAuditEmitter,
             )
-        except Exception:
-            logger.exception("[AUDIT] Error registrando empresa_cambiada")
+
+            audit_session_id = v2_session_id or await AuthService._resolve_v2_session_id_from_refresh(
+                session["refresh_token"],
+                request_cliente_id,
+            )
+            if audit_session_id:
+                await SessionAuditEmitter.emit_empresa_changed(
+                    cliente_id=request_cliente_id,
+                    usuario_id=context.usuario_id,
+                    session_id=audit_session_id,
+                    old_empresa_id=empresa_anterior,
+                    new_empresa_id=empresa_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+        else:
+            try:
+                await AuditService.registrar_auth_event(
+                    cliente_id=request_cliente_id,
+                    usuario_id=context.usuario_id,
+                    evento="empresa_cambiada",
+                    nombre_usuario_intento=username,
+                    descripcion="Cambio de empresa activa en sesión",
+                    exito=True,
+                    codigo_error=None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    metadata={
+                        "empresa_id_anterior": (
+                            str(empresa_anterior) if empresa_anterior else None
+                        ),
+                        "empresa_id_nueva": str(empresa_id),
+                        "client_type": client_type,
+                    },
+                )
+            except Exception:
+                logger.exception("[AUDIT] Error registrando empresa_cambiada")
+
+        if used_v2 and v2_session_id:
+            user_data = session["user_data"]
+            await AuthService._reissue_access_token_with_sid(
+                session,
+                token_data={
+                    "sub": username,
+                    "cliente_id": str(request_cliente_id),
+                    "level_info": {
+                        "access_level": user_data.get("access_level", 1),
+                        "is_super_admin": user_data.get("is_super_admin", False),
+                        "user_type": user_data.get("user_type", "user"),
+                    },
+                    "requires_password_change": user_data.get(
+                        "requires_password_change",
+                        False,
+                    ),
+                    **(
+                        {"es_superadmin": True}
+                        if es_superadmin
+                        else {}
+                    ),
+                },
+                empresa_id=empresa_id,
+                es_admin_cliente=bool(user_data.get("es_admin_cliente", False)),
+                session_id=v2_session_id,
+            )
 
         return session
 
@@ -1925,7 +2413,44 @@ class AuthService:
                 username = payload.get("sub")
                 usuario_id: Optional[UUID] = None
 
-                if token_cliente_id:
+                if token_cliente_id and is_session_v2_enabled(token_cliente_id):
+                    from app.modules.auth.application.services.session_revocation_service import (
+                        SessionRevocationService,
+                    )
+
+                    if username:
+                        user = await AuthService._fetch_user_row_for_refresh(
+                            username,
+                            payload=payload,
+                            token_cliente_id=token_cliente_id,
+                        )
+                        if user:
+                            usuario_id = AuthService._coerce_uuid(
+                                user.get("usuario_id")
+                            )
+                    if usuario_id:
+                        revoke_result = (
+                            await SessionRevocationService.revoke_current_session(
+                                cliente_id=token_cliente_id,
+                                usuario_id=usuario_id,
+                                refresh_token=refresh_token,
+                                ip_address=ip_address,
+                                user_agent=user_agent,
+                            )
+                        )
+                        outcome["refresh_revoked"] = (
+                            revoke_result.was_active or revoke_result.already_revoked
+                        )
+                    else:
+                        outcome["refresh_revoked"] = True
+                    logger.info(
+                        "[LOGOUT-V2-%s] refresh_revoked=%s user=%s cliente=%s",
+                        client_type.upper(),
+                        outcome["refresh_revoked"],
+                        username,
+                        token_cliente_id,
+                    )
+                elif token_cliente_id:
                     db_row = await RefreshTokenService.validate_refresh_token(
                         refresh_token,
                         cliente_id=token_cliente_id,

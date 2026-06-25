@@ -411,32 +411,157 @@ CREATE TABLE rol_menu_permiso (
     CONSTRAINT UQ_rol_menu_empresa  UNIQUE (cliente_id, empresa_id, rol_id, menu_id)
 );
 
+-- Tabla: user_session
+CREATE TABLE user_session (
+    session_id                  UNIQUEIDENTIFIER    NOT NULL
+                                DEFAULT NEWID()
+                                CONSTRAINT PK_user_session PRIMARY KEY,
+    usuario_id                  UNIQUEIDENTIFIER    NOT NULL,
+    cliente_id                  UNIQUEIDENTIFIER    NOT NULL,
+    empresa_id                  UNIQUEIDENTIFIER    NULL,
+    login_method                NVARCHAR(20)        NOT NULL DEFAULT 'password'
+                                CONSTRAINT CK_session_login_method
+                                CHECK (login_method IN ('password', 'sso', '2fa', 'api_key')),
+    selection_token_completed   BIT                 NOT NULL DEFAULT 0,
+    platform                    NVARCHAR(20)        NOT NULL
+                                CONSTRAINT CK_session_platform
+                                CHECK (platform IN ('web', 'mobile', 'desktop', 'api')),
+    device_name                 NVARCHAR(100)       NULL,
+    device_id                   NVARCHAR(100)       NULL,
+	device_fingerprint          CHAR(64)            NULL,
+	user_agent                  NVARCHAR(1000)      NULL,
+    login_ip                    VARCHAR(45)         NULL,
+    last_seen_ip                VARCHAR(45)         NULL,
+    is_active                   BIT                 NOT NULL DEFAULT 1,
+    revoked_at                  DATETIME            NULL,
+    revoked_reason              NVARCHAR(50)        NULL
+                                CONSTRAINT CK_session_revoked_reason
+                                CHECK (revoked_reason IS NULL OR revoked_reason IN (
+                                    'logout',
+                                    'admin_force',
+                                    'security',
+                                    'expired',
+                                    'password_reset'
+                                )),
+    last_refresh_at             DATETIME            NULL,
+    last_business_activity_at   DATETIME            NULL,
+
+    created_at                  DATETIME            NOT NULL DEFAULT GETDATE(),
+	expires_at                  DATETIME            NOT NULL,
+
+    CONSTRAINT FK_session_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id)
+        ON DELETE CASCADE,                          
+
+    CONSTRAINT FK_session_cliente
+        FOREIGN KEY (cliente_id)
+        REFERENCES cliente(cliente_id)
+        ON DELETE NO ACTION,                        
+
+    CONSTRAINT FK_session_empresa
+        FOREIGN KEY (empresa_id)
+        REFERENCES org_empresa(empresa_id)
+        ON DELETE NO ACTION
+);
+
+-- Tabla: token_family
+CREATE TABLE token_family (
+    family_id               UNIQUEIDENTIFIER    NOT NULL
+                            DEFAULT NEWID()
+                            CONSTRAINT PK_token_family PRIMARY KEY,
+    session_id              UNIQUEIDENTIFIER    NOT NULL,
+    usuario_id              UNIQUEIDENTIFIER    NOT NULL,
+    cliente_id              UNIQUEIDENTIFIER    NOT NULL,
+    current_token_id        UNIQUEIDENTIFIER    NULL,
+    is_compromised          BIT                 NOT NULL DEFAULT 0,
+    compromised_at          DATETIME            NULL,
+    invalidation_reason     NVARCHAR(50)       NULL
+                        CONSTRAINT CK_family_invalidation_reason
+                        CHECK (invalidation_reason IS NULL OR invalidation_reason IN (
+                            'replay_detected',
+                            'session_revoked',
+                            'admin_force',
+                            'password_reset',
+                            'security_policy'
+                        )),
+    created_at              DATETIME            NOT NULL DEFAULT GETDATE(),
+
+    CONSTRAINT FK_family_session
+        FOREIGN KEY (session_id)
+        REFERENCES user_session(session_id)
+        ON DELETE CASCADE,                          
+
+    CONSTRAINT FK_family_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id)
+        ON DELETE NO ACTION,                        
+
+    CONSTRAINT FK_family_cliente
+        FOREIGN KEY (cliente_id)
+        REFERENCES cliente(cliente_id)
+        ON DELETE NO ACTION                         
+);
+
 -- Tabla: refresh_tokens
 CREATE TABLE refresh_tokens (
-    token_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    cliente_id UNIQUEIDENTIFIER NOT NULL,
-    empresa_id UNIQUEIDENTIFIER NULL,
-    usuario_id UNIQUEIDENTIFIER NOT NULL,
-    token_hash VARCHAR(255) NOT NULL UNIQUE,
-    expires_at DATETIME NOT NULL,
-    is_revoked BIT DEFAULT 0 NOT NULL,
-    revoked_at DATETIME NULL,
-    revoked_reason NVARCHAR(100) NULL,
-    client_type VARCHAR(10) DEFAULT 'web' NOT NULL,
-    device_name NVARCHAR(100) NULL,
-    device_id NVARCHAR(100) NULL,
-    ip_address VARCHAR(45) NULL,
-    user_agent VARCHAR(500) NULL,
-    created_at DATETIME DEFAULT GETDATE() NOT NULL,
-    last_used_at DATETIME NULL,
-    uso_count INT DEFAULT 0,
-    
-    CONSTRAINT FK_refresh_token_cliente FOREIGN KEY (cliente_id) 
-        REFERENCES cliente(cliente_id) ON DELETE CASCADE,
-    CONSTRAINT FK_refresh_token_usuario FOREIGN KEY (usuario_id) 
-        REFERENCES usuario(usuario_id) ON DELETE NO ACTION,
-    CONSTRAINT FK_refresh_token_empresa FOREIGN KEY (empresa_id) 
-        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION
+    token_id                UNIQUEIDENTIFIER    NOT NULL
+                            DEFAULT NEWID()
+                            CONSTRAINT PK_refresh_tokens PRIMARY KEY,
+    family_id               UNIQUEIDENTIFIER    NOT NULL,
+    session_id              UNIQUEIDENTIFIER    NOT NULL,
+    parent_token_id         UNIQUEIDENTIFIER    NULL,
+    cliente_id              UNIQUEIDENTIFIER    NOT NULL,
+    empresa_id              UNIQUEIDENTIFIER    NULL,           
+    usuario_id              UNIQUEIDENTIFIER    NOT NULL,
+    token_hash              VARCHAR(255)        NOT NULL
+                            CONSTRAINT UQ_token_hash UNIQUE,
+    expires_at              DATETIME            NOT NULL,
+    created_at              DATETIME            NOT NULL DEFAULT GETDATE(),
+    last_used_at            DATETIME            NULL,
+    is_used                 BIT                 NOT NULL DEFAULT 0,
+    used_at                 DATETIME            NULL,
+    is_revoked              BIT                 NOT NULL DEFAULT 0,
+    revoked_at              DATETIME            NULL,
+    revoked_reason          NVARCHAR(50)        NULL
+                            CONSTRAINT CK_token_revoked_reason
+                            CHECK (revoked_reason IS NULL OR revoked_reason IN (
+                                'logout',
+                                'replay_detected',
+                                'admin_force',
+                                'password_reset',
+                                'family_compromised'
+                            )),
+
+    CONSTRAINT FK_token_family
+        FOREIGN KEY (family_id)
+        REFERENCES token_family(family_id)
+        ON DELETE NO ACTION,                        
+                                                    
+    CONSTRAINT FK_token_session
+        FOREIGN KEY (session_id)
+        REFERENCES user_session(session_id)
+        ON DELETE NO ACTION,                        
+
+    CONSTRAINT FK_token_parent
+        FOREIGN KEY (parent_token_id)
+        REFERENCES refresh_tokens(token_id)
+        ON DELETE NO ACTION,                        
+                                                    
+    CONSTRAINT FK_token_cliente
+        FOREIGN KEY (cliente_id)
+        REFERENCES cliente(cliente_id)
+        ON DELETE NO ACTION,
+
+    CONSTRAINT FK_token_usuario
+        FOREIGN KEY (usuario_id)
+        REFERENCES usuario(usuario_id)
+        ON DELETE NO ACTION,
+
+    CONSTRAINT FK_token_empresa
+        FOREIGN KEY (empresa_id)
+        REFERENCES org_empresa(empresa_id)
+        ON DELETE NO ACTION
 );
 
 -- Tabla: auth_audit_log
@@ -486,11 +611,28 @@ CREATE INDEX IDX_permiso_menu ON rol_menu_permiso(menu_id);
 CREATE INDEX IDX_permiso_cliente ON rol_menu_permiso(cliente_id);
 CREATE INDEX IDX_permiso_empresa ON rol_menu_permiso(empresa_id) WHERE empresa_id IS NOT NULL;
 
-CREATE INDEX IDX_refresh_token_usuario_cliente ON refresh_tokens(usuario_id, cliente_id);
-CREATE INDEX IDX_refresh_token_active ON refresh_tokens(usuario_id, is_revoked, expires_at);
-CREATE INDEX IDX_refresh_token_cleanup ON refresh_tokens(expires_at, is_revoked);
-CREATE INDEX IDX_refresh_token_device ON refresh_tokens(device_id) WHERE device_id IS NOT NULL;
-CREATE INDEX IDX_refresh_token_empresa ON refresh_tokens(empresa_id) WHERE empresa_id IS NOT NULL;
+CREATE INDEX IDX_session_usuario_activo ON user_session(usuario_id, is_active) WHERE is_active = 1;
+CREATE INDEX IDX_session_cliente ON user_session(cliente_id, is_active);
+CREATE INDEX IDX_session_device_usuario ON user_session(device_id, usuario_id) WHERE device_id IS NOT NULL;
+CREATE INDEX IDX_session_expires ON user_session(expires_at, is_active) WHERE is_active = 1;
+CREATE INDEX IDX_session_empresa ON user_session(empresa_id, is_active) WHERE empresa_id IS NOT NULL;
+CREATE INDEX IDX_session_login_method ON user_session(login_method, is_active);
+CREATE INDEX IDX_session_last_seen_ip ON user_session(last_seen_ip, is_active) WHERE last_seen_ip IS NOT NULL;
+CREATE INDEX IDX_session_business_activity ON user_session(last_business_activity_at, is_active) WHERE is_active = 1;
+
+CREATE INDEX IDX_family_session ON token_family(session_id, is_compromised);
+CREATE INDEX IDX_family_comprometida ON token_family(is_compromised, compromised_at) WHERE is_compromised = 1;
+CREATE INDEX IDX_family_usuario ON token_family(usuario_id, is_compromised);
+CREATE INDEX IDX_family_cliente ON token_family(cliente_id, is_compromised);
+CREATE INDEX IDX_family_current_token ON token_family(current_token_id) WHERE current_token_id IS NOT NULL;
+
+CREATE INDEX IDX_token_hash_activo ON refresh_tokens(token_hash, is_used, is_revoked, expires_at);
+CREATE INDEX IDX_token_family_estado ON refresh_tokens(family_id, is_used, is_revoked, expires_at);
+CREATE INDEX IDX_token_session_activo ON refresh_tokens(session_id, is_revoked, expires_at) WHERE is_revoked = 0;
+CREATE INDEX IDX_token_parent ON refresh_tokens(parent_token_id) WHERE parent_token_id IS NOT NULL;
+CREATE INDEX IDX_token_usuario_cliente ON refresh_tokens(usuario_id, cliente_id, is_revoked, expires_at);
+CREATE INDEX IDX_token_cleanup ON refresh_tokens(expires_at, is_revoked, is_used);
+CREATE INDEX IDX_token_used_activo ON refresh_tokens(is_used, expires_at) WHERE is_used = 1;
 
 CREATE INDEX IDX_audit_cliente_fecha ON auth_audit_log(cliente_id, fecha_evento DESC);
 CREATE INDEX IDX_audit_usuario_fecha ON auth_audit_log(usuario_id, fecha_evento DESC) WHERE usuario_id IS NOT NULL;

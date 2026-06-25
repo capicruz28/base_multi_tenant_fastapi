@@ -34,6 +34,7 @@ from app.modules.rbac.application.services.rol_service import RolService
 
 logger = logging.getLogger(__name__)
 
+
 class UsuarioService(BaseService):
     """
     Servicio para gestión completa de usuarios del sistema en arquitectura multi-tenant.
@@ -84,6 +85,44 @@ class UsuarioService(BaseService):
         - Los errores se manejan de forma consistente a través de BaseService
     - Aislamiento total de datos por cliente_id
     """
+
+    @staticmethod
+    async def _revoke_user_sessions_after_lifecycle(
+        cliente_id: UUID,
+        usuario_id: UUID,
+        *,
+        reason: "RevokedReason",
+    ) -> int:
+        """Revoca sesiones activas al desactivar/eliminar usuario (V2→C03, V1→legacy)."""
+        from app.modules.auth.application.session.revoked_reason import RevokedReason
+        from app.modules.auth.application.session.session_v2_feature import (
+            is_session_v2_enabled,
+        )
+
+        if is_session_v2_enabled(cliente_id):
+            from app.modules.auth.application.services.session_revocation_service import (
+                SessionRevocationService,
+            )
+
+            return await SessionRevocationService.revoke_all_sessions(
+                usuario_id=usuario_id,
+                cliente_id=cliente_id,
+                reason=reason,
+            )
+
+        from app.modules.auth.application.services.refresh_token_service import (
+            RefreshTokenService,
+        )
+
+        await RefreshTokenService.blacklist_access_for_user_active_sessions(
+            cliente_id,
+            usuario_id,
+        )
+        return await RefreshTokenService.revoke_all_user_tokens(
+            cliente_id,
+            usuario_id,
+            revoked_reason=reason,
+        )
 
     # --- NUEVOS MÉTODOS PARA SISTEMA DE NIVELES ---
 
@@ -981,23 +1020,17 @@ class UsuarioService(BaseService):
                     es_eliminado=False,
                 )
                 if not bool(result.get('es_activo')):
-                    from app.modules.auth.application.services.refresh_token_service import (
-                        RefreshTokenService,
-                    )
                     from app.modules.auth.application.session.revoked_reason import (
                         RevokedReason,
                     )
 
-                    await RefreshTokenService.blacklist_access_for_user_active_sessions(
-                        cliente_id, usuario_id
-                    )
-                    revoked = await RefreshTokenService.revoke_all_user_tokens(
+                    revoked = await UsuarioService._revoke_user_sessions_after_lifecycle(
                         cliente_id,
                         usuario_id,
-                        revoked_reason=RevokedReason.USER_DEACTIVATED,
+                        reason=RevokedReason.USER_DEACTIVATED,
                     )
                     logger.info(
-                        "Usuario %s desactivado: %s refresh tokens revocados",
+                        "Usuario %s desactivado: %s sesiones revocadas",
                         usuario_id,
                         revoked,
                     )
@@ -1100,21 +1133,15 @@ class UsuarioService(BaseService):
             except Exception as inv:
                 logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
 
-            from app.modules.auth.application.services.refresh_token_service import (
-                RefreshTokenService,
-            )
             from app.modules.auth.application.session.revoked_reason import RevokedReason
 
-            await RefreshTokenService.blacklist_access_for_user_active_sessions(
-                cliente_id, usuario_id
-            )
-            revoked = await RefreshTokenService.revoke_all_user_tokens(
+            revoked = await UsuarioService._revoke_user_sessions_after_lifecycle(
                 cliente_id,
                 usuario_id,
-                revoked_reason=RevokedReason.USER_DELETED,
+                reason=RevokedReason.USER_DELETED,
             )
             logger.info(
-                "Usuario %s eliminado: %s refresh tokens revocados",
+                "Usuario %s eliminado: %s sesiones revocadas",
                 usuario_id,
                 revoked,
             )

@@ -21,8 +21,9 @@ from app.core.auth.impersonation import (
     store_parent_session,
 )
 from app.core.config import settings
-from app.core.security.jwt import create_access_token
+from app.core.security.jwt import create_access_token, decode_refresh_token
 from app.modules.auth.application.services.auth_service import AuthService
+from app.modules.auth.application.session.session_v2_feature import is_session_v2_enabled
 from app.modules.auth.presentation.schemas import (
     EmpresaDisponible,
     LoginEmpresaSelectionResponse,
@@ -38,6 +39,66 @@ class ImpersonationService:
     @staticmethod
     def _coerce_uuid(value: Any) -> Optional[UUID]:
         return AuthService._coerce_uuid(value)
+
+    @staticmethod
+    async def _assert_parent_refresh_active_v2(
+        parent_refresh_token: Optional[str],
+        parent_cliente_id: Optional[UUID],
+    ) -> None:
+        """Valida sesión padre V2 (C08/C10) antes de impersonar o restaurar."""
+        if not parent_refresh_token or not parent_cliente_id:
+            return
+        if not is_session_v2_enabled(parent_cliente_id):
+            return
+
+        from app.modules.auth.application.services.session_probe_service import (
+            SessionProbeService,
+        )
+
+        probe = await SessionProbeService.resolve_context(
+            parent_cliente_id,
+            refresh_token=parent_refresh_token,
+        )
+        if not probe.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="La sesión del operador no es válida o ha expirado",
+            )
+
+    @staticmethod
+    async def _assert_parent_refresh_restorable_v2(
+        parent_refresh_token: Optional[str],
+    ) -> None:
+        """Al finalizar impersonación: la sesión padre debe seguir activa (V2)."""
+        if not parent_refresh_token:
+            return
+        try:
+            refresh_payload = decode_refresh_token(parent_refresh_token)
+        except Exception:
+            return
+
+        parent_cliente_id = ImpersonationService._coerce_uuid(
+            refresh_payload.get("cliente_id")
+        )
+        if not parent_cliente_id or not is_session_v2_enabled(parent_cliente_id):
+            return
+
+        from app.modules.auth.application.services.session_probe_service import (
+            SessionProbeService,
+        )
+
+        probe = await SessionProbeService.resolve_context(
+            parent_cliente_id,
+            refresh_token=parent_refresh_token,
+        )
+        if not probe.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail=(
+                    "La sesión original del operador fue cerrada. "
+                    "Inicie sesión nuevamente en el panel de plataforma."
+                ),
+            )
 
     @staticmethod
     async def validar_empresa_en_tenant(cliente_id: UUID, empresa_id: UUID) -> None:
@@ -195,6 +256,14 @@ class ImpersonationService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="No se permite impersonación anidada",
             )
+
+        parent_cliente_id = ImpersonationService._coerce_uuid(
+            parent_payload.get("cliente_id")
+        )
+        await ImpersonationService._assert_parent_refresh_active_v2(
+            parent_refresh_token,
+            parent_cliente_id,
+        )
 
         cliente = await ClienteService.obtener_cliente_por_id(target_cliente_id)
         if not cliente or not cliente.es_activo:
@@ -363,6 +432,9 @@ class ImpersonationService:
             )
 
         await AuthService.blacklist_access_token_jti(jti, payload.get("exp"))
+
+        parent_refresh = parent.get("parent_refresh_token")
+        await ImpersonationService._assert_parent_refresh_restorable_v2(parent_refresh)
 
         operator_id = ImpersonationService._coerce_uuid(payload.get("impersonated_by"))
         target_cliente = ImpersonationService._coerce_uuid(payload.get("cliente_id"))

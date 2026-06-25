@@ -753,3 +753,34 @@ class UsuarioRolBulkOperation(BaseModel):
         from_attributes = True
         str_strip_whitespace = True
         validate_assignment = True
+
+
+class CredencialesTemporalesRead(BaseModel):
+    """Contraseña temporal de entrega única (reset administrativo)."""
+
+    nombre_usuario: str = Field(..., description="Nombre de usuario para login")
+    contrasena: str = Field(
+        ...,
+        description="Contraseña temporal en texto plano (solo se muestra una vez)",
+    )
+    requiere_cambio: bool = Field(
+        True,
+        description="El usuario debe cambiar la contraseña en el próximo acceso",
+    )
+
+
+class AdminPasswordResetResponse(BaseModel):
+    """Respuesta de POST /usuarios/{usuario_id}/reset-password/."""
+
+    success: bool = Field(True, description="Indica si la operación fue exitosa")
+    message: str = Field(..., description="Mensaje operativo")
+    usuario_id: UUID = Field(..., description="ID del usuario afectado")
+    credenciales_temporales: CredencialesTemporalesRead = Field(
+        ..., description="Credenciales temporales (entrega única)"
+    )
+    sesiones_revocadas: int = Field(
+        ..., ge=0, description="Cantidad de sesiones invalidadas"
+    )
+
+    class Config:
+        from_attributes = True

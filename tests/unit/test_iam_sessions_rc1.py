@@ -15,6 +15,7 @@ CLIENTE_ID = UUID("e4c8e906-0e64-4f4e-a04d-8daee57dc7f8")
 USUARIO_ID = uuid4()
 OTHER_USUARIO_ID = uuid4()
 TOKEN_ID = uuid4()
+_FEATURE_EP = "app.modules.auth.application.session.session_v2_feature.is_session_v2_enabled"
 NOW_ROW = {
     "token_id": TOKEN_ID,
     "usuario_id": USUARIO_ID,
@@ -62,13 +63,21 @@ async def test_self_revoke_success():
     mock_blacklist = AsyncMock()
     mock_revoke = AsyncMock(return_value=True)
     mock_audit = AsyncMock()
+    from app.modules.auth.application.services.active_sessions_read_service import (
+        SessionRevokeTarget,
+    )
 
-    with patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_owned_session_row_for_user",
-        mock_owned,
-    ), patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_active_session_row_for_user",
-        mock_active,
+    revoke_target = SessionRevokeTarget(
+        session_id=None,
+        token_id=TOKEN_ID,
+        usuario_id=USUARIO_ID,
+        is_active=True,
+        row=NOW_ROW,
+    )
+
+    with patch(_FEATURE_EP, return_value=False), patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_user_revoke_target",
+        AsyncMock(return_value=revoke_target),
     ), patch(
         "app.modules.auth.presentation.endpoints.RefreshTokenService.blacklist_access_for_token_id",
         mock_blacklist,
@@ -93,9 +102,20 @@ async def test_self_revoke_success():
 
 @pytest.mark.asyncio
 async def test_self_revoke_ownership_404():
+    from app.modules.auth.application.services.active_sessions_read_service import (
+        SessionRevokeTarget,
+    )
+
+    empty_target = SessionRevokeTarget(
+        session_id=None,
+        token_id=None,
+        usuario_id=USUARIO_ID,
+        is_active=False,
+        row=None,
+    )
     with patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_owned_session_row_for_user",
-        AsyncMock(return_value=None),
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_user_revoke_target",
+        AsyncMock(return_value=empty_target),
     ):
         with pytest.raises(HTTPException) as exc:
             await revoke_own_session_by_id(
@@ -106,18 +126,24 @@ async def test_self_revoke_ownership_404():
 
 @pytest.mark.asyncio
 async def test_self_revoke_idempotent_already_closed():
-    mock_owned = AsyncMock(return_value=NOW_ROW)
-    mock_active = AsyncMock(return_value=None)
+    from app.modules.auth.application.services.active_sessions_read_service import (
+        SessionRevokeTarget,
+    )
+
+    revoke_target = SessionRevokeTarget(
+        session_id=None,
+        token_id=TOKEN_ID,
+        usuario_id=USUARIO_ID,
+        is_active=False,
+        row=NOW_ROW,
+    )
     mock_blacklist = AsyncMock()
     mock_revoke = AsyncMock()
     mock_audit = AsyncMock()
 
     with patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_owned_session_row_for_user",
-        mock_owned,
-    ), patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_active_session_row_for_user",
-        mock_active,
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_user_revoke_target",
+        AsyncMock(return_value=revoke_target),
     ), patch(
         "app.modules.auth.presentation.endpoints.RefreshTokenService.blacklist_access_for_token_id",
         mock_blacklist,
@@ -140,14 +166,22 @@ async def test_self_revoke_idempotent_already_closed():
 
 @pytest.mark.asyncio
 async def test_self_revoke_audit_session_self_revoked():
-    mock_audit = AsyncMock()
+    from app.modules.auth.application.services.active_sessions_read_service import (
+        SessionRevokeTarget,
+    )
 
-    with patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_owned_session_row_for_user",
-        AsyncMock(return_value=NOW_ROW),
-    ), patch(
-        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.get_active_session_row_for_user",
-        AsyncMock(return_value=NOW_ROW),
+    mock_audit = AsyncMock()
+    revoke_target = SessionRevokeTarget(
+        session_id=None,
+        token_id=TOKEN_ID,
+        usuario_id=USUARIO_ID,
+        is_active=True,
+        row=NOW_ROW,
+    )
+
+    with patch(_FEATURE_EP, return_value=False), patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_user_revoke_target",
+        AsyncMock(return_value=revoke_target),
     ), patch(
         "app.modules.auth.presentation.endpoints.RefreshTokenService.blacklist_access_for_token_id",
         AsyncMock(),
@@ -170,8 +204,18 @@ async def test_self_revoke_audit_session_self_revoked():
 async def test_admin_revoke_audit_session_admin_revoked():
     mock_audit = AsyncMock()
     admin_user = _current_user(nombre_usuario="admin")
+    revoke_target = MagicMock(
+        session_id=None,
+        token_id=TOKEN_ID,
+        usuario_id=USUARIO_ID,
+        is_active=True,
+        row=NOW_ROW,
+    )
 
-    with patch(
+    with patch(_FEATURE_EP, return_value=False), patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_admin_revoke_target",
+        AsyncMock(return_value=revoke_target),
+    ), patch(
         "app.modules.auth.presentation.endpoints.RefreshTokenService.blacklist_access_for_token_id",
         AsyncMock(),
     ), patch(

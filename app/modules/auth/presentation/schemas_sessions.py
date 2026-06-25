@@ -76,7 +76,40 @@ class SessionReadBase(BaseModel):
 
     ip_address: Optional[str] = Field(
         None,
-        description="Legacy — misma IP que device.ip_address (raíz del DTO)",
+        description="Legacy — última IP conocida (V2: last_seen_ip de la sesión)",
+    )
+
+    session_id: Optional[UUID] = Field(
+        None,
+        description="Identificador canónico de sesión (user_session.session_id) — V2",
+    )
+    family_id: Optional[UUID] = Field(
+        None,
+        description="Familia RTR asociada a la sesión — V2",
+    )
+    platform: Optional[str] = Field(
+        None,
+        description="Plataforma de la sesión (web|mobile|desktop|api) — V2",
+    )
+    login_ip: Optional[str] = Field(
+        None,
+        description="IP del login original (inmutable) — V2",
+    )
+    login_method: Optional[str] = Field(
+        None,
+        description="Método de autenticación de la sesión — V2",
+    )
+    last_seen_ip: Optional[str] = Field(
+        None,
+        description="Última IP vista en refresh — V2",
+    )
+    revoked_at: Optional[datetime] = Field(
+        None,
+        description="Fecha de revocación si aplica — V2 (solo diagnóstico)",
+    )
+    revoked_reason: Optional[str] = Field(
+        None,
+        description="Motivo de revocación si aplica — V2 (solo diagnóstico)",
     )
 
     device_name: Optional[str] = Field(None, description="Legacy — columna BD (puede ser null)")

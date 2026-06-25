@@ -98,16 +98,19 @@ async def test_get_me_populates_current_token_id_web_with_cookie():
         "app.core.tenant.context.try_get_tenant_context",
         return_value=None,
     ), patch(
-        "app.modules.auth.presentation.endpoints.RefreshTokenService.resolve_current_token_id_from_refresh",
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_token_id",
         AsyncMock(return_value=TOKEN_ID),
-    ) as mock_resolve, patch.object(
+    ) as mock_resolve, patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_session_id",
+        AsyncMock(return_value=None),
+    ), patch.object(
         RefreshTokenService,
         "validate_refresh_token",
         new=AsyncMock(),
     ) as mock_validate:
         response = await get_me(
             request=_request(),
-            _payload_ok=_payload(),
+            payload=_payload(),
             current_user=_mock_user(),
         )
     assert response.current_token_id == TOKEN_ID
@@ -242,16 +245,21 @@ async def test_get_me_no_cookie_current_token_id_null():
         "app.core.tenant.context.try_get_tenant_context",
         return_value=None,
     ), patch(
-        "app.modules.auth.presentation.endpoints.RefreshTokenService.resolve_current_token_id_from_refresh",
-        AsyncMock(return_value=TOKEN_ID),
-    ) as mock_resolve:
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_token_id",
+        AsyncMock(return_value=None),
+    ) as mock_resolve, patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_session_id",
+        AsyncMock(return_value=None),
+    ) as mock_session:
         response = await get_me(
             request=_request(refresh_cookie=None),
-            _payload_ok=_payload(),
+            payload=_payload(),
             current_user=_mock_user(),
         )
     assert response.current_token_id is None
-    mock_resolve.assert_not_awaited()
+    assert response.current_session_id is None
+    mock_resolve.assert_awaited_once()
+    mock_session.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -278,15 +286,19 @@ async def test_get_me_impersonation_current_token_id_null():
         "app.core.tenant.context.try_get_tenant_context",
         return_value=None,
     ), patch(
-        "app.modules.auth.presentation.endpoints.RefreshTokenService.resolve_current_token_id_from_refresh",
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_token_id",
         AsyncMock(return_value=TOKEN_ID),
-    ) as mock_resolve:
+    ) as mock_resolve, patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_session_id",
+        AsyncMock(return_value=None),
+    ):
         response = await get_me(
             request=_request(),
-            _payload_ok=_payload(impersonation=True),
+            payload=_payload(impersonation=True),
             current_user=_mock_user(),
         )
     assert response.current_token_id is None
+    assert response.current_session_id is None
     mock_resolve.assert_not_awaited()
 
 
@@ -314,13 +326,17 @@ async def test_get_me_mobile_current_token_id_null():
         "app.core.tenant.context.try_get_tenant_context",
         return_value=None,
     ), patch(
-        "app.modules.auth.presentation.endpoints.RefreshTokenService.resolve_current_token_id_from_refresh",
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_token_id",
         AsyncMock(return_value=TOKEN_ID),
-    ) as mock_resolve:
+    ) as mock_resolve, patch(
+        "app.modules.auth.presentation.endpoints.ActiveSessionsReadService.resolve_current_session_id",
+        AsyncMock(return_value=None),
+    ):
         response = await get_me(
             request=_request(),
-            _payload_ok=_payload(),
+            payload=_payload(),
             current_user=_mock_user(),
         )
     assert response.current_token_id is None
+    assert response.current_session_id is None
     mock_resolve.assert_not_awaited()

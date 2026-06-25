@@ -707,7 +707,36 @@ class SuperadminUsuarioService(BaseService):
                 internal_code="USER_NOT_FOUND"
             )
 
-        # Construir query
+        from app.modules.auth.application.session.session_v2_feature import (
+            is_session_v2_enabled,
+        )
+
+        if is_session_v2_enabled(usuario_cliente_id):
+            from app.modules.auth.application.services.active_sessions_read_service import (
+                ActiveSessionsReadService,
+            )
+
+            session_dtos = await ActiveSessionsReadService.list_user_sessions(
+                usuario_cliente_id,
+                usuario_id,
+            )
+            sesiones = [
+                SuperadminUsuarioService._map_user_session_to_refresh_token_info(dto)
+                for dto in session_dtos
+            ]
+            sesiones_activas = sum(
+                1
+                for s in sesiones
+                if not s.is_revoked and s.expires_at > datetime.now()
+            )
+            return {
+                "usuario_id": usuario_id,
+                "total_sesiones": len(sesiones),
+                "sesiones_activas": sesiones_activas,
+                "sesiones": [s.model_dump() for s in sesiones],
+            }
+
+        # V1 — lectura legacy desde refresh_tokens
         where_conditions = ["rt.usuario_id = ?"]
         # ✅ CORRECCIÓN: Convertir UUID a string para SQL Server
         params = [str(usuario_id)]
@@ -771,4 +800,31 @@ class SuperadminUsuarioService(BaseService):
             "sesiones_activas": sesiones_activas,
             "sesiones": [s.model_dump() for s in sesiones]
         }
+
+    @staticmethod
+    def _map_user_session_to_refresh_token_info(
+        dto: "UserSessionRead",
+    ) -> RefreshTokenInfo:
+        """Mapea DTO C09 → RefreshTokenInfo (superset compatible V1/V2)."""
+        from app.modules.auth.presentation.schemas_sessions import UserSessionRead
+
+        device = dto.device
+        return RefreshTokenInfo(
+            token_id=dto.token_id,
+            session_id=dto.session_id,
+            client_type=dto.client_type,
+            device_name=dto.device_name or device.device_label,
+            device_id=dto.device_id or device.device_id,
+            ip_address=dto.ip_address or dto.login_ip or device.ip_address,
+            login_ip=dto.login_ip,
+            platform=dto.platform,
+            user_agent=None,
+            created_at=dto.created_at,
+            expires_at=dto.expires_at,
+            is_revoked=False,
+            last_used_at=dto.last_refresh_at or dto.last_used_at,
+            uso_count=0,
+            revoked_at=dto.revoked_at,
+            revoked_reason=dto.revoked_reason,
+        )
 

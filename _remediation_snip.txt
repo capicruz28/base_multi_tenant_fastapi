@@ -1,0 +1,725 @@
+# Plan oficial de remediación pre-F14
+## IAM Session Management V2 — Cutover gate
+
+**Rol:** Arquitecto Principal  
+**Alcance:** Hallazgos P0 y P1 confirmados o parciales tras validación independiente  
+**Estado base:** F0–F13 implementadas; dictamen auditoría **NO APROBADO PARA F14**  
+**Restricción:** Este documento no autoriza F14 ni contiene implementación
+
+**Fuentes:** Auditoría arquitectónica F0–F13, validación P0/P1, `IAM-SESSION-MANAGEMENT-V2-IMPLEMENTATION-PLAN-01.md`, Design, Component Specification
+
+---
+
+## Criterios de fases de remediación
+
+| Fase | Significado |
+|------|-------------|
+| **Hotfix pre-F14** | Obligatorio antes de activar flag en staging/prod |
+| **Release Candidate 2 (RC2)** | Cierre de gates F10–F13; requerido para checklist §12.2 / §13.3 |
+| **F15** | Deuda aceptable post-cutover estable (≥14 días) |
+
+---
+
+## Fichas técnicas — P0
+
+---
+
+### P0-01 — DDL V031 ausente en bootstrap Flyway
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-01 |
+| **Descripción** | Falta `V031__iam_session_management_v3.sql` en `app/bootstrap_v2/01_schema/`. Existe `tables_session_management_new.sql` en raíz; ORM y tests F1 sí presentes. |
+| **Evidencia** | Plan F1 L176, L609–611. Glob `V031*`: 0 archivos. `tables_session_management_new.sql` en raíz. |
+| **Riesgo funcional** | Medio — sin script versionado no hay dry-run CI ni trazabilidad de cutover |
+| **Riesgo arquitectónico** | Alto — incumple P5 del plan (“DDL único bootstrap V031”) |
+| **Componentes** | Infra bootstrap, C15–C17 (tablas) |
+| **Archivos** | Crear: `app/bootstrap_v2/01_schema/V031__iam_session_management_v3.sql`. Referencia: `tables_session_management_new.sql`, `app/infrastructure/database/tables.py` |
+| **Dependencias C01–C21** | C15, C16, C17 (tablas base) |
+| **Complejidad** | **Baja** (derivar SQL existente, alinear 1:1 con ORM) |
+| **Riesgo regresión** | **Bajo** (solo DDL, no toca runtime Python) |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | **Sí** — script de migración (no modificar estructura fuera de V031 planificado) |
+| **¿Nuevos tests?** | Sí — extender `test_iam_sessions_v2_f1_tables.py` o dry-run CI |
+| **¿Aislable?** | **Sí** |
+| **¿Agrupable?** | Con P0-07, P1-09, P1-10 (suite validación BD) |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P0 — Alta (gobernanza)** |
+
+---
+
+### P0-02 — Idle timeout ausente en hot path V2
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-02 |
+| **Descripción** | `SessionRotationService.rotate` no invoca `SessionPolicyService.check_idle`. V1 sí revoca por idle en `RefreshTokenService`. |
+| **Evidencia** | Design §7.2 paso 3. `session_rotation_service.py` `rotate` L146–224: sin `check_idle`. `session_policy_service.py` `check_idle` L99+ existe. `refresh_token_service.py` L656–684: idle V1. |
+| **Riesgo funcional** | **Alto** — sesiones idle renovables indefinidamente con flag ON |
+| **Riesgo arquitectónico** | Medio — incumple separación command-path vs query-path del Design |
+| **Componentes** | C02, C03, C04, C11 |
+| **Archivos** | `session_rotation_service.py`, posiblemente `session_revocation_service.py`, `endpoints.py` (manejo `IDLE_TIMEOUT`), tests F8 |
+| **Dependencias** | C02 → C04 (`check_idle`), C03 (`revoke_session` IDLE), C07 (audit) |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Medio** — afecta todo refresh V2 |
+| **¿Rompe API?** | No (mismo 401, semántica esperada) |
+| **¿Rompe FE?** | No (comportamiento alineado a V1) |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | **Sí** — obligatorio en `test_iam_sessions_v2_f8_*` + integration |
+| **¿Aislable?** | Sí, en C02 |
+| **¿Agrupable?** | Con P0-07 / P1-09 (tests integration refresh) |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P0 — Alta** |
+
+---
+
+### P0-03 — Inconsistencia `empresa_id` tras cambio de empresa V2
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-03 |
+| **Descripción** | `update_empresa` actualiza solo `user_session`; `rotate_refresh_token_tx` copia `empresa_id` del token anterior al sucesor. Refresh usa `refresh_tokens.empresa_id` como fuente de verdad. |
+| **Evidencia** | `auth_service.py` `cambiar_empresa_sesion` L2088–2093. `session_transaction_core.py` `rotate_refresh_token_tx` L464–475. `endpoints.py` L1316–1317. `update_session_empresa_core` L125–144. |
+| **Riesgo funcional** | **Alto** — contexto ERP incorrecto tras refresh post-cambio empresa |
+| **Riesgo arquitectónico** | Alto — viola flujo canónico Design (rotate atómico con `empresa_id`) |
+| **Componentes** | C01, C02, C11, C18 |
+| **Archivos** | `session_transaction_core.py`, `session_rotation_service.py`, `auth_service.py`, posiblemente `user_session_queries_core.py` |
+| **Dependencias** | C02, C18, C01 `update_empresa`, C11 orquestación |
+| **Complejidad** | **Media–Alta** |
+| **Riesgo regresión** | **Alto** — flujos empresa, refresh, ERP session scope |
+| **¿Rompe API?** | No (corrige comportamiento) |
+| **¿Rompe FE?** | No (mejora coherencia) |
+| **¿Requiere BD?** | No (datos ya existen; corregir escritura) |
+| **¿Nuevos tests?** | **Sí** — M8: empresa en token = empresa en JWT tras cambiar |
+| **¿Aislable?** | **No** — requiere C02 + C18 + C11 |
+| **¿Agrupable?** | **P1-05**, **P1-12** (cluster empresa/rotate/JWT) |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P0 — Alta** |
+
+---
+
+### P0-04 — Claim JWT `sid` no emitido en runtime
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-04 |
+| **Descripción** | `create_access_token(session_id=)` implementado pero ningún caller en runtime lo usa. `BusinessActivityService` en deps depende de `sid`. |
+| **Evidencia** | `jwt.py` L112–177. Callers sin `session_id`: `endpoints.py` L419, L1352; `auth_service.py` L1762. `deps.py` `_touch_business_activity_from_payload`. |
+| **Riesgo funcional** | **Alto** — C05 inoperante; FE no puede usar `sid` |
+| **Riesgo arquitectónico** | Medio — F13 incompleto; claim aditivo sin wiring |
+| **Componentes** | C05, C11, jwt, deps |
+| **Archivos** | `auth_service.py`, `endpoints.py`, `jwt.py` (sin cambio de contrato), `deps.py` |
+| **Dependencias** | C01/C02 (obtener `session_id` post-persistencia), C05 (consumidor) |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Medio** — todos los flujos que emiten access token |
+| **¿Rompe API?** | **No** — claim aditivo (superset) |
+| **¿Rompe FE?** | **No** — mejora; FE tolerante según plan §14 |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | **Sí** — login, refresh, empresa con `sid` en payload |
+| **¿Aislable?** | Parcial — requiere `session_id` desde C01/C02 |
+| **¿Agrupable?** | **P1-12**, **P1-13** (orden JWT + probe por sid) |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P0 — Alta** |
+
+---
+
+### P0-05 — `/logout_all/` sin rama V2
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-05 |
+| **Descripción** | `logout_all_sessions` siempre usa `RefreshTokenService`; no cierra `user_session` ni familias V3. |
+| **Evidencia** | `endpoints.py` `logout_all_sessions` L1712–1724. Contraste: `auth_service.perform_logout` L2299+ sí ramifica V2. |
+| **Riesgo funcional** | **Alto** — logout global incompleto con flag ON |
+| **Riesgo arquitectónico** | Medio — coexistencia V1/V2 rota en endpoint crítico |
+| **Componentes** | C03, C06, C07, endpoints |
+| **Archivos** | `endpoints.py` |
+| **Dependencias** | C03 `revoke_all_sessions`, C06, C07, feature flag |
+| **Complejidad** | **Baja** |
+| **Riesgo regresión** | **Medio** — path V1 debe preservarse con flag OFF |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí — logout_all flag ON/OFF |
+| **¿Aislable?** | **Sí** |
+| **¿Agrupable?** | **P1-07** (cierre gaps flag) |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P0 — Alta** |
+
+---
+
+### P0-06 — Condición de carrera en `revoke_all_user_sessions_tx`
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-06 |
+| **Descripción** | Snapshot de sesiones activas → `close_all` cierra todas → revocación de tokens solo del snapshot. Sesiones creadas concurrentemente quedan con tokens vigentes. |
+| **Evidencia** | `session_transaction_core.py` `revoke_all_user_sessions_tx` L557–582 |
+| **Riesgo funcional** | **Alto** — refresh válido tras logout-all / password-change masivo |
+| **Riesgo arquitectónico** | **Alto** — defecto transaccional en C18 |
+| **Componentes** | C18, C03 |
+| **Archivos** | `session_transaction_core.py`, tests F4 |
+| **Dependencias** | C18, C03 `revoke_all_sessions`, C15 queries bulk |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Alto** — afecta password change, logout all, admin bulk |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | **Sí** — test concurrencia / bulk revoke |
+| **¿Aislable?** | Sí, en C18 |
+| **¿Agrupable?** | **P1-06** (lifecycle usuario usa patrón similar) |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P0 — Alta** |
+
+---
+
+### P0-07 — Suite E2E / cutover ausente
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P0-07 |
+| **Descripción** | No existen `tests/integration/test_iam_sessions_v2_*` ni `test_iam_sessions_v2_cutover.py`. Plan §12.2 exige suite pre-F14. |
+| **Evidencia** | Plan L474–481, L832. Glob integration IAM V2: 0 archivos. 278 unitarios verdes. |
+| **Riesgo funcional** | **Alto** — regresiones no detectadas en BD real |
+| **Riesgo arquitectónico** | Alto — gate de cutover sin evidencia |
+| **Componentes** | Todos C01–C21 (validación transversal) |
+| **Archivos** | Crear: `tests/integration/test_iam_sessions_v2_e2e_smoke.py`, `tests/integration/test_iam_sessions_v2_cutover.py` |
+| **Dependencias** | Requiere P0-01 (V031 en BD test), fixes P0 funcionales |
+| **Complejidad** | **Alta** |
+| **Riesgo regresión** | **Bajo** (solo tests) |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | **Sí** — entorno test con V031 |
+| **¿Nuevos tests?** | **Sí** (es el entregable) |
+| **¿Aislable?** | Parcial — depende de fixes previos |
+| **¿Agrupable?** | **P1-09**, **P1-10** |
+| **Fase** | **RC2** (última oleada, tras hotfixes) |
+| **Prioridad** | **P0 — Alta (gate)** |
+
+---
+
+## Fichas técnicas — P1
+
+---
+
+### P1-01 — C01 emite Redis y auditoría internamente
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-01 |
+| **Descripción** | `SessionCreationService.create` invoca `SessionRedisBridge` y `SessionAuditEmitter`; spec C01 §10–11 asigna eso al caller (C11). |
+| **Evidencia** | `session_creation_service.py` L210–227. Spec C01 §10–11. `auth_service.persist_login_session` L1101. |
+| **Riesgo funcional** | Bajo hoy (funciona) |
+| **Riesgo arquitectónico** | **Alto** — C01 acoplado a C06/C07; C11 no orquestador puro |
+| **Componentes** | C01, C06, C07, C11 |
+| **Archivos** | `session_creation_service.py`, `auth_service.py`, tests F7/F10 |
+| **Dependencias** | C01, C06, C07, C11 |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Medio** — login, password change |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí — reubicar asserts de audit/redis |
+| **¿Aislable?** | No — C01 + C11 |
+| **¿Agrupable?** | — |
+| **Fase** | **F15** (o RC2 si se exige spec estricta pre-cutover) |
+| **Prioridad** | **P1 — Media** |
+
+---
+
+### P1-02 — C18 no compone C15–C17 vía UoW
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-02 |
+| **Descripción** | C18 duplica SQL en `_insert_*_uow`; C15–C17 usan autocommit. Dos fuentes de verdad. |
+| **Evidencia** | `session_transaction_core.py` L73+, docstring L4. C15 `execute_insert` autocommit. |
+| **Riesgo funcional** | Bajo inmediato |
+| **Riesgo arquitectónico** | **Alto** — drift DDL, spec C18 §6 |
+| **Componentes** | C15, C16, C17, C18 |
+| **Archivos** | `session_transaction_core.py`, `*_queries_core.py` |
+| **Dependencias** | C15–C18 |
+| **Complejidad** | **Muy alta** |
+| **Riesgo regresión** | **Alto** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí — regression F4 completa |
+| **¿Aislable?** | **No** |
+| **¿Agrupable?** | **P1-03** (mismo archivo C18) |
+| **Fase** | **F15** |
+| **Prioridad** | **P1 — Media (deuda)** |
+
+---
+
+### P1-03 — `rotate_refresh_token_tx` sin re-validación explícita post-lock
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-03 |
+| **Descripción** | Tras UPDLOCK no valida `is_used=0` antes de INSERT sucesor; falla en `mark_used` con rollback. Mitigado por UoW. |
+| **Evidencia** | `session_transaction_core.py` L452–493. Design §7.2 paso 4b. |
+| **Riesgo funcional** | Bajo (rollback protege) |
+| **Riesgo arquitectónico** | Medio — orden no canónico |
+| **Componentes** | C18, C02 |
+| **Archivos** | `session_transaction_core.py` |
+| **Dependencias** | C18, C02 |
+| **Complejidad** | **Baja** |
+| **Riesgo regresión** | **Medio** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí — replay concurrente |
+| **¿Aislable?** | Sí |
+| **¿Agrupable?** | P1-02, P0-06 (mismo módulo C18) |
+| **Fase** | **RC2** |
+| **Prioridad** | **P1 — Media** |
+
+---
+
+### P1-04 — C14 incompleto: falta `purge_closed_sessions_core`
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-04 |
+| **Descripción** | Spec C14 exige purge tokens + sesiones/familias cerradas. Solo `purge_expired_tokens_core` implementado. |
+| **Evidencia** | Spec C14 L1045–1047. `refresh_token_cleanup_job.py` `_purge_tenant_tokens` L264–277. 0 refs `purge_closed_sessions` en `app/`. |
+| **Riesgo funcional** | Medio — acumulación operativa |
+| **Riesgo arquitectónico** | Medio — C14 incompleto vs spec |
+| **Componentes** | C14, C15 (nueva función), C17 |
+| **Archivos** | `refresh_token_cleanup_job.py`, nuevo en C15 queries, tests F13 |
+| **Dependencias** | C14, C15, C17 |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Bajo** (job batch) |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No (DELETE con política existente) |
+| **¿Nuevos tests?** | Sí |
+| **¿Aislable?** | Sí |
+| **¿Agrupable?** | — |
+| **Fase** | **RC2** o **F15** |
+| **Prioridad** | **P1 — Media** |
+
+---
+
+### P1-05 — `cambiar_empresa` V2 sin refresh crea sesión nueva
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-05 |
+| **Descripción** | Rama `elif used_v2: persist_login_session` sin `old_refresh_token` crea sesión adicional sin revocar anterior. |
+| **Evidencia** | `auth_service.py` `cambiar_empresa_sesion` L2166–2178 |
+| **Riesgo funcional** | **Alto** en clientes móviles sin body refresh |
+| **Riesgo arquitectónico** | Medio |
+| **Componentes** | C01, C11 |
+| **Archivos** | `auth_service.py`, tests F11 |
+| **Dependencias** | C01, C03 (revocar actual), C11 |
+| **Complejidad** | **Baja–Media** |
+| **Riesgo regresión** | **Medio** |
+| **¿Rompe API?** | Posible 422 nuevo si se exige refresh (cambio de contrato menor) |
+| **¿Rompe FE?** | Posible — móvil debe enviar refresh |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí |
+| **¿Aislable?** | Parcial — cluster con P0-03 |
+| **¿Agrupable?** | **P0-03** |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P1 — Alta** |
+
+---
+
+### P1-06 — Desactivación usuario: loop N × `revoke_session`
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-06 |
+| **Descripción** | V2 itera `revoke_session`; `revoke_all_sessions` no acepta `USER_DEACTIVATED`/`USER_DELETED`. Riesgo parcial si falla intermedio. |
+| **Evidencia** | `user_service.py` L113–131. `session_revocation_service.py` L308–312. |
+| **Riesgo funcional** | Medio — estado parcial en fallo |
+| **Riesgo arquitectónico** | Medio |
+| **Componentes** | C03, users |
+| **Archivos** | `session_revocation_service.py`, `user_service.py` |
+| **Dependencias** | C03, C06, C07; ligado a P0-06 si se usa bulk tx |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Medio** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí |
+| **¿Aislable?** | Parcial — mejor con fix P0-06 + extensión reasons C03 |
+| **¿Agrupable?** | **P0-06** |
+| **Fase** | **RC2** |
+| **Prioridad** | **P1 — Media** |
+
+---
+
+### P1-07 — Feature flag no gobierna todos los flujos
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-07 |
+| **Descripción** | Rutas sin `is_session_v2_enabled`: `logout_all`, SSO, emisión `sid`, entre otras. Coexistencia incompleta. |
+| **Evidencia** | `endpoints.py` logout_all L1712+, SSO L2271+. `is_session_v2_enabled` en ~11 archivos vs todos los entry points auth. |
+| **Riesgo funcional** | **Alto** post-cutover |
+| **Riesgo arquitectónico** | **Alto** — F15 no eliminable limpiamente |
+| **Componentes** | C11, endpoints, feature flag |
+| **Archivos** | `endpoints.py`, `auth_service.py`, `session_v2_feature.py` |
+| **Dependencias** | Transversal |
+| **Complejidad** | **Media** (varios puntos pequeños) |
+| **Riesgo regresión** | **Medio** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí — matriz flag ON/OFF por endpoint |
+| **¿Aislable?** | Por ruta |
+| **¿Agrupable?** | P0-05, P0-04, P1-08 |
+| **Fase** | **Hotfix pre-F14** (rutas críticas) + **RC2** (inventario completo) |
+| **Prioridad** | **P1 — Alta** |
+
+---
+
+### P1-08 — SSO siempre V1
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-08 |
+| **Descripción** | Azure/Google usan `RefreshTokenService.store_refresh_token` sin rama V2. SSO hoy no productivo (`NotImplementedError`). |
+| **Evidencia** | `endpoints.py` L2271, L2412 |
+| **Riesgo funcional** | Bajo hoy; alto si SSO se activa |
+| **Riesgo arquitectónico** | Medio |
+| **Componentes** | C11, endpoints |
+| **Archivos** | `endpoints.py` |
+| **Dependencias** | C01, C11, flag |
+| **Complejidad** | **Baja** (cuando SSO exista) |
+| **Riesgo regresión** | **Bajo** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí (cuando SSO activo) |
+| **¿Aislable?** | Sí |
+| **¿Agrupable?** | P1-07 |
+| **Fase** | **F15** (o RC2 si SSO en roadmap cutover) |
+| **Prioridad** | **P1 — Baja** (hoy) |
+
+---
+
+### P1-09 — Tests integration F4 ausentes
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-09 |
+| **Descripción** | F4 exige integration create+rotate; solo mocks en `test_iam_sessions_v2_f4_session_transaction_core.py`. |
+| **Evidencia** | Test file L1–30 MagicMock UoW. Plan F4. |
+| **Riesgo funcional** | Indirecto — UPDLOCK no validado |
+| **Riesgo arquitectónico** | Alto — confianza en C18 |
+| **Componentes** | C18 |
+| **Archivos** | Nuevos tests integration |
+| **Dependencias** | P0-01, C18 |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | Bajo |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | Sí |
+| **¿Nuevos tests?** | Sí |
+| **¿Aislable?** | Sí |
+| **¿Agrupable?** | **P0-07**, **P1-10** |
+| **Fase** | **RC2** |
+| **Prioridad** | **P1 — Alta** |
+
+---
+
+### P1-10 — Tenant isolation V3 no extendido
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-10 |
+| **Descripción** | `test_tenant_isolation.py` sin casos `user_session`/`token_family`/queries V3. Plan F4/F13. |
+| **Evidencia** | Grep tests tenant_isolation: 0 matches tablas V3. Plan F13 validación. |
+| **Riesgo funcional** | Medio — fuga cross-tenant no detectada por CI |
+| **Riesgo arquitectónico** | Alto — multi-tenant SaaS |
+| **Componentes** | C15, C16, C17 |
+| **Archivos** | `tests/test_tenant_isolation.py` o nuevo |
+| **Dependencias** | C15–C17 |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | Bajo |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | Sí (test) |
+| **¿Nuevos tests?** | Sí |
+| **¿Aislable?** | Sí |
+| **¿Agrupable?** | P0-07 |
+| **Fase** | **RC2** |
+| **Prioridad** | **P1 — Media–Alta** |
+
+---
+
+### P1-11 — `.env.example` contradice default F0
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-11 |
+| **Descripción** | Comentario “default false” pero `IAM_SESSION_MANAGEMENT_V2_ENABLED=true`. `config.py` default `false` correcto. |
+| **Evidencia** | `.env.example` L61–63. `config.py` L180. |
+| **Riesgo funcional** | Bajo — misconfig dev/staging |
+| **Riesgo arquitectónico** | Bajo |
+| **Componentes** | F0 config |
+| **Archivos** | `.env.example` |
+| **Dependencias** | Ninguna C |
+| **Complejidad** | **Muy baja** |
+| **Riesgo regresión** | **Bajo** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | No |
+| **¿Aislable?** | **Sí** |
+| **¿Agrupable?** | — |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P1 — Baja** |
+
+---
+
+### P1-12 — JWT emitido antes de rotate
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-12 |
+| **Descripción** | Design §7.2: emitir JWT después de rotate. Endpoints generan access/refresh antes de rotación. |
+| **Evidencia** | `endpoints.py` L1352–1363 (JWT) vs L1369+ (rotate). |
+| **Riesgo funcional** | Medio — bloquea `sid` sin re-emisión; orden no canónico |
+| **Riesgo arquitectónico** | Medio |
+| **Componentes** | C11, C02, endpoints |
+| **Archivos** | `endpoints.py`, posiblemente `auth_service.py` |
+| **Dependencias** | C02, jwt, C11 |
+| **Complejidad** | **Media** |
+| **Riesgo regresión** | **Medio** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí |
+| **¿Aislable?** | No — cluster P0-04 |
+| **¿Agrupable?** | **P0-04**, **P0-03** |
+| **Fase** | **Hotfix pre-F14** |
+| **Prioridad** | **P1 — Media–Alta** |
+
+---
+
+### P1-13 — `SessionProbeService._resolve_from_session_id` asume activa
+
+| Campo | Valor |
+|-------|-------|
+| **ID** | P1-13 |
+| **Descripción** | Retorna `is_active=True` sin validar token/familia/TTL. Sin caller de `access_session_id` hoy. |
+| **Evidencia** | `session_probe_service.py` L95–98. Grep `access_session_id` en `app/`: solo definición. |
+| **Riesgo funcional** | **Nulo hoy**; alto cuando se wire `sid` |
+| **Riesgo arquitectónico** | Medio — deuda latente |
+| **Componentes** | C10 |
+| **Archivos** | `session_probe_service.py` |
+| **Dependencias** | C08, C10 |
+| **Complejidad** | **Baja** |
+| **Riesgo regresión** | **Bajo** |
+| **¿Rompe API?** | No |
+| **¿Rompe FE?** | No |
+| **¿Requiere BD?** | No |
+| **¿Nuevos tests?** | Sí (con P0-04) |
+| **¿Aislable?** | Sí |
+| **¿Agrupable?** | **P0-04** |
+| **Fase** | **Hotfix pre-F14** (junto a wiring `sid`) |
+| **Prioridad** | **P1 — Media** (latente hasta `sid`) |
+
+---
+
+## Matriz final de remediación
+
+| Orden | Hallazgo | Complejidad | Riesgo regresión | Archivos principales | Prioridad |
+|:-----:|----------|:-----------:|:----------------:|----------------------|:---------:|
+| 1 | P0-01 | Baja | Bajo | `V031__*.sql` (crear), `tables_session_management_new.sql` | P0 Alta |
+| 2 | P1-11 | Muy baja | Bajo | `.env.example` | P1 Baja |
+| 3 | P0-06 | Media | Alto | `session_transaction_core.py` | P0 Alta |
+| 4 | P1-03 | Baja | Medio | `session_transaction_core.py` | P1 Media |
+| 5 | P0-02 | Media | Medio | `session_rotation_service.py`, tests F8 | P0 Alta |
+| 6 | P0-03 | Media–Alta | Alto | `session_transaction_core.py`, `auth_service.py` | P0 Alta |
+| 7 | P1-05 | Baja–Media | Medio | `auth_service.py` | P1 Alta |
+| 8 | P1-12 | Media | Medio | `endpoints.py`, `auth_service.py` | P1 Media–Alta |
+| 9 | P0-04 | Media | Medio | `auth_service.py`, `endpoints.py`, `jwt.py` | P0 Alta |
+| 10 | P1-13 | Baja | Bajo | `session_probe_service.py` | P1 Media |
+| 11 | P0-05 | Baja | Medio | `endpoints.py` | P0 Alta |
+| 12 | P1-07 | Media | Medio | `endpoints.py`, inventario flag | P1 Alta |
+| 13 | P1-06 | Media | Medio | `session_revocation_service.py`, `user_service.py` | P1 Media |
+| 14 | P1-09 | Media | Bajo | `tests/integration/*` | P1 Alta |
+| 15 | P1-10 | Media | Bajo | `tests/test_tenant_isolation.py` | P1 Media–Alta |
+| 16 | P0-07 | Alta | Bajo | `tests/integration/test_iam_sessions_v2_*` | P0 Alta |
+| 17 | P1-04 | Media | Bajo | `refresh_token_cleanup_job.py`, C15 queries | P1 Media |
+| 18 | P1-01 | Media | Medio | `session_creation_service.py`, `auth_service.py` | P1 Media |
+| 19 | P1-08 | Baja | Bajo | `endpoints.py` (SSO) | P1 Baja |
+| 20 | P1-02 | Muy alta | Alto | C15–C18 refactor | P1 Media |
+
+---
+
+## Plan de remediación — secuencia óptima
+
+### Oleada 0 — Infraestructura y higiene (sin tocar lógica auth)
+**Objetivo:** Habilitar validación en BD real sin regresión runtime.
+
+| Paso | Hallazgos | Entregable |
+|------|-----------|------------|
+| 0.1 | P0-01 | `V031` en bootstrap, dry-run CI |
+| 0.2 | P1-11 | `.env.example` → `false` |
+
+**Gate:** V031 aplicable en BD test/staging clone.
+
+---
+
+### Oleada 1 — Capa transaccional C18 (fundación)
+**Objetivo:** Corregir defectos atómicos antes de tocar orquestación.
+
+| Paso | Hallazgos | Entregable |
+|------|-----------|------------|
+| 1.1 | P0-06 | `revoke_all_user_sessions_tx` revoca tokens por conjunto post-`close_all`, no snapshot |
+| 1.2 | P1-03 | Assert post-lock en `rotate_refresh_token_tx` |
+
+**Gate:** Tests unitarios F4 + F9 verdes; sin cambio API.
+
+**Dependencia:** Ninguna de oleada 2 hasta completar 1.1 (afecta password change / logout all futuro).
+
+---
+
+### Oleada 2 — Hot path seguridad (C02 + C04)
+**Objetivo:** Paridad V1 en idle timeout.
+
+| Paso | Hallazgos | Entregable |
+|------|-----------|------------|
+| 2.1 | P0-02 | `check_idle` en `SessionRotationService.rotate` → C03 + `IDLE_TIMEOUT` |
+
+**Gate:** Test F8 idle; manual M2/M7 parcial.
+
+---
+
+### Oleada 3 — Cluster empresa + JWT (C02, C11, endpoints)
+**Objetivo:** Un solo cambio coherente minimiza regresiones ERP.
+
+| Paso | Hallazgos | Entregable |
+|------|-----------|------------|
+| 3.1 | P0-03 | `empresa_id` en rotate tx / sync token+s sesión |
+| 3.2 | P1-05 | Cambiar empresa V2: exigir refresh o revocar+rotar (no `persist_login_session` huérfano) |
+| 3.3 | P1-12 | Reordenar refresh: rotate → emit JWT |
+| 3.4 | P0-04 | Emitir `sid` en login, refresh, empresa |
+| 3.5 | P1-13 | Probe completo desde `session_id` cuando se use `sid` |
+
+**Gate:** M8 manual; tests F11 + F13 JWT/deps.
+
+**Nota arquitectónica:** Implementar 3.1→3.3→3.4 en ese orden para no emitir `sid` dos veces.
+
+---
+
+### Oleada 4 — Cierre gaps flag (endpoints)
+**Objetivo:** Coexistencia V1/V2 completa en rutas críticas.
+
+| Paso | Hallazgos | Entregable |
+|------|-----------|------------|
+| 4.1 | P0-05 | `/logout_all/` → C03 cuando flag ON |
+| 4.2 | P1-07 | Inventario y cierre rutas restantes sin flag |
+| 4.3 | P1-06 | Extender `revoke_all_sessions` reasons lifecycle o bulk tx dedicado |
+
+**Gate:** Matriz flag ON/OFF por endpoint auth; M3, M10.
+
+---
+
+### Oleada 5 — Release Candidate 2 (validación)
+**Objetivo:** Evidencia objetiva pre-cutover.
+
+| Paso | Hallazgos | Entregable |
+|------|-----------|------------|
+| 5.1 | P1-09 | Integration F4 create+rotate UPDLOCK |
+| 5.2 | P1-10 | Tenant isolation V3 |
+| 5.3 | P0-07 | E2E smoke + cutover staging |
+| 5.4 | P1-04 | `purge_closed_sessions` en C14 (si tiempo; si no, documentar defer F15) |
+
+**Gate:** Plan §12.2 completo + checklist §13.3 + 0 P0 abiertos.
+
+---
+
+### Oleada 6 — Deuda post-cutover (F15)
+**No bloquea autorización F14 si oleadas 0–5 completas.**
+
+| Hallazgos | Motivo defer |
+|-----------|--------------|
+| P1-01 | Refactor C01→C11; funciona hoy |
+| P1-02 | Refactor C18/C15–C17; alto riesgo |
+| P1-08 | SSO no productivo |
+
+---
+
+## Clusters de agrupación (referencia)
+
+```mermaid
+flowchart LR
+    subgraph Oleada0
+        P001[P0-01 V031]
+        P111[P1-11 env]
+    end
+    subgraph Oleada1
+        P006[P0-06 revoke_all]
+        P103[P1-03 post-lock]
+    end
+    subgraph Oleada2
+        P002[P0-02 idle]
+    end
+    subgraph Oleada3
+        P003[P0-03 empresa]
+        P105[P1-05 sin refresh]
+        P112[P1-12 orden JWT]
+        P004[P0-04 sid]
+        P113[P1-13 probe]
+    end
+    subgraph Oleada4
+        P005[P0-05 logout_all]
+        P107[P1-07 flag gaps]
+        P106[P1-06 lifecycle]
+    end
+    subgraph Oleada5
+        P007[P0-07 E2E]
+        P109[P1-09 int F4]
+        P110[P1-10 tenant]
+        P104[P1-04 cleanup]
+    end
+    subgraph F15
+        P101[P1-01 C01]
+        P102[P1-02 C18]
+        P108[P1-08 SSO]
+    end
+    Oleada0 --> Oleada1 --> Oleada2 --> Oleada3 --> Oleada4 --> Oleada5
+    Oleada5 -.-> F15
+```
+
+---
+
+## Criterios de salida pre-F14 (autorización cutover)
+
+| # | Criterio | Hallazgos que deben estar cerrados |
+|---|----------|-----------------------------------|
+| 1 | V031 en staging idéntico a prod | P0-01 |
+| 2 | 0 defectos P0 REAL abiertos | P0-02 … P0-07 |
+| 3 | Rutas críticas con flag ON validadas | P0-05, P1-07 (críticas), P0-04 |
+| 4 | M1–M10 manuales en staging | Oleada 3–5 |
+| 5 | Suite §12.2 verde | P0-07, P1-09, P1-10 |
+| 6 | Rollback §9.1 probado en clone | Operativo (fuera código) |
+| 7 | Deuda F15 documentada y aceptada | P1-01, P1-02, P1-08 |
+
+---
+
+## Resumen ejecutivo
+
+| Métrica | Valor |
+|---------|-------|
+| Hallazgos en plan | 20 (7 P0 + 13 P1) |
+| Hotfix pre-F14 obligatorios | 11 hallazgos (P0-01–06, P0-04, P0-05, P1-05, P1-11, P1-12, P1-13) |
+| RC2 (validación) | 5 hallazgos (P0-07, P1-04, P1-06, P1-07 parcial, P1-09, P1-10) |
+| F15 (deuda) | 3 hallazgos (P1-01, P1-02, P1-08) |
+| Estimación oleadas | 6 oleadas secuenciales |
+| **F14 autorizado cuando** | Oleadas 0–5 completas + checklist §13.3 |
+
+---
+
+*Documento oficial de remediación pre-cutover. No autoriza F14. No contiene implementación, commits ni cambios de código.*
+
+[REDACTED]

@@ -2,7 +2,7 @@
 
 **Versión:** 4.0  
 **Fecha:** 2026-06-03  
-**Revisión:** 2026-06-16 — post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
+**Revisión:** 2026-06-24 — patch gobernanza documental post auditoría V2 (H-01, H-02, H-03, F-01, jerarquía); rev. previa 2026-06-16 post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
 **Estado:** Oficial — gobierna todas las refactorizaciones ERP futuras  
 **Fuente:** `ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`  
 **Referencias de código:** ORG + INV (transaccional + listados escalables)
@@ -122,8 +122,8 @@ Implementación canónica: `require_session_cliente_id` en `app/core/tenant/sess
 Orden de prioridad para el **contexto operativo de datos**:
 
 1. JWT `cliente_id` si `is_impersonation` (tenant impersonado)
-2. ContextVar tenant (`TenantMiddleware` → `get_current_client_id()`)
-3. `request.state.cliente_id` (si el middleware lo poblara explícitamente)
+2. `request.state.cliente_id` (si el middleware lo poblara explícitamente)
+3. ContextVar tenant (`TenantMiddleware` → `get_current_client_id()`)
 4. `current_user.cliente_id` (legacy — **prohibido** en presentation para operaciones de datos ERP; ver §3.7)
 
 **Estándar V4 para código nuevo:** dependency `get_{codigo}_session_client_id` en `{codigo}_deps.py` — obligatoria en **todo** módulo ERP operativo, no solo scope mixto.
@@ -940,6 +940,8 @@ El alcance lo define la **BD real**, no el mapa funcional ideal.
 
 Los módulos platform (tenant, superadmin, modulos) **no siguen** la estructura ERP V4 completa.
 
+Los módulos **auth/IAM** (`app/modules/auth/`) **no siguen** el checklist ERP operativo completo de este documento. Su documentación normativa reside en `docs/arquitectura/IAM-*`.
+
 | Aspecto | Platform | ERP operativo |
 |---------|----------|---------------|
 | Services | Class-based aceptable | Funciones obligatorio |
@@ -955,6 +957,18 @@ Dashboard BFF `/superadmin/dashboard/` — pendiente de implementación.
 
 ## 22. Documentos relacionados
 
+### 22.1 Jerarquía documental oficial
+
+Cadena normativa (mayor → menor autoridad):
+
+1. `ERP_BACKEND_STANDARDS_V4.md` — norma técnica (este documento)
+2. `ERP_BACKEND_RULES_V4.md` — reglas ejecutables R01–R112
+3. `.cursorrules` — resumen operativo Cursor
+4. `docs/prompts/PROMPT_BACKEND_MAESTRO.md` — punto de entrada operativo
+5. `app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md` — proceso de refactorización por módulo
+
+### 22.2 Documentos de soporte
+
 | Documento | Rol |
 |-----------|-----|
 | `ERP_BACKEND_RULES_V4.md` | Reglas operativas numeradas |
@@ -965,4 +979,4 @@ Dashboard BFF `/superadmin/dashboard/` — pendiente de implementación.
 
 ---
 
-*CAXIS ERP Backend Standards V4 — Oficial — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación)*
+*CAXIS ERP Backend Standards V4 — Oficial — 2026-06-03 (rev. 2026-06-24 patch gobernanza documental post auditoría V2; rev. previa 2026-06-16 post ORG+INV session scope e impersonación)*

@@ -15,6 +15,7 @@ from app.infrastructure.database.tables import UsuarioTable
 from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
 from app.modules.auth.application.session.revoked_reason import RevokedReason
+from app.modules.auth.application.session.session_v2_feature import is_session_v2_enabled
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.infrastructure.database.queries_async import execute_update
 
@@ -91,6 +92,89 @@ class PasswordChangeService:
         )
         await execute_update(update_query, client_id=cliente_id)
 
+        empresa_id = coerce_empresa_id(payload.get("empresa_id"))
+        es_superadmin = bool(payload.get("es_superadmin"))
+        user_base = {
+            "correo": getattr(current_user, "correo", ""),
+            "nombre": getattr(current_user, "nombre", None),
+            "apellido": getattr(current_user, "apellido", None),
+            "es_activo": getattr(current_user, "es_activo", True),
+            "requiere_cambio_contrasena": False,
+            "proveedor_autenticacion": proveedor,
+        }
+
+        if is_session_v2_enabled(cliente_id):
+            if access_jti:
+                await AuthService.blacklist_access_token_jti(access_jti, access_exp)
+
+            from app.modules.auth.application.services.session_revocation_service import (
+                SessionRevocationService,
+            )
+
+            revoked_count = await SessionRevocationService.revoke_due_to_password_change(
+                usuario_id=usuario_id,
+                cliente_id=cliente_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            logger.info(
+                "[PASSWORD_CHANGE-V2] usuario=%s cliente=%s sesiones_revocadas=%s",
+                current_user.nombre_usuario,
+                cliente_id,
+                revoked_count,
+            )
+
+            session = await AuthService.emitir_sesion_completa_con_empresa(
+                username=current_user.nombre_usuario,
+                usuario_id=usuario_id,
+                cliente_id=cliente_id,
+                empresa_id=empresa_id,
+                es_superadmin=es_superadmin,
+                user_base_data=user_base,
+            )
+            await AuthService.persist_login_session(
+                cliente_id=cliente_id,
+                usuario_id=usuario_id,
+                refresh_token=session["refresh_token"],
+                access_jti=session["access_jti"],
+                access_expire_minutes=session["access_expire_minutes"],
+                client_type=client_type,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                empresa_id=empresa_id,
+                refresh_expire_days=session["refresh_expire_days"],
+            )
+            await AuthService._attach_v2_sid_after_persist(
+                session,
+                cliente_id=cliente_id,
+                refresh_token=session["refresh_token"],
+                token_data={
+                    "sub": current_user.nombre_usuario,
+                    "cliente_id": str(cliente_id),
+                    "level_info": {
+                        "access_level": session["user_data"].get("access_level", 1),
+                        "is_super_admin": session["user_data"].get(
+                            "is_super_admin", False
+                        ),
+                        "user_type": session["user_data"].get("user_type", "user"),
+                    },
+                    "requires_password_change": session["user_data"].get(
+                        "requires_password_change",
+                        False,
+                    ),
+                    **(
+                        {"es_superadmin": True}
+                        if es_superadmin
+                        else {}
+                    ),
+                },
+                empresa_id=empresa_id,
+                es_admin_cliente=bool(
+                    session["user_data"].get("es_admin_cliente", False)
+                ),
+            )
+            return session
+
         await RefreshTokenService.blacklist_access_for_user_active_sessions(
             cliente_id, usuario_id
         )
@@ -117,17 +201,6 @@ class PasswordChangeService:
 
         if access_jti:
             await AuthService.blacklist_access_token_jti(access_jti, access_exp)
-
-        empresa_id = coerce_empresa_id(payload.get("empresa_id"))
-        es_superadmin = bool(payload.get("es_superadmin"))
-        user_base = {
-            "correo": getattr(current_user, "correo", ""),
-            "nombre": getattr(current_user, "nombre", None),
-            "apellido": getattr(current_user, "apellido", None),
-            "es_activo": getattr(current_user, "es_activo", True),
-            "requiere_cambio_contrasena": False,
-            "proveedor_autenticacion": proveedor,
-        }
 
         session = await AuthService.emitir_sesion_completa_con_empresa(
             username=current_user.nombre_usuario,

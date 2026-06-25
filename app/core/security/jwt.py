@@ -115,6 +115,7 @@ def create_access_token(
     empresa_id: Optional[UUID] = None,
     es_admin_cliente: Optional[bool] = None,
     access_token_expire_minutes: Optional[int] = None,
+    session_id: Optional[UUID] = None,
 ) -> Tuple[str, str]:
     """
     Crea un token JWT de acceso con iat, exp, type='access' y jti (JWT ID).
@@ -122,12 +123,14 @@ def create_access_token(
     - Tiempo de expiración reducido (15 min por defecto)
     - AHORA INCLUYE: access_level, is_super_admin, user_type, empresa_id, es_admin_cliente
     - ✅ REVOCACIÓN: Incluye jti (UUID único) para blacklist
+    - F13: claim opcional `sid` (= session_id) cuando se proporciona
     
     Args:
         data: Claims base (sub, cliente_id, level_info, etc.)
         empresa_id: Empresa activa de la sesión (opcional)
         es_admin_cliente: True si algún rol activo tiene rol.es_admin_cliente = 1
         access_token_expire_minutes: Minutos de vida del access token (tenant o settings)
+        session_id: Identificador canónico de sesión V2 (claim `sid`, opcional)
     
     Returns:
         Tuple[str, str]: (token, jti) - Token JWT y su identificador único
@@ -168,6 +171,10 @@ def create_access_token(
         empresa_id=empresa_id,
         es_admin_cliente=es_admin_cliente,
     )
+
+    resolved_sid = session_id or to_encode.get("sid")
+    if resolved_sid is not None:
+        to_encode["sid"] = str(resolved_sid)
     
     # Usa SECRET_KEY para access tokens
     token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)

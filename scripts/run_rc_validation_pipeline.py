@@ -47,11 +47,39 @@ RC_UNIT_TESTS = [
     "tests/unit/test_legacy_tenant_rbac_repair.py",
 ]
 
+# Cluster 8 — suite §12.2 RC2 (IAM Session V2)
+RC_IAM_V2_UNIT_GLOB = "tests/unit/test_iam_sessions_v2_*"
+RC_IAM_V2_INTEGRATION_GLOB = "tests/integration/test_iam_sessions_v2_*"
+RC_IAM_V2_LEGACY_UNIT = [
+    "tests/unit/test_iam_sessions_pa001.py",
+    "tests/unit/test_iam_sessions_rc1.py",
+    "tests/unit/test_iam_sessions_v1_enterprise.py",
+]
+
 
 def _run_pytest(files: list[str]) -> int:
     cmd = [sys.executable, "-m", "pytest", *files, "-q", "--tb=line"]
     print(">>", " ".join(cmd))
     return subprocess.call(cmd, cwd=str(PROJECT_ROOT))
+
+
+def _run_pytest_glob(pattern: str) -> int:
+    files = sorted(str(p) for p in PROJECT_ROOT.glob(pattern))
+    if not files:
+        print(f"WARN: sin archivos para patrón {pattern!r}")
+        return 0
+    return _run_pytest(files)
+
+
+def _run_iam_v2_rc2_suite() -> int:
+    """Suite canónica §12.2 — RC2-04/05/06."""
+    code = _run_pytest_glob(RC_IAM_V2_UNIT_GLOB)
+    if code != 0:
+        return code
+    code = _run_pytest_glob(RC_IAM_V2_INTEGRATION_GLOB)
+    if code != 0:
+        return code
+    return _run_pytest(RC_IAM_V2_LEGACY_UNIT)
 
 
 def _health_ok(base_url: str, timeout: float = 5.0) -> bool:
@@ -141,6 +169,11 @@ def main() -> int:
     mode.add_argument("--unit-only", action="store_true", help="Solo pytest unitarios")
     mode.add_argument("--http-smoke", action="store_true", help="Solo smoke HTTP")
     mode.add_argument("--full-staging", action="store_true", help="Unit + health + opcional tenant + smoke")
+    mode.add_argument(
+        "--iam-v2-rc2",
+        action="store_true",
+        help="Suite Cluster 8 §12.2 (unit V2 + integration IAM V2 + legacy V1)",
+    )
     parser.add_argument("--base-url", default=os.environ.get("SMOKE_BASE_URL", "http://localhost:8000"))
     parser.add_argument("--subdominio", default=os.environ.get("SMOKE_SUBDOMINIO"))
     parser.add_argument("--username", default=os.environ.get("SMOKE_USERNAME", "admin"))
@@ -153,10 +186,26 @@ def main() -> int:
     parser.add_argument("--skip-unit", action="store_true")
     args = parser.parse_args()
 
-    if not (args.unit_only or args.http_smoke or args.full_staging):
+    if not (args.unit_only or args.http_smoke or args.full_staging or args.iam_v2_rc2):
         args.unit_only = True
 
-    report: dict = {"mode": "unit-only" if args.unit_only else ("http-smoke" if args.http_smoke else "full-staging")}
+    report: dict = {
+        "mode": (
+            "iam-v2-rc2"
+            if args.iam_v2_rc2
+            else (
+                "unit-only"
+                if args.unit_only
+                else ("http-smoke" if args.http_smoke else "full-staging")
+            )
+        )
+    }
+
+    if args.iam_v2_rc2:
+        code = _run_iam_v2_rc2_suite()
+        report["iam_v2_rc2_exit_code"] = code
+        print(json.dumps(report, indent=2))
+        return code
 
     if args.unit_only or args.full_staging:
         if not args.skip_unit:

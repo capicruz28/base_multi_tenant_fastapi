@@ -111,9 +111,9 @@ class RefreshTokenCleanupJob:
                     tokens = set_tenant_context(tenant_context)
                     
                     try:
-                        # ✅ FASE 4: Ejecutar cleanup para este tenant
-                        # cleanup_expired_tokens() requiere contexto (modificado en Fase 2)
-                        deleted_count = await RefreshTokenService.cleanup_expired_tokens()
+                        deleted_count = await RefreshTokenCleanupJob._purge_tenant_tokens(
+                            cliente_id
+                        )
                         
                         # Actualizar estadísticas
                         stats['tenants_processed'] += 1
@@ -239,8 +239,9 @@ class RefreshTokenCleanupJob:
             tokens = set_tenant_context(tenant_context)
             
             try:
-                # Ejecutar cleanup
-                deleted_count = await RefreshTokenService.cleanup_expired_tokens()
+                deleted_count = await RefreshTokenCleanupJob._purge_tenant_tokens(
+                    cliente_id
+                )
                 result['tokens_deleted'] = deleted_count
                 result['success'] = True
                 
@@ -258,3 +259,25 @@ class RefreshTokenCleanupJob:
             result['error'] = str(e)
         
         return result
+
+    @staticmethod
+    async def _purge_tenant_tokens(cliente_id: UUID) -> int:
+        """Purga tokens según motor V1/V2 del tenant."""
+        from app.modules.auth.application.session.session_v2_feature import (
+            is_session_v2_enabled,
+        )
+
+        if is_session_v2_enabled(cliente_id):
+            from app.infrastructure.database.queries.auth.session import (
+                purge_closed_sessions_core,
+                purge_expired_tokens_core,
+            )
+
+            tokens_deleted = await purge_expired_tokens_core(cliente_id)
+            sessions_deleted = await purge_closed_sessions_core(cliente_id)
+            return tokens_deleted + sessions_deleted
+
+        return await RefreshTokenService.cleanup_expired_tokens()
+
+
+__all__ = ["RefreshTokenCleanupJob"]

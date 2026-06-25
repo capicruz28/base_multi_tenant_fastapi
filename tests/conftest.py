@@ -11,6 +11,9 @@ from unittest.mock import patch
 
 from app.core.tenant.context import TenantContext, set_tenant_context, reset_tenant_context
 
+# Cluster 8 — harness IAM V2 integration (Fase 0)
+pytest_plugins = ("tests.integration.conftest_iam_sessions_v2",)
+
 
 @pytest.fixture
 def event_loop():

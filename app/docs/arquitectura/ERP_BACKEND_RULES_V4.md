@@ -2,8 +2,8 @@
 
 **Versión:** 4.0  
 **Fecha:** 2026-06-03  
-**Revisión:** 2026-06-16 — post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
-**Estado:** Oficial — reemplazo definitivo de `.cursorrules` para trabajo ERP  
+**Revisión:** 2026-06-24 — patch gobernanza documental post auditoría V2 (H-01, H-02, H-03, F-01, jerarquía); rev. previa 2026-06-16 post ORG+INV session scope e impersonación consolidados (rev. previa 2026-06-15 listados P0+P1+P2-001 + INV Fase 0 RC1.1)  
+**Estado:** Oficial — complemento ejecutable de `.cursorrules` (detalle normativo vs resumen operativo) para trabajo ERP  
 **Fuente:** `ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md`  
 **Estándar técnico:** `ERP_BACKEND_STANDARDS_V4.md`
 
@@ -299,12 +299,24 @@ Cuando dos reglas entren en tensión, aplicar en este orden:
 
 ## Documentos relacionados
 
+### Jerarquía documental oficial
+
+Cadena normativa (mayor → menor autoridad) — definición canónica en `ERP_BACKEND_STANDARDS_V4.md` §22.1:
+
+1. `ERP_BACKEND_STANDARDS_V4.md` — norma técnica
+2. `ERP_BACKEND_RULES_V4.md` — reglas ejecutables R01–R112 (este documento)
+3. `.cursorrules` — resumen operativo Cursor
+4. `docs/prompts/PROMPT_BACKEND_MAESTRO.md` — punto de entrada operativo
+5. `app/docs/arquitectura/ERP_BACKEND_MASTER_PROMPT_V4.md` — proceso de refactorización por módulo
+
 | Documento | Rol |
 |-----------|-----|
 | `ERP_BACKEND_STANDARDS_V4.md` | Estándar técnico detallado |
+| `.cursorrules` | Resumen operativo Cursor |
+| `docs/prompts/PROMPT_BACKEND_MAESTRO.md` | Punto de entrada operativo |
 | `ERP_BACKEND_MASTER_PROMPT_V4.md` | Flujo de refactorización por módulo |
 | `ERP_BACKEND_ARCHITECTURE_ALIGNMENT_AUDIT.md` | Auditoría origen |
 
 ---
 
-*CAXIS ERP Backend Rules V4 — Oficial — 2026-06-03 (rev. 2026-06-16 post ORG+INV session scope e impersonación)*
+*CAXIS ERP Backend Rules V4 — Oficial — 2026-06-03 (rev. 2026-06-24 patch gobernanza documental post auditoría V2; rev. previa 2026-06-16 post ORG+INV session scope e impersonación)*

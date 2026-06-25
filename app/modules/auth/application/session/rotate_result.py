@@ -1,4 +1,4 @@
-"""Resultado canónico de rotación atómica de refresh tokens (IAM P1-04)."""
+"""Resultado canónico de rotación atómica de refresh tokens (IAM Session V2)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,21 +15,25 @@ class RotateOutcome(StrEnum):
     NOT_FOUND = "not_found"
     EXPIRED = "expired"
     ALREADY_REVOKED = "already_revoked"
+    # V1 legacy — rotación monolítica con is_revoked; conservado hasta F15
     ALREADY_ROTATED = "already_rotated"
     USER_MISMATCH = "user_mismatch"
+    # V2 RTR
+    COMPROMISED = "compromised"
+    FAMILY_REVOKED = "family_revoked"
+    SESSION_EXPIRED = "session_expired"
+    ALREADY_USED = "already_used"
 
 
 @dataclass(frozen=True)
 class RotateResult:
-    """
-    Resultado de rotate_refresh_token_service().
-
-    Dark code P1-04: consumido por POST /auth/refresh/ (P1-04-IMPL-02).
-    """
+    """Resultado de SessionRotationService.rotate (V2) / rotate_refresh_token_service (V1)."""
 
     outcome: RotateOutcome
     cliente_id: UUID
     usuario_id: Optional[UUID] = None
+    session_id: Optional[UUID] = None
+    family_id: Optional[UUID] = None
     old_token_id: Optional[UUID] = None
     new_token_id: Optional[UUID] = None
     revoked_reason: Optional[str] = None

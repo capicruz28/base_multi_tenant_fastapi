@@ -149,10 +149,22 @@ class RefreshTokenInfo(BaseModel):
     NO incluye token_hash por seguridad.
     """
     token_id: UUID = Field(..., description="ID del token (UUID)")
+    session_id: Optional[UUID] = Field(
+        None,
+        description="Identificador canónico de sesión V2 (user_session.session_id)",
+    )
     client_type: str = Field(..., description="Tipo de cliente (web/mobile/desktop)")
     device_name: Optional[str] = Field(None, description="Nombre del dispositivo")
     device_id: Optional[str] = Field(None, description="ID del dispositivo")
     ip_address: Optional[str] = Field(None, description="IP de creación")
+    login_ip: Optional[str] = Field(
+        None,
+        description="IP del login original (V2 user_session.login_ip)",
+    )
+    platform: Optional[str] = Field(
+        None,
+        description="Plataforma de la sesión V2 (web|mobile|desktop|api)",
+    )
     user_agent: Optional[str] = Field(None, description="User agent")
     created_at: datetime = Field(..., description="Fecha de creación")
     expires_at: datetime = Field(..., description="Fecha de expiración")
