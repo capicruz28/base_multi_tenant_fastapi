@@ -18,7 +18,7 @@ class CatMonedaCreate(CatMonedaBase):
     pass
 
 
-class CatMonedaUpdate(BaseModel):
+class CatMonedaUpdate(BaseModel):    
     nombre: Optional[str] = None
     simbolo: Optional[str] = None
     decimales: Optional[int] = None

@@ -1,8 +1,8 @@
 """
-Diagnóstico temporal RC2 — trazas de impersonación en flujos empresa/refresh.
+Diagnóstico RC2 — trazas de impersonación en flujos empresa/refresh.
 
 Prefijo log: [IMPERSONATION-TRACE]
-Eliminar tras cerrar investigación de regresión impersonación + cambio empresa.
+Emisión opt-in vía ``settings.ENABLE_IMPERSONATE_DIAG`` (F12-E2B1 / F12-E2B3F).
 """
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ from app.core.logging_config import get_logger
 logger = get_logger(__name__)
 
 TRACE_PREFIX = "[IMPERSONATION-TRACE]"
+
+
+def _impersonate_trace_diag_enabled() -> bool:
+    return settings.ENABLE_IMPERSONATE_DIAG
 
 
 def _claims_summary(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -55,6 +59,8 @@ def log_impersonation_trace_request(
     payload: Optional[Dict[str, Any]],
     jwt_kind: str = "access",
 ) -> None:
+    if not _impersonate_trace_diag_enabled():
+        return
     claims = _claims_summary(payload)
     logger.info(
         "%s REQUEST endpoint=%s jwt_kind=%s http_status=pending "
@@ -78,6 +84,8 @@ def log_impersonation_trace_response(
     issued_access_token: Optional[str] = None,
     emission_reason: Optional[str] = None,
 ) -> None:
+    if not _impersonate_trace_diag_enabled():
+        return
     req = _claims_summary(request_payload)
     issued_claims = (
         _claims_summary(decode_access_token_claims(issued_access_token))

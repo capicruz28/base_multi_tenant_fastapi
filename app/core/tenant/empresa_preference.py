@@ -11,8 +11,14 @@ from sqlalchemy import text
 
 from app.infrastructure.database.connection_async import DatabaseConnection
 from app.infrastructure.database.queries_async import execute_update
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _empresa_pref_verbose() -> bool:
+    """Telemetría empresa preferida — opt-in vía ENABLE_AUTH_VERBOSE (F12-E2B3J)."""
+    return settings.ENABLE_AUTH_VERBOSE
 
 USER_WITHOUT_COMPANY = "USER_WITHOUT_COMPANY"
 
@@ -56,12 +62,13 @@ async def persist_usuario_empresa_default_id(
         connection_type=DatabaseConnection.DEFAULT,
         client_id=cliente_id,
     )
-    logger.info(
-        "[EMPRESA_PREF] empresa_default_id=%s usuario=%s cliente=%s",
-        empresa_id,
-        usuario_id,
-        cliente_id,
-    )
+    if _empresa_pref_verbose():
+        logger.info(
+            "[EMPRESA_PREF] empresa_default_id=%s usuario=%s cliente=%s",
+            empresa_id,
+            usuario_id,
+            cliente_id,
+        )
 
 
 async def clear_usuario_empresa_default_id(
@@ -95,8 +102,9 @@ async def clear_usuario_empresa_default_id(
         connection_type=DatabaseConnection.DEFAULT,
         client_id=cliente_id,
     )
-    logger.info(
-        "[EMPRESA_PREF] empresa_default_id limpiada usuario=%s cliente=%s",
-        usuario_id,
-        cliente_id,
-    )
+    if _empresa_pref_verbose():
+        logger.info(
+            "[EMPRESA_PREF] empresa_default_id limpiada usuario=%s cliente=%s",
+            usuario_id,
+            cliente_id,
+        )

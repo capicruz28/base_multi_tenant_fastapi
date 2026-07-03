@@ -282,6 +282,114 @@ jobs:
           f0-shared-baseline-summary.json
         retention-days: 90
 
+  shared-regression:
+    name: F2 — Shared regression gate (PR-F2-02)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio
+    - name: Shared regression — suite + benchmark p95 gate
+      env:
+        SKIP_DB_INTEGRATION_TESTS: "1"
+        ALLOW_TENANT_FILTER_BYPASS: "false"
+        ENABLE_QUERY_TENANT_VALIDATION: "true"
+      run: |
+        set -o pipefail
+        python scripts/validate_shared_regression.py 2>&1 | tee shared-regression.log
+    - name: Publicar artifact shared-regression
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: f2-shared-regression
+        path: shared-regression.log
+        retention-days: 30
+
+  f4-shared-onboarding-check:
+    name: F4 — SHARED_ONBOARDING_REQUIRED_CHECK (PR-F4-12)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio
+    - name: SHARED_ONBOARDING_REQUIRED_CHECK
+      env:
+        SKIP_DB_INTEGRATION_TESTS: "1"
+      run: |
+        set -o pipefail
+        python scripts/validate_shared_onboarding_required_check.py 2>&1 | tee f4-shared-onboarding-check.log
+    - name: Publicar artifact f4-shared-onboarding
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: f4-shared-onboarding-check
+        path: |
+          f4-shared-onboarding-check.log
+          f4-shared-onboarding-check-summary.json
+        retention-days: 30
+
+  f4-provisioning-e2e:
+    name: F4 — Provisioning E2E mock gate (PR-F4-12)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest pytest-asyncio
+    - name: F4 provisioning E2E mock
+      env:
+        SKIP_DB_INTEGRATION_TESTS: "1"
+      run: |
+        set -o pipefail
+        python scripts/validate_f4_provisioning_e2e.py 2>&1 | tee f4-provisioning-e2e.log
+    - name: Publicar artifact f4-provisioning-e2e
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: f4-provisioning-e2e
+        path: |
+          f4-provisioning-e2e.log
+          f4-provisioning-e2e-summary.json
+          docs/implementation/HYBRID_F4_GATE_EVIDENCE_GF403.json
+          docs/implementation/HYBRID_F4_PROVISIONING_METRICS_MANIFEST.json
+        retention-days: 30
+
+  database-type-whitelist:
+    name: F3 — database_type grep gate (PR-F3-04)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: database_type whitelist gate
+      run: |
+        python scripts/check_database_type_whitelist.py
+    - name: database_type gate self-test (injected violation)
+      run: |
+        python scripts/check_database_type_whitelist.py --self-test
+
   build:
     name: Verificar Build
     runs-on: ubuntu-latest

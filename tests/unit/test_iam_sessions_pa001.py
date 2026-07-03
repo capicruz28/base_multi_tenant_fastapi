@@ -44,9 +44,25 @@ def _session_row() -> dict:
 @pytest.mark.asyncio
 async def test_legacy_mode_returns_list_without_count():
     mock_query = AsyncMock(return_value=[_session_row()])
-    with patch(
-        "app.modules.auth.application.services.active_sessions_read_service.execute_query",
-        mock_query,
+    with (
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.is_session_v2_enabled",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.execute_query",
+            mock_query,
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.resolve_search_user_ids",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.enrich_admin_rows",
+            AsyncMock(side_effect=lambda _cid, rows: rows),
+        ),
     ):
         result = await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,
@@ -62,9 +78,25 @@ async def test_legacy_mode_returns_list_without_count():
 @pytest.mark.asyncio
 async def test_paginated_mode_returns_envelope():
     mock_query = AsyncMock(side_effect=[[{"count_1": 1}], [_session_row()]])
-    with patch(
-        "app.modules.auth.application.services.active_sessions_read_service.execute_query",
-        mock_query,
+    with (
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.is_session_v2_enabled",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.execute_query",
+            mock_query,
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.resolve_search_user_ids",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.enrich_admin_rows",
+            AsyncMock(side_effect=lambda _cid, rows: rows),
+        ),
     ):
         result = await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,

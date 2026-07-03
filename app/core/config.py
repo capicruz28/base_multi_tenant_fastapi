@@ -10,6 +10,19 @@ from typing import Optional
 # Cargar variables de entorno desde .env
 load_dotenv()
 
+
+def _resolve_diagnostic_trace_flag(raw_value: str, *, environment: str) -> bool:
+    """
+    Resuelve flags ENABLE_*_TRACE para F12-E2B1 / F12-E2B2.2.
+
+    - Env explícito ``true``/``false`` → override.
+    - Sin env → ``False`` (opt-in en development y production).
+    """
+    if raw_value.strip():
+        return raw_value.strip().lower() == "true"
+    return False
+
+
 class Settings(BaseSettings):
     # API
     API_V1_STR: str = "/api/v1"
@@ -73,8 +86,18 @@ class Settings(BaseSettings):
         "https://api-service-cunb.onrender.com",
     ]
 
-    # Logging
+    # Logging (F12-E2B1 — gobernanza centralizada)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+    # F12-E2B1 / F12-E2B2.2 — flags de traza diagnóstica (opt-in; default false).
+    # Si la variable de entorno está vacía: false. Override explícito: true | false.
+    _enable_redis_trace_raw: str = os.getenv("ENABLE_REDIS_TRACE", "")
+    _enable_rbac_trace_raw: str = os.getenv("ENABLE_RBAC_TRACE", "")
+    _enable_query_auditor_verbose_raw: str = os.getenv("ENABLE_QUERY_AUDITOR_VERBOSE", "")
+    _enable_http_trace_raw: str = os.getenv("ENABLE_HTTP_TRACE", "")
+    _enable_middleware_trace_raw: str = os.getenv("ENABLE_MIDDLEWARE_TRACE", "")
+    _enable_impersonate_diag_raw: str = os.getenv("ENABLE_IMPERSONATE_DIAG", "")
+    _enable_auth_verbose_raw: str = os.getenv("ENABLE_AUTH_VERBOSE", "")
 
     # ============================================
     # FEATURE FLAGS - FASE 1: SEGURIDAD (ACTIVADO POR DEFECTO)
@@ -111,6 +134,14 @@ class Settings(BaseSettings):
                     "[IAM-SESSION-V2] IAM_SESSION_MANAGEMENT_V2_ENABLED=true en producción. "
                     "Solo debe activarse tras cutover F14."
                 )
+            if self._provisioning_dispatcher_sync_raw.lower() == "true":
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "[PROVISIONING] PROVISIONING_DISPATCHER_SYNC=true ignorado en producción. "
+                    "El despacho in-process debe ser async en producción."
+                )
+                self._provisioning_dispatcher_sync_raw = "false"
         return self
 
     @property
@@ -131,6 +162,93 @@ class Settings(BaseSettings):
             return True
         # En desarrollo, permitir desactivar para testing
         return self._enable_tenant_token_validation_raw.lower() == "true"
+
+    @property
+    def PROVISIONING_DISPATCHER_ENABLED(self) -> bool:
+        """Habilita despacho in-process de jobs provisioning (F4-03)."""
+        return self._provisioning_dispatcher_enabled_raw.lower() == "true"
+
+    @property
+    def PROVISIONING_DISPATCHER_SYNC(self) -> bool:
+        """
+        Ejecuta handler inline — solo tests/diagnostics.
+
+        En producción siempre False (forzado en model_validator).
+        """
+        if self.ENVIRONMENT == "production":
+            return False
+        return self._provisioning_dispatcher_sync_raw.lower() == "true"
+
+    @property
+    def PROVISIONING_DDL_EXECUTOR_ENABLED(self) -> bool:
+        """Habilita cliente DDL real — staging/integration (F4-04)."""
+        return self._provisioning_ddl_executor_enabled_raw.lower() == "true"
+
+    @property
+    def DEDICATED_ENABLED(self) -> bool:
+        """Habilita saga provisioning dedicated v2 (F4-08). Default false en prod."""
+        return self._dedicated_enabled_raw.lower() == "true"
+
+    @property
+    def NORMALIZED_LOG_LEVEL(self) -> str:
+        """LOG_LEVEL normalizado (DEBUG|INFO|WARNING|ERROR|CRITICAL)."""
+        from app.core.logging_config import normalize_log_level
+
+        return normalize_log_level(self.LOG_LEVEL)
+
+    @property
+    def UVICORN_LOG_LEVEL(self) -> str:
+        """Nivel para uvicorn --log-level (minúsculas, alineado con LOG_LEVEL)."""
+        return self.NORMALIZED_LOG_LEVEL.lower()
+
+    @property
+    def ENABLE_REDIS_TRACE(self) -> bool:
+        """Trazas Redis diagnósticas ([REDIS-TRACE-01], etc.) — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_redis_trace_raw, environment=self.ENVIRONMENT
+        )
+
+    @property
+    def ENABLE_RBAC_TRACE(self) -> bool:
+        """Trazas RBAC diagnósticas ([RBAC_DEBUG], startup prints) — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_rbac_trace_raw, environment=self.ENVIRONMENT
+        )
+
+    @property
+    def ENABLE_QUERY_AUDITOR_VERBOSE(self) -> bool:
+        """Logs verbosos QueryAuditor (WARNING con SQL truncado) — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_query_auditor_verbose_raw, environment=self.ENVIRONMENT
+        )
+
+    @property
+    def ENABLE_HTTP_TRACE(self) -> bool:
+        """Trazas HTTP (middleware log_requests) — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_http_trace_raw, environment=self.ENVIRONMENT
+        )
+
+    @property
+    def ENABLE_MIDDLEWARE_TRACE(self) -> bool:
+        """Trazas TenantMiddleware / HOST_DETECTION — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_middleware_trace_raw, environment=self.ENVIRONMENT
+        )
+
+    @property
+    def ENABLE_IMPERSONATE_DIAG(self) -> bool:
+        """Diagnóstico impersonate (middleware + claims JWT en logs) — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_impersonate_diag_raw, environment=self.ENVIRONMENT
+        )
+
+    @property
+    def ENABLE_AUTH_VERBOSE(self) -> bool:
+        """Logs verbosos auth (/me payload, login detallado) — F12-E2B2."""
+        return _resolve_diagnostic_trace_flag(
+            self._enable_auth_verbose_raw, environment=self.ENVIRONMENT
+        )
     
     ENABLE_QUERY_TENANT_VALIDATION: bool = os.getenv("ENABLE_QUERY_TENANT_VALIDATION", "true").lower() == "true"
     ENABLE_RATE_LIMITING: bool = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
@@ -168,6 +286,9 @@ class Settings(BaseSettings):
     
     # Code-first RBAC: sincronizar permisos declarados en código con tabla permiso al startup.
     RBAC_PERMISSION_SYNC_ENABLED: bool = os.getenv("RBAC_PERMISSION_SYNC_ENABLED", "true").lower() == "true"
+    DEDICATED_PERMISSION_CATALOG_SYNC_ENABLED: bool = (
+        os.getenv("DEDICATED_PERMISSION_CATALOG_SYNC_ENABLED", "true").lower() == "true"
+    )
 
     # INV-P0-002: escritura directa POST/PUT /inv/stock (tabla derivada). Default false = bloqueado.
     INV_ALLOW_STOCK_DIRECT_WRITE: bool = os.getenv("INV_ALLOW_STOCK_DIRECT_WRITE", "false").lower() == "true"
@@ -180,6 +301,41 @@ class Settings(BaseSettings):
         "IAM_SESSION_MANAGEMENT_V2_ENABLED", "false"
     )
     IAM_SESSION_V2_TENANT_ALLOWLIST: str = os.getenv("IAM_SESSION_V2_TENANT_ALLOWLIST", "")
+
+    # ============================================
+    # HYBRID DEDICATED PROVISIONING — F4 PR-F4-03
+    # ============================================
+    _provisioning_dispatcher_enabled_raw: str = os.getenv(
+        "PROVISIONING_DISPATCHER_ENABLED", "true"
+    )
+    _provisioning_dispatcher_sync_raw: str = os.getenv(
+        "PROVISIONING_DISPATCHER_SYNC", "false"
+    )
+
+    # Segregated DDL platform credentials (ADR-F4-01 / PR-F4-04)
+    PROVISIONING_DDL_SERVER: str = os.getenv("PROVISIONING_DDL_SERVER", "")
+    PROVISIONING_DDL_USER: str = os.getenv("PROVISIONING_DDL_USER", "")
+    PROVISIONING_DDL_PASSWORD: str = os.getenv("PROVISIONING_DDL_PASSWORD", "")
+    PROVISIONING_DDL_PORT: int = int(os.getenv("PROVISIONING_DDL_PORT", "1433"))
+    _provisioning_ddl_executor_enabled_raw: str = os.getenv(
+        "PROVISIONING_DDL_EXECUTOR_ENABLED", "false"
+    )
+    _dedicated_enabled_raw: str = os.getenv("DEDICATED_ENABLED", "false")
+    PROVISIONING_DEDICATED_DB_NAME_PREFIX: str = os.getenv(
+        "PROVISIONING_DEDICATED_DB_NAME_PREFIX", "erp_"
+    )
+    PROVISIONING_DEDICATED_LOGIN_PREFIX: str = os.getenv(
+        "PROVISIONING_DEDICATED_LOGIN_PREFIX", "erpapp_"
+    )
+    PROVISIONING_DEDICATED_DB_NAME_MAX_LENGTH: int = int(
+        os.getenv("PROVISIONING_DEDICATED_DB_NAME_MAX_LENGTH", "100")
+    )
+    PROVISIONING_DEDICATED_LOGIN_MAX_LENGTH: int = int(
+        os.getenv("PROVISIONING_DEDICATED_LOGIN_MAX_LENGTH", "128")
+    )
+    PROVISIONING_DEDICATED_DB_COLLATION: str = os.getenv(
+        "PROVISIONING_DEDICATED_DB_COLLATION", "SQL_Latin1_General_CP1_CI_AS"
+    )
     
     # Stage 2: Menú puede recibir permisos efectivos ya calculados (evita lógica duplicada).
     # Por defecto False; cuando True, el endpoint /modulos-menus/me/ pasa user.permisos al servicio.
@@ -203,6 +359,20 @@ class Settings(BaseSettings):
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
     REDIS_SOCKET_TIMEOUT: int = int(os.getenv("REDIS_SOCKET_TIMEOUT", "5"))  # Timeout en segundos
     CACHE_DEFAULT_TTL: int = int(os.getenv("CACHE_DEFAULT_TTL", "300"))  # TTL por defecto: 5 minutos
+    CONNECTION_METADATA_CACHE_TTL: int = int(
+        os.getenv("CONNECTION_METADATA_CACHE_TTL", "300")
+    )  # L-B metadata cache (TD-02): 300–900 s
+
+    @model_validator(mode="after")
+    def _validate_connection_metadata_cache_ttl(self):
+        """TD-02: fail-fast si TTL metadata fuera de 300–900 segundos."""
+        ttl = self.CONNECTION_METADATA_CACHE_TTL
+        if ttl < 300 or ttl > 900:
+            raise ValueError(
+                "CONNECTION_METADATA_CACHE_TTL debe estar entre 300 y 900 segundos (TD-02); "
+                f"valor actual: {ttl}"
+            )
+        return self
 
     # ✅ MEJORA: Cookies - Configuración segura y dinámica
     REFRESH_COOKIE_NAME: str = "refresh_token"

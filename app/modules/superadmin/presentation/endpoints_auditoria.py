@@ -92,7 +92,7 @@ async def list_logs_autenticacion(
     """
     Endpoint para obtener logs de autenticación con filtros avanzados.
     """
-    logger.info(
+    logger.debug(
         f"Superadmin {current_user.usuario_id} solicitando logs de autenticación - "
         f"cliente_id: {cliente_id}, page: {page}"
     )
@@ -112,7 +112,7 @@ async def list_logs_autenticacion(
             orden=orden
         )
         
-        logger.info(
+        logger.debug(
             f"Logs de autenticación recuperados - "
             f"Total: {paginated_data['total_logs']}, "
             f"Página: {paginated_data['pagina_actual']}"
@@ -250,7 +250,7 @@ async def list_logs_sincronizacion(
     """
     Endpoint para obtener logs de sincronización con filtros avanzados.
     """
-    logger.info(
+    logger.debug(
         f"Superadmin {current_user.usuario_id} solicitando logs de sincronización - "
         f"page: {page}"
     )
@@ -272,7 +272,7 @@ async def list_logs_sincronizacion(
             orden=orden
         )
         
-        logger.info(
+        logger.debug(
             f"Logs de sincronización recuperados - "
             f"Total: {paginated_data['total_logs']}, "
             f"Página: {paginated_data['pagina_actual']}"
@@ -327,7 +327,7 @@ async def get_estadisticas_auditoria(
     """
     Endpoint para obtener estadísticas agregadas de auditoría.
     """
-    logger.info(
+    logger.debug(
         f"Superadmin {current_user.usuario_id} solicitando estadísticas de auditoría - "
         f"cliente_id: {cliente_id}"
     )
@@ -339,7 +339,7 @@ async def get_estadisticas_auditoria(
             fecha_hasta=fecha_hasta
         )
         
-        logger.info("Estadísticas de auditoría recuperadas exitosamente")
+        logger.debug("Estadísticas de auditoría recuperadas exitosamente")
         return estadisticas
         
     except HTTPException:

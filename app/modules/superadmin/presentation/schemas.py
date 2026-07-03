@@ -98,9 +98,34 @@ class UsuarioSuperadminRead(BaseModel):
     sincronizado_desde: Optional[str] = Field(None, description="Origen de sincronización")
     fecha_ultima_sincronizacion: Optional[datetime] = Field(None, description="Última sincronización")
     roles: List[RolInfo] = Field(default_factory=list, description="Roles activos del usuario")
-    access_level: int = Field(default=1, ge=1, le=5, description="Nivel de acceso máximo")
+    access_level: Optional[int] = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description="Nivel de acceso máximo; null si enrichment_degraded",
+    )
     is_super_admin: bool = Field(default=False, description="Si es super administrador")
     user_type: str = Field(default="user", description="Tipo de usuario")
+    tenant_data_reachability: Optional[str] = Field(
+        None,
+        description="Estado reachability tenant_data (fail-soft global)",
+    )
+    tenant_data_available: Optional[bool] = Field(
+        None,
+        description="False cuando el enriquecimiento DP no está disponible",
+    )
+    enrichment_degraded: Optional[bool] = Field(
+        None,
+        description="True si roles/niveles omitidos por tenant unreachable",
+    )
+    tenant_data_internal_code: Optional[str] = Field(
+        None,
+        description="Código interno de reachability (p. ej. DEDICATED_ROUTE_FAIL_CLOSED)",
+    )
+    tenant_data_message: Optional[str] = Field(
+        None,
+        description="Mensaje operativo de reachability para el operador",
+    )
 
     class Config:
         from_attributes = True
@@ -123,6 +148,24 @@ class PaginatedUsuarioSuperadminResponse(BaseModel):
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None
         }
+
+
+class PlatformUsuariosStatsResponse(BaseModel):
+    """
+    Estadísticas agregadas globales de usuarios Platform (sin listado ni enriquecimiento).
+    """
+
+    total_usuarios: int = Field(..., ge=0, description="Total de usuarios no eliminados")
+    usuarios_activos: int = Field(..., ge=0, description="Usuarios con es_activo=true")
+    usuarios_inactivos: int = Field(..., ge=0, description="Usuarios con es_activo=false")
+    usuarios_bloqueados: int = Field(
+        ...,
+        ge=0,
+        description="Usuarios con fecha_bloqueo no nula (bloqueo por intentos fallidos)",
+    )
+
+    class Config:
+        from_attributes = True
 
 
 class UsuarioActividadResponse(BaseModel):

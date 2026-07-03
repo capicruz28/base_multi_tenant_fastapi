@@ -8,6 +8,14 @@ Funciones de ejecución de queries ASYNC usando SQLAlchemy Core.
 - Acepta objetos SQLAlchemy Core (Select, Update, Delete, Insert)
 - Aplica filtro de tenant automáticamente
 
+Pipeline interno L6 (RD-06 / F1-WP06):
+  1. Validar bypass tenant (si aplica)
+  2. Resolver client_id (param > ContextVar)
+  3. Clasificar operation_class (DEFAULT→tenant_data, ADMIN→control_plane)
+  4. QueryAuditor + apply_tenant_filter (tenant_data, no global)
+  5. _get_connection_context → resolución gateway → AsyncSession
+  6. execute / commit / rollback
+
 USO:
     from app.infrastructure.database.queries_async import execute_query
     
@@ -22,11 +30,18 @@ from sqlalchemy.sql import ClauseElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.connection_async import get_db_connection, DatabaseConnection
-from app.core.tenant.routing import get_connection_for_tenant
+from app.core.tenant.routing import (
+    get_connection_for_tenant,
+    OPERATION_CLASS_CONTROL_PLANE,
+    OPERATION_CLASS_TENANT_DATA,
+)
+from app.core.identity.identity_scope import IdentityScope
+from app.core.identity.identity_store_connection import OPERATION_CLASS_TENANT_IDENTITY
+from app.core.tenant.context import try_get_current_client_id
 from app.infrastructure.database.query_helpers import (
-    apply_tenant_filter, 
+    apply_tenant_filter,
     get_table_name_from_query,
-    apply_tenant_filter_to_text_clause
+    apply_tenant_filter_to_text_clause,
 )
 from app.core.exceptions import DatabaseError, ValidationError, SecurityError
 from app.core.config import settings
@@ -36,33 +51,190 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _operation_class_for(connection_type: DatabaseConnection) -> str:
+    """RD-07: DEFAULT→tenant_data, ADMIN→control_plane."""
+    if connection_type == DatabaseConnection.ADMIN:
+        return OPERATION_CLASS_CONTROL_PLANE
+    return OPERATION_CLASS_TENANT_DATA
+
+
+def _normalize_operation_class(operation_class: Optional[str]) -> str:
+    """Identity store alias → tenant_data para routing/cache L-A."""
+    if operation_class == OPERATION_CLASS_TENANT_IDENTITY:
+        return OPERATION_CLASS_TENANT_DATA
+    if operation_class:
+        return operation_class
+    return OPERATION_CLASS_TENANT_DATA
+
+
+def _coerce_client_id_uuid(
+    client_id: Optional[Union[int, UUID]],
+) -> Optional[UUID]:
+    if client_id is None:
+        return None
+    if isinstance(client_id, UUID):
+        return client_id
+    if isinstance(client_id, int):
+        try:
+            return UUID(int=client_id) if client_id > 0 else None
+        except (ValueError, OverflowError):
+            return None
+    return None
+
+
+def _resolve_effective_client_id(
+    client_id: Optional[Union[int, UUID]],
+) -> Optional[UUID]:
+    """Paso 2 gateway: param explícito > ContextVar."""
+    coerced = _coerce_client_id_uuid(client_id)
+    if coerced is not None:
+        return coerced
+    return try_get_current_client_id()
+
+
+def _assert_skip_tenant_validation_allowed(skip_tenant_validation: bool) -> None:
+    if not skip_tenant_validation:
+        return
+    if not settings.ALLOW_TENANT_FILTER_BYPASS:
+        raise ValidationError(
+            detail=(
+                "Bypass de validación de tenant no permitido. "
+                "Para usar skip_tenant_validation=True, debe activar ALLOW_TENANT_FILTER_BYPASS en configuración. "
+                "⚠️ ADVERTENCIA: Esto solo debe usarse en scripts de migración o mantenimiento."
+            ),
+            internal_code="TENANT_VALIDATION_BYPASS_DISABLED",
+        )
+    logger.warning(
+        "[SECURITY WARNING] Bypass de validación de tenant permitido para query. "
+        "Esto solo debería usarse en scripts de migración o mantenimiento."
+    )
+
+
+def _infer_table_name_from_sql_text(query_str: str) -> Optional[str]:
+    query_lower = query_str.lower()
+    for keyword in ("from", "update", "delete from", "insert into"):
+        if keyword in query_lower:
+            parts = query_lower.split(keyword, 1)
+            if len(parts) > 1:
+                table_part = parts[1].strip().split()[0].strip(";").strip("(")
+                return table_part
+    return None
+
+
+def _run_query_auditor_if_enabled(
+    query: Union[str, ClauseElement, TextClause],
+    *,
+    table_name: Optional[str],
+    client_id: Optional[Union[int, UUID]],
+    skip_tenant_validation: bool,
+    context_label: str = "query",
+) -> None:
+    if skip_tenant_validation or not settings.ENABLE_QUERY_TENANT_VALIDATION:
+        return
+    try:
+        QueryAuditor.validate_tenant_filter(
+            query=query,
+            table_name=table_name,
+            client_id=client_id,
+            skip_validation=False,
+        )
+    except Exception as audit_error:
+        logger.warning(
+            f"[QUERY_AUDITOR] Error en auditoría {context_label} (no bloqueante): {audit_error}"
+        )
+        if settings.ENVIRONMENT == "production":
+            raise
+
+
+def _prepare_core_query_for_gateway(
+    query: ClauseElement,
+    *,
+    client_id: Optional[Union[int, UUID]],
+    skip_tenant_validation: bool,
+    identity_scope: Optional[IdentityScope] = None,
+) -> ClauseElement:
+    try:
+        table_name = get_table_name_from_query(query)
+    except Exception:
+        table_name = None
+    _run_query_auditor_if_enabled(
+        query,
+        table_name=table_name,
+        client_id=client_id,
+        skip_tenant_validation=skip_tenant_validation,
+        context_label="Core",
+    )
+    if skip_tenant_validation:
+        return query
+    return apply_tenant_filter(
+        query,
+        client_id=client_id,
+        table_name=table_name,
+        identity_scope=identity_scope,
+    )
+
+
+def _prepare_text_clause_for_gateway(
+    query: TextClause,
+    *,
+    client_id: Optional[Union[int, UUID]],
+    table_name: Optional[str],
+    skip_tenant_validation: bool,
+    identity_scope: Optional[IdentityScope] = None,
+) -> TextClause:
+    effective_client_id = _resolve_effective_client_id(client_id)
+    if table_name is None:
+        try:
+            query_str = query.text if hasattr(query, "text") else str(query)
+        except Exception:
+            query_str = str(query)
+        table_name = _infer_table_name_from_sql_text(query_str)
+    _run_query_auditor_if_enabled(
+        query,
+        table_name=table_name,
+        client_id=effective_client_id,
+        skip_tenant_validation=skip_tenant_validation,
+        context_label="TextClause",
+    )
+    if skip_tenant_validation or not effective_client_id:
+        return query
+    return apply_tenant_filter_to_text_clause(
+        query,
+        client_id=effective_client_id,
+        table_name=table_name,
+        identity_scope=identity_scope,
+    )
+
+
 def _get_connection_context(
     connection_type: DatabaseConnection,
-    client_id: Optional[int] = None
+    client_id: Optional[Union[int, UUID]] = None,
+    operation_class: Optional[str] = None,
 ):
     """
-    ✅ FASE 5: Helper para obtener el contexto de conexión apropiado.
-    
-    Retorna el context manager correcto según el tipo de conexión:
-    - ADMIN: get_db_connection(ADMIN)
-    - DEFAULT: get_connection_for_tenant() (routing centralizado)
+    Gateway L6 — apertura unificada de sesión (RD-06 / F1-WP06).
+
+    Resolución → execute:
+    - ADMIN / control_plane → get_db_connection(ADMIN)
+    - DEFAULT / tenant_data → get_connection_for_tenant(operation_class, client_id)
     """
+    operation_class = _normalize_operation_class(
+        operation_class or _operation_class_for(connection_type)
+    )
     if connection_type == DatabaseConnection.ADMIN:
-        return get_db_connection(connection_type)
-    else:
-        # Convertir client_id a UUID si es necesario
-        from uuid import UUID
-        cliente_id_uuid = None
-        if client_id:
-            if isinstance(client_id, UUID):
-                cliente_id_uuid = client_id
-            elif isinstance(client_id, int):
-                try:
-                    cliente_id_uuid = UUID(int=client_id) if client_id > 0 else None
-                except (ValueError, OverflowError):
-                    cliente_id_uuid = None
-        
-        return get_connection_for_tenant(cliente_id=cliente_id_uuid)
+        logger.debug("[GATEWAY] session op=%s store=control_plane", operation_class)
+        return get_db_connection(DatabaseConnection.ADMIN)
+
+    cliente_id_uuid = _coerce_client_id_uuid(client_id)
+    logger.debug(
+        "[GATEWAY] session op=%s store=tenant_data client=%s",
+        operation_class,
+        cliente_id_uuid,
+    )
+    return get_connection_for_tenant(
+        cliente_id=cliente_id_uuid,
+        operation_class=operation_class,
+    )
 
 
 async def execute_query(
@@ -70,7 +242,9 @@ async def execute_query(
     params: Optional[Union[Tuple[Any, ...], Dict[str, Any]]] = None,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
     client_id: Optional[Union[int, UUID]] = None,
-    skip_tenant_validation: bool = False
+    skip_tenant_validation: bool = False,
+    identity_scope: Optional[IdentityScope] = None,
+    operation_class: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Ejecuta una consulta SQL de forma async con validación automática de tenant.
@@ -138,55 +312,23 @@ async def execute_query(
                 f"skip_tenant_validation=True pero ALLOW_TENANT_FILTER_BYPASS=False. "
                 f"Query: {str(query)[:200]}..."
             )
-            from app.core.exceptions import ValidationError
-            raise ValidationError(
-                detail=(
-                    "Bypass de validación de tenant no permitido. "
-                    "Para usar skip_tenant_validation=True, debe activar ALLOW_TENANT_FILTER_BYPASS en configuración. "
-                    "⚠️ ADVERTENCIA: Esto solo debe usarse en scripts de migración o mantenimiento."
-                ),
-                internal_code="TENANT_VALIDATION_BYPASS_DISABLED"
-            )
-        else:
-            # ⚠️ BYPASS PERMITIDO: Log de seguridad
-            logger.warning(
-                f"[SECURITY WARNING] Bypass de validación de tenant permitido para query. "
-                f"Esto solo debería usarse en scripts de migración o mantenimiento. "
-                f"Query: {str(query)[:200]}..."
-            )
+        _assert_skip_tenant_validation_allowed(skip_tenant_validation)
     
     # ✅ FASE 2: Si es objeto SQLAlchemy Core, aplicar filtro de tenant programáticamente
     if isinstance(query, (Select, Update, Delete, Insert)):
-        # Obtener nombre de tabla para verificar si es global
-        try:
-            table_name = get_table_name_from_query(query)
-        except Exception:
-            table_name = None
+        query = _prepare_core_query_for_gateway(
+            query,
+            client_id=client_id,
+            skip_tenant_validation=skip_tenant_validation,
+            identity_scope=identity_scope,
+        )
         
-        # ✅ FASE 1 SEGURIDAD: Auditoría automática de queries
-        if not skip_tenant_validation and settings.ENABLE_QUERY_TENANT_VALIDATION:
-            try:
-                QueryAuditor.validate_tenant_filter(
-                    query=query,
-                    table_name=table_name,
-                    client_id=client_id,
-                    skip_validation=False
-                )
-            except Exception as audit_error:
-                # Si la auditoría falla, loggear pero continuar (fail-soft en desarrollo)
-                logger.warning(
-                    f"[QUERY_AUDITOR] Error en auditoría (no bloqueante): {audit_error}"
-                )
-                if settings.ENVIRONMENT == "production":
-                    # En producción, re-lanzar el error
-                    raise
-        
-        # Aplicar filtro de tenant automáticamente (si no se omite)
-        if not skip_tenant_validation:
-            query = apply_tenant_filter(query, client_id=client_id, table_name=table_name)
-        
-        # ✅ FASE 5: Usar routing centralizado
-        async with _get_connection_context(connection_type, client_id) as session:
+        # ✅ FASE 5: Gateway unificado resolution → execute
+        async with _get_connection_context(
+            connection_type,
+            client_id,
+            operation_class=operation_class,
+        ) as session:
             try:
                 result = await session.execute(query)
                 
@@ -209,59 +351,19 @@ async def execute_query(
                 )
     
     elif isinstance(query, TextClause):
-        # ✅ Aceptar TextClause (resultado de text().bindparams())
-        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant a TextClause
-        # Obtener nombre de tabla para verificar si es global
-        try:
-            # Intentar extraer nombre de tabla del SQL string
-            query_str = query.text if hasattr(query, 'text') else str(query)
-            query_lower = query_str.lower()
-            table_name = None
-            
-            # Buscar patrones comunes: "FROM tabla", "UPDATE tabla", etc.
-            for keyword in ["from", "update", "delete from", "insert into"]:
-                if keyword in query_lower:
-                    parts = query_lower.split(keyword, 1)
-                    if len(parts) > 1:
-                        table_part = parts[1].strip().split()[0].strip(";").strip("(")
-                        table_name = table_part
-                        break
-        except Exception:
-            table_name = None
+        query = _prepare_text_clause_for_gateway(
+            query,
+            client_id=client_id,
+            table_name=None,
+            skip_tenant_validation=skip_tenant_validation,
+            identity_scope=identity_scope,
+        )
         
-        # ✅ FASE 1 SEGURIDAD: Auditoría automática de queries TextClause
-        if not skip_tenant_validation and settings.ENABLE_QUERY_TENANT_VALIDATION:
-            try:
-                QueryAuditor.validate_tenant_filter(
-                    query=query,
-                    table_name=table_name,
-                    client_id=client_id,
-                    skip_validation=False
-                )
-            except Exception as audit_error:
-                # Si la auditoría falla, loggear pero continuar (fail-soft en desarrollo)
-                logger.warning(
-                    f"[QUERY_AUDITOR] Error en auditoría TextClause (no bloqueante): {audit_error}"
-                )
-                if settings.ENVIRONMENT == "production":
-                    # En producción, re-lanzar el error
-                    raise
-        
-        # ✅ FASE 1 SEGURIDAD: Aplicar filtro automático de tenant
-        # Obtener client_id del contexto si no se proporciona
-        if client_id is None:
-            from app.core.tenant.context import try_get_current_client_id
-            client_id = try_get_current_client_id()
-        
-        if not skip_tenant_validation and client_id:
-            query = apply_tenant_filter_to_text_clause(
-                query, 
-                client_id=client_id, 
-                table_name=table_name
-            )
-        
-        # ✅ FASE 5: Usar routing centralizado
-        async with _get_connection_context(connection_type, client_id) as session:
+        async with _get_connection_context(
+            connection_type,
+            client_id,
+            operation_class=operation_class,
+        ) as session:
             try:
                 result = await session.execute(query)
                 rows = result.fetchall()
@@ -284,33 +386,14 @@ async def execute_query(
         
         # ✅ FASE 1 SEGURIDAD: Auditoría automática de queries string
         if not skip_tenant_validation and settings.ENABLE_QUERY_TENANT_VALIDATION:
-            try:
-                # Intentar extraer nombre de tabla de la query string
-                table_name = None
-                query_lower = query.lower()
-                # Buscar patrones comunes: "FROM tabla", "UPDATE tabla", etc.
-                for keyword in ["from", "update", "delete from", "insert into"]:
-                    if keyword in query_lower:
-                        parts = query_lower.split(keyword, 1)
-                        if len(parts) > 1:
-                            table_part = parts[1].strip().split()[0].strip(";").strip("(")
-                            table_name = table_part
-                            break
-                
-                QueryAuditor.validate_tenant_filter(
-                    query=query,
-                    table_name=table_name,
-                    client_id=client_id,
-                    skip_validation=False
-                )
-            except Exception as audit_error:
-                # Si la auditoría falla, loggear pero continuar (fail-soft en desarrollo)
-                logger.warning(
-                    f"[QUERY_AUDITOR] Error en auditoría de query string (no bloqueante): {audit_error}"
-                )
-                if settings.ENVIRONMENT == "production":
-                    # En producción, re-lanzar el error
-                    raise
+            table_name = _infer_table_name_from_sql_text(query.lower())
+            _run_query_auditor_if_enabled(
+                query,
+                table_name=table_name,
+                client_id=client_id,
+                skip_tenant_validation=skip_tenant_validation,
+                context_label="string",
+            )
         
         # String SQL - convertir ? a parámetros nombrados si hay params
         if params is not None:
@@ -665,7 +748,9 @@ async def execute_update(
     query: Union[str, Update, TextClause],
     params: Optional[Union[tuple, dict]] = None,
     connection_type: DatabaseConnection = DatabaseConnection.DEFAULT,
-    client_id: Optional[Union[int, UUID]] = None
+    client_id: Optional[Union[int, UUID]] = None,
+    identity_scope: Optional[IdentityScope] = None,
+    operation_class: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Ejecuta una sentencia UPDATE y retorna los datos actualizados.
@@ -682,7 +767,17 @@ async def execute_update(
         Diccionario con los datos actualizados (OUTPUT) y rows_affected
     """
     if isinstance(query, Update):
-        async with _get_connection_context(connection_type, client_id) as session:
+        query = _prepare_core_query_for_gateway(
+            query,
+            client_id=client_id,
+            skip_tenant_validation=False,
+            identity_scope=identity_scope,
+        )
+        async with _get_connection_context(
+            connection_type,
+            client_id,
+            operation_class=operation_class,
+        ) as session:
             try:
                 result = await session.execute(query)
                 await session.commit()
@@ -727,12 +822,17 @@ async def execute_update(
         # Aplicar filtro automático si hay client_id
         if client_id:
             query = apply_tenant_filter_to_text_clause(
-                query, 
-                client_id=client_id, 
-                table_name=table_name
+                query,
+                client_id=client_id,
+                table_name=table_name,
+                identity_scope=identity_scope,
             )
         
-        async with _get_connection_context(connection_type, client_id) as session:
+        async with _get_connection_context(
+            connection_type,
+            client_id,
+            operation_class=operation_class,
+        ) as session:
             try:
                 result = await session.execute(query)
                 await session.commit()

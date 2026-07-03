@@ -11,6 +11,9 @@ from typing import Any, Optional
 from uuid import UUID
 
 from app.core.application.unit_of_work import UnitOfWork
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.core.exceptions import AuthorizationError, NotFoundError, ValidationError
 from app.infrastructure.database.queries.auth.session import session_transaction_core as stx
 from app.modules.auth.application.services.session_audit_emitter import SessionAuditEmitter
@@ -152,7 +155,10 @@ class SessionRevocationService:
         target_usuario_id: Optional[UUID] = None,
         idle_minutes: Optional[int] = None,
     ) -> RevokeResult:
-        async with UnitOfWork(client_id=cliente_id) as uow:
+        async with UnitOfWork(
+            client_id=cliente_id,
+            connection_type=SESSION_STORE_CONNECTION,
+        ) as uow:
             await stx.revoke_session_tx(
                 uow,
                 session_id=session_id,
@@ -331,7 +337,10 @@ class SessionRevocationService:
                 internal_code="INVALID_REVOKE_ALL_REASON",
             )
 
-        async with UnitOfWork(client_id=cliente_id) as uow:
+        async with UnitOfWork(
+            client_id=cliente_id,
+            connection_type=SESSION_STORE_CONNECTION,
+        ) as uow:
             tx_result = await stx.revoke_all_user_sessions_tx(
                 uow,
                 usuario_id=usuario_id,

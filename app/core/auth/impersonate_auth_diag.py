@@ -51,6 +51,8 @@ def log_impersonate_token_claims(
     """
     Decodifica JWT solo para logs (no valida exp en prod path).
     """
+    if not settings.ENABLE_IMPERSONATE_DIAG:
+        return
     if not raw_authorization:
         logger.warning(
             "[IMPERSONATE-AUTH] %s no Authorization header — oauth2_scheme devolverá "
@@ -114,6 +116,8 @@ def log_impersonate_token_claims(
 
 
 def log_impersonate_request_headers(request: Request, *, phase: str) -> None:
+    if not settings.ENABLE_IMPERSONATE_DIAG:
+        return
     auth = request.headers.get("authorization")
     logger.info(
         "[IMPERSONATE-AUTH] %s path=%s method=%s "
@@ -136,6 +140,8 @@ def log_impersonate_payload_summary(
     *,
     phase: str,
 ) -> None:
+    if not settings.ENABLE_IMPERSONATE_DIAG:
+        return
     logger.info(
         "[IMPERSONATE-AUTH] %s payload sub=%s cliente_id=%s user_type=%s "
         "es_superadmin=%s is_super_admin=%s access_level=%s type=%s",
@@ -162,11 +168,12 @@ class ImpersonateAuthDiagMiddleware(BaseHTTPMiddleware):
             log_impersonate_request_headers(request, phase="middleware_pre_deps")
             response = await call_next(request)
             if response.status_code == 401:
-                logger.warning(
-                    "[IMPERSONATE-AUTH] middleware_post_deps response_401 path=%s "
-                    "(si no hay logs get_current_user_data → falló oauth2_scheme)",
-                    request.url.path,
-                )
+                if settings.ENABLE_IMPERSONATE_DIAG:
+                    logger.warning(
+                        "[IMPERSONATE-AUTH] middleware_post_deps response_401 path=%s "
+                        "(si no hay logs get_current_user_data → falló oauth2_scheme)",
+                        request.url.path,
+                    )
             return response
         finally:
             _impersonate_diag_active.reset(token)

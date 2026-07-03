@@ -98,9 +98,15 @@ def test_admin_mapper_includes_user_fields():
 
 @pytest.mark.asyncio
 async def test_list_user_sessions_enriched():
-    with patch(
-        "app.modules.auth.application.services.active_sessions_read_service.get_active_sessions_by_user_core",
-        AsyncMock(return_value=[_session_row()]),
+    with (
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.is_session_v2_enabled",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.get_active_sessions_by_user_core",
+            AsyncMock(return_value=[_session_row(session_id=None)]),
+        ),
     ):
         items = await ActiveSessionsReadService.list_user_sessions(
             CLIENTE_ID, USUARIO_ID, current_token_id=TOKEN_ID
@@ -113,9 +119,25 @@ async def test_list_user_sessions_enriched():
 @pytest.mark.asyncio
 async def test_admin_legacy_mode_returns_list():
     mock_query = AsyncMock(return_value=[_session_row()])
-    with patch(
-        "app.modules.auth.application.services.active_sessions_read_service.execute_query",
-        mock_query,
+    with (
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.is_session_v2_enabled",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.execute_query",
+            mock_query,
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.resolve_search_user_ids",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.enrich_admin_rows",
+            AsyncMock(side_effect=lambda _cid, rows: rows),
+        ),
     ):
         result = await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,
@@ -128,9 +150,25 @@ async def test_admin_legacy_mode_returns_list():
 @pytest.mark.asyncio
 async def test_admin_paginated_dual_envelope():
     mock_query = AsyncMock(side_effect=[[{"count_1": 1}], [_session_row()]])
-    with patch(
-        "app.modules.auth.application.services.active_sessions_read_service.execute_query",
-        mock_query,
+    with (
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.is_session_v2_enabled",
+            return_value=False,
+        ),
+        patch(
+            "app.modules.auth.application.services.active_sessions_read_service.execute_query",
+            mock_query,
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.resolve_search_user_ids",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.modules.auth.application.services.session_read_enrichment_service."
+            "SessionReadEnrichmentService.enrich_admin_rows",
+            AsyncMock(side_effect=lambda _cid, rows: rows),
+        ),
     ):
         result = await ActiveSessionsReadService.list_admin_sessions(
             CLIENTE_ID,

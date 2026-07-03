@@ -92,9 +92,15 @@
 
 ### 05_dedicated — PROD (por BD dedicada)
 
-| Archivo v2 | Legacy |
-|------------|--------|
-| `V010__rbac_tablas_dedicated.sql` | `SCRIPT_RBAC_TABLAS_DEDICADA.sql` |
+| Archivo v2 | Legacy | Tablas principales |
+|------------|--------|-------------------|
+| `V020__tenant_identity_rbac_store.sql` | *(derivado V020 §2–§3 + V030 permiso — PR-F4-05b DTSP)* | `modulo`, `modulo_seccion`, `modulo_menu`, `permiso`, `rol`, `usuario`, `usuario_rol`, `cliente_modulo`, `rol_menu_permiso` |
+| `V010__rbac_tablas_dedicated.sql` | `SCRIPT_RBAC_TABLAS_DEDICADA.sql` | `rol_permiso` |
+| `V030__auth_audit_log_dedicated.sql` | *(derivado V020 §3 auth_audit — F12-G3)* | `auth_audit_log` |
+
+**Orden dedicated (perfil `dedicated_schema_v2` v2.1.0):** `01_schema/V010` → `05_dedicated/V020` (DTSP) → `05_dedicated/V010` (`rol_permiso`) → `05_dedicated/V030` (`auth_audit_log`).
+
+Documentación normativa DTSP: `app/docs/arquitectura/hybrid-platform/provisioning/DTSP_DEDICATED_TENANT_STORE_PROFILE.md`.
 
 ---
 
@@ -102,7 +108,7 @@
 
 | Etiqueta | Archivos |
 |----------|----------|
-| **PROD** | `V010`, `V020`, `V030`, `S010`, `S020`, `S030`, `S040–S066`, app startup, `R010`, `R020`, dedicated `V010` |
+| **PROD** | `V010`, `V020`, `V030`, `S010`, `S020`, `S030`, `S040–S066`, app startup, `R010`, `R020`, dedicated `V020` (DTSP), dedicated `V010`, dedicated `V030` (auth audit) |
 | **QA** | `D010`, `D020`, `D030` |
 | **LEGACY (no ejecutar)** | `S067`, bloques comentados dentro de `D010`, `SEED_BD_DEDICADA_*` (fuera de v2) |
 

@@ -22,18 +22,62 @@ from app.modules.tenant.presentation.schemas import (
     ClienteDeleteResponse,
     BrandingRead
 )
+from app.modules.tenant.presentation.schemas_provisioning import (
+    DedicatedProvisioningStatusRead,
+    ProvisioningAbortRequest,
+    ProvisioningAbortResponse,
+    ProvisioningRetryResponse,
+    build_legacy_ready_status_read,
+    is_dedicated_tenant,
+    is_legacy_dedicated_without_provisioning,
+    map_provisioning_status_to_read,
+)
+from app.modules.tenant.application.services.dedicated_provisioning_query_service import (
+    DedicatedProvisioningQueryService,
+)
+from app.modules.tenant.application.services.dedicated_provisioning_orchestrator import (
+    DedicatedProvisioningOrchestrator,
+)
 from app.modules.tenant.application.services.cliente_onboarding_service import (
     MENSAJE_CREACION_EXITOSA,
 )
 from app.modules.tenant.application.services.cliente_service import ClienteService
+from app.modules.tenant.application.provisioning import ProvisioningState
 from app.core.authorization.lbac import require_super_admin
-from app.core.authorization.rbac import require_permission
+from app.core.authorization.rbac import require_permission, require_any_permission
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.api.deps import get_current_active_user
 from math import ceil
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_provisioning_query_service = DedicatedProvisioningQueryService()
+_provisioning_orchestrator = DedicatedProvisioningOrchestrator()
+
+
+async def _get_dedicated_provisioning_snapshot(cliente_id: UUID):
+    snapshot = await _provisioning_query_service.get_provisioning_status(cliente_id)
+    if snapshot is None:
+        raise NotFoundError(
+            detail=f"Cliente {cliente_id} no encontrado.",
+            internal_code="CLIENT_NOT_FOUND",
+        )
+    if not is_dedicated_tenant(snapshot):
+        raise ValidationError(
+            detail="El cliente no es de tipo instalación dedicated.",
+            internal_code="NOT_DEDICATED_TENANT",
+        )
+    return snapshot
+
+
+def _assert_provisioning_ops_allowed(snapshot) -> None:
+    if is_legacy_dedicated_without_provisioning(snapshot):
+        raise ValidationError(
+            detail="Tenant dedicated legacy sin estado de provisioning.",
+            internal_code="LEGACY_TENANT_NO_PROVISIONING",
+        )
 
 
 @router.post(
@@ -69,13 +113,13 @@ async def crear_cliente(
     """
     Crea un nuevo cliente en el sistema.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud POST /clientes/ recibida para crear cliente: '{cliente_data.razon_social}' "
         f"por usuario: {current_user.nombre_usuario}"
     )
     resultado = await ClienteService.crear_cliente(cliente_data)
     created_cliente = resultado.cliente
-    logger.info(f"Cliente '{created_cliente.razon_social}' creado con ID: {created_cliente.cliente_id}")
+    logger.debug(f"Cliente '{created_cliente.razon_social}' creado con ID: {created_cliente.cliente_id}")
     return ClienteCreateResponse(
         success=True,
         message=MENSAJE_CREACION_EXITOSA,
@@ -123,7 +167,7 @@ async def listar_clientes(
     """
     Lista todos los clientes del sistema con paginación y búsqueda.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud GET /clientes/ recibida - skip: {skip}, limit: {limit}, "
         f"solo_activos: {solo_activos}, solo_inactivos: {solo_inactivos}, buscar: {buscar} "
         f"por usuario: {current_user.nombre_usuario}"
@@ -177,7 +221,7 @@ async def obtener_cliente(
     """
     Obtiene los detalles de un cliente por su ID.
     """
-    logger.info(f"Solicitud GET /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
+    logger.debug(f"Solicitud GET /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
     cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
     if cliente is None:
         raise HTTPException(
@@ -185,6 +229,161 @@ async def obtener_cliente(
             detail=f"Cliente con ID {cliente_id} no encontrado."
         )
     return cliente
+
+
+@router.get(
+    "/{cliente_id}/provisioning-status/",
+    response_model=DedicatedProvisioningStatusRead,
+    summary="Estado provisioning dedicated",
+    description="""
+    Consulta el estado de la saga de provisioning para un tenant dedicated.
+
+    **Permisos:** Super Administrador + ``tenant.cliente.leer`` o ``tenant.cliente.crear``.
+
+    **Errores:**
+    - 404: Cliente no encontrado
+    - 400: Cliente no dedicated
+    """,
+    dependencies=[
+        Depends(
+            require_any_permission(
+                ["tenant.cliente.leer", "tenant.cliente.crear"],
+            ),
+        ),
+    ],
+    operation_id="get_cliente_provisioning_status",
+)
+@require_super_admin()
+async def obtener_provisioning_status(
+    cliente_id: UUID = Path(..., description="ID del cliente dedicated"),
+    current_user=Depends(get_current_active_user),
+):
+    logger.debug(
+        "GET /clientes/%s/provisioning-status/ por usuario=%s",
+        cliente_id,
+        current_user.nombre_usuario,
+    )
+    snapshot = await _get_dedicated_provisioning_snapshot(cliente_id)
+    if is_legacy_dedicated_without_provisioning(snapshot):
+        return build_legacy_ready_status_read(cliente_id)
+    return map_provisioning_status_to_read(snapshot)
+
+
+@router.post(
+    "/{cliente_id}/provisioning/retry",
+    response_model=ProvisioningRetryResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Reintentar provisioning dedicated",
+    description="""
+    Reanuda la saga desde el último step incompleto cuando ``provisioning_state=failed``.
+
+    **Permisos:** Super Administrador + ``tenant.cliente.actualizar``.
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.actualizar"))],
+    operation_id="retry_cliente_provisioning",
+)
+@require_super_admin()
+async def reintentar_provisioning(
+    cliente_id: UUID = Path(..., description="ID del cliente dedicated"),
+    current_user=Depends(get_current_active_user),
+):
+    logger.debug(
+        "POST /clientes/%s/provisioning/retry por usuario=%s",
+        cliente_id,
+        current_user.nombre_usuario,
+    )
+    snapshot = await _get_dedicated_provisioning_snapshot(cliente_id)
+    _assert_provisioning_ops_allowed(snapshot)
+
+    if snapshot.provisioning_state == ProvisioningState.PROVISIONING:
+        raise ConflictError(
+            detail="Ya existe una saga de provisioning activa para este tenant.",
+            internal_code="PROVISIONING_ALREADY_RUNNING",
+        )
+    if snapshot.provisioning_state == ProvisioningState.READY:
+        raise ConflictError(
+            detail="No se puede reintentar un tenant en estado ready.",
+            internal_code="INVALID_PROVISIONING_STATE",
+        )
+    if snapshot.provisioning_state != ProvisioningState.FAILED:
+        raise ConflictError(
+            detail="Retry solo permitido cuando provisioning_state='failed'.",
+            internal_code="INVALID_PROVISIONING_STATE",
+        )
+    if not snapshot.retry_allowed or snapshot.provisioning_run_id is None:
+        raise ConflictError(
+            detail="Retry no disponible para el estado actual del tenant.",
+            internal_code="INVALID_PROVISIONING_STATE",
+        )
+
+    transition, _dispatch = await _provisioning_orchestrator.retry_provisioning_run(
+        cliente_id=cliente_id,
+        provisioning_run_id=snapshot.provisioning_run_id,
+    )
+    return ProvisioningRetryResponse(
+        message="Reintento de provisioning iniciado.",
+        provisioning_run_id=transition.provisioning_run_id,
+        provisioning_state=transition.current_state.value,
+    )
+
+
+@router.post(
+    "/{cliente_id}/provisioning/abort",
+    response_model=ProvisioningAbortResponse,
+    summary="Abortar provisioning dedicated",
+    description="""
+    Cancela la saga en curso y ejecuta compensación semi-automática.
+
+    **Permisos:** Super Administrador + ``tenant.cliente.actualizar``.
+    """,
+    dependencies=[Depends(require_permission("tenant.cliente.actualizar"))],
+    operation_id="abort_cliente_provisioning",
+)
+@require_super_admin()
+async def abortar_provisioning(
+    cliente_id: UUID = Path(..., description="ID del cliente dedicated"),
+    body: Optional[ProvisioningAbortRequest] = Body(None),
+    current_user=Depends(get_current_active_user),
+):
+    logger.debug(
+        "POST /clientes/%s/provisioning/abort por usuario=%s",
+        cliente_id,
+        current_user.nombre_usuario,
+    )
+    snapshot = await _get_dedicated_provisioning_snapshot(cliente_id)
+    _assert_provisioning_ops_allowed(snapshot)
+
+    if snapshot.provisioning_state == ProvisioningState.READY:
+        raise ConflictError(
+            detail="No se puede abortar un tenant en estado ready.",
+            internal_code="INVALID_PROVISIONING_STATE",
+        )
+    if snapshot.provisioning_state == ProvisioningState.FAILED:
+        return ProvisioningAbortResponse(
+            message="Provisioning ya se encuentra abortado.",
+            provisioning_state=ProvisioningState.FAILED.value,
+        )
+    if snapshot.provisioning_state != ProvisioningState.PROVISIONING:
+        raise ConflictError(
+            detail="Abort solo permitido cuando provisioning_state='provisioning'.",
+            internal_code="INVALID_PROVISIONING_STATE",
+        )
+    if not snapshot.abort_allowed or snapshot.provisioning_run_id is None:
+        raise ConflictError(
+            detail="Abort no disponible para el estado actual del tenant.",
+            internal_code="INVALID_PROVISIONING_STATE",
+        )
+
+    reason = body.reason if body else None
+    await _provisioning_orchestrator.abort_provisioning_run(
+        cliente_id=cliente_id,
+        provisioning_run_id=snapshot.provisioning_run_id,
+        reason=reason,
+    )
+    return ProvisioningAbortResponse(
+        message="Provisioning abortado.",
+        provisioning_state=ProvisioningState.FAILED.value,
+    )
 
 
 @router.put(
@@ -219,12 +418,12 @@ async def actualizar_cliente(
     """
     Actualiza un cliente existente.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud PUT /clientes/{cliente_id} recibida para actualizar "
         f"por usuario: {current_user.nombre_usuario}"
     )
     cliente_actualizado = await ClienteService.actualizar_cliente(cliente_id, cliente_data)
-    logger.info(f"Cliente {cliente_id} actualizado exitosamente")
+    logger.debug(f"Cliente {cliente_id} actualizado exitosamente")
     return ClienteResponse(
         success=True,
         message=f"Cliente '{cliente_actualizado.razon_social}' actualizado exitosamente",
@@ -265,9 +464,9 @@ async def eliminar_cliente(
     """
     Elimina un cliente (eliminación lógica).
     """
-    logger.info(f"Solicitud DELETE /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
+    logger.debug(f"Solicitud DELETE /clientes/{cliente_id} recibida por usuario: {current_user.nombre_usuario}")
     await ClienteService.eliminar_cliente(cliente_id)
-    logger.info(f"Cliente {cliente_id} eliminado exitosamente")
+    logger.debug(f"Cliente {cliente_id} eliminado exitosamente")
     return ClienteDeleteResponse(
         success=True,
         message=f"Cliente con ID {cliente_id} eliminado exitosamente (marcado como inactivo)",
@@ -305,7 +504,7 @@ async def suspender_cliente(
     """
     Suspende un cliente.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud PUT /clientes/{cliente_id}/suspender recibida por usuario: {current_user.nombre_usuario}"
     )
     cliente_suspendido = await ClienteService.suspender_cliente(cliente_id)
@@ -349,7 +548,7 @@ async def activar_cliente(
     """
     Activa o reactiva un cliente (suscripción y es_activo).
     """
-    logger.info(
+    logger.debug(
         f"Solicitud PUT /clientes/{cliente_id}/activar recibida por usuario: {current_user.nombre_usuario}"
     )
     cliente_activado = await ClienteService.activar_cliente(cliente_id)
@@ -389,7 +588,7 @@ async def obtener_estadisticas_cliente(
     """
     Obtiene estadísticas de uso de un cliente.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud GET /clientes/{cliente_id}/estadisticas recibida por usuario: {current_user.nombre_usuario}"
     )
     return await ClienteService.obtener_estadisticas(cliente_id)
@@ -474,7 +673,7 @@ async def obtener_branding_por_subdominio(
     """
     Obtiene la configuración de branding por subdominio (endpoint público).
     """
-    logger.info(f"Solicitud GET /branding recibida para subdominio={subdominio}")
+    logger.debug(f"Solicitud GET /branding recibida para subdominio={subdominio}")
     return await ClienteService.get_branding_by_subdomain(subdominio)
 
 
@@ -512,7 +711,7 @@ async def obtener_branding_tenant(
         from app.core.tenant.context import get_current_client_id
 
         cliente_id = get_current_client_id()
-        logger.info(
+        logger.debug(
             f"Solicitud GET /tenant/branding recibida para cliente_id={cliente_id} "
             f"por usuario: {current_user.nombre_usuario}"
         )

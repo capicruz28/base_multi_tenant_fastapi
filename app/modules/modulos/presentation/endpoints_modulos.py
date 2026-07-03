@@ -70,7 +70,7 @@ async def listar_modulos(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Lista todos los módulos del catálogo del sistema con paginación completa."""
-    logger.info(
+    logger.debug(
         f"Solicitud GET /modulos/ recibida - skip: {skip}, limit: {limit}, "
         f"solo_activos: {solo_activos}, buscar: {buscar}"
     )
@@ -95,7 +95,7 @@ async def listar_modulos(
         total_pages = math.ceil(total / limit) if limit > 0 else 0
         current_page = (skip // limit) + 1 if limit > 0 else 1
         
-        logger.info(f"Catálogo de módulos recuperado: {len(modulos)} módulos")
+        logger.debug(f"Catálogo de módulos recuperado: {len(modulos)} módulos")
         
         return {
             "success": True,
@@ -147,7 +147,7 @@ async def obtener_modulo(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Obtiene un módulo específico por su ID."""
-    logger.info(f"Solicitud GET /modulos/{modulo_id}/ recibida")
+    logger.debug(f"Solicitud GET /modulos/{modulo_id}/ recibida")
     
     try:
         modulo = await ModuloService.obtener_modulo_por_id(modulo_id)
@@ -157,7 +157,7 @@ async def obtener_modulo(
                 detail=f"Módulo con ID {modulo_id} no encontrado."
             )
         
-        logger.info(f"Módulo {modulo_id} recuperado exitosamente")
+        logger.debug(f"Módulo {modulo_id} recuperado exitosamente")
         
         return {
             "success": True,
@@ -202,7 +202,7 @@ async def obtener_modulo_por_codigo(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Obtiene un módulo específico por su código único."""
-    logger.info(f"Solicitud GET /modulos/codigo/{codigo}/ recibida")
+    logger.debug(f"Solicitud GET /modulos/codigo/{codigo}/ recibida")
     
     try:
         modulo = await ModuloService.obtener_modulo_por_codigo(codigo.upper())
@@ -261,12 +261,12 @@ async def crear_modulo(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Crea un nuevo módulo en el catálogo del sistema. Solo accesible para super administradores."""
-    logger.info(f"Solicitud POST /modulos/ recibida - nombre: {modulo_data.nombre}")
+    logger.debug(f"Solicitud POST /modulos/ recibida - nombre: {modulo_data.nombre}")
     
     try:
         modulo = await ModuloService.crear_modulo(modulo_data)
         
-        logger.info(f"Módulo creado exitosamente con ID: {modulo.modulo_id}")
+        logger.debug(f"Módulo creado exitosamente con ID: {modulo.modulo_id}")
         
         return {
             "success": True,
@@ -316,12 +316,12 @@ async def actualizar_modulo(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Actualiza un módulo existente en el catálogo del sistema. Solo accesible para super administradores."""
-    logger.info(f"Solicitud PUT /modulos/{modulo_id}/ recibida")
+    logger.debug(f"Solicitud PUT /modulos/{modulo_id}/ recibida")
     
     try:
         modulo = await ModuloService.actualizar_modulo(modulo_id, modulo_data)
         
-        logger.info(f"Módulo {modulo_id} actualizado exitosamente")
+        logger.debug(f"Módulo {modulo_id} actualizado exitosamente")
         
         return {
             "success": True,
@@ -370,12 +370,12 @@ async def eliminar_modulo(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Elimina (desactiva) un módulo del catálogo del sistema. Solo accesible para super administradores."""
-    logger.info(f"Solicitud DELETE /modulos/{modulo_id}/ recibida")
+    logger.debug(f"Solicitud DELETE /modulos/{modulo_id}/ recibida")
     
     try:
         await ModuloService.eliminar_modulo(modulo_id)
         
-        logger.info(f"Módulo {modulo_id} eliminado exitosamente")
+        logger.debug(f"Módulo {modulo_id} eliminado exitosamente")
         
         return {
             "success": True,

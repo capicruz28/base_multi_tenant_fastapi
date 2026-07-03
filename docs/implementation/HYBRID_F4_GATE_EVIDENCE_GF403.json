@@ -1,0 +1,30 @@
+{
+  "artifact_type": "f4_gate_evidence_gf403",
+  "gate": "G-F4-03",
+  "status": "READY_FOR_SIGN_OFF",
+  "timestamp_utc": "2026-06-26T06:52:23.347135+00:00",
+  "checklist": {
+    "GF4-03-01": "PR-F4-10\u202612 merged (pending merge)",
+    "GF4-03-02": "DOD-F4 completo (pending formal sign-off)",
+    "GF4-03-03": "E2E mock green: True",
+    "GF4-03-04": "M\u00e9tricas manifest committed",
+    "GF4-03-08": "Runbook HYBRID_F4_PROVISIONING_RUNBOOK.md",
+    "GF4-03-09": "Tag hybrid-gate-f4-complete (post-merge)"
+  },
+  "e2e_summary": {
+    "artifact_type": "f4_provisioning_e2e_gate",
+    "gate": "G-F4-03",
+    "reference": "IP-2.0.1 F4-WP12 / DOD-F4-12",
+    "timestamp_utc": "2026-06-26T06:52:23.343191+00:00",
+    "exit_code": 0,
+    "passed": true,
+    "test_counts": {
+      "passed": 9,
+      "failed": 0
+    },
+    "targets": [
+      "tests/integration/test_hybrid_provisioning_e2e.py"
+    ],
+    "tag_preparation": "hybrid-gate-f4-complete"
+  }
+}

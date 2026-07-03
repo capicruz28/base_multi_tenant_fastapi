@@ -11,6 +11,7 @@ en fases posteriores.
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 import logging
+from sqlalchemy import text
 # ✅ FASE 2: Migrar a queries_async
 from app.infrastructure.database.queries_async import execute_query
 from app.core.exceptions import (
@@ -50,7 +51,9 @@ class TenantService(BaseService):
         WHERE cliente_id = ? AND es_activo = 1
         """
         # ✅ FASE 2: Usar await
-        cliente_result = await execute_query(cliente_query, (cliente_id,))
+        cliente_result = await execute_query(
+            qmark_sql_text(cliente_query, (cliente_id,)),
+        )
         if not cliente_result:
             raise NotFoundError(
                 detail=f"Cliente con ID {cliente_id} no encontrado o inactivo.",
@@ -58,17 +61,24 @@ class TenantService(BaseService):
             )
         cliente_data = cliente_result[0]
 
-        # 2. Obtener configuración de autenticación
+        # 2. Obtener configuración de autenticación (ADR-012)
+        from app.core.auth.auth_config_gateway import AuthConfigGateway
+
         auth_config = None
-        auth_query = "SELECT * FROM cliente_auth_config WHERE cliente_id = ?"
-        auth_result = await execute_query(auth_query, (cliente_id,))
-        if auth_result:
-            auth_config = AuthConfigRead(**auth_result[0])
+        auth_row = await AuthConfigGateway.get_config_by_cliente_id(cliente_id)
+        if auth_row:
+            auth_config = AuthConfigRead(**auth_row)
 
         # 3. Obtener proveedores SSO
         sso_providers: List[FederacionRead] = []
-        sso_query = "SELECT * FROM federacion_identidad WHERE cliente_id = ? AND es_activo = 1"
-        sso_results = await execute_query(sso_query, (cliente_id,))
+        sso_query = """
+        SELECT * FROM federacion_identidad
+        WHERE cliente_id = :cliente_id AND es_activo = 1
+        """
+        sso_results = await execute_query(
+            text(sso_query).bindparams(cliente_id=cliente_id),
+            client_id=cliente_id,
+        )
         for row in sso_results:
             sso_providers.append(FederacionRead(**row))
 
@@ -99,8 +109,11 @@ class TenantService(BaseService):
             cma.limite_registros
         FROM cliente_modulo_activo cma
         INNER JOIN cliente_modulo cm ON cma.modulo_id = cm.modulo_id
-        WHERE cma.cliente_id = ? AND cma.esta_activo = 1
+        WHERE cma.cliente_id = :cliente_id AND cma.esta_activo = 1
         """
         # ✅ FASE 2: Usar await
-        resultados = await execute_query(query, (cliente_id,))
+        resultados = await execute_query(
+            text(query).bindparams(cliente_id=cliente_id),
+            client_id=cliente_id,
+        )
         return resultados

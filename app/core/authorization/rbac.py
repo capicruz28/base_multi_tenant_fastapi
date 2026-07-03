@@ -28,6 +28,7 @@ from typing import List, Optional, Callable, Any, Dict
 from fastapi import HTTPException, status, Depends
 import logging
 
+from app.core.config import settings
 from app.core.authorization.permission_registry import register as register_permission
 from app.core.authorization.permission_metadata import PermissionMetadata
 
@@ -52,6 +53,24 @@ PERMISOS_SISTEMA = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def _rbac_auth_verbose() -> bool:
+    return settings.ENABLE_AUTH_VERBOSE
+
+
+def _rbac_log_diagnostic(message: str, *args) -> None:
+    if _rbac_auth_verbose():
+        logger.info(message, *args)
+
+
+def _rbac_log_check(message: str, *args) -> None:
+    logger.debug(message, *args)
+
+
+def _rbac_log_denied(message: str, *args) -> None:
+    logger.warning(message, *args)
+
 
 class AuthorizationError(HTTPException):
     """
@@ -99,7 +118,10 @@ def get_user_type(user: UserWithRolesAndPermissions) -> str:
     
     # ✅ PRIMERO: Verificar flag is_super_admin (más confiable)
     if hasattr(user, 'is_super_admin') and user.is_super_admin:
-        logger.info(f"Usuario {user.nombre_usuario} detectado como SUPER ADMIN (flag is_super_admin=True)")
+        _rbac_log_diagnostic(
+            "Usuario %s detectado como SUPER ADMIN (flag is_super_admin=True)",
+            user.nombre_usuario,
+        )
         return "super_admin"
     
     # ✅ SEGUNDO: Verificar si tiene roles cargados
@@ -114,13 +136,23 @@ def get_user_type(user: UserWithRolesAndPermissions) -> str:
     
     if SUPER_ADMIN_ROLE in nombres_roles:
         user_type = "super_admin"
-        logger.info(f"Usuario {user.nombre_usuario} detectado como SUPER ADMIN (rol {SUPER_ADMIN_ROLE})")
+        _rbac_log_diagnostic(
+            "Usuario %s detectado como SUPER ADMIN (rol %s)",
+            user.nombre_usuario,
+            SUPER_ADMIN_ROLE,
+        )
     elif any(rol in nombres_roles for rol in TENANT_ADMIN_ROLE_ALIASES):
         user_type = "tenant_admin"
-        logger.info(f"Usuario {user.nombre_usuario} detectado como TENANT ADMIN")
+        _rbac_log_diagnostic(
+            "Usuario %s detectado como TENANT ADMIN",
+            user.nombre_usuario,
+        )
     else:
         user_type = "usuario_normal"
-        logger.info(f"Usuario {user.nombre_usuario} detectado como USUARIO NORMAL")
+        _rbac_log_check(
+            "Usuario %s detectado como USUARIO NORMAL",
+            user.nombre_usuario,
+        )
     
     return user_type
 
@@ -206,11 +238,12 @@ def has_permission(user: UserWithRolesAndPermissions, permission: str) -> bool:
     else:
         permisos_usuario = [getattr(p, "nombre", str(p)) for p in permisos_list]
 
-    logger.warning(
-        "[RBAC_DEBUG] checking permission='%s' against=%s",
-        permission,
-        permisos_usuario,
-    )
+    if settings.ENABLE_RBAC_TRACE:
+        logger.warning(
+            "[RBAC_DEBUG] checking permission='%s' against=%s",
+            permission,
+            permisos_usuario,
+        )
 
     if permission in permisos_usuario:
         logger.debug(f"Usuario {user.nombre_usuario} tiene permiso explícito: {permission}")
@@ -220,7 +253,11 @@ def has_permission(user: UserWithRolesAndPermissions, permission: str) -> bool:
     # No se concede acceso implícito por rol Administrador; los permisos de negocio
     # se respetan según lo asignado en el catálogo de permisos del rol.
     
-    logger.warning(f"Usuario {user.nombre_usuario} NO tiene permiso: {permission}")
+    _rbac_log_check(
+        "Usuario %s NO tiene permiso: %s",
+        user.nombre_usuario,
+        permission,
+    )
     return False
 
 def has_any_permission(user: UserWithRolesAndPermissions, permissions: List[str]) -> bool:
@@ -266,7 +303,7 @@ def require_super_admin() -> Callable:
         """
         from app.core.auth.impersonate_auth_diag import is_impersonate_diag_request
 
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.info(
                 "[IMPERSONATE-AUTH] require_super_admin entry username=%s "
                 "user_type=%s is_super_admin=%s access_level=%s",
@@ -276,7 +313,10 @@ def require_super_admin() -> Callable:
                 getattr(current_user, "access_level", None),
             )
 
-        logger.info(f"Validando Super Admin para usuario: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Validando Super Admin para usuario: %s",
+            current_user.nombre_usuario,
+        )
 
         user_type_claim = (getattr(current_user, "user_type", None) or "").lower()
         is_platform_admin = user_type_claim == "platform_admin"
@@ -289,7 +329,7 @@ def require_super_admin() -> Callable:
             )
         )
         if not is_super:
-            if is_impersonate_diag_request():
+            if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
                 logger.warning(
                     "[IMPERSONATE-AUTH] require_super_admin DENIED username=%s "
                     "user_type_claim=%s get_user_type=%s → AuthorizationError 403",
@@ -297,21 +337,25 @@ def require_super_admin() -> Callable:
                     user_type_claim,
                     get_user_type(current_user),
                 )
-            logger.warning(
-                f"Intento de acceso no autorizado a endpoint Super Admin por: {current_user.nombre_usuario}"
+            _rbac_log_denied(
+                "Intento de acceso no autorizado a endpoint Super Admin por: %s",
+                current_user.nombre_usuario,
             )
             raise AuthorizationError(
                 detail="Se requieren privilegios de Super Administrador para acceder a este recurso",
                 internal_code="SUPER_ADMIN_REQUIRED"
             )
 
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.info(
                 "[IMPERSONATE-AUTH] require_super_admin OK username=%s",
                 current_user.nombre_usuario,
             )
 
-        logger.info(f"Acceso Super Admin autorizado para: {current_user.nombre_usuario}")
+        _rbac_log_diagnostic(
+            "Acceso Super Admin autorizado para: %s",
+            current_user.nombre_usuario,
+        )
         return current_user
     
     return dependency
@@ -344,20 +388,28 @@ def require_tenant_admin() -> Callable:
         Raises:
             AuthorizationError: Si el usuario no tiene permisos de administración
         """
-        logger.info(f"Validando Tenant Admin para usuario: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Validando Tenant Admin para usuario: %s",
+            current_user.nombre_usuario,
+        )
         
         user_type = get_user_type(current_user)
         
         if user_type not in ["super_admin", "tenant_admin"]:
-            logger.warning(
-                f"Intento de acceso no autorizado a endpoint Tenant Admin por: {current_user.nombre_usuario}"
+            _rbac_log_denied(
+                "Intento de acceso no autorizado a endpoint Tenant Admin por: %s",
+                current_user.nombre_usuario,
             )
             raise AuthorizationError(
                 detail="Se requieren privilegios de Administrador para acceder a este recurso",
                 internal_code="TENANT_ADMIN_REQUIRED"
             )
         
-        logger.info(f"Acceso Tenant Admin autorizado para: {current_user.nombre_usuario} ({user_type})")
+        _rbac_log_diagnostic(
+            "Acceso Tenant Admin autorizado para: %s (%s)",
+            current_user.nombre_usuario,
+            user_type,
+        )
         return current_user
     
     return dependency
@@ -393,18 +445,28 @@ def require_permission(permission: str) -> Callable:
         Raises:
             AuthorizationError: Si el usuario no tiene el permiso requerido
         """
-        logger.info(f"Validando permiso '{permission}' para usuario: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Validando permiso '%s' para usuario: %s",
+            permission,
+            current_user.nombre_usuario,
+        )
         
         if not has_permission(current_user, permission):
-            logger.warning(
-                f"Intento de acceso sin permiso '{permission}' por: {current_user.nombre_usuario}"
+            _rbac_log_denied(
+                "Intento de acceso sin permiso '%s' por: %s",
+                permission,
+                current_user.nombre_usuario,
             )
             raise AuthorizationError(
                 detail=f"No tiene permisos suficientes para realizar esta acción. Se requiere: {permission}",
                 internal_code="PERMISSION_DENIED"
             )
         
-        logger.info(f"Permiso '{permission}' autorizado para: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Permiso '%s' autorizado para: %s",
+            permission,
+            current_user.nombre_usuario,
+        )
         return current_user
     
     dependency.__permission_codigo__ = permission
@@ -434,14 +496,26 @@ def RequirePermission(metadata: PermissionMetadata) -> Callable:
     def dependency(
         current_user: UserWithRolesAndPermissions = Depends(get_current_active_user)
     ) -> UserWithRolesAndPermissions:
-        logger.info(f"Validando permiso '{codigo}' para usuario: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Validando permiso '%s' para usuario: %s",
+            codigo,
+            current_user.nombre_usuario,
+        )
         if not has_permission(current_user, codigo):
-            logger.warning(f"Intento de acceso sin permiso '{codigo}' por: {current_user.nombre_usuario}")
+            _rbac_log_denied(
+                "Intento de acceso sin permiso '%s' por: %s",
+                codigo,
+                current_user.nombre_usuario,
+            )
             raise AuthorizationError(
                 detail=f"No tiene permisos suficientes. Se requiere: {codigo}",
                 internal_code="PERMISSION_DENIED"
             )
-        logger.info(f"Permiso '{codigo}' autorizado para: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Permiso '%s' autorizado para: %s",
+            codigo,
+            current_user.nombre_usuario,
+        )
         return current_user
     
     dependency.__permission_metadata__ = metadata
@@ -474,18 +548,27 @@ def require_any_permission(permissions: List[str]) -> Callable:
         Raises:
             AuthorizationError: Si el usuario no tiene ninguno de los permisos
         """
-        logger.info(f"Validando permisos alternativos {permissions} para usuario: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Validando permisos alternativos %s para usuario: %s",
+            permissions,
+            current_user.nombre_usuario,
+        )
         
         if not has_any_permission(current_user, permissions):
-            logger.warning(
-                f"Intento de acceso sin permisos alternativos {permissions} por: {current_user.nombre_usuario}"
+            _rbac_log_denied(
+                "Intento de acceso sin permisos alternativos %s por: %s",
+                permissions,
+                current_user.nombre_usuario,
             )
             raise AuthorizationError(
                 detail=f"No tiene permisos suficientes. Se requiere al menos uno de: {', '.join(permissions)}",
                 internal_code="ANY_PERMISSION_DENIED"
             )
         
-        logger.info(f"Permisos alternativos autorizados para: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Permisos alternativos autorizados para: %s",
+            current_user.nombre_usuario,
+        )
         return current_user
     
     return dependency
@@ -516,18 +599,27 @@ def require_any_role(role_names: List[str]) -> Callable:
         Raises:
             AuthorizationError: Si el usuario no tiene ninguno de los roles
         """
-        logger.info(f"Validando roles alternativos {role_names} para usuario: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Validando roles alternativos %s para usuario: %s",
+            role_names,
+            current_user.nombre_usuario,
+        )
         
         if not has_any_role(current_user, role_names):
-            logger.warning(
-                f"Intento de acceso sin roles alternativos {role_names} por: {current_user.nombre_usuario}"
+            _rbac_log_denied(
+                "Intento de acceso sin roles alternativos %s por: %s",
+                role_names,
+                current_user.nombre_usuario,
             )
             raise AuthorizationError(
                 detail=f"No tiene los roles necesarios. Se requiere al menos uno de: {', '.join(role_names)}",
                 internal_code="ANY_ROLE_DENIED"
             )
         
-        logger.info(f"Roles alternativos autorizados para: {current_user.nombre_usuario}")
+        _rbac_log_check(
+            "Roles alternativos autorizados para: %s",
+            current_user.nombre_usuario,
+        )
         return current_user
     
     return dependency

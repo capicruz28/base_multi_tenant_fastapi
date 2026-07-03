@@ -53,6 +53,10 @@ def _inv_menu_row() -> Dict[str, Any]:
     }
 
 
+def _is_menu_query1(q: str) -> bool:
+    return "modulo_menu" in q and "rol_menu_permiso" not in q
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tenant_admin_uses_rol_menu_permiso_not_elevated():
@@ -61,8 +65,7 @@ async def test_tenant_admin_uses_rol_menu_permiso_not_elevated():
     async def fake_execute_query(query, *args, **kwargs):
         q = query if isinstance(query, str) else str(query)
         captured_queries.append(q)
-        conn = kwargs.get("connection_type")
-        if conn is not None and "ADMIN" in str(conn):
+        if _is_menu_query1(q):
             return [_inv_menu_row()]
         if "rol_menu_permiso" in q:
             return [
@@ -124,7 +127,7 @@ async def test_super_admin_skips_rol_menu_permiso():
     async def fake_execute_query(query, *args, **kwargs):
         q = query if isinstance(query, str) else str(query)
         captured_queries.append(q)
-        if kwargs.get("connection_type") and "ADMIN" in str(kwargs["connection_type"]):
+        if _is_menu_query1(q):
             return [_inv_menu_row()]
         return []
 
@@ -157,7 +160,7 @@ async def test_impersonation_uses_admin_tenant_rol_directly():
         q = query if isinstance(query, str) else str(query)
         if "SELECT rol_id" in q:
             return [{"rol_id": ADMIN_ROL_ID}]
-        if kwargs.get("connection_type") and "ADMIN" in str(kwargs["connection_type"]):
+        if _is_menu_query1(q):
             return [_inv_menu_row()]
         if "rol_menu_permiso" in q and kwargs.get("params"):
             captured_params.append(kwargs["params"])

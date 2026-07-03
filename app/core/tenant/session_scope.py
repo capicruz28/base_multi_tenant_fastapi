@@ -27,6 +27,11 @@ from app.core.tenant.empresa_context import coerce_empresa_id, try_get_current_e
 logger = logging.getLogger(__name__)
 
 
+def _org_scope_diag_enabled() -> bool:
+    """Telemetría ORG session scope — opt-in vía ENABLE_AUTH_VERBOSE (F12-E2B1 / F12-E2B3G)."""
+    return settings.ENABLE_AUTH_VERBOSE
+
+
 class OrgScopePolicy(str, Enum):
     """Alcance de datos ORG por sub-recurso."""
 
@@ -207,7 +212,7 @@ def _log_org_session_scope(
     is_impersonation: bool,
     payload: Optional[Dict[str, Any]],
 ) -> None:
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     empresa_id = coerce_empresa_id((payload or {}).get("empresa_id"))
     logger.info(
@@ -231,7 +236,7 @@ def _log_org_scope_policy(
     is_impersonation: bool,
     empresa_selection_pending: bool,
 ) -> None:
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-SCOPE-POLICY] endpoint=%s scope_policy=%s cliente_id=%s "
@@ -253,7 +258,7 @@ def log_org_erp_session(
     session_cliente_id: UUID,
 ) -> None:
     """Log DEV [ORG-ERP-SESSION] tras validación de dependencia de router."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-ERP-SESSION] endpoint=%s scope_kind=%s session_cliente_id=%s "
@@ -271,7 +276,7 @@ def log_org_erp_session(
 
 def log_org_session_empresa(*, operation: str, empresa_id: UUID, resource: str) -> None:
     """Log DEV [ORG-SESSION-EMPRESA] — empresa activa usada en servicio ORG."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-SESSION-EMPRESA] operation=%s resource=%s empresa_id=%s",
@@ -291,7 +296,7 @@ def log_org_company_scope(
     source: Optional[str] = None,
 ) -> None:
     """Log DEV [ORG-COMPANY-SCOPE] — aislamiento company-scoped."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-COMPANY-SCOPE] operation=%s resource=%s client_id=%s "
@@ -313,7 +318,7 @@ def log_org_tenant_scope(
     empresa_id: Optional[UUID] = None,
 ) -> None:
     """Log DEV [ORG-TENANT-SCOPE] — operaciones tenant-wide (org_empresa)."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-TENANT-SCOPE] operation=%s resource=%s client_id=%s empresa_id=%s",
@@ -332,7 +337,7 @@ def log_org_assert_tenant(
     row_cliente_id: Optional[UUID],
 ) -> None:
     """Log DEV [ORG-ASSERT-TENANT] — defensa cross-tenant post-query."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-ASSERT-TENANT] resource=%s entity_id=%s session_client_id=%s row_cliente_id=%s",
@@ -350,7 +355,7 @@ def log_org_empresa_scope(
     empresa_id: UUID,
 ) -> None:
     """Log DEV [ORG-EMPRESA-SCOPE] — CRUD/detalle org_empresa en tenant."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-EMPRESA-SCOPE] operation=%s client_id=%s empresa_id=%s",
@@ -368,7 +373,7 @@ def log_org_assert_empresa(
     row_empresa_id: Optional[UUID],
 ) -> None:
     """Log DEV [ORG-ASSERT-EMPRESA] — defensa en profundidad post-query."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-ASSERT-EMPRESA] resource=%s entity_id=%s session_empresa_id=%s row_empresa_id=%s",
@@ -387,7 +392,7 @@ def log_org_hybrid_scope(
     row_count: int = 0,
 ) -> None:
     """Log DEV [ORG-HYBRID-SCOPE] — lectura híbrida parámetros."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-HYBRID-SCOPE] operation=%s client_id=%s session_empresa_id=%s row_count=%s",
@@ -405,7 +410,7 @@ def log_org_param_precedence(
     global_count: int,
 ) -> None:
     """Log DEV [ORG-PARAM-PRECEDENCE] — resultado merge global + override."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-PARAM-PRECEDENCE] merged=%s overrides_applied=%s globals_only=%s",
@@ -417,7 +422,7 @@ def log_org_param_precedence(
 
 def log_org_param_global(*, operation: str, client_id: UUID) -> None:
     """Log DEV [ORG-PARAM-GLOBAL] — parámetro tenant-wide (empresa_id NULL)."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-PARAM-GLOBAL] operation=%s client_id=%s",
@@ -433,7 +438,7 @@ def log_org_param_empresa(
     empresa_id: UUID,
 ) -> None:
     """Log DEV [ORG-PARAM-EMPRESA] — override por empresa."""
-    if settings.ENVIRONMENT != "development":
+    if not _org_scope_diag_enabled():
         return
     logger.info(
         "[ORG-PARAM-EMPRESA] operation=%s client_id=%s empresa_id=%s",

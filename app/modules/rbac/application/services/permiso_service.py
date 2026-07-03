@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, Any
 from uuid import UUID
 import logging
 
+from sqlalchemy import text
+
 # 🗄️ IMPORTACIONES DE BASE DE DATOS
 # ✅ FASE 2: Migrar a queries_async
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -61,7 +63,9 @@ class PermisoService(BaseService):
         """
         try:
             # 👤 VALIDAR ROL Y OBTENER SU CLIENTE_ID
-            rol = await RolService.obtener_rol_por_id(rol_id, incluir_inactivos=True)
+            rol = await RolService.obtener_rol_por_id(
+                rol_id, incluir_inactivos=True, cliente_id=cliente_id
+            )
             if not rol:
                 raise NotFoundError(
                     detail=f"Rol con ID {rol_id} no encontrado.",
@@ -71,7 +75,7 @@ class PermisoService(BaseService):
             codigo_rol = rol.get('codigo_rol')
             
             # 🔍 DEBUG: Logging para diagnosticar el problema
-            logger.info(f"[VALIDAR_ROL] Rol ID: {rol_id}, Rol cliente_id (raw): {rol_cliente_id_raw} (tipo: {type(rol_cliente_id_raw)}), Cliente contexto: {cliente_id} (tipo: {type(cliente_id)}), Codigo_rol: {codigo_rol}")
+            logger.debug(f"[VALIDAR_ROL] Rol ID: {rol_id}, Rol cliente_id (raw): {rol_cliente_id_raw} (tipo: {type(rol_cliente_id_raw)}), Cliente contexto: {cliente_id} (tipo: {type(cliente_id)}), Codigo_rol: {codigo_rol}")
             
             # ✅ CORRECCIÓN: Permitir roles del sistema (cliente_id = NULL o con codigo_rol) y roles del cliente actual
             # Solo rechazar si el rol pertenece a otro cliente diferente Y no es un rol del sistema
@@ -103,7 +107,7 @@ class PermisoService(BaseService):
                 except (ValueError, AttributeError):
                     pass
             
-            logger.info(f"[VALIDAR_ROL] Después de normalización - Rol cliente_id: {rol_cliente_id}, Cliente contexto: {cliente_id_normalizado}, Es rol sistema: {es_rol_sistema}")
+            logger.debug(f"[VALIDAR_ROL] Después de normalización - Rol cliente_id: {rol_cliente_id}, Cliente contexto: {cliente_id_normalizado}, Es rol sistema: {es_rol_sistema}")
             
             # Validar: permitir si es rol del sistema O si pertenece al cliente actual
             if not es_rol_sistema:
@@ -117,7 +121,7 @@ class PermisoService(BaseService):
                         internal_code="ROLE_WRONG_CLIENT"
                     )
             
-            logger.info(f"[VALIDAR_ROL] Validación exitosa - Rol {rol_id} es {'rol del sistema' if es_rol_sistema else f'rol del cliente {rol_cliente_id}'}")
+            logger.debug(f"[VALIDAR_ROL] Validación exitosa - Rol {rol_id} es {'rol del sistema' if es_rol_sistema else f'rol del cliente {rol_cliente_id}'}")
 
             # 📋 VALIDAR MENÚ Y OBTENER SU CLIENTE_ID
             # ✅ FASE 3: Validación mejorada para BD dedicadas
@@ -217,7 +221,7 @@ class PermisoService(BaseService):
             ValidationError: Si no se proporciona al menos un permiso o hay conflicto de cliente
             ServiceError: Si la operación falla
         """
-        logger.info(f"Intentando asignar/actualizar permiso para cliente {cliente_id} - Rol: {rol_id}, Menú: {menu_id}")
+        logger.debug(f"Intentando asignar/actualizar permiso para cliente {cliente_id} - Rol: {rol_id}, Menú: {menu_id}")
 
         try:
             # 1. 🛡️ VALIDAR ROL Y MENÚ
@@ -254,16 +258,23 @@ class PermisoService(BaseService):
             SELECT permiso_id, puede_ver, puede_crear, puede_editar, puede_eliminar, 
                    puede_exportar, puede_imprimir, puede_aprobar, permisos_extra
             FROM rol_menu_permiso
-            WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
+            WHERE cliente_id = :cliente_id AND rol_id = :rol_id AND menu_id = :menu_id
             """
             # ✅ FASE 2: Usar await
-            existing_perm = await execute_query(check_query, (cliente_id, rol_id, menu_id))
+            existing_perm = await execute_query(
+                text(check_query).bindparams(
+                    cliente_id=cliente_id,
+                    rol_id=rol_id,
+                    menu_id=menu_id,
+                ),
+                client_id=cliente_id,
+            )
 
             if existing_perm:
                 # 🟡 ACTUALIZAR PERMISO EXISTENTE
                 perm_id = existing_perm[0]['permiso_id']
                 current_perms = existing_perm[0]
-                logger.info(f"Actualizando permiso existente ID {perm_id} para cliente {cliente_id}")
+                logger.debug(f"Actualizando permiso existente ID {perm_id} para cliente {cliente_id}")
 
                 update_parts = []
                 params = []
@@ -276,18 +287,26 @@ class PermisoService(BaseService):
 
                 # ✅ VERIFICAR SI HAY CAMBIOS REALES
                 if not update_parts:
-                    logger.info(f"No hay cambios en los permisos para ID {perm_id}")
+                    logger.debug(f"No hay cambios en los permisos para ID {perm_id}")
                     # ✅ ACTUALIZADO: Incluir todos los campos de permisos
                     get_query = """
                     SELECT permiso_id, cliente_id, rol_id, menu_id, 
                            puede_ver, puede_crear, puede_editar, puede_eliminar, 
                            puede_exportar, puede_imprimir, puede_aprobar, permisos_extra,
                            fecha_creacion, fecha_actualizacion
-                    FROM rol_menu_permiso WHERE permiso_id = ?
+                    FROM rol_menu_permiso
+                    WHERE permiso_id = :permiso_id AND cliente_id = :cliente_id
                     """
-                    # ✅ FASE 2: Usar await
-                    result = await execute_query(get_query, (perm_id,))
-                    return result[0] if result else None
+                    from sqlalchemy import text
+
+                    rows = await execute_query(
+                        text(get_query).bindparams(
+                            permiso_id=perm_id,
+                            cliente_id=cliente_id,
+                        ),
+                        client_id=cliente_id,
+                    )
+                    return rows[0] if rows else None
 
                 params.append(perm_id)  # Añadir ID para el WHERE
 
@@ -312,12 +331,12 @@ class PermisoService(BaseService):
                         detail="Error al actualizar el permiso.",
                         internal_code="PERMISSION_UPDATE_FAILED"
                     )
-                logger.info(f"Permiso ID {perm_id} actualizado exitosamente para cliente {cliente_id}")
+                logger.debug(f"Permiso ID {perm_id} actualizado exitosamente para cliente {cliente_id}")
                 return result
 
             else:
                 # 🟢 CREAR NUEVO PERMISO
-                logger.info(f"🟢 Creando nuevo permiso - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
+                logger.debug(f"🟢 Creando nuevo permiso - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
 
                 # 🎯 ESTABLECER VALORES POR DEFECTO
                 # ✅ ACTUALIZADO: Incluir todos los permisos extendidos
@@ -358,7 +377,7 @@ class PermisoService(BaseService):
                         detail="Error al crear el permiso.",
                         internal_code="PERMISSION_CREATION_FAILED"
                     )
-                logger.info(f"Permiso creado exitosamente con ID {result['permiso_id']} para cliente {cliente_id}")
+                logger.debug(f"Permiso creado exitosamente con ID {result['permiso_id']} para cliente {cliente_id}")
                 return result
 
         except (ValidationError, NotFoundError):
@@ -401,7 +420,7 @@ class PermisoService(BaseService):
         """
         try:
             # 🎯 VALIDAR QUE EL ROL EXISTE (OPCIONAL PERO RECOMENDADO)
-            rol = await RolService.obtener_rol_por_id(rol_id)
+            rol = await RolService.obtener_rol_por_id(rol_id, cliente_id=cliente_id)
             if not rol:
                 logger.warning(f"Intento de obtener permisos para rol inexistente ID {rol_id}")
                 return []  # 📭 Retornar lista vacía en lugar de error
@@ -415,11 +434,18 @@ class PermisoService(BaseService):
                 m.nombre AS menu_nombre, m.ruta AS menu_url, m.icono AS menu_icono
             FROM rol_menu_permiso p
             INNER JOIN modulo_menu m ON p.menu_id = m.menu_id
-            WHERE p.cliente_id = ? AND p.rol_id = ?
+            WHERE p.cliente_id = :cliente_id AND p.rol_id = :rol_id
             ORDER BY m.orden;
             """
-            # ✅ FASE 2: Usar await
-            permisos = await execute_query(query, (cliente_id, rol_id))
+            from sqlalchemy import text
+
+            permisos = await execute_query(
+                text(query).bindparams(
+                    cliente_id=cliente_id,
+                    rol_id=rol_id,
+                ),
+                client_id=cliente_id,
+            )
             logger.debug(f"Obtenidos {len(permisos)} permisos para rol ID {rol_id} en cliente {cliente_id}")
             return permisos
 
@@ -467,10 +493,17 @@ class PermisoService(BaseService):
                    puede_exportar, puede_imprimir, puede_aprobar,
                    permisos_extra, fecha_creacion, fecha_actualizacion
             FROM rol_menu_permiso
-            WHERE cliente_id = ? AND rol_id = ? AND menu_id = ?
+            WHERE cliente_id = :cliente_id AND rol_id = :rol_id AND menu_id = :menu_id
             """
             # ✅ FASE 2: Usar await
-            resultados = await execute_query(query, (cliente_id, rol_id, menu_id))
+            resultados = await execute_query(
+                text(query).bindparams(
+                    cliente_id=cliente_id,
+                    rol_id=rol_id,
+                    menu_id=menu_id,
+                ),
+                client_id=cliente_id,
+            )
             if not resultados:
                 logger.debug(f"Permiso no encontrado - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
                 return None
@@ -549,7 +582,7 @@ class PermisoService(BaseService):
                     internal_code="PERMISSION_DELETION_FAILED"
                 )
 
-            logger.info(f"Permiso revocado exitosamente - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
+            logger.debug(f"Permiso revocado exitosamente - Cliente: {cliente_id}, Rol: {rol_id}, Menú: {menu_id}")
             return {"message": "Permiso revocado exitosamente"}
 
         except (ValidationError, NotFoundError):

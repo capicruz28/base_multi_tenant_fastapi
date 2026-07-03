@@ -2,7 +2,7 @@
 """
 Servicio para gestión de refresh tokens persistentes en base de datos.
 
-✅ CORRECCIÓN CRÍTICA: Implementa rotación segura de tokens sin falsos positivos.
+Persistencia session store vía refresh_token_queries_core (ADR-002-A).
 """
 
 from typing import Dict, Optional, List
@@ -145,11 +145,12 @@ class RefreshTokenService(BaseService):
     @staticmethod
     async def blacklist_access_for_token_id(token_id: UUID) -> bool:
         """Blacklistea el access token vinculado a token_id, si existe en Redis."""
-        logger.warning(
-            "[BLACKLIST-DIAG] token_id recibido: %r (type=%s)",
-            token_id,
-            type(token_id).__name__,
-        )
+        if settings.ENABLE_REDIS_TRACE:
+            logger.warning(
+                "[BLACKLIST-DIAG] token_id recibido: %r (type=%s)",
+                token_id,
+                type(token_id).__name__,
+            )
         if not token_id:
             return False
         try:
@@ -157,128 +158,134 @@ class RefreshTokenService(BaseService):
 
             from app.infrastructure.redis.client import RedisService, _get_redis_client
             from app.modules.auth.application.services.auth_service import AuthService
-            from app.core.config import settings
 
             key = RefreshTokenService._session_access_redis_key(token_id)
-            logger.warning("[BLACKLIST-DIAG] Redis key construida: %s", key)
+            if settings.ENABLE_REDIS_TRACE:
+                logger.warning("[BLACKLIST-DIAG] Redis key construida: %s", key)
 
-            diag_client = await _get_redis_client()
-            logger.warning(
-                "[REDIS-TRACE-01] blacklist_access_for_token_id pre-get_json "
-                "HOST=%s PORT=%s DB=%s id(client)=%s key=%s",
-                settings.REDIS_HOST,
-                settings.REDIS_PORT,
-                settings.REDIS_DB,
-                id(diag_client) if diag_client else None,
-                key,
-            )
-            if diag_client:
-                dbsize_result = await diag_client.dbsize()
+            if settings.ENABLE_REDIS_TRACE:
+                diag_client = await _get_redis_client()
                 logger.warning(
-                    "[REDIS-RUNTIME-FINAL] dbsize=%s id(client)=%s",
-                    dbsize_result,
-                    id(diag_client),
-                )
-                scan_result = await diag_client.scan(
-                    cursor=0, match="session:access_jti:*", count=100
-                )
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] scan cursor=0 match=session:access_jti:* "
-                    "count=100 result=%r",
-                    scan_result,
-                )
-                keys_result = await diag_client.keys("session:access_jti:*")
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] keys session:access_jti:* result=%r",
-                    keys_result,
-                )
-                info_server = await diag_client.info("server")
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] info(server)=%r",
-                    info_server,
-                )
-                info_keyspace = await diag_client.info("keyspace")
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] info(keyspace)=%r",
-                    info_keyspace,
-                )
-                info_clients = await diag_client.info("clients")
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] info(clients)=%r",
-                    info_clients,
-                )
-                exists_result = await diag_client.exists(key)
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] exists(key=%s)=%s",
+                    "[REDIS-TRACE-01] blacklist_access_for_token_id pre-get_json "
+                    "HOST=%s PORT=%s DB=%s id(client)=%s key=%s",
+                    settings.REDIS_HOST,
+                    settings.REDIS_PORT,
+                    settings.REDIS_DB,
+                    id(diag_client) if diag_client else None,
                     key,
-                    exists_result,
                 )
-                get_after_exists = await diag_client.get(key)
-                logger.warning(
-                    "[REDIS-RUNTIME-FINAL] get(key=%s)=%r type=%s",
-                    key,
-                    get_after_exists,
-                    type(get_after_exists).__name__,
-                )
-                raw_direct = await diag_client.get(key)
-                logger.warning(
-                    "[REDIS-TRACE-01] blacklist_access_for_token_id "
-                    "RAW DIRECT=%r TYPE(raw)=%s",
-                    raw_direct,
-                    type(raw_direct).__name__,
-                )
-            else:
-                logger.warning(
-                    "[REDIS-TRACE-01] blacklist_access_for_token_id "
-                    "RAW DIRECT omitido (client None)"
-                )
+                if diag_client:
+                    dbsize_result = await diag_client.dbsize()
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] dbsize=%s id(client)=%s",
+                        dbsize_result,
+                        id(diag_client),
+                    )
+                    scan_result = await diag_client.scan(
+                        cursor=0, match="session:access_jti:*", count=100
+                    )
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] scan cursor=0 match=session:access_jti:* "
+                        "count=100 result=%r",
+                        scan_result,
+                    )
+                    keys_result = await diag_client.keys("session:access_jti:*")
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] keys session:access_jti:* result=%r",
+                        keys_result,
+                    )
+                    info_server = await diag_client.info("server")
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] info(server)=%r",
+                        info_server,
+                    )
+                    info_keyspace = await diag_client.info("keyspace")
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] info(keyspace)=%r",
+                        info_keyspace,
+                    )
+                    info_clients = await diag_client.info("clients")
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] info(clients)=%r",
+                        info_clients,
+                    )
+                    exists_result = await diag_client.exists(key)
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] exists(key=%s)=%s",
+                        key,
+                        exists_result,
+                    )
+                    get_after_exists = await diag_client.get(key)
+                    logger.warning(
+                        "[REDIS-RUNTIME-FINAL] get(key=%s)=%r type=%s",
+                        key,
+                        get_after_exists,
+                        type(get_after_exists).__name__,
+                    )
+                    raw_direct = await diag_client.get(key)
+                    logger.warning(
+                        "[REDIS-TRACE-01] blacklist_access_for_token_id "
+                        "RAW DIRECT=%r TYPE(raw)=%s",
+                        raw_direct,
+                        type(raw_direct).__name__,
+                    )
+                else:
+                    logger.warning(
+                        "[REDIS-TRACE-01] blacklist_access_for_token_id "
+                        "RAW DIRECT omitido (client None)"
+                    )
 
             payload = await RedisService.get_json(key)
-            logger.warning(
-                "[BLACKLIST-DIAG] get_json(key) resultado completo: %r",
-                payload,
-            )
-            logger.warning(
-                "[BLACKLIST-DIAG] type(payload): %s",
-                type(payload).__name__,
-            )
-            logger.warning(
-                "[BLACKLIST-DIAG] isinstance(payload, dict): %s",
-                isinstance(payload, dict),
-            )
-            if isinstance(payload, dict):
+            if settings.ENABLE_REDIS_TRACE:
                 logger.warning(
-                    "[BLACKLIST-DIAG] payload.keys(): %s",
-                    list(payload.keys()),
+                    "[BLACKLIST-DIAG] get_json(key) resultado completo: %r",
+                    payload,
                 )
                 logger.warning(
-                    "[BLACKLIST-DIAG] payload.get('jti'): %r",
-                    payload.get("jti"),
+                    "[BLACKLIST-DIAG] type(payload): %s",
+                    type(payload).__name__,
                 )
                 logger.warning(
-                    "[BLACKLIST-DIAG] payload.get('exp'): %r",
-                    payload.get("exp"),
+                    "[BLACKLIST-DIAG] isinstance(payload, dict): %s",
+                    isinstance(payload, dict),
                 )
+                if isinstance(payload, dict):
+                    logger.warning(
+                        "[BLACKLIST-DIAG] payload.keys(): %s",
+                        list(payload.keys()),
+                    )
+                    logger.warning(
+                        "[BLACKLIST-DIAG] payload.get('jti'): %r",
+                        payload.get("jti"),
+                    )
+                    logger.warning(
+                        "[BLACKLIST-DIAG] payload.get('exp'): %r",
+                        payload.get("exp"),
+                    )
 
             if not payload or not payload.get("jti"):
                 return False
-            logger.warning("[BLACKLIST-DIAG] BLACKLIST ABOUT TO BE WRITTEN")
+            if settings.ENABLE_REDIS_TRACE:
+                logger.warning("[BLACKLIST-DIAG] BLACKLIST ABOUT TO BE WRITTEN")
             await AuthService.blacklist_access_token_jti(
                 payload["jti"], payload.get("exp")
             )
-            logger.warning("[BLACKLIST-DIAG] BLACKLIST WRITTEN")
+            if settings.ENABLE_REDIS_TRACE:
+                logger.warning("[BLACKLIST-DIAG] BLACKLIST WRITTEN")
             await RedisService.delete_key(key)
-            logger.warning("[BLACKLIST-DIAG] MAPPING DELETED")
+            if settings.ENABLE_REDIS_TRACE:
+                logger.warning("[BLACKLIST-DIAG] MAPPING DELETED")
             return True
         except Exception as e:
             import traceback
 
-            logger.warning(
-                "[BLACKLIST-DIAG] excepción tipo=%s mensaje=%s traceback:\n%s",
-                type(e).__name__,
-                e,
-                traceback.format_exc(),
-            )
+            if settings.ENABLE_REDIS_TRACE:
+                logger.warning(
+                    "[BLACKLIST-DIAG] excepción tipo=%s mensaje=%s traceback:\n%s",
+                    type(e).__name__,
+                    e,
+                    traceback.format_exc(),
+                )
             logger.warning(
                 "[SESSION-ACCESS] Error blacklist access token_id=%s (fail-soft): %s",
                 token_id,

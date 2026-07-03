@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import text
 # ✅ FASE 2: Migrar a queries_async
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
+from app.infrastructure.database.query_helpers import qmark_sql_text
 from app.core.exceptions import (
     ValidationError,
     ConflictError,
@@ -27,13 +28,25 @@ from app.core.exceptions import (
     DatabaseError
 )
 from app.core.application.base_service import BaseService
-from app.modules.tenant.presentation.schemas import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse, BrandingRead
+from app.core.config import settings
+from app.core.security.password_generator import generar_contrasena_segura
+from app.infrastructure.database.connection_async import DatabaseConnection, get_db_connection
+from app.modules.tenant.application.provisioning import DEDICATED_INSTALLATION_TYPE
+from app.modules.tenant.application.provisioning.provisioning_saga_ephemeral_context import (
+    ProvisioningSagaEphemeralContext,
+)
 from app.modules.tenant.application.services.cliente_onboarding_service import (
     ClienteOnboardingService,
     ClienteOnboardingResult,
     MENSAJE_CREACION_EXITOSA,
 )
-from app.infrastructure.database.connection_async import DatabaseConnection
+from app.modules.tenant.application.services.provisioning_job_dispatcher import (
+    ProvisioningJobDispatcher,
+)
+from app.modules.tenant.application.services.tenant_provisioning_state_service import (
+    TenantProvisioningStateService,
+)
+from app.modules.tenant.presentation.schemas import ClienteCreate, ClienteUpdate, ClienteRead, ClienteStatsResponse, BrandingRead, CredencialesInicialesRead
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +82,9 @@ class ClienteService(BaseService):
             )
         # Verificar unicidad
         query = "SELECT cliente_id FROM cliente WHERE LOWER(subdominio) = LOWER(?) AND es_activo = 1"
-        # ✅ FASE 2: Usar await
-        resultado = await execute_query(query, (subdominio,))
+        resultado = await execute_query(
+            qmark_sql_text(query, (subdominio,)),
+        )
         if resultado:
             raise ConflictError(
                 detail=f"El subdominio '{subdominio}' ya está en uso por otro cliente activo.",
@@ -89,8 +103,9 @@ class ClienteService(BaseService):
                 internal_code="CLIENT_CODE_REQUIRED"
             )
         query = "SELECT cliente_id FROM cliente WHERE LOWER(codigo_cliente) = LOWER(?) AND es_activo = 1"
-        # ✅ FASE 2: Usar await
-        resultado = await execute_query(query, (codigo_cliente,))
+        resultado = await execute_query(
+            qmark_sql_text(query, (codigo_cliente,)),
+        )
         if resultado:
             raise ConflictError(
                 detail=f"El código de cliente '{codigo_cliente}' ya está en uso.",
@@ -103,18 +118,81 @@ class ClienteService(BaseService):
         """
         Crea un nuevo cliente y ejecuta el onboarding inicial en una sola transacción.
         """
-        logger.info(f"Creando nuevo cliente: {cliente_data.razon_social}")
+        logger.debug(f"Creando nuevo cliente: {cliente_data.razon_social}")
 
         await ClienteService._validar_subdominio_cliente(cliente_data.subdominio)
         await ClienteService._validar_codigo_cliente(cliente_data.codigo_cliente)
 
+        if (
+            (cliente_data.tipo_instalacion or "shared") == DEDICATED_INSTALLATION_TYPE
+            and settings.DEDICATED_ENABLED
+        ):
+            return await ClienteService._crear_cliente_dedicated_provisioning(cliente_data)
+
         resultado = await ClienteOnboardingService.crear_cliente_con_onboarding(cliente_data)
-        logger.info(
+        logger.debug(
             "Cliente creado con onboarding — ID: %s, subdominio: %s",
             resultado.cliente.cliente_id,
             resultado.cliente.subdominio,
         )
         return resultado
+
+    @staticmethod
+    @BaseService.handle_service_errors
+    async def _crear_cliente_dedicated_provisioning(
+        cliente_data: ClienteCreate,
+    ) -> ClienteOnboardingResult:
+        """Registry CP + dispatch saga async — sin seed shared en central (F4-08)."""
+        contrasena_plana = generar_contrasena_segura(12)
+        async with get_db_connection(DatabaseConnection.ADMIN) as session:
+            async with session.begin():
+                cliente_row = await ClienteOnboardingService._insertar_cliente(
+                    session,
+                    cliente_data,
+                )
+
+        cliente = ClienteRead(**cliente_row)
+        cliente_id = cliente.cliente_id
+
+        state_service = TenantProvisioningStateService()
+        dispatcher = ProvisioningJobDispatcher(state_service=state_service)
+        init_result = await state_service.initialize_provisioning_run(
+            cliente_id=cliente_id,
+        )
+        logger.warning(
+            "[F4-DIAG] ClienteService._crear_cliente_dedicated_provisioning "
+            "cliente_id=%s provisioning_run_id=%s DEDICATED_ENABLED=%s",
+            cliente_id,
+            init_result.provisioning_run_id,
+            settings.DEDICATED_ENABLED,
+        )
+        ephemeral = ProvisioningSagaEphemeralContext(admin_password=contrasena_plana)
+        dispatch_result = await dispatcher.dispatch_after_initialize(
+            init_result,
+            ephemeral_context=ephemeral,
+            trigger_source="post_create_cliente",
+        )
+        logger.warning(
+            "[F4-DIAG] ClienteService dispatch_after_initialize result "
+            "dispatched=%s sync_execution=%s dispatcher_enabled=%s "
+            "provisioning_run_id=%s",
+            dispatch_result.dispatched,
+            dispatch_result.sync_execution,
+            dispatch_result.dispatcher_enabled,
+            dispatch_result.provisioning_run_id,
+        )
+
+        credenciales = CredencialesInicialesRead(
+            nombre_usuario="admin",
+            contrasena=contrasena_plana,
+            requiere_cambio=True,
+        )
+        logger.debug(
+            "Cliente dedicated provisioning encolado — ID: %s, subdominio: %s",
+            cliente_id,
+            cliente.subdominio,
+        )
+        return ClienteOnboardingResult(cliente=cliente, credenciales=credenciales)
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -208,7 +286,7 @@ class ClienteService(BaseService):
                 detail="No se pudo suspender el cliente.",
                 internal_code="CLIENT_SUSPENSION_FAILED"
             )
-        logger.info(f"Cliente ID {cliente_id} suspendido exitosamente.")
+        logger.debug(f"Cliente ID {cliente_id} suspendido exitosamente.")
         return ClienteRead(**resultado)
 
     @staticmethod
@@ -278,7 +356,7 @@ class ClienteService(BaseService):
                 detail="No se pudo activar el cliente.",
                 internal_code="CLIENT_ACTIVATION_FAILED"
             )
-        logger.info(f"Cliente ID {cliente_id} activado exitosamente.")
+        logger.debug(f"Cliente ID {cliente_id} activado exitosamente.")
         return ClienteRead(**resultado)
     
     @staticmethod
@@ -287,7 +365,7 @@ class ClienteService(BaseService):
         """
         Actualiza un cliente existente con validaciones.
         """
-        logger.info(f"Actualizando cliente ID: {cliente_id}")
+        logger.debug(f"Actualizando cliente ID: {cliente_id}")
         
         # Verificar que el cliente existe
         cliente_existente = await ClienteService.obtener_cliente_por_id(cliente_id)
@@ -416,7 +494,7 @@ class ClienteService(BaseService):
                 internal_code="CLIENT_UPDATE_FAILED"
             )
         
-        logger.info(f"Cliente ID {cliente_id} actualizado exitosamente.")
+        logger.debug(f"Cliente ID {cliente_id} actualizado exitosamente.")
         return ClienteRead(**resultado)
     
     @staticmethod
@@ -425,7 +503,7 @@ class ClienteService(BaseService):
         """
         Elimina un cliente (eliminación lógica - marca como inactivo).
         """
-        logger.info(f"Eliminando cliente ID: {cliente_id}")
+        logger.debug(f"Eliminando cliente ID: {cliente_id}")
         
         # Verificar que el cliente existe
         cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
@@ -462,7 +540,7 @@ class ClienteService(BaseService):
                 internal_code="CLIENT_DELETE_FAILED"
             )
         
-        logger.info(f"Cliente ID {cliente_id} eliminado exitosamente (marcado como inactivo).")
+        logger.debug(f"Cliente ID {cliente_id} eliminado exitosamente (marcado como inactivo).")
         return True
     
     @staticmethod
@@ -480,7 +558,7 @@ class ClienteService(BaseService):
         Returns:
             Tuple[List[ClienteRead], int]: (lista de clientes, total de registros)
         """
-        logger.info(
+        logger.debug(
             f"Listando clientes - skip: {skip}, limit: {limit}, "
             f"solo_activos: {solo_activos}, solo_inactivos: {solo_inactivos}, buscar: {buscar}"
         )
@@ -544,7 +622,7 @@ class ClienteService(BaseService):
         )
         
         clientes = [ClienteRead(**row) for row in resultados]
-        logger.info(f"Listados {len(clientes)} clientes de {total} totales")
+        logger.debug(f"Listados {len(clientes)} clientes de {total} totales")
         
         return clientes, total
     
@@ -554,7 +632,7 @@ class ClienteService(BaseService):
         """
         Obtiene estadísticas completas de un cliente.
         """
-        logger.info(f"Obteniendo estadísticas para cliente ID: {cliente_id}")
+        logger.debug(f"Obteniendo estadísticas para cliente ID: {cliente_id}")
         
         # Verificar que el cliente existe
         cliente = await ClienteService.obtener_cliente_por_id(cliente_id)
@@ -564,7 +642,68 @@ class ClienteService(BaseService):
                 internal_code="CLIENT_NOT_FOUND"
             )
         
-        # Estadísticas de usuarios
+        from app.core.tenant.platform_tenant_data_store import (
+            resolve_platform_tenant_data_execute_kwargs,
+        )
+        from app.core.tenant.platform_tenant_reachability import (
+            ReachabilityStatus,
+            check_platform_tenant_reachability,
+        )
+
+        reachability = await check_platform_tenant_reachability(cliente_id)
+
+        # Estadísticas de conexiones BD (Control Plane — siempre)
+        conexiones_query = """
+        SELECT COUNT(*) as total_conexiones
+        FROM cliente_conexion
+        WHERE cliente_id = :cliente_id AND es_activo = 1
+        """
+        conexiones_result = await execute_query(
+            text(conexiones_query).bindparams(cliente_id=cliente_id),
+            connection_type=DatabaseConnection.ADMIN,
+            client_id=None,
+        )
+        conexiones_count = conexiones_result[0]["total_conexiones"] if conexiones_result else 0
+
+        dias_activo = 0
+        if cliente.fecha_creacion:
+            delta = datetime.now() - cliente.fecha_creacion
+            dias_activo = delta.days
+
+        cp_stats = {
+            "cliente_id": cliente.cliente_id,
+            "razon_social": cliente.razon_social,
+            "ultimo_acceso": cliente.fecha_ultimo_acceso,
+            "estado_suscripcion": cliente.estado_suscripcion,
+            "plan_actual": cliente.plan_suscripcion,
+            "fecha_creacion": cliente.fecha_creacion,
+            "dias_activo": dias_activo,
+            "conexiones_bd": conexiones_count,
+            "tipo_instalacion": cliente.tipo_instalacion,
+        }
+
+        if reachability.status != ReachabilityStatus.REACHABLE:
+            logger.debug(
+                "[CLIENTE_STATS] tenant_data degradado cliente_id=%s status=%s",
+                cliente_id,
+                reachability.status.value,
+            )
+            stats = ClienteStatsResponse(
+                **cp_stats,
+                total_usuarios=None,
+                total_usuarios_inactivos=None,
+                modulos_activos=None,
+                modulos_contratados=None,
+                tenant_data_available=False,
+                tenant_data_reachability=reachability.status.value,
+                tenant_data_internal_code=reachability.internal_code,
+                tenant_data_message=reachability.message,
+            )
+            logger.debug(f"Estadísticas obtenidas para cliente {cliente_id}")
+            return stats
+
+        tenant_data_kwargs = await resolve_platform_tenant_data_execute_kwargs(cliente_id)
+
         usuarios_query = """
         SELECT 
             COUNT(CASE WHEN es_activo = 1 THEN 1 END) as total_activos,
@@ -572,16 +711,12 @@ class ClienteService(BaseService):
         FROM usuario
         WHERE cliente_id = :cliente_id AND es_eliminado = 0
         """
-        # ✅ FASE 2: Usar await
         usuarios_result = await execute_query(
             text(usuarios_query).bindparams(cliente_id=cliente_id),
-            connection_type=DatabaseConnection.ADMIN,
-            client_id=None
+            **tenant_data_kwargs,
         )
-        usuarios_stats = usuarios_result[0] if usuarios_result else {'total_activos': 0, 'total_inactivos': 0}
-        
-        # Estadísticas de módulos
-        # ✅ REFACTORIZACIÓN: Usar tabla cliente_modulo en lugar de cliente_modulo_activo
+        usuarios_stats = usuarios_result[0] if usuarios_result else {"total_activos": 0, "total_inactivos": 0}
+
         modulos_query = """
         SELECT 
             COUNT(CASE WHEN esta_activo = 1 THEN 1 END) as modulos_activos,
@@ -589,51 +724,21 @@ class ClienteService(BaseService):
         FROM cliente_modulo
         WHERE cliente_id = :cliente_id
         """
-        # ✅ FASE 2: Usar await
         modulos_result = await execute_query(
             text(modulos_query).bindparams(cliente_id=cliente_id),
-            connection_type=DatabaseConnection.ADMIN,
-            client_id=None
+            **tenant_data_kwargs,
         )
-        modulos_stats = modulos_result[0] if modulos_result else {'modulos_activos': 0, 'modulos_contratados': 0}
-        
-        # Estadísticas de conexiones BD
-        conexiones_query = """
-        SELECT COUNT(*) as total_conexiones
-        FROM cliente_conexion
-        WHERE cliente_id = :cliente_id AND es_activo = 1
-        """
-        # ✅ FASE 2: Usar await
-        conexiones_result = await execute_query(
-            text(conexiones_query).bindparams(cliente_id=cliente_id),
-            connection_type=DatabaseConnection.ADMIN,
-            client_id=None
-        )
-        conexiones_count = conexiones_result[0]['total_conexiones'] if conexiones_result else 0
-        
-        # Calcular días activo
-        dias_activo = 0
-        if cliente.fecha_creacion:
-            delta = datetime.now() - cliente.fecha_creacion
-            dias_activo = delta.days
-        
+        modulos_stats = modulos_result[0] if modulos_result else {"modulos_activos": 0, "modulos_contratados": 0}
+
         stats = ClienteStatsResponse(
-            cliente_id=cliente.cliente_id,
-            razon_social=cliente.razon_social,
-            total_usuarios=usuarios_stats.get('total_activos', 0),
-            total_usuarios_inactivos=usuarios_stats.get('total_inactivos', 0),
-            modulos_activos=modulos_stats.get('modulos_activos', 0),
-            modulos_contratados=modulos_stats.get('modulos_contratados', 0),
-            ultimo_acceso=cliente.fecha_ultimo_acceso,
-            estado_suscripcion=cliente.estado_suscripcion,
-            plan_actual=cliente.plan_suscripcion,
-            fecha_creacion=cliente.fecha_creacion,
-            dias_activo=dias_activo,
-            conexiones_bd=conexiones_count,
-            tipo_instalacion=cliente.tipo_instalacion
+            **cp_stats,
+            total_usuarios=usuarios_stats.get("total_activos", 0),
+            total_usuarios_inactivos=usuarios_stats.get("total_inactivos", 0),
+            modulos_activos=modulos_stats.get("modulos_activos", 0),
+            modulos_contratados=modulos_stats.get("modulos_contratados", 0),
         )
         
-        logger.info(f"Estadísticas obtenidas para cliente {cliente_id}")
+        logger.debug(f"Estadísticas obtenidas para cliente {cliente_id}")
         return stats
 
     @staticmethod
@@ -656,7 +761,7 @@ class ClienteService(BaseService):
             NotFoundError: Si el cliente no existe o está inactivo
             ServiceError: Si hay error en la consulta
         """
-        logger.info(f"Solicitando branding para cliente_id={cliente_id}")
+        logger.debug(f"Solicitando branding para cliente_id={cliente_id}")
         
         # Query optimizada: solo campos de branding
         query = """
@@ -714,7 +819,7 @@ class ClienteService(BaseService):
             tema_personalizado=tema_personalizado
         )
         
-        logger.info(f"Branding obtenido exitosamente para cliente_id={cliente_id}")
+        logger.debug(f"Branding obtenido exitosamente para cliente_id={cliente_id}")
         return branding
 
     @staticmethod
@@ -737,7 +842,7 @@ class ClienteService(BaseService):
             ValidationError: Si el subdominio tiene formato inválido
             ServiceError: Si hay error en la consulta
         """
-        logger.info(f"Solicitando branding para subdominio={subdominio}")
+        logger.debug(f"Solicitando branding para subdominio={subdominio}")
         
         # Validar formato del subdominio
         if not subdominio or not isinstance(subdominio, str):
@@ -812,5 +917,5 @@ class ClienteService(BaseService):
             tema_personalizado=tema_personalizado
         )
         
-        logger.info(f"Branding obtenido exitosamente para subdominio={subdominio}")
+        logger.debug(f"Branding obtenido exitosamente para subdominio={subdominio}")
         return branding

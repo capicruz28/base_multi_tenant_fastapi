@@ -252,11 +252,25 @@
       "replaced_by": "ClienteModuloService.activate (future default ORG on onboarding)"
     },
     {
+      "bootstrap_v2": "05_dedicated/V020__tenant_identity_rbac_store.sql",
+      "legacy": null,
+      "layer": "dedicated",
+      "env": ["prod"],
+      "notes": "PR-F4-05b DTSP — identity/RBAC/menú tenant store en BD dedicada (sin FK → cliente CP). Ejecutar tras V010 ERP, antes de V010 rbac dedicated."
+    },
+    {
       "bootstrap_v2": "05_dedicated/V010__rbac_tablas_dedicated.sql",
       "legacy": "app/docs/database/SCRIPT_RBAC_TABLAS_DEDICADA.sql",
       "layer": "dedicated",
       "env": ["prod"],
       "notes": "Run on each tenant dedicated database after ERP schema"
+    },
+    {
+      "bootstrap_v2": "05_dedicated/V030__auth_audit_log_dedicated.sql",
+      "legacy": null,
+      "layer": "dedicated",
+      "env": ["prod"],
+      "notes": "F12-G3 — auth_audit_log tenant store en BD dedicada (sin FK → cliente CP). Ejecutar tras DTSP + rol_permiso."
     }
   ],
   "excluded_from_v2": {

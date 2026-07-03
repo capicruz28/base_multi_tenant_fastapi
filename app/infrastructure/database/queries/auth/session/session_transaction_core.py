@@ -3,6 +3,9 @@ Transacciones atómicas IAM Session V3 (C18).
 
 Coordina C15 + C16 + C17 dentro de UnitOfWork. Sin reglas de negocio.
 Único lugar con UPDLOCK en rotación de refresh token.
+
+Persistencia ADR-002-A: el caller debe abrir UnitOfWork con
+connection_type=DatabaseConnection.ADMIN (SESSION_STORE_CONNECTION).
 """
 from __future__ import annotations
 

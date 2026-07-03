@@ -54,7 +54,7 @@ class ModuloService(BaseService):
         """
         Obtiene la lista de módulos del sistema con paginación.
         """
-        logger.info(f"Obteniendo catálogo de módulos - skip: {skip}, limit: {limit}")
+        logger.debug(f"Obteniendo catálogo de módulos - skip: {skip}, limit: {limit}")
 
         query = select(ModuloTable)
 
@@ -274,7 +274,7 @@ class ModuloService(BaseService):
         """
         Crea un nuevo módulo en el catálogo del sistema.
         """
-        logger.info(f"Creando nuevo módulo: {modulo_data.nombre}")
+        logger.debug(f"Creando nuevo módulo: {modulo_data.nombre}")
 
         # Validaciones de unicidad
         await ModuloService._validar_codigo_modulo_unico(modulo_data.codigo)
@@ -316,7 +316,7 @@ class ModuloService(BaseService):
                 internal_code="MODULE_CREATION_FAILED"
             )
 
-        logger.info(f"Módulo creado exitosamente con ID: {resultado['modulo_id']}")
+        logger.debug(f"Módulo creado exitosamente con ID: {resultado['modulo_id']}")
         return ModuloRead(**resultado)
 
     @staticmethod
@@ -325,7 +325,7 @@ class ModuloService(BaseService):
         """
         Actualiza un módulo existente en el catálogo del sistema.
         """
-        logger.info(f"Actualizando módulo ID: {modulo_id}")
+        logger.debug(f"Actualizando módulo ID: {modulo_id}")
 
         # Verificar que el módulo existe
         modulo_existente = await ModuloService.obtener_modulo_por_id(modulo_id)
@@ -341,7 +341,7 @@ class ModuloService(BaseService):
         # Solo validar código si se está actualizando y es diferente
         if 'codigo' in update_dict and update_dict['codigo']:
             if update_dict['codigo'].upper() != modulo_existente.codigo.upper():
-                logger.info(f"Validando código único: {update_dict['codigo']} (excluyendo módulo {modulo_id})")
+                logger.debug(f"Validando código único: {update_dict['codigo']} (excluyendo módulo {modulo_id})")
                 await ModuloService._validar_codigo_modulo_unico(update_dict['codigo'], modulo_id)
                 update_dict['codigo'] = update_dict['codigo'].upper()
             else:
@@ -381,7 +381,7 @@ class ModuloService(BaseService):
                 internal_code="MODULE_UPDATE_FAILED"
             )
 
-        logger.info(f"Módulo ID {modulo_id} actualizado exitosamente.")
+        logger.debug(f"Módulo ID {modulo_id} actualizado exitosamente.")
         return ModuloRead(**resultado)
 
     @staticmethod
@@ -395,7 +395,7 @@ class ModuloService(BaseService):
         - No se puede eliminar un módulo core
         - No se puede eliminar un módulo que esté activo para algún cliente
         """
-        logger.info(f"Intentando eliminar módulo ID: {modulo_id}")
+        logger.debug(f"Intentando eliminar módulo ID: {modulo_id}")
 
         # Verificar que el módulo existe
         modulo = await ModuloService.obtener_modulo_por_id(modulo_id)
@@ -448,7 +448,7 @@ class ModuloService(BaseService):
             connection_type=DatabaseConnection.ADMIN,
             client_id=None
         )
-        logger.info(f"Módulo ID {modulo_id} desactivado exitosamente.")
+        logger.debug(f"Módulo ID {modulo_id} desactivado exitosamente.")
         return True
 
     @staticmethod

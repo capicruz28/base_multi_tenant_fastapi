@@ -43,6 +43,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Unidades de Medida
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.unidad_medida.leer'  AS codigo, 'Leer unidades de medida' AS nombre, 'Listar y ver unidades de medida de inventario' AS descripcion, @modulo_inv_id AS modulo_id, 'unidad_medida'    AS recurso, 'leer'       AS accion UNION ALL
@@ -59,6 +61,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Productos (complementa permisos base ya existentes)
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.producto.leer'       AS codigo, 'Leer productos'        AS nombre, 'Listar y ver productos, categorías y stock'     AS descripcion, @modulo_inv_id AS modulo_id, 'producto'         AS recurso, 'leer'       AS accion UNION ALL
@@ -75,6 +79,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Almacenes
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.almacen.leer'        AS codigo, 'Leer almacenes'        AS nombre, 'Listar y ver almacenes físicos y virtuales'     AS descripcion, @modulo_inv_id AS modulo_id, 'almacen'          AS recurso, 'leer'       AS accion UNION ALL
@@ -91,6 +97,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Stock
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.stock.leer'          AS codigo, 'Leer stock'            AS nombre, 'Consultar stock actual, reservado y disponible' AS descripcion, @modulo_inv_id AS modulo_id, 'stock'            AS recurso, 'leer'       AS accion UNION ALL
@@ -106,6 +114,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Tipos de Movimiento
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.tipo_movimiento.leer'   AS codigo, 'Leer tipos de movimiento'   AS nombre, 'Listar y ver tipos de movimiento de inventario'     AS descripcion, @modulo_inv_id AS modulo_id, 'tipo_movimiento'   AS recurso, 'leer'       AS accion UNION ALL
@@ -122,6 +132,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Movimientos
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.movimiento.leer'     AS codigo, 'Leer movimientos'      AS nombre, 'Listar y ver movimientos de inventario (kardex cabecera)' AS descripcion, @modulo_inv_id AS modulo_id, 'movimiento'       AS recurso, 'leer'       AS accion UNION ALL
@@ -137,6 +149,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Inventario Físico
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.inventario_fisico.leer'   AS codigo, 'Leer inventarios físicos'   AS nombre, 'Listar y ver tomas de inventario físico'                   AS descripcion, @modulo_inv_id AS modulo_id, 'inventario_fisico' AS recurso, 'leer'       AS accion UNION ALL

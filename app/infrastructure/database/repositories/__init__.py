@@ -13,5 +13,9 @@ from app.infrastructure.database.repositories.cfg_codigo_secuencia_repository im
     CfgCodigoSecuenciaRepository,
 )
 
-__all__ = ['BaseService', 'BaseRepository', 'CfgCodigoSecuenciaRepository']
+from app.infrastructure.database.repositories.tenant_provisioning_repository import (
+    TenantProvisioningRepository,
+)
+
+__all__ = ['BaseService', 'BaseRepository', 'CfgCodigoSecuenciaRepository', 'TenantProvisioningRepository']
 

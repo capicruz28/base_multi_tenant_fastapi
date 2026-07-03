@@ -83,7 +83,7 @@ async def crear_area_endpoint(
     Raises:
         HTTPException: En caso de error de validación, conflicto o error interno
     """
-    logger.info(f"Solicitud POST /areas/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear área: '{area_in.nombre}'")
+    logger.debug(f"Solicitud POST /areas/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear área: '{area_in.nombre}'")
     
     try:
         # ✅ MULTI-TENANT: Agregar cliente_id al payload
@@ -93,7 +93,7 @@ async def crear_area_endpoint(
         # Delegar la lógica de negocio al servicio
         created_area = await AreaService.crear_area(area_dict)
         
-        logger.info(f"Área '{created_area.nombre}' creada exitosamente en cliente {current_user.cliente_id} con ID: {created_area.area_id}")
+        logger.debug(f"Área '{created_area.nombre}' creada exitosamente en cliente {current_user.cliente_id} con ID: {created_area.area_id}")
         return created_area
         
     except CustomException as ce:  # Capturamos todas las excepciones personalizadas
@@ -170,7 +170,7 @@ async def obtener_areas_paginadas_endpoint(
     Raises:
         HTTPException: En caso de error en los parámetros o error interno
     """
-    logger.info(
+    logger.debug(
         f"Solicitud GET /areas/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - "
         f"Paginación: skip={skip}, limit={limit}, "
         f"Búsqueda: '{search}'"
@@ -185,7 +185,7 @@ async def obtener_areas_paginadas_endpoint(
             search=search
         )
         
-        logger.info(
+        logger.debug(
             f"Lista paginada de áreas recuperada para cliente {current_user.cliente_id} - "
             f"Total: {paginated_response.total_areas}, "
             f"Página: {paginated_response.pagina_actual}"
@@ -239,12 +239,12 @@ async def obtener_lista_simple_areas_endpoint(
     Raises:
         HTTPException: En caso de error interno del servidor
     """
-    logger.info(f"Solicitud GET /areas/list/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para lista simple")
+    logger.debug(f"Solicitud GET /areas/list/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para lista simple")
     
     try:
         areas_list = await AreaService.obtener_lista_simple_areas_activas(cliente_id=current_user.cliente_id)
         
-        logger.info(f"Lista simple de áreas recuperada para cliente {current_user.cliente_id} - Total: {len(areas_list)} áreas activas")
+        logger.debug(f"Lista simple de áreas recuperada para cliente {current_user.cliente_id} - Total: {len(areas_list)} áreas activas")
         return areas_list
         
     except CustomException as ce:  # Cambio de ServiceError a CustomException
@@ -377,7 +377,7 @@ async def actualizar_area_endpoint(
     Raises:
         HTTPException: En caso de error de validación, no encontrado o conflicto
     """
-    logger.info(f"Solicitud PUT /areas/{area_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para actualizar")
+    logger.debug(f"Solicitud PUT /areas/{area_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para actualizar")
     
     # Validar que hay datos para actualizar
     update_data = area_in.model_dump(exclude_unset=True)
@@ -400,7 +400,7 @@ async def actualizar_area_endpoint(
         # Delegar actualización al servicio
         updated_area = await AreaService.actualizar_area(area_id, area_in, cliente_id=current_user.cliente_id)
         
-        logger.info(f"Área ID {area_id} actualizada exitosamente en cliente {current_user.cliente_id}: '{updated_area.nombre}'")
+        logger.debug(f"Área ID {area_id} actualizada exitosamente en cliente {current_user.cliente_id}: '{updated_area.nombre}'")
         return updated_area
         
     except CustomException as ce:  # Cambio de ServiceError a CustomException
@@ -462,7 +462,7 @@ async def desactivar_area_endpoint(
     Raises:
         HTTPException: Si el área no existe, es de otro cliente o hay error interno
     """
-    logger.info(f"Solicitud DELETE /areas/{area_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud DELETE /areas/{area_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     
     try:
         # ✅ MULTI-TENANT: Validar que el área pertenezca al cliente antes de desactivar
@@ -476,7 +476,7 @@ async def desactivar_area_endpoint(
         # Usar el servicio unificado para cambiar estado
         deactivated_area = await AreaService.cambiar_estado_area(area_id, activar=False)
         
-        logger.info(f"Área ID {area_id} desactivada exitosamente en cliente {current_user.cliente_id}")
+        logger.debug(f"Área ID {area_id} desactivada exitosamente en cliente {current_user.cliente_id}")
         return deactivated_area
         
     except CustomException as ce:  # Cambio de ServiceError a CustomException
@@ -533,7 +533,7 @@ async def reactivar_area_endpoint(
     Raises:
         HTTPException: Si el área no existe, es de otro cliente o hay error interno
     """
-    logger.info(f"Solicitud PUT /areas/{area_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud PUT /areas/{area_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     
     try:
         # ✅ MULTI-TENANT: Validar que el área pertenezca al cliente antes de reactivar
@@ -547,7 +547,7 @@ async def reactivar_area_endpoint(
         # Usar el servicio unificado para cambiar estado
         reactivated_area = await AreaService.cambiar_estado_area(area_id, activar=True)
         
-        logger.info(f"Área ID {area_id} reactivada exitosamente en cliente {current_user.cliente_id}")
+        logger.debug(f"Área ID {area_id} reactivada exitosamente en cliente {current_user.cliente_id}")
         return reactivated_area
         
     except CustomException as ce:  # Cambio de ServiceError a CustomException

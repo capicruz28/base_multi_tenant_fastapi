@@ -14,6 +14,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, delete, func, insert, not_, select, text, update
 
 from app.core.exceptions import ValidationError
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.infrastructure.database.tables import (
     RefreshTokensTable,
     TokenFamilyTable,
@@ -123,7 +126,7 @@ async def insert_user_session_core(
     stmt = insert(UserSessionTable).values(
         **{k: v for k, v in payload.items() if k in _SESSION_COLUMNS}
     )
-    await execute_insert(stmt, client_id=cliente_id)
+    await execute_insert(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     row = await get_active_session_by_id_core(new_session_id, cliente_id)
     if row is None:
         raise ValidationError(
@@ -151,7 +154,7 @@ async def update_session_empresa_core(
             selection_token_completed=selection_token_completed,
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -178,7 +181,7 @@ async def update_session_on_refresh_core(
         )
         .values(**values)
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -199,7 +202,7 @@ async def touch_business_activity_core(
         )
         .values(last_business_activity_at=func.getdate())
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -227,7 +230,7 @@ async def close_session_core(
             revoked_reason=revoked_reason,
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -254,7 +257,7 @@ async def close_all_user_sessions_core(
             revoked_reason=revoked_reason,
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -272,7 +275,7 @@ async def get_active_session_by_id_core(
             UserSessionTable.c.expires_at > func.getdate(),
         )
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -286,7 +289,7 @@ async def count_active_sessions_core(
     query = select(func.count(UserSessionTable.c.session_id).label("total")).where(
         _active_session_conditions(cliente_id, usuario_id)
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if not rows:
         return 0
     return int(rows[0].get("total", 0))
@@ -308,7 +311,7 @@ async def list_active_sessions_oldest_first_core(
     )
     if limit is not None:
         query = query.limit(limit)
-    return await execute_query(query, client_id=cliente_id)
+    return await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
 
 
 async def is_session_idle_expired_core(
@@ -346,7 +349,7 @@ async def is_session_idle_expired_core(
         cliente_id=cliente_id,
         idle_timeout_minutes=idle_timeout_minutes,
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if not rows:
         return False
     return bool(rows[0].get("idle_expired", 0))
@@ -372,7 +375,7 @@ async def is_session_absolute_expired_core(
           AND cliente_id = :cliente_id
         """
     ).bindparams(session_id=session_id, cliente_id=cliente_id)
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if not rows:
         return False
     return bool(rows[0].get("absolute_expired", 0))
@@ -401,7 +404,7 @@ async def find_session_by_device_core(
         .order_by(UserSessionTable.c.created_at.desc())
         .limit(1)
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -465,7 +468,7 @@ async def purge_closed_sessions_core(
             not_(remaining_tokens),
         )
     )
-    result = await execute_query(stmt, client_id=cliente_id)
+    result = await execute_query(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if result and len(result) > 0:
         return int(result[0].get("rows_affected", 0))
     return 0

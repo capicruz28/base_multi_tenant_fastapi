@@ -12,6 +12,9 @@ from uuid import UUID
 import logging
 
 from app.core.application.unit_of_work import UnitOfWork
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.core.config import settings
 from app.core.exceptions import DatabaseError
 from app.infrastructure.database.queries.auth.refresh_token_rotate_queries_core import (
@@ -101,7 +104,10 @@ async def rotate_refresh_token_service(
         idle_timeout_minutes = await leer_session_idle_timeout_minutos(cliente_id)
 
     try:
-        async with UnitOfWork(client_id=cliente_id) as uow:
+        async with UnitOfWork(
+            client_id=cliente_id,
+            connection_type=SESSION_STORE_CONNECTION,
+        ) as uow:
             core_result = await rotate_refresh_token_core(
                 uow,
                 old_token_hash=old_token_hash,

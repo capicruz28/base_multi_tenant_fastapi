@@ -91,7 +91,7 @@ async def get_menu(
     Raises:
         HTTPException: En caso de error de servicio (ServiceError -> CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud GET /menus/getmenu/ recibida para usuario ID: {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud GET /menus/getmenu/ recibida para usuario ID: {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         menu_response = await MenuService.get_menu_for_user(current_user.usuario_id)
         return menu_response
@@ -142,7 +142,7 @@ async def get_all_menus_admin_structured_endpoint(
     Raises:
         HTTPException: En caso de error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud recibida en GET /menus/all-structured/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} (Admin)")
+    logger.debug(f"Solicitud recibida en GET /menus/all-structured/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} (Admin)")
     try:
         response = await MenuService.obtener_todos_menus_estructurados_admin(cliente_id=current_user.cliente_id)
         return response
@@ -201,7 +201,7 @@ async def create_menu_endpoint(
     Raises:
         HTTPException: En caso de conflicto, error de validación de negocio (CustomException) o error interno (500).
     """
-    logger.info(f"Recibida solicitud POST /menus/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear menú: {menu_in.nombre}")
+    logger.debug(f"Recibida solicitud POST /menus/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear menú: {menu_in.nombre}")
     
     # ✅ MULTI-TENANT: Preparar datos con cliente_id
     menu_dict = menu_in.model_dump()
@@ -328,7 +328,7 @@ async def update_menu_endpoint(
         HTTPException: En caso de cuerpo vacío (400), no encontrado (404),
                        error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Recibida solicitud PUT /menus/{menu_id}/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Recibida solicitud PUT /menus/{menu_id}/ por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         update_data = menu_in.model_dump(exclude_unset=True)
         if not update_data:
@@ -401,7 +401,7 @@ async def deactivate_menu_endpoint(
     Raises:
         HTTPException: Si no existe (404), error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud DELETE /menus/{menu_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud DELETE /menus/{menu_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         # ✅ VALIDAR: Acceso a menú del sistema
         menu_existente = await MenuService.obtener_menu_por_id(menu_id=menu_id, cliente_id=current_user.cliente_id)
@@ -412,7 +412,7 @@ async def deactivate_menu_endpoint(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden desactivar los menús del sistema.")
 
         result = await MenuService.desactivar_menu(menu_id)
-        logger.info(f"Menú ID {menu_id} desactivado exitosamente")
+        logger.debug(f"Menú ID {menu_id} desactivado exitosamente")
         return {"message": f"Menú ID {result.get('menu_id')} desactivado exitosamente.", "menu_id": result.get('menu_id'), "es_activo": result.get('es_activo')}
     except CustomException as ce: # Captura CustomException directamente (puede ser 404, 400, 500)
         logger.warning(f"No se pudo desactivar menú {menu_id}: {ce.detail}")
@@ -461,7 +461,7 @@ async def reactivate_menu_endpoint(
     Raises:
         HTTPException: Si no existe (404), error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud PUT /menus/{menu_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud PUT /menus/{menu_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         # ✅ VALIDAR: Acceso a menú del sistema
         menu_existente = await MenuService.obtener_menu_por_id(menu_id=menu_id, cliente_id=current_user.cliente_id)
@@ -472,7 +472,7 @@ async def reactivate_menu_endpoint(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden reactivar los menús del sistema.")
 
         result = await MenuService.reactivar_menu(menu_id)
-        logger.info(f"Menú ID {menu_id} reactivado exitosamente")
+        logger.debug(f"Menú ID {menu_id} reactivado exitosamente")
         return {"message": f"Menú ID {result.get('menu_id')} reactivado exitosamente.", "menu_id": result.get('menu_id'), "es_activo": result.get('es_activo')}
     except CustomException as ce: # Captura CustomException directamente (puede ser 404, 500)
         logger.warning(f"No se pudo reactivar menú {menu_id}: {ce.detail}")
@@ -521,7 +521,7 @@ async def get_menu_tree_by_area_endpoint(
     Raises:
         HTTPException: En caso de error de servicio (CustomException) o error interno (500).
     """
-    logger.info(f"Solicitud GET /menus/area/{area_id}/tree/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}.")
+    logger.debug(f"Solicitud GET /menus/area/{area_id}/tree/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}.")
     try:
         menu_response = await MenuService.obtener_arbol_menu_por_area(area_id=area_id, cliente_id=current_user.cliente_id)
         # El servicio ya devuelve MenuResponse(menu=[]) si no hay menús

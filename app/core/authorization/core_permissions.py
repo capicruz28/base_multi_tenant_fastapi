@@ -16,6 +16,18 @@ PROTECTED_PERMISSION_CODIGOS: frozenset[str] = frozenset(
     {CORE_APP_ACCEDER, ADMIN_PLATFORM_ACCESS}
 )
 
+# F12-B — permisos S020 / grant-only en Dedicated DP.
+ADMIN_TENANT_ACCESS = "admin.tenant.access"
+DEDICATED_PROTECTED_PERMISSION_CODIGOS: frozenset[str] = frozenset(
+    PROTECTED_PERMISSION_CODIGOS | {ADMIN_TENANT_ACCESS}
+)
+DEDICATED_SYNC_MANAGED_PREFIXES: tuple[str, ...] = (
+    "admin.",
+    "tenant.",
+    "modulos.",
+    "core.",
+)
+
 CORE_STATIC_PERMISSIONS: list[PermissionMetadata] = [
     {
         "codigo": CORE_APP_ACCEDER,

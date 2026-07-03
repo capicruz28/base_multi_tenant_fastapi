@@ -14,6 +14,9 @@ from typing import Optional
 from uuid import UUID
 
 from app.core.application.unit_of_work import UnitOfWork
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.core.exceptions import ValidationError
 from app.infrastructure.database.queries.auth.session import session_transaction_core as stx
 from app.infrastructure.database.queries.auth.session import user_session_queries_core as usq
@@ -102,7 +105,10 @@ class SessionCreationService:
     ) -> None:
         reason = RevokedReason.SESSION_LIMIT
         token_reason = to_token_reason(reason)
-        async with UnitOfWork(client_id=cliente_id) as uow:
+        async with UnitOfWork(
+            client_id=cliente_id,
+            connection_type=SESSION_STORE_CONNECTION,
+        ) as uow:
             await stx.revoke_session_tx(
                 uow,
                 session_id=session_id,
@@ -147,6 +153,15 @@ class SessionCreationService:
         SessionCreationService._validate_device_context(device_context)
         SessionCreationService._validate_login_method(login_method)
 
+        if empresa_id is not None:
+            from app.core.organization.org_read_gateway import OrgReadGateway
+
+            if not await OrgReadGateway.is_empresa_active(cliente_id, empresa_id):
+                raise ValidationError(
+                    detail="La empresa indicada no está activa o no pertenece al tenant",
+                    internal_code="INVALID_EMPRESA_FOR_SESSION",
+                )
+
         limit_decision = await SessionPolicyService.plan_session_limit_evictions(
             usuario_id,
             cliente_id,
@@ -184,7 +199,10 @@ class SessionCreationService:
         if device_context.device_fingerprint:
             fingerprint_hash = _hash_device_fingerprint(device_context.device_fingerprint)
 
-        async with UnitOfWork(client_id=cliente_id) as uow:
+        async with UnitOfWork(
+            client_id=cliente_id,
+            connection_type=SESSION_STORE_CONNECTION,
+        ) as uow:
             tx_result = await stx.create_session_with_token_tx(
                 uow,
                 usuario_id=usuario_id,

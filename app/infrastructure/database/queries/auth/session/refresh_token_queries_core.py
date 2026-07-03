@@ -14,6 +14,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, delete, func, insert, or_, select, text, update
 
 from app.core.exceptions import ValidationError
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.infrastructure.database.tables import RefreshTokensTable
 
 logger = logging.getLogger(__name__)
@@ -67,7 +70,7 @@ async def _get_token_by_id_core(
     from app.infrastructure.database.queries_async import execute_query
 
     query = select(RefreshTokensTable).where(_tenant_token_where(token_id, cliente_id))
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -103,7 +106,7 @@ async def insert_refresh_token_core(
     stmt = insert(RefreshTokensTable).values(
         **{k: v for k, v in payload.items() if k in _TOKEN_COLUMNS}
     )
-    await execute_insert(stmt, client_id=cliente_id)
+    await execute_insert(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     row = await _get_token_by_id_core(new_token_id, cliente_id)
     if row is None:
         raise ValidationError(
@@ -129,7 +132,7 @@ async def get_refresh_token_by_hash_core(
             RefreshTokensTable.c.expires_at > func.getdate(),
         )
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -146,7 +149,7 @@ async def get_refresh_token_by_hash_any_state_core(
             RefreshTokensTable.c.cliente_id == cliente_id,
         )
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -168,7 +171,7 @@ async def mark_token_used_core(
             last_used_at=func.getdate(),
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -196,7 +199,7 @@ async def revoke_token_core(
             revoked_reason=revoked_reason,
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -225,7 +228,7 @@ async def revoke_tokens_by_session_core(
             revoked_reason=revoked_reason,
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -267,7 +270,7 @@ async def purge_expired_tokens_core(
             ),
         )
     )
-    result = await execute_query(stmt, client_id=cliente_id)
+    result = await execute_query(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if result and len(result) > 0:
         return int(result[0].get("rows_affected", 0))
     return 0

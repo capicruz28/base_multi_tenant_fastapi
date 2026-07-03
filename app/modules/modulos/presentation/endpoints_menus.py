@@ -71,7 +71,7 @@ async def obtener_mi_menu(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Obtiene el menú del usuario actual (tenant del token). Diferenciación automática por rol."""
-    logger.info(f"Solicitud GET /modulos-menus/me/ recibida para usuario {current_user.usuario_id}")
+    logger.debug(f"Solicitud GET /modulos-menus/me/ recibida para usuario {current_user.usuario_id}")
     try:
         is_super_admin = getattr(current_user, "is_super_admin", False)
         effective_codes = None
@@ -92,7 +92,7 @@ async def obtener_mi_menu(
             empresa_id=empresa_id,
             effective_permission_codes=effective_codes,
         )
-        logger.info(f"Menú /me/ obtenido exitosamente para usuario {current_user.usuario_id}")
+        logger.debug(f"Menú /me/ obtenido exitosamente para usuario {current_user.usuario_id}")
         return menu
     except CustomException as ce:
         logger.error(f"Error al obtener menú /me/: {ce.detail}")
@@ -152,7 +152,7 @@ async def obtener_menu_usuario(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Obtiene el menú de un usuario por ID. SuperAdmin recibe menú completo solo cuando pide el suyo."""
-    logger.info(f"Solicitud GET /modulos-menus/usuario/{usuario_id}/ recibida")
+    logger.debug(f"Solicitud GET /modulos-menus/usuario/{usuario_id}/ recibida")
     try:
         cliente_id = current_user.cliente_id
         is_own_user = str(current_user.usuario_id) == str(usuario_id)
@@ -165,7 +165,7 @@ async def obtener_menu_usuario(
             as_tenant_admin=False,
             empresa_id=empresa_id,
         )
-        logger.info(f"Menú del usuario {usuario_id} obtenido exitosamente")
+        logger.debug(f"Menú del usuario {usuario_id} obtenido exitosamente")
         return menu
     except CustomException as ce:
         logger.error(f"Error al obtener menú del usuario: {ce.detail}")

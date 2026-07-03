@@ -49,7 +49,7 @@ _CREATE = "app.modules.auth.application.services.session_creation_service"
 @pytest.mark.asyncio
 async def test_f7_policy_no_eviction_when_under_limit():
     with (
-        patch(f"{_POLICY}.leer_max_active_sessions", new_callable=AsyncMock, return_value=3),
+        patch(f"{_POLICY}.AuthConfigGateway.get_max_active_sessions", new_callable=AsyncMock, return_value=3),
         patch(f"{_POLICY}.usq.count_active_sessions_core", new_callable=AsyncMock, return_value=2),
         patch(f"{_POLICY}.usq.list_active_sessions_oldest_first_core", new_callable=AsyncMock),
     ):
@@ -57,9 +57,10 @@ async def test_f7_policy_no_eviction_when_under_limit():
             USUARIO_ID,
             CLIENTE_ID,
         )
+        enforce_count = await SessionPolicyService.enforce_limit(USUARIO_ID, CLIENTE_ID)
     assert decision.active_count == 2
     assert decision.sessions_to_evict == ()
-    assert await SessionPolicyService.enforce_limit(USUARIO_ID, CLIENTE_ID) == 0
+    assert enforce_count == 0
 
 
 @pytest.mark.unit
@@ -67,7 +68,7 @@ async def test_f7_policy_no_eviction_when_under_limit():
 async def test_f7_policy_evicts_oldest_when_at_limit():
     oldest = {"session_id": EVICT_SESSION_ID, "created_at": datetime(2026, 1, 1)}
     with (
-        patch(f"{_POLICY}.leer_max_active_sessions", new_callable=AsyncMock, return_value=2),
+        patch(f"{_POLICY}.AuthConfigGateway.get_max_active_sessions", new_callable=AsyncMock, return_value=2),
         patch(f"{_POLICY}.usq.count_active_sessions_core", new_callable=AsyncMock, return_value=2),
         patch(
             f"{_POLICY}.usq.list_active_sessions_oldest_first_core",
@@ -90,7 +91,7 @@ async def test_f7_policy_evicts_oldest_when_at_limit():
 @pytest.mark.asyncio
 async def test_f7_policy_default_max_when_config_null():
     with patch(
-        f"{_POLICY}.leer_max_active_sessions",
+        f"{_POLICY}.AuthConfigGateway.get_max_active_sessions",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -102,7 +103,7 @@ async def test_f7_policy_default_max_when_config_null():
 @pytest.mark.asyncio
 async def test_f7_policy_check_idle_respects_disabled():
     with patch(
-        f"{_POLICY}.leer_session_idle_timeout_minutos",
+        f"{_POLICY}.AuthConfigGateway.get_session_idle_timeout_minutes",
         new_callable=AsyncMock,
         return_value=None,
     ):
@@ -115,7 +116,7 @@ async def test_f7_policy_check_idle_respects_disabled():
 async def test_f7_policy_check_idle_delegates_to_query():
     with (
         patch(
-            f"{_POLICY}.leer_session_idle_timeout_minutos",
+            f"{_POLICY}.AuthConfigGateway.get_session_idle_timeout_minutes",
             new_callable=AsyncMock,
             return_value=60,
         ),

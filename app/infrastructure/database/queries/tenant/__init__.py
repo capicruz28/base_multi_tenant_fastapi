@@ -1,0 +1,1 @@
+"""Queries platform tenant — CP."""

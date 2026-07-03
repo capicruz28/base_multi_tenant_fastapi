@@ -50,6 +50,11 @@ from app.core.tenant.context import get_current_client_id
 logger = logging.getLogger(__name__)
 
 
+def _auth_diag_verbose() -> bool:
+    """Telemetría auth diagnóstica — opt-in vía ENABLE_AUTH_VERBOSE (F12-E2B3J)."""
+    return settings.ENABLE_AUTH_VERBOSE
+
+
 # Schema para recibir refresh token en el body (móvil)
 class RefreshTokenBody(BaseModel):
     refresh_token: Optional[str] = None
@@ -169,23 +174,13 @@ class AuthService:
     @staticmethod
     async def _listar_empresas_activas_org(cliente_id: UUID) -> List[Dict[str, Any]]:
         """
-        Empresas activas del tenant en org_empresa (admin cliente sin usuario_rol por empresa).
+        Empresas activas del tenant (admin cliente sin usuario_rol por empresa).
         """
-        query = text("""
-            SELECT empresa_id, razon_social, nombre_comercial
-            FROM org_empresa
-            WHERE cliente_id = :cliente_id
-              AND es_activo = 1
-            ORDER BY razon_social
-        """).bindparams(cliente_id=cliente_id)
-        rows = await execute_query(
-            query,
-            connection_type=DatabaseConnection.DEFAULT,
-            client_id=cliente_id,
-        )
+        from app.core.organization.org_read_gateway import OrgReadGateway
+
         empresas: List[Dict[str, Any]] = []
         seen: set[UUID] = set()
-        for row in rows or []:
+        for row in await OrgReadGateway.list_active_empresas_for_login(cliente_id):
             item = AuthService._empresa_disponible_from_row(row)
             if item and item["empresa_id"] not in seen:
                 seen.add(item["empresa_id"])
@@ -268,18 +263,14 @@ class AuthService:
         usuario_id: UUID,
         cliente_id: UUID,
     ) -> Optional[Dict[str, Any]]:
-        """Campos de política de contraseña desde BD (fuente de verdad)."""
-        from sqlalchemy import text
+        """Campos de política de contraseña desde Identity Gateway (F8-A)."""
+        from app.core.identity.identity_context import IdentityContext
+        from app.core.identity.identity_gateway import IdentityGateway
 
-        query = text("""
-            SELECT requiere_cambio_contrasena, proveedor_autenticacion, contrasena
-            FROM usuario
-            WHERE usuario_id = :usuario_id
-              AND cliente_id = :cliente_id
-              AND es_eliminado = 0
-        """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
-        rows = await execute_query(query, client_id=cliente_id)
-        return rows[0] if rows else None
+        return await IdentityGateway.get_user_password_policy_fields(
+            IdentityContext(cliente_id=cliente_id),
+            usuario_id,
+        )
 
     @staticmethod
     def build_token_data_from_level_info(
@@ -312,12 +303,12 @@ class AuthService:
         token_cliente_id: Optional[UUID],
     ) -> Optional[Dict[str, Any]]:
         """
-        Carga usuario para refresh. Platform superadmin vive en BD ADMIN (cliente SYSTEM).
+        Carga usuario para refresh vía Identity Gateway (F8-A).
         """
-        from app.core.tenant.context import try_get_tenant_context
+        from app.core.identity.identity_context import IdentityContext
+        from app.core.identity.identity_gateway import IdentityGateway
+        from app.core.tenant.context import try_get_current_client_id
 
-        tenant_context = try_get_tenant_context()
-        database_type = tenant_context.database_type if tenant_context else "single"
         system_cliente_id = AuthService._coerce_uuid(settings.SUPERADMIN_CLIENTE_ID)
         is_platform = AuthService._is_platform_operator_payload(payload)
 
@@ -325,105 +316,33 @@ class AuthService:
             search_cliente_id = token_cliente_id or system_cliente_id
             if not search_cliente_id:
                 return None
-            # Misma BD que tenant: usar routing DEFAULT + cliente_id del JWT (SYSTEM).
-            # ADMIN solo en login password del username reservado; refresh alinea con persistencia.
-            query = text("""
-                SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
-                       es_activo, requiere_cambio_contrasena, proveedor_autenticacion
-                FROM usuario
-                WHERE cliente_id = :cliente_id
-                  AND nombre_usuario = :nombre_usuario
-                  AND es_eliminado = 0
-            """).bindparams(
-                cliente_id=search_cliente_id,
-                nombre_usuario=username,
+            user = await IdentityGateway.get_user_for_refresh(
+                IdentityContext(cliente_id=search_cliente_id),
+                username,
+                is_platform=True,
+                platform_cliente_id=search_cliente_id,
             )
-            result = await execute_query(
-                query,
-                connection_type=DatabaseConnection.DEFAULT,
-                client_id=search_cliente_id,
-            )
-            return AuthService._materialize_auth_user_row(result[0] if result else None)
+            return AuthService._materialize_auth_user_row(user)
 
-        if database_type == "multi":
-            query = """
-            SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
-                   es_activo, requiere_cambio_contrasena, proveedor_autenticacion
-            FROM usuario
-            WHERE nombre_usuario = ? AND es_eliminado = 0
-            """
-            row = await execute_auth_query(query, (username,))
-            return AuthService._materialize_auth_user_row(row)
-
-        search_cliente_id = token_cliente_id
-        if not search_cliente_id:
-            from app.core.tenant.context import try_get_current_client_id
-
-            search_cliente_id = try_get_current_client_id()
+        search_cliente_id = token_cliente_id or try_get_current_client_id()
         if not search_cliente_id:
             return None
 
-        query = text("""
-            SELECT usuario_id, cliente_id, nombre_usuario, correo, nombre, apellido,
-                   es_activo, requiere_cambio_contrasena, proveedor_autenticacion
-            FROM usuario
-            WHERE cliente_id = :cliente_id
-              AND nombre_usuario = :nombre_usuario
-              AND es_eliminado = 0
-        """).bindparams(
-            cliente_id=search_cliente_id,
-            nombre_usuario=username,
-        )
-        result = await execute_query(
-            query,
-            connection_type=DatabaseConnection.DEFAULT,
-            client_id=search_cliente_id,
-        )
-        return AuthService._materialize_auth_user_row(result[0] if result else None)
+        ctx = IdentityContext(cliente_id=search_cliente_id)
+        user = await IdentityGateway.get_user_for_refresh(ctx, username)
+        if user and token_cliente_id:
+            user["cliente_id"] = token_cliente_id
+        return AuthService._materialize_auth_user_row(user)
 
     @staticmethod
     async def _detect_platform_superadmin(
         usuario_id: UUID,
         username: Optional[str] = None,
     ) -> bool:
-        """
-        True si es superadmin de plataforma: username reservado o rol SUPER_ADMIN
-        nivel 5 en el cliente SYSTEM (BD admin).
-        """
-        if username and username == settings.SUPERADMIN_USERNAME:
-            return True
+        """True si es superadmin de plataforma (Identity Gateway F8-A)."""
+        from app.core.identity.identity_gateway import IdentityGateway
 
-        system_cliente_id = AuthService._coerce_uuid(settings.SUPERADMIN_CLIENTE_ID)
-        if not system_cliente_id:
-            return False
-
-        try:
-            super_sql = text("""
-                SELECT COUNT(*) AS super_admin_count
-                FROM usuario_rol ur
-                INNER JOIN rol r ON ur.rol_id = r.rol_id
-                WHERE ur.usuario_id = :usuario_id
-                  AND ur.cliente_id = :cliente_id
-                  AND ur.es_activo = 1
-                  AND r.es_activo = 1
-                  AND r.codigo_rol = 'SUPER_ADMIN'
-                  AND r.nivel_acceso = 5
-            """).bindparams(usuario_id=usuario_id, cliente_id=system_cliente_id)
-
-            rows = await execute_query(
-                super_sql,
-                connection_type=DatabaseConnection.ADMIN,
-                client_id=None,
-            )
-            if rows:
-                return int(rows[0].get("super_admin_count") or 0) > 0
-        except Exception as e:
-            logger.warning(
-                "[AUTH] No se pudo verificar SUPER_ADMIN en cliente SYSTEM para %s: %s",
-                usuario_id,
-                e,
-            )
-        return False
+        return await IdentityGateway.detect_platform_superadmin(usuario_id, username)
 
     @staticmethod
     async def get_empresa_activa_para_login(
@@ -447,12 +366,13 @@ class AuthService:
                 user_type = payload.get("user_type")
 
         if es_superadmin or user_type == "platform_admin":
-            logger.info(
-                "[AUTH] Superadmin plataforma: sin empresa activa ni selección "
-                "(usuario=%s, cliente=%s)",
-                usuario_id,
-                cliente_id,
-            )
+            if _auth_diag_verbose():
+                logger.info(
+                    "[AUTH] Superadmin plataforma: sin empresa activa ni selección "
+                    "(usuario=%s, cliente=%s)",
+                    usuario_id,
+                    cliente_id,
+                )
             return {
                 "empresas_disponibles": [],
                 "empresa_activa": None,
@@ -460,82 +380,39 @@ class AuthService:
                 "requiere_seleccion": False,
             }
 
-        from app.core.tenant.context import try_get_tenant_context
+        from app.core.identity.identity_context import IdentityContext
+        from app.core.identity.identity_gateway import IdentityGateway
+        from app.core.organization.org_read_gateway import OrgReadGateway
 
-        tenant_context = try_get_tenant_context()
-        database_type = tenant_context.database_type if tenant_context else "single"
-
+        identity_ctx = IdentityContext(cliente_id=cliente_id)
         empresas_disponibles: List[Dict[str, Any]] = []
         empresa_default_id: Optional[UUID] = None
         es_admin_sin_empresa = False
 
         try:
-            empresas_sql = text("""
-                SELECT DISTINCT oe.empresa_id, oe.razon_social, oe.nombre_comercial
-                FROM usuario_rol ur
-                INNER JOIN org_empresa oe ON oe.empresa_id = ur.empresa_id
-                WHERE ur.usuario_id = :usuario_id
-                  AND ur.cliente_id = :cliente_id
-                  AND ur.es_activo = 1
-                  AND ur.empresa_id IS NOT NULL
-                  AND oe.es_activo = 1
-                ORDER BY oe.razon_social
-            """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
-
-            empresas_rows = await execute_query(
-                empresas_sql,
-                connection_type=DatabaseConnection.DEFAULT,
-                client_id=cliente_id,
+            eligible_ids = await IdentityGateway.get_user_eligible_empresa_ids(
+                identity_ctx,
+                usuario_id,
+            )
+            active_rows = await OrgReadGateway.get_active_empresas_by_ids(
+                cliente_id,
+                eligible_ids,
             )
             seen: set[UUID] = set()
-            for row in empresas_rows or []:
+            for row in active_rows:
                 item = AuthService._empresa_disponible_from_row(row)
                 if item and item["empresa_id"] not in seen:
                     seen.add(item["empresa_id"])
                     empresas_disponibles.append(item)
 
-            admin_sql = text("""
-                SELECT COUNT(*) AS admin_sin_empresa_count
-                FROM usuario_rol ur
-                WHERE ur.usuario_id = :usuario_id
-                  AND ur.cliente_id = :cliente_id
-                  AND ur.es_activo = 1
-                  AND ur.empresa_id IS NULL
-            """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
-
-            admin_rows = await execute_query(
-                admin_sql,
-                connection_type=DatabaseConnection.DEFAULT,
-                client_id=cliente_id,
+            es_admin_sin_empresa = await IdentityGateway.is_admin_tenant_wide(
+                identity_ctx,
+                usuario_id,
             )
-            if admin_rows:
-                es_admin_sin_empresa = int(admin_rows[0].get("admin_sin_empresa_count") or 0) > 0
-
-            if database_type == "multi":
-                usuario_sql = text("""
-                    SELECT empresa_default_id
-                    FROM usuario
-                    WHERE usuario_id = :usuario_id
-                      AND es_eliminado = 0
-                """).bindparams(usuario_id=usuario_id)
-            else:
-                usuario_sql = text("""
-                    SELECT empresa_default_id
-                    FROM usuario
-                    WHERE usuario_id = :usuario_id
-                      AND cliente_id = :cliente_id
-                      AND es_eliminado = 0
-                """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
-
-            usuario_rows = await execute_query(
-                usuario_sql,
-                connection_type=DatabaseConnection.DEFAULT,
-                client_id=cliente_id,
+            empresa_default_id = await IdentityGateway.get_user_empresa_default_id(
+                identity_ctx,
+                usuario_id,
             )
-            if usuario_rows:
-                empresa_default_id = AuthService._coerce_uuid(
-                    usuario_rows[0].get("empresa_default_id")
-                )
 
         except Exception as e:
             logger.warning(
@@ -551,10 +428,11 @@ class AuthService:
                 empresas_org = await AuthService._listar_empresas_activas_org(cliente_id)
                 if empresas_org:
                     empresas_disponibles = empresas_org
-                    logger.info(
-                        "[AUTH] Admin sin empresa en usuario_rol: %s empresas en org_empresa",
-                        len(empresas_org),
-                    )
+                    if _auth_diag_verbose():
+                        logger.info(
+                            "[AUTH] Admin sin empresa en usuario_rol: %s empresas en org_empresa",
+                            len(empresas_org),
+                        )
             except Exception as org_err:
                 logger.warning(
                     "[AUTH] No se pudo listar org_empresa para cliente %s: %s",
@@ -573,10 +451,11 @@ class AuthService:
                     )
 
                     await clear_usuario_empresa_default_id(usuario_id, cliente_id)
-                    logger.info(
-                        "[AUTH] empresa_default_id inválida limpiada usuario=%s",
-                        usuario_id,
-                    )
+                    if _auth_diag_verbose():
+                        logger.info(
+                            "[AUTH] empresa_default_id inválida limpiada usuario=%s",
+                            usuario_id,
+                        )
                 except Exception as clear_err:
                     logger.warning(
                         "[AUTH] No se pudo limpiar empresa_default_id inválida: %s",
@@ -596,16 +475,17 @@ class AuthService:
             else:
                 empresa_activa = empresas_disponibles[0]["empresa_id"]
 
-        logger.info(
-            "[AUTH] Empresa login usuario=%s cliente=%s disponibles=%s activa=%s "
-            "requiere_seleccion=%s admin_sin_empresa=%s",
-            usuario_id,
-            cliente_id,
-            len(empresas_disponibles),
-            empresa_activa,
-            requiere_seleccion,
-            es_admin_sin_empresa,
-        )
+        if _auth_diag_verbose():
+            logger.info(
+                "[AUTH] Empresa login usuario=%s cliente=%s disponibles=%s activa=%s "
+                "requiere_seleccion=%s admin_sin_empresa=%s",
+                usuario_id,
+                cliente_id,
+                len(empresas_disponibles),
+                empresa_activa,
+                requiere_seleccion,
+                es_admin_sin_empresa,
+            )
 
         return {
             "empresas_disponibles": empresas_disponibles,
@@ -672,41 +552,14 @@ class AuthService:
             return False
 
         try:
-            if empresa_id is not None:
-                admin_sql = text("""
-                    SELECT COUNT(*) AS admin_cliente_count
-                    FROM usuario_rol ur
-                    INNER JOIN rol r ON ur.rol_id = r.rol_id
-                    WHERE ur.usuario_id = :usuario_id
-                      AND ur.cliente_id = :cliente_id
-                      AND ur.es_activo = 1
-                      AND r.es_activo = 1
-                      AND r.es_admin_cliente = 1
-                      AND (ur.empresa_id IS NULL OR ur.empresa_id = :empresa_id)
-                """).bindparams(
-                    usuario_id=usuario_id,
-                    cliente_id=cliente_id,
-                    empresa_id=empresa_id,
-                )
-            else:
-                admin_sql = text("""
-                    SELECT COUNT(*) AS admin_cliente_count
-                    FROM usuario_rol ur
-                    INNER JOIN rol r ON ur.rol_id = r.rol_id
-                    WHERE ur.usuario_id = :usuario_id
-                      AND ur.cliente_id = :cliente_id
-                      AND ur.es_activo = 1
-                      AND r.es_activo = 1
-                      AND r.es_admin_cliente = 1
-                """).bindparams(usuario_id=usuario_id, cliente_id=cliente_id)
+            from app.core.identity.identity_context import IdentityContext
+            from app.core.identity.identity_gateway import IdentityGateway
 
-            rows = await execute_query(
-                admin_sql,
-                connection_type=DatabaseConnection.DEFAULT,
-                client_id=cliente_id,
+            return await IdentityGateway.is_admin_cliente(
+                IdentityContext(cliente_id=cliente_id),
+                usuario_id,
+                empresa_id=empresa_id,
             )
-            if rows:
-                return int(rows[0].get("admin_cliente_count") or 0) > 0
         except Exception as e:
             logger.warning(
                 "[AUTH] usuario_tiene_es_admin_cliente falló para usuario %s: %s",
@@ -732,7 +585,7 @@ class AuthService:
         try:
             if await AuthService._detect_platform_superadmin(usuario_id, username):
                 info = AuthService._platform_superadmin_level_info()
-                logger.info(
+                logger.debug(
                     "Niveles calculados - Usuario %s: level=%s, super_admin=%s, type=%s "
                     "(platform superadmin)",
                     usuario_id,
@@ -742,91 +595,15 @@ class AuthService:
                 )
                 return info
 
-            from app.infrastructure.database.queries_async import execute_query
-            from app.infrastructure.database.connection_async import DatabaseConnection
-            from sqlalchemy import text
-            from app.core.tenant.context import try_get_tenant_context
-            from app.core.tenant.empresa_context import resolve_empresa_id, sql_empresa_filter_usuario_rol
+            from app.core.identity.identity_context import IdentityContext
+            from app.core.identity.identity_gateway import IdentityGateway
 
-            resolved_empresa_id = resolve_empresa_id(empresa_id)
-            tenant_context = try_get_tenant_context()
-            database_type = tenant_context.database_type if tenant_context else "single"
-            empresa_sql = (
-                sql_empresa_filter_usuario_rol("ur") if resolved_empresa_id else ""
+            return await IdentityGateway.get_user_access_level_info(
+                IdentityContext(cliente_id=cliente_id),
+                usuario_id,
+                empresa_id=empresa_id,
             )
 
-            if database_type == "multi":
-                query = f"""
-                SELECT 
-                    ISNULL(MAX(r.nivel_acceso), 1) as max_level,
-                    COUNT(CASE WHEN r.codigo_rol = 'SUPER_ADMIN' AND r.nivel_acceso = 5 THEN 1 END) as super_admin_count,
-                    COUNT(*) as total_roles
-                FROM usuario_rol ur
-                INNER JOIN rol r ON ur.rol_id = r.rol_id
-                WHERE ur.usuario_id = :usuario_id 
-                  AND ur.es_activo = 1
-                  AND r.es_activo = 1
-                {empresa_sql}
-                """
-                bind = {"usuario_id": usuario_id}
-                if resolved_empresa_id:
-                    bind["empresa_id"] = resolved_empresa_id
-                result = await execute_query(
-                    text(query).bindparams(**bind),
-                    connection_type=DatabaseConnection.DEFAULT,
-                    client_id=cliente_id,
-                )
-            else:
-                query = f"""
-                SELECT 
-                    ISNULL(MAX(r.nivel_acceso), 1) as max_level,
-                    COUNT(CASE WHEN r.codigo_rol = 'SUPER_ADMIN' AND r.nivel_acceso = 5 THEN 1 END) as super_admin_count,
-                    COUNT(*) as total_roles
-                FROM usuario_rol ur
-                INNER JOIN rol r ON ur.rol_id = r.rol_id
-                WHERE ur.usuario_id = :usuario_id 
-                  AND ur.es_activo = 1
-                  AND r.es_activo = 1
-                  AND (r.cliente_id = :cliente_id OR r.cliente_id IS NULL)
-                {empresa_sql}
-                """
-                bind = {"usuario_id": usuario_id, "cliente_id": cliente_id}
-                if resolved_empresa_id:
-                    bind["empresa_id"] = resolved_empresa_id
-                result = await execute_query(
-                    text(query).bindparams(**bind),
-                    connection_type=DatabaseConnection.DEFAULT,
-                    client_id=cliente_id,
-                )
-            
-            if result and len(result) > 0:
-                level_data = result[0]
-                access_level = level_data.get('max_level', 1)
-                is_super_admin = level_data.get('super_admin_count', 0) > 0
-                
-                # Determinar tipo de usuario (tenant-scoped; platform superadmin ya retornó arriba)
-                if is_super_admin:
-                    user_type = "platform_admin"
-                elif access_level >= 4:
-                    user_type = "tenant_admin"
-                else:
-                    user_type = "user"
-                    
-                logger.info(f"Niveles calculados - Usuario {usuario_id}: level={access_level}, super_admin={is_super_admin}, type={user_type}")
-                
-                return {
-                    'access_level': access_level,
-                    'is_super_admin': is_super_admin,
-                    'user_type': user_type
-                }
-            else:
-                logger.warning(f"No se pudieron calcular niveles para usuario {usuario_id}, usando valores por defecto")
-                return {
-                    'access_level': 1,
-                    'is_super_admin': False,
-                    'user_type': 'user'
-                }
-                
         except Exception as e:
             logger.error(f"Error al obtener niveles de acceso para usuario {usuario_id}: {e}")
             # Valores por defecto en caso de error
@@ -848,8 +625,11 @@ class AuthService:
         AHORA INCLUYE: access_level, is_super_admin, user_type en la respuesta
         """
         
-        # ✅ LOGGING CRÍTICO: Verificar qué cliente_id llegó
-        logger.info(f"[AUTH] Intento de login: username='{username}', cliente_id_destino={cliente_id}")
+        logger.debug(
+            "[AUTH] Intento de login: username='%s', cliente_id_destino=%s",
+            username,
+            cliente_id,
+        )
         
         # 1. Detectar si es superadmin
         is_superadmin = (username == settings.SUPERADMIN_USERNAME)
@@ -860,95 +640,39 @@ class AuthService:
             search_cliente_id = settings.SUPERADMIN_CLIENTE_ID
             target_cliente_id = cliente_id  # Cliente al que quiere acceder
             
-            logger.info(
-                f"[AUTH] SUPERADMIN detectado. "
-                f"Buscando en BD ADMIN (cliente_id={search_cliente_id}), "
-                f"accediendo a cliente_id={target_cliente_id}"
+            logger.debug(
+                "[AUTH] SUPERADMIN detectado. "
+                "Buscando en BD ADMIN (cliente_id=%s), accediendo a cliente_id=%s",
+                search_cliente_id,
+                target_cliente_id,
             )
         else:
             # USUARIO REGULAR: Buscar en su cliente, usando BD del contexto
             search_cliente_id = cliente_id
             target_cliente_id = cliente_id
-            
-            logger.info(
-                f"[AUTH] Usuario regular. "
-                f"Buscando en BD del cliente_id={search_cliente_id}"
+
+            logger.debug(
+                "[AUTH] Usuario regular. Buscando en BD del cliente_id=%s",
+                search_cliente_id,
             )
 
         try:
-            # ✅ Obtener database_type del contexto para determinar si es BD dedicada
-            from app.core.tenant.context import get_tenant_context, try_get_tenant_context
-            from sqlalchemy import text
-            
-            tenant_context = None
-            database_type = "single"
-            try:
-                tenant_context = get_tenant_context()
-                database_type = tenant_context.database_type if tenant_context else "single"
-            except RuntimeError:
-                # Sin contexto, intentar obtener sin lanzar excepción
-                tenant_context = try_get_tenant_context()
-                database_type = tenant_context.database_type if tenant_context else "single"
-            
-            # ✅ CORRECCIÓN: Para BD dedicadas (multi), no filtrar por cliente_id
-            # porque todos los usuarios en esa BD pertenecen al mismo cliente
-            if database_type == "multi":
-                query = """
-                SELECT usuario_id, cliente_id, nombre_usuario, correo, contrasena,
-                       nombre, apellido, es_activo, requiere_cambio_contrasena,
-                       proveedor_autenticacion
-                FROM usuario
-                WHERE nombre_usuario = :nombre_usuario AND es_eliminado = 0
-                """
-                logger.debug(
-                    f"[AUTH] BD dedicada detectada. Buscando usuario sin filtrar por cliente_id: "
-                    f"username='{username}'"
-                )
-            else:
-                query = """
-                SELECT usuario_id, cliente_id, nombre_usuario, correo, contrasena,
-                       nombre, apellido, es_activo, requiere_cambio_contrasena,
-                       proveedor_autenticacion
-                FROM usuario
-                WHERE cliente_id = :cliente_id AND nombre_usuario = :nombre_usuario AND es_eliminado = 0
-                """
-                logger.debug(
-                    f"[AUTH] BD compartida. Buscando usuario con cliente_id: "
-                    f"cliente_id={search_cliente_id}, username='{username}'"
-                )
-            
-            # ✅ CORRECCIÓN CRÍTICA: Usar BD apropiada según tipo de usuario
-            # ✅ FASE 2: Usar execute_query async con text().bindparams()
-            
+            from app.core.identity.identity_context import IdentityContext
+            from app.core.identity.identity_gateway import IdentityGateway
+
             if is_superadmin:
-                # Superadmin: SIEMPRE usar BD ADMIN
-                logger.debug(f"[AUTH] Ejecutando en BD ADMIN: cliente_id={search_cliente_id}, username='{username}'")
-                
-                result = await execute_query(
-                    text(query).bindparams(cliente_id=search_cliente_id, nombre_usuario=username),
-                    connection_type=DatabaseConnection.ADMIN,
-                    client_id=None
+                user = await IdentityGateway.get_platform_user_by_username(
+                    username,
+                    platform_cliente_id=search_cliente_id,
                 )
-                user = result[0] if result else None
             else:
-                # Usuario regular: Usar BD del contexto (tenant-aware)
-                logger.debug(f"[AUTH] Ejecutando en BD tenant: cliente_id={search_cliente_id}, username='{username}'")
-                
-                if database_type == "multi":
-                    # BD dedicada: no pasar cliente_id en bindparams
-                    result = await execute_query(
-                        text(query).bindparams(nombre_usuario=username),
-                        connection_type=DatabaseConnection.DEFAULT,
-                        client_id=search_cliente_id
-                    )
-                else:
-                    # BD compartida: pasar cliente_id en bindparams
-                    result = await execute_query(
-                        text(query).bindparams(cliente_id=search_cliente_id, nombre_usuario=username),
-                        connection_type=DatabaseConnection.DEFAULT,
-                        client_id=search_cliente_id
-                    )
-                user = result[0] if result else None
+                identity_ctx = IdentityContext(cliente_id=search_cliente_id)
+                user = await IdentityGateway.get_user_by_username(
+                    identity_ctx,
+                    username,
+                )
+                if user:
+                    user = IdentityGateway.normalize_user_cliente_id(user, identity_ctx)
 
             if not user:
                 logger.warning(
@@ -960,34 +684,12 @@ class AuthService:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Credenciales incorrectas"
                 )
-            
-            # ✅ CORRECCIÓN CRÍTICA: Para BD dedicadas, el cliente_id del usuario puede ser NULL o UUID nulo
-            # Usar el cliente_id del contexto del tenant en su lugar
-            # IMPORTANTE: Hacer esto ANTES del log para que el log muestre el valor correcto
-            if database_type == "multi":
-                # Convertir cliente_id a UUID si es string para comparar
-                user_cliente_id = user.get('cliente_id')
-                if user_cliente_id:
-                    if isinstance(user_cliente_id, str):
-                        try:
-                            user_cliente_id = UUID(user_cliente_id)
-                        except (ValueError, AttributeError):
-                            user_cliente_id = None
-                    elif not isinstance(user_cliente_id, UUID):
-                        user_cliente_id = None
-                
-                # Verificar si es None o UUID nulo
-                if not user_cliente_id or (isinstance(user_cliente_id, UUID) and user_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
-                    user['cliente_id'] = search_cliente_id
-                    logger.debug(
-                        f"[AUTH] BD dedicada: cliente_id del usuario era NULL/nulo, "
-                        f"usando cliente_id del contexto: {search_cliente_id}"
-                    )
-                else:
-                    user['cliente_id'] = user_cliente_id
-            
-            # ✅ LOGGING: Usuario encontrado (después de la corrección)
-            logger.debug(f"[AUTH] Usuario encontrado: usuario_id={user['usuario_id']}, cliente_id={user['cliente_id']}")
+
+            # ✅ LOGGING: Usuario encontrado (después de normalización identity)
+            logger.debug(
+                f"[AUTH] Usuario encontrado: usuario_id={user['usuario_id']}, "
+                f"cliente_id={user['cliente_id']}"
+            )
             
             if not verify_password(password, user['contrasena']):
                 logger.warning(
@@ -1007,16 +709,11 @@ class AuthService:
                     detail="Usuario inactivo"
                 )
 
-            # Actualizar fecha último acceso
-            # ✅ FASE 2: Usar execute_query async para UPDATE
-            from app.infrastructure.database.tables import UsuarioTable
-            from sqlalchemy import update, func, text
-            
-            update_query = update(UsuarioTable).where(
-                UsuarioTable.c.usuario_id == user['usuario_id']
-            ).values(fecha_ultimo_acceso=func.getdate())
-            
-            await execute_update(update_query)
+            # Actualizar fecha último acceso (Identity Gateway F6-P1)
+            await IdentityGateway.update_last_access(
+                IdentityContext(cliente_id=user["cliente_id"]),
+                user["usuario_id"],
+            )
 
             # ✅ CALCULAR NIVELES DE ACCESO (NUEVO)
             # ✅ FASE 2: Usar await — incluye detección platform superadmin por username/rol SYSTEM
@@ -1041,12 +738,7 @@ class AuthService:
                 user['target_cliente_id'] = target_cliente_id
                 user['es_superadmin'] = True
             else:
-                # Para usuarios regulares, asegurar que target_cliente_id sea el cliente_id correcto
-                # En BD dedicadas, usar search_cliente_id (del contexto) en lugar del cliente_id del usuario
-                if database_type == "multi":
-                    user['target_cliente_id'] = search_cliente_id
-                else:
-                    user['target_cliente_id'] = user['cliente_id']
+                user['target_cliente_id'] = user['cliente_id']
             
             logger.info(
                 f"[AUTH] Login exitoso: "
@@ -1385,12 +1077,13 @@ class AuthService:
             db_empresa_id if db_empresa_id is not None else jwt_empresa_id
         )
 
-        logger.info(
-            "[REFRESH-V2] Identidad refresh resuelta usuario=%s cliente=%s empresa=%s",
-            username,
-            token_cliente_id,
-            user["empresa_id"],
-        )
+        if _auth_diag_verbose():
+            logger.info(
+                "[REFRESH-V2] Identidad refresh resuelta usuario=%s cliente=%s empresa=%s",
+                username,
+                token_cliente_id,
+                user["empresa_id"],
+            )
         return user
 
     @staticmethod
@@ -1536,11 +1229,6 @@ class AuthService:
 
             username = token_data.sub
 
-            from app.core.tenant.context import try_get_tenant_context
-
-            tenant_context = try_get_tenant_context()
-            database_type = tenant_context.database_type if tenant_context else "single"
-
             user = await AuthService._fetch_user_row_for_refresh(
                 username,
                 payload=payload,
@@ -1558,50 +1246,6 @@ class AuthService:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Usuario inactivo"
                 )
-            
-            # ✅ CORRECCIÓN CRÍTICA: Para BD dedicadas, el cliente_id del usuario puede ser NULL o UUID nulo
-            # Usar el cliente_id del token o del contexto en su lugar
-            if database_type == "multi":
-                # Convertir cliente_id del usuario a UUID si es string para comparar
-                user_cliente_id = user.get('cliente_id')
-                if user_cliente_id:
-                    if isinstance(user_cliente_id, str):
-                        try:
-                            user_cliente_id = UUID(user_cliente_id)
-                        except (ValueError, AttributeError):
-                            user_cliente_id = None
-                    elif not isinstance(user_cliente_id, UUID):
-                        user_cliente_id = None
-                
-                # Verificar si es None o UUID nulo
-                if not user_cliente_id or (isinstance(user_cliente_id, UUID) and user_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
-                    if token_cliente_id:
-                        # Convertir token_cliente_id a UUID si es string
-                        if isinstance(token_cliente_id, str):
-                            try:
-                                user['cliente_id'] = UUID(token_cliente_id)
-                            except (ValueError, AttributeError):
-                                # Si falla, usar el contexto actual
-                                from app.core.tenant.context import try_get_current_client_id
-                                user['cliente_id'] = try_get_current_client_id()
-                        else:
-                            user['cliente_id'] = token_cliente_id
-                        logger.debug(
-                            f"[REFRESH] BD dedicada: cliente_id del usuario era NULL/nulo, "
-                            f"usando cliente_id del token: {user['cliente_id']}"
-                        )
-                    else:
-                        # Si no hay cliente_id en el token, usar el contexto actual
-                        from app.core.tenant.context import try_get_current_client_id
-                        user['cliente_id'] = try_get_current_client_id()
-                        logger.debug(
-                            f"[REFRESH] BD dedicada: cliente_id del usuario y token eran NULL/nulo, "
-                            f"usando cliente_id del contexto: {user['cliente_id']}"
-                        )
-                else:
-                    user['cliente_id'] = user_cliente_id
-            elif token_cliente_id:
-                user["cliente_id"] = token_cliente_id
 
             # ✅ AGREGAR CAMPOS DE NIVEL AL USUARIO DESDE EL TOKEN
             user['access_level'] = payload.get('access_level', 1)
@@ -1648,19 +1292,20 @@ class AuthService:
                 ttl = max(int(exp) - now_ts, 60)
             blacklist_key = f"{RedisService.BLACKLIST_PREFIX}{jti}"
             set_result = await RedisService.set_token_blacklist(jti, ttl)
-            exists_despues = None
-            trace_client = await _get_redis_client()
-            if trace_client:
-                exists_despues = await trace_client.exists(blacklist_key)
-            logger.warning(
-                "[REDIS-TRACE-01] blacklist_access_token_jti JTI=%s TTL=%s "
-                "KEY blacklist=%s set_result=%s exists_despues=%s",
-                jti,
-                ttl,
-                blacklist_key,
-                set_result,
-                exists_despues,
-            )
+            if settings.ENABLE_REDIS_TRACE:
+                exists_despues = None
+                trace_client = await _get_redis_client()
+                if trace_client:
+                    exists_despues = await trace_client.exists(blacklist_key)
+                logger.warning(
+                    "[REDIS-TRACE-01] blacklist_access_token_jti JTI=%s TTL=%s "
+                    "KEY blacklist=%s set_result=%s exists_despues=%s",
+                    jti,
+                    ttl,
+                    blacklist_key,
+                    set_result,
+                    exists_despues,
+                )
         except Exception as e:
             logger.warning(
                 "[AUTH] No se pudo blacklistear jti %s (fail-soft): %s", jti, e
@@ -1679,8 +1324,7 @@ class AuthService:
             HTTPException 400: empresa no asignada al usuario
             HTTPException 403: empresa inactiva o de otro cliente
         """
-        from app.infrastructure.database.tables_erp import OrgEmpresaTable
-        from sqlalchemy import select, and_
+        from app.core.organization.org_read_gateway import OrgReadGateway
 
         empresas_ctx = await AuthService.get_empresa_activa_para_login(
             usuario_id, cliente_id
@@ -1696,19 +1340,7 @@ class AuthService:
                 detail="La empresa indicada no está asignada a este usuario",
             )
 
-        empresa_query = select(OrgEmpresaTable.c.empresa_id).where(
-            and_(
-                OrgEmpresaTable.c.cliente_id == cliente_id,
-                OrgEmpresaTable.c.empresa_id == empresa_id,
-                OrgEmpresaTable.c.es_activo == True,
-            )
-        )
-        empresa_rows = await execute_query(
-            empresa_query,
-            connection_type=DatabaseConnection.DEFAULT,
-            client_id=cliente_id,
-        )
-        if not empresa_rows:
+        if not await OrgReadGateway.is_empresa_active(cliente_id, empresa_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="La empresa no pertenece a este tenant o no está activa",
@@ -1725,14 +1357,19 @@ class AuthService:
         user_base_data: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Arma user_data alineado con login/refresh para Token.user_data."""
-        from app.modules.users.application.services.user_service import UsuarioService
         from app.core.auth import get_user_access_level_info
+        from app.core.identity.identity_context import IdentityContext
+        from app.core.identity.identity_gateway import IdentityGateway
+
+        identity_ctx = IdentityContext(cliente_id=cliente_id)
 
         if es_superadmin:
             user_role_names = ["Super Administrador"]
         else:
-            user_role_names = await UsuarioService.get_user_role_names(
-                cliente_id, usuario_id, empresa_id=empresa_id
+            user_role_names = await IdentityGateway.get_user_role_names(
+                identity_ctx,
+                usuario_id,
+                empresa_id=empresa_id,
             )
 
         level_info = await AuthService.get_user_access_level_info(

@@ -255,6 +255,9 @@ class ConexionService(BaseService):
             )
 
         logger.info(f"Conexión creada exitosamente con ID: {resultado['conexion_id']}")
+        from app.core.tenant.routing import invalidate_client_connection_cache
+
+        invalidate_client_connection_cache(conexion_data.cliente_id)
         return ConexionRead(**resultado)
 
     @staticmethod

@@ -79,6 +79,8 @@ GO
 -- --------------------------------------------------------------------------
 -- INV - Inventario Físico: acciones de ciclo de vida
 -- --------------------------------------------------------------------------
+DECLARE @modulo_inv_id UNIQUEIDENTIFIER = CAST('E1000002-0000-4000-8000-000000000002' AS UNIQUEIDENTIFIER);
+
 MERGE INTO permiso AS t
 USING (
     SELECT 'inv.inventario_fisico.finalizar' AS codigo,

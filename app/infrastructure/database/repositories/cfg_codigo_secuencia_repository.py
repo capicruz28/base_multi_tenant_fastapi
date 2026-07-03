@@ -1,5 +1,9 @@
 """
 Repositorio para cfg_codigo_secuencia (secuencias de códigos por tenant/empresa).
+
+RD-06-E02 / E5-09 §8:
+- Path A (preferido): ``execute_*`` con ``DatabaseConnection.ADMIN`` (control_plane).
+- Path B: ``session`` externa solo desde UoW del mismo tenant store — no abrir conexiones aquí.
 """
 
 from __future__ import annotations
@@ -69,7 +73,6 @@ class CfgCodigoSecuenciaRepository(BaseRepository):
             stmt,
             connection_type=DatabaseConnection.ADMIN,
             client_id=cliente_id,
-            skip_tenant_validation=True,
         )
 
     async def get_by_entidad(
@@ -95,7 +98,6 @@ class CfgCodigoSecuenciaRepository(BaseRepository):
             stmt,
             connection_type=DatabaseConnection.ADMIN,
             client_id=cliente_id,
-            skip_tenant_validation=True,
         )
         return rows[0] if rows else None
 

@@ -197,19 +197,11 @@ CREATE TABLE user_session (
 	expires_at                  DATETIME            NOT NULL,
 
     -- ── Foreign keys ────────────────────────────────────────────────────────
-    CONSTRAINT FK_session_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE CASCADE,                          -- Borrar usuario elimina sus sesiones
+    -- usuario_id / empresa_id: referencias lógicas cross-plane (V033/V034).
 
     CONSTRAINT FK_session_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION,                        -- cliente_id desnormalizado; cascade viene por usuario
-
-    CONSTRAINT FK_session_empresa
-        FOREIGN KEY (empresa_id)
-        REFERENCES org_empresa(empresa_id)
         ON DELETE NO ACTION
 );
 
@@ -356,17 +348,12 @@ CREATE TABLE token_family (
     CONSTRAINT FK_family_session
         FOREIGN KEY (session_id)
         REFERENCES user_session(session_id)
-        ON DELETE CASCADE,                          -- Cerrar sesión elimina sus familias
-
-    CONSTRAINT FK_family_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE NO ACTION,                        -- Desnormalizado; cascade viene por session_id
+        ON DELETE CASCADE,
 
     CONSTRAINT FK_family_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION                         -- Ídem
+        ON DELETE NO ACTION
 );
 
 -- ── Índices token_family ─────────────────────────────────────────────────────
@@ -515,16 +502,6 @@ CREATE TABLE refresh_tokens (
     CONSTRAINT FK_token_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION,
-
-    CONSTRAINT FK_token_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE NO ACTION,
-
-    CONSTRAINT FK_token_empresa
-        FOREIGN KEY (empresa_id)
-        REFERENCES org_empresa(empresa_id)
         ON DELETE NO ACTION
 );
 

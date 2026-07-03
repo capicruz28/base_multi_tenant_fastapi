@@ -115,7 +115,7 @@ async def set_permission(
     Raises:
         HTTPException: En caso de rol/menú no encontrado (404), error de validación (422) o error interno (500).
     """
-    logger.info(f"Solicitud PUT /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear/actualizar")
+    logger.debug(f"Solicitud PUT /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear/actualizar")
     
     # ✅ CORRECCIÓN CRÍTICA: Usar cliente_id del contexto del tenant, no del usuario autenticado
     # Esto permite que superadmin opere en el contexto del tenant al que accede
@@ -144,7 +144,7 @@ async def set_permission(
             puede_aprobar=permisos_in.puede_aprobar,
             permisos_extra=permisos_in.permisos_extra
         )
-        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} gestionado exitosamente en cliente {tenant_cliente_id}.")
+        logger.debug(f"Permiso para Rol {rol_id} y Menú {menu_id} gestionado exitosamente en cliente {tenant_cliente_id}.")
         return updated_perm
     # MODIFICACIÓN: Capturar CustomException en lugar de ServiceError/ValidationError
     except CustomException as ce:
@@ -327,14 +327,14 @@ async def revoke_permission(
     Raises:
         HTTPException: Si el permiso no existe (404) o hay error interno (500).
     """
-    logger.info(f"Solicitud DELETE /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para revocar")
+    logger.debug(f"Solicitud DELETE /permisos/roles/{rol_id}/menus/{menu_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para revocar")
     try:
         result = await PermisoService.revocar_permiso(
             cliente_id=current_user.cliente_id,
             rol_id=rol_id,
             menu_id=menu_id
         )
-        logger.info(f"Permiso para Rol {rol_id} y Menú {menu_id} revocado exitosamente en cliente {current_user.cliente_id}.")
+        logger.debug(f"Permiso para Rol {rol_id} y Menú {menu_id} revocado exitosamente en cliente {current_user.cliente_id}.")
         return result
     # MODIFICACIÓN: Capturar CustomException
     except CustomException as ce:

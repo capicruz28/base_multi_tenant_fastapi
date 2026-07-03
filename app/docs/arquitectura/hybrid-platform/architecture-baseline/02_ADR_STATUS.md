@@ -47,6 +47,8 @@
 | **Reevaluación** | BL-PEND-04 — Alternativa B post-MVP si compliance/latencia |
 | **Consecuencia** | IAM session ops usan operation_class según tabla RD-07 ampliada; persistencia sesión = control_plane route |
 
+**Addendum 2026-06-27 (V033/V034):** `usuario_id` y `empresa_id` en tablas session CP son referencias lógicas cross-plane hacia DP (Identity y Company). Sin FK física. Ver `SESSION_STORE_CROSS_PLANE_REFS.md`.
+
 ---
 
 ### ADR-003 — Catálogo de permisos RBAC

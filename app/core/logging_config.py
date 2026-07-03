@@ -1,85 +1,122 @@
 import logging
+import os
 import sys
 from logging.handlers import RotatingFileHandler
-import os
-import io
+from typing import Final
+
+VALID_LOG_LEVELS: Final[frozenset[str]] = frozenset(
+    {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+)
+
+DEFAULT_LOG_LEVEL: Final[str] = "INFO"
+
 
 class SafeRotatingFileHandler(RotatingFileHandler):
     """
     RotatingFileHandler que maneja errores de permisos en Windows.
     Si la rotación falla (archivo en uso), simplemente continúa sin rotar.
     """
+
     def doRollover(self):
-        """
-        Sobrescribe doRollover para manejar errores de permisos en Windows.
-        """
         try:
             super().doRollover()
         except (OSError, PermissionError) as e:
-            # En Windows, si el archivo está en uso, simplemente continuar sin rotar
-            # Esto es mejor que fallar completamente
-            if sys.platform == 'win32':
-                # Intentar log el error solo si el stream está disponible
-                # Si no está disponible, simplemente ignorar el error silenciosamente
+            if sys.platform == "win32":
                 try:
                     if self.stream is not None:
                         self.stream.write(f"Warning: Could not rotate log file: {e}\n")
                         self.stream.flush()
                 except (AttributeError, OSError):
-                    # Si no se puede escribir, simplemente ignorar
                     pass
             else:
-                # En otros sistemas, re-lanzar el error
                 raise
 
-def setup_logging():
-    """Configura el logging global de la aplicación con soporte UTF-8"""
-    # Crear el directorio logs si no existe
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
 
-    # Configurar stdout para UTF-8 en Windows
-    if sys.platform == 'win32':
-        # Forzar UTF-8 en stdout/stderr para Windows
-        if hasattr(sys.stdout, 'reconfigure'):
-            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        if hasattr(sys.stderr, 'reconfigure'):
-            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    
-    # Handler para archivo rotativo con UTF-8
-    # ✅ Usar SafeRotatingFileHandler para manejar errores de permisos en Windows
-    file_handler = SafeRotatingFileHandler(
-        'logs/app.log',
-        maxBytes=1024*1024,  # 1MB
-        backupCount=5,
-        encoding='utf-8',  # ✅ UTF-8 para soportar emojis y caracteres Unicode
-        errors='replace'  # Reemplazar caracteres problemáticos en lugar de fallar
-    )
-    
-    # Handler para consola con UTF-8
-    console_handler = logging.StreamHandler(sys.stdout)
-    # Configurar el handler de consola para usar UTF-8
-    if hasattr(console_handler.stream, 'reconfigure'):
-        console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
-
-    # Configuración básica del logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            file_handler,
-            console_handler
-        ]
-    )
-
-def get_logger(name: str) -> logging.Logger:
+def normalize_log_level(level: str | None, *, default: str = DEFAULT_LOG_LEVEL) -> str:
     """
-    Obtiene un logger configurado para el módulo especificado
+    Normaliza un nombre de nivel de logging Python.
+
+    Acepta DEBUG, INFO, WARNING, ERROR, CRITICAL (case-insensitive).
+    Valores inválidos → ``default`` (INFO).
+    """
+    if not level or not str(level).strip():
+        return default
+    normalized = str(level).strip().upper()
+    if normalized not in VALID_LOG_LEVELS:
+        return default
+    return normalized
+
+
+def resolve_log_level_numeric(level: str | None = None) -> int:
+    """Resuelve el entero de logging stdlib para el nivel indicado o LOG_LEVEL env."""
+    name = normalize_log_level(level or os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL))
+    return getattr(logging, name)
+
+
+def get_uvicorn_log_level(level: str | None = None) -> str:
+    """
+    Nivel para ``uvicorn --log-level`` (minúsculas).
+
+    Usa la misma fuente que la app: argumento explícito o LOG_LEVEL env.
+    """
+    return normalize_log_level(level or os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL)).lower()
+
+
+def setup_logging(log_level: str | None = None, *, force: bool = False) -> str:
+    """
+    Configura el logging global de la aplicación con soporte UTF-8.
 
     Args:
-        name: Nombre del módulo (generalmente __name__)
+        log_level: Nivel explícito; si es None usa LOG_LEVEL de entorno (default INFO).
+        force: Si True, reconfigura handlers existentes (Python 3.8+).
 
     Returns:
-        logging.Logger: Logger configurado
+        Nombre del nivel aplicado (ej. ``INFO``).
     """
+    level_name = normalize_log_level(log_level or os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL))
+    numeric_level = getattr(logging, level_name)
+
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+
+    if sys.platform == "win32":
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+    file_handler = SafeRotatingFileHandler(
+        "logs/app.log",
+        maxBytes=1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+        errors="replace",
+    )
+    file_handler.setLevel(numeric_level)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    if hasattr(console_handler.stream, "reconfigure"):
+        console_handler.stream.reconfigure(encoding="utf-8", errors="replace")
+    console_handler.setLevel(numeric_level)
+
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    basic_config_kwargs: dict = {
+        "level": numeric_level,
+        "format": log_format,
+        "handlers": [file_handler, console_handler],
+    }
+    if force:
+        basic_config_kwargs["force"] = True
+
+    logging.basicConfig(**basic_config_kwargs)
+
+    root = logging.getLogger()
+    root.setLevel(numeric_level)
+
+    return level_name
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Obtiene un logger configurado para el módulo especificado."""
     return logging.getLogger(name)

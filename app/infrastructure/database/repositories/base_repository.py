@@ -8,6 +8,13 @@ BaseRepository: Clase base abstracta para todos los repositorios.
 - Maneja multi-tenancy automáticamente
 - Proporciona operaciones CRUD estándar
 - Facilita testing y cambio de BD
+
+RD-06-E02 / RI-02 (F1-WP09): delegación obligatoria al Persistence Gateway vía
+``execute_query`` / ``execute_insert`` / ``execute_update``. Prohibido abrir
+conexiones directas (``get_db_connection``, ``routing``) desde repositories.
+
+Lecturas (SELECT): tenant filter vía pipeline gateway (_prepare_core_query_for_gateway).
+Mutaciones (UPDATE/DELETE): filtro manual en query hasta convergencia execute_update (RI-05).
 """
 
 from abc import ABC, abstractmethod
@@ -25,13 +32,12 @@ from app.infrastructure.database.queries_async import (
     execute_insert,
     execute_update,
 )
-from app.infrastructure.database.connection_async import DatabaseConnection, get_db_connection
+from app.infrastructure.database.connection_async import DatabaseConnection
 from app.core.exceptions import DatabaseError, NotFoundError, ValidationError
 from app.core.tenant.context import get_current_client_id
 from app.core.config import settings
-from sqlalchemy import select, update, delete, insert, and_
+from sqlalchemy import select, update, delete, insert
 from sqlalchemy.sql import Select, Update, Delete, Insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -184,13 +190,7 @@ class BaseRepository(ABC, Generic[T]):
             )
         
         query = select(table).where(table.c[self.id_column] == entity_id)
-        
-        # Aplicar filtro de tenant
-        if self.tenant_column:
-            target_client_id = client_id or self._get_current_client_id()
-            if target_client_id:
-                query = query.where(table.c[self.tenant_column] == target_client_id)
-        
+
         try:
             results = await execute_query(
                 query,
@@ -241,17 +241,12 @@ class BaseRepository(ABC, Generic[T]):
         
         query = select(table)
         
-        # Aplicar filtros personalizados
         if filters:
             for field, value in filters.items():
                 if value is not None and field in table.c:
                     query = query.where(table.c[field] == value)
         
-        # Aplicar filtro de tenant
-        if self.tenant_column:
-            target_client_id = client_id or self._get_current_client_id()
-            if target_client_id:
-                query = query.where(table.c[self.tenant_column] == target_client_id)
+        # Tenant filter: gateway (_prepare_core_query_for_gateway) en lecturas
         
         # Aplicar ordenamiento
         if order_by:
@@ -384,15 +379,12 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="ENTITY_NOT_FOUND"
             )
         
-        # Construir query UPDATE
+        # Construir query UPDATE (filtro tenant manual — RI-05 hasta gateway en execute_update)
         query = update(table).where(table.c[self.id_column] == entity_id).values(**data)
-        
-        # Aplicar filtro de tenant
         if self.tenant_column:
             target_client_id = client_id or self._get_current_client_id()
             if target_client_id:
                 query = query.where(table.c[self.tenant_column] == target_client_id)
-        
         try:
             result = await execute_update(
                 query,
@@ -450,7 +442,7 @@ class BaseRepository(ABC, Generic[T]):
                 internal_code="ENTITY_NOT_FOUND"
             )
         
-        # Aplicar filtro de tenant
+        # Aplicar filtro de tenant (manual — RI-05 hasta gateway en execute_update/delete)
         target_client_id = client_id or self._get_current_client_id()
         
         if soft_delete:
@@ -508,17 +500,12 @@ class BaseRepository(ABC, Generic[T]):
         
         query = select(func.count()).select_from(table)
         
-        # Aplicar filtros personalizados
         if filters:
             for field, value in filters.items():
                 if value is not None and field in table.c:
                     query = query.where(table.c[field] == value)
         
-        # Aplicar filtro de tenant
-        if self.tenant_column:
-            target_client_id = client_id or self._get_current_client_id()
-            if target_client_id:
-                query = query.where(table.c[self.tenant_column] == target_client_id)
+        # Tenant filter: gateway (_prepare_core_query_for_gateway) en lecturas
         
         try:
             result = await execute_query(

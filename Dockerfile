@@ -50,5 +50,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Ejecutar la app con uvicorn y --reload para desarrollo
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--log-level", "info"]
+# LOG_LEVEL: alineado con app.core.config.settings (F12-E2B1)
+ENV LOG_LEVEL=INFO
+
+# Uvicorn usa el mismo nivel que la aplicación (minúsculas vía tr)
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level $(echo \"${LOG_LEVEL:-INFO}\" | tr '[:upper:]' '[:lower:]')"]

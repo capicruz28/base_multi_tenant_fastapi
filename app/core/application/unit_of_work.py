@@ -14,7 +14,7 @@ USO:
         # Todo se commitea o rollback juntos
 """
 
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import AsyncIterator, Optional, Dict, Any, Union, List
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +74,7 @@ class UnitOfWork:
         self.client_id = client_id or self._get_client_id()
         self.connection_type = connection_type
         self.session: Optional[AsyncSession] = None
+        self._connection_cm: Optional[AbstractAsyncContextManager[AsyncSession]] = None
         self._committed = False
         self._rolled_back = False
         self._operations_count = 0
@@ -90,10 +91,11 @@ class UnitOfWork:
     
     async def __aenter__(self):
         """Inicia la transacción."""
-        self.session = await get_db_connection(
+        self._connection_cm = get_db_connection(
             connection_type=self.connection_type,
-            client_id=self.client_id
-        ).__aenter__()
+            client_id=self.client_id,
+        )
+        self.session = await self._connection_cm.__aenter__()
         logger.debug(
             f"[UOW] Transacción iniciada para cliente {self.client_id} "
             f"(connection_type={self.connection_type.value})"
@@ -102,28 +104,28 @@ class UnitOfWork:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Cierra la transacción (commit o rollback)."""
-        if exc_type:
-            # Error ocurrió → Rollback
-            if self.session:
-                await self.session.rollback()
-                self._rolled_back = True
-                logger.warning(
-                    f"[UOW] Rollback ejecutado para cliente {self.client_id} "
-                    f"después de {self._operations_count} operaciones: {exc_val}"
-                )
-        else:
-            # Sin errores → Commit
-            if self.session:
-                await self.session.commit()
-                self._committed = True
-                logger.debug(
-                    f"[UOW] Commit ejecutado para cliente {self.client_id} "
-                    f"({self._operations_count} operaciones)"
-                )
-        
-        # Cerrar sesión
-        if self.session:
-            await self.session.__aexit__(exc_type, exc_val, exc_tb)
+        try:
+            if exc_type:
+                if self.session:
+                    await self.session.rollback()
+                    self._rolled_back = True
+                    logger.warning(
+                        f"[UOW] Rollback ejecutado para cliente {self.client_id} "
+                        f"después de {self._operations_count} operaciones: {exc_val}"
+                    )
+            else:
+                if self.session:
+                    await self.session.commit()
+                    self._committed = True
+                    logger.debug(
+                        f"[UOW] Commit ejecutado para cliente {self.client_id} "
+                        f"({self._operations_count} operaciones)"
+                    )
+        finally:
+            if self._connection_cm is not None:
+                await self._connection_cm.__aexit__(exc_type, exc_val, exc_tb)
+                self._connection_cm = None
+            self.session = None
     
     async def execute(
         self,
@@ -138,8 +140,8 @@ class UnitOfWork:
                 - String SQL (se convierte a TextClause)
                 - Objeto SQLAlchemy Core (Select, Update, Delete, Insert)
                 - TextClause (resultado de text().bindparams())
-            params: Parámetros opcionales (solo para strings).
-                Si query es string y tiene params, se usa text().bindparams()
+            params: Parámetros opcionales para la query.
+                Con ``str`` o ``TextClause`` se pasan a ``session.execute(statement, params)``.
         
         Returns:
             - Para SELECT: Lista de diccionarios con resultados
@@ -154,19 +156,20 @@ class UnitOfWork:
                 internal_code="UOW_NOT_ACTIVE"
             )
         
-        # Convertir string a TextClause si es necesario
         if isinstance(query, str):
-            if params:
-                query = text(query).bindparams(**params)
-            else:
-                query = text(query)
-        
+            statement: Union[str, ClauseElement, TextClause] = text(query)
+        else:
+            statement = query
+
         try:
             self._operations_count += 1
-            result = await self.session.execute(query)
-            
+            if params:
+                result = await self.session.execute(statement, params)
+            else:
+                result = await self.session.execute(statement)
+
             # Si es SELECT, retornar resultados
-            if isinstance(query, (Select, TextClause)) or isinstance(query, str):
+            if isinstance(statement, (Select, TextClause)) or isinstance(statement, str):
                 if result.returns_rows:
                     rows = result.fetchall()
                     columns = result.keys()

@@ -108,7 +108,12 @@ async def get_effective_impersonation_permissions(
     Fuente: rol_permiso del rol ADMIN_TENANT (o nombre Administrador) del cliente,
     filtrado por módulos activos en cliente_modulo. Sin usuario_rol del operador.
     """
-    if database_type == "multi":
+    from app.core.tenant.platform_tenant_data_store import (
+        resolve_platform_tenant_data_database_type,
+    )
+
+    resolved_database_type = await resolve_platform_tenant_data_database_type(cliente_id)
+    if resolved_database_type == "multi":
         codes = await _impersonation_permisos_dedicated(cliente_id)
     else:
         codes = await _impersonation_permisos_single(cliente_id)
@@ -190,9 +195,15 @@ async def _impersonation_permisos_dedicated(cliente_id: UUID) -> List[str]:
         + "\n"
     ).bindparams(**params)
 
+    from app.core.authorization.permission_catalog_store import (
+        resolve_permission_catalog_target,
+    )
+
+    catalog_conn, catalog_client_id = await resolve_permission_catalog_target(cliente_id)
     rows = await execute_query(
         sql_codigos,
-        connection_type=DatabaseConnection.ADMIN,
+        connection_type=catalog_conn,
+        client_id=catalog_client_id,
     )
     return [r["codigo"] for r in rows if r.get("codigo")]
 

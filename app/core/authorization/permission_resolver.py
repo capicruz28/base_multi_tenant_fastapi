@@ -26,9 +26,12 @@ logger = logging.getLogger(__name__)
 async def _get_active_module_codes_for_tenant_async(cliente_id: UUID) -> List[str]:
     try:
         from sqlalchemy import text
+        from app.core.authorization.permission_catalog_store import (
+            resolve_permission_catalog_target,
+        )
         from app.infrastructure.database.queries_async import execute_query
-        from app.infrastructure.database.connection_async import DatabaseConnection
 
+        catalog_conn, catalog_client_id = await resolve_permission_catalog_target(cliente_id)
         sql = text("""
             SELECT m.codigo
             FROM cliente_modulo cm
@@ -37,7 +40,11 @@ async def _get_active_module_codes_for_tenant_async(cliente_id: UUID) -> List[st
               AND cm.esta_activo = 1
               AND (cm.fecha_vencimiento IS NULL OR cm.fecha_vencimiento > CAST(GETDATE() AS DATE))
         """).bindparams(cliente_id=cliente_id)
-        rows = await execute_query(sql, connection_type=DatabaseConnection.ADMIN)
+        rows = await execute_query(
+            sql,
+            connection_type=catalog_conn,
+            client_id=catalog_client_id,
+        )
     except Exception as e:
         logger.warning("[PERMISSION_RESOLVER] No se pudieron cargar módulos activos para %s: %s", cliente_id, e)
         return []

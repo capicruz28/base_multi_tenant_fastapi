@@ -19,6 +19,9 @@ from app.core.tenant.empresa_context import resolve_empresa_id, sql_empresa_filt
 
 from app.infrastructure.database.queries_async import execute_query
 from app.infrastructure.database.connection_async import DatabaseConnection
+from app.core.tenant.platform_tenant_data_store import (
+    resolve_platform_tenant_data_database_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +61,8 @@ async def obtener_codigos_permiso_usuario(
     """
     try:
         resolved_empresa_id = resolve_empresa_id(empresa_id)
-        if database_type == "multi":
+        resolved_database_type = await resolve_platform_tenant_data_database_type(cliente_id)
+        if resolved_database_type == "multi":
             return await _permisos_dedicated(
                 usuario_id, cliente_id, filter_by_active_modules, resolved_empresa_id
             )
@@ -114,7 +118,7 @@ async def _permisos_dedicated(
     filter_by_active_modules: bool,
     empresa_id: Optional[UUID] = None,
 ) -> List[str]:
-    """BD dedicada: rol_permiso en tenant; permiso en central (ADMIN). Filtro por cliente_modulo en central."""
+    """BD dedicada: rol_permiso en DP; catálogo permiso + cliente_modulo vía permission_catalog_store."""
     empresa_sql = sql_empresa_filter_usuario_rol("ur") if empresa_id else ""
     bind_ids = {"usuario_id": usuario_id, "cliente_id": cliente_id}
     if empresa_id:
@@ -142,7 +146,12 @@ async def _permisos_dedicated(
     if not permiso_ids:
         return []
 
-    # 2) Códigos desde BD central (permiso), filtrando por módulos activos del tenant (cliente_modulo)
+    # 2) Códigos desde catálogo permiso (store según installation mode)
+    from app.core.authorization.permission_catalog_store import (
+        resolve_permission_catalog_target,
+    )
+
+    catalog_conn, catalog_client_id = await resolve_permission_catalog_target(cliente_id)
     placeholders = ", ".join(f":p{i}" for i in range(len(permiso_ids)))
     if filter_by_active_modules:
         sql_codigos = text(
@@ -173,7 +182,8 @@ async def _permisos_dedicated(
 
     rows_codigos = await execute_query(
         sql_codigos,
-        connection_type=DatabaseConnection.ADMIN,
+        connection_type=catalog_conn,
+        client_id=catalog_client_id,
         skip_tenant_validation=False,
     )
     if not rows_codigos:

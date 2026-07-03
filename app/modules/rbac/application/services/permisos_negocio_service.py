@@ -19,7 +19,13 @@ from app.infrastructure.database.queries_async import (
 )
 from app.infrastructure.database.connection_async import DatabaseConnection
 from app.core.exceptions import NotFoundError, ValidationError
-from app.core.tenant.context import try_get_tenant_context
+from app.core.tenant.platform_tenant_data_store import (
+    resolve_platform_tenant_data_database_type,
+    resolve_platform_tenant_data_execute_kwargs,
+)
+from app.core.authorization.permission_catalog_store import (
+    resolve_permission_catalog_target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +46,10 @@ async def _obtener_codigos_modulos_habilitados(cliente_id: UUID) -> List[str]:
           AND cm.esta_activo = 1
           AND (cm.fecha_vencimiento IS NULL OR cm.fecha_vencimiento > CAST(GETDATE() AS DATE))
     """).bindparams(cliente_id=cliente_id)
-    rows = await execute_query(sql, connection_type=DatabaseConnection.ADMIN)
+    rows = await execute_query(
+        sql,
+        **await resolve_platform_tenant_data_execute_kwargs(cliente_id),
+    )
     if not rows:
         return []
     return [str(r.get("codigo", "")).strip() for r in rows if r.get("codigo")]
@@ -69,7 +78,15 @@ async def listar_catalogo_permisos(cliente_id: Optional[UUID] = None) -> List[Di
         WHERE es_activo = 1
         ORDER BY codigo
     """)
-    rows = await execute_query(sql, connection_type=DatabaseConnection.ADMIN)
+    if cliente_id:
+        catalog_conn, catalog_client_id = await resolve_permission_catalog_target(cliente_id)
+        rows = await execute_query(
+            sql,
+            connection_type=catalog_conn,
+            client_id=catalog_client_id,
+        )
+    else:
+        rows = await execute_query(sql, connection_type=DatabaseConnection.ADMIN)
     items = [dict(r) for r in rows] if rows else []
 
     if not cliente_id:
@@ -100,12 +117,13 @@ async def get_permisos_negocio_by_rol(rol_id: UUID, cliente_id: UUID) -> List[Di
     Obtiene los permisos de negocio asignados a un rol (rol_permiso + permiso).
     Valida que el rol pertenezca al tenant (cliente_id) o sea rol del sistema.
     """
-    tenant_ctx = try_get_tenant_context()
-    database_type = tenant_ctx.database_type if tenant_ctx else "single"
+    database_type = await resolve_platform_tenant_data_database_type(cliente_id)
 
     # 1) Validar que el rol existe y pertenece al tenant o es sistema (cliente_id NULL). str() evita 403 por UUID vs string.
     from app.modules.rbac.application.services.rol_service import RolService
-    rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+    rol = await RolService.obtener_rol_por_id(
+        rol_id=rol_id, incluir_inactivos=True, cliente_id=cliente_id
+    )
     if not rol:
         raise NotFoundError(detail=f"Rol con ID {rol_id} no encontrado.", internal_code="ROLE_NOT_FOUND")
     rol_cliente_id = rol.get("cliente_id")
@@ -155,10 +173,11 @@ async def _permisos_negocio_rol_dedicated(rol_id: UUID, cliente_id: UUID) -> Lis
     )
     params = {f"p{i}": pid for i, pid in enumerate(permiso_ids)}
     sql_perm = sql_perm.bindparams(**params)
-    # permiso es tabla global; no requiere skip_tenant_validation
+    catalog_conn, catalog_client_id = await resolve_permission_catalog_target(cliente_id)
     rows_perm = await execute_query(
         sql_perm,
-        connection_type=DatabaseConnection.ADMIN,
+        connection_type=catalog_conn,
+        client_id=catalog_client_id,
     )
     return [dict(r) for r in rows_perm] if rows_perm else []
 

@@ -2,7 +2,7 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 from uuid import UUID
-from pydantic import BaseModel, Field, EmailStr, validator, field_validator
+from pydantic import BaseModel, Field, EmailStr, validator, field_validator, model_serializer
 import re
 import json
 
@@ -440,10 +440,18 @@ class ClienteStatsResponse(BaseModel):
     """
     cliente_id: UUID = Field(..., description="ID del cliente (UUID)")
     razon_social: str = Field(..., description="Razón social del cliente")
-    total_usuarios: int = Field(..., ge=0, description="Total de usuarios activos")
-    total_usuarios_inactivos: int = Field(..., ge=0, description="Total de usuarios inactivos")
-    modulos_activos: int = Field(..., ge=0, description="Número de módulos activos")
-    modulos_contratados: int = Field(..., ge=0, description="Número de módulos contratados")
+    total_usuarios: Optional[int] = Field(
+        None, ge=0, description="Total de usuarios activos; null si tenant_data no disponible"
+    )
+    total_usuarios_inactivos: Optional[int] = Field(
+        None, ge=0, description="Total de usuarios inactivos; null si tenant_data no disponible"
+    )
+    modulos_activos: Optional[int] = Field(
+        None, ge=0, description="Número de módulos activos; null si tenant_data no disponible"
+    )
+    modulos_contratados: Optional[int] = Field(
+        None, ge=0, description="Número de módulos contratados; null si tenant_data no disponible"
+    )
     ultimo_acceso: Optional[datetime] = Field(None, description="Última vez que un usuario accedió")
     estado_suscripcion: str = Field(..., description="Estado actual de la suscripción")
     plan_actual: str = Field(..., description="Plan de suscripción actual")
@@ -451,6 +459,35 @@ class ClienteStatsResponse(BaseModel):
     dias_activo: int = Field(..., ge=0, description="Días desde la creación")
     conexiones_bd: int = Field(..., ge=0, description="Número de conexiones de BD configuradas")
     tipo_instalacion: str = Field(..., description="Tipo de instalación (shared/dedicated/onpremise/hybrid)")
+    tenant_data_available: Optional[bool] = Field(
+        None,
+        description="False cuando las métricas tenant_data no pudieron resolverse",
+    )
+    tenant_data_reachability: Optional[str] = Field(
+        None,
+        description="Estado reachability tenant_data (fail-soft dashboard)",
+    )
+    tenant_data_internal_code: Optional[str] = Field(
+        None,
+        description="Código interno de reachability (p. ej. DEDICATED_ROUTE_FAIL_CLOSED)",
+    )
+    tenant_data_message: Optional[str] = Field(
+        None,
+        description="Mensaje operativo de reachability para el operador",
+    )
+
+    @model_serializer(mode="wrap")
+    def _serialize_stats(self, serializer, _info):
+        data = serializer(self)
+        if data.get("tenant_data_available") is not False:
+            for key in (
+                "tenant_data_available",
+                "tenant_data_reachability",
+                "tenant_data_internal_code",
+                "tenant_data_message",
+            ):
+                data.pop(key, None)
+        return data
 
     class Config:
         from_attributes = True

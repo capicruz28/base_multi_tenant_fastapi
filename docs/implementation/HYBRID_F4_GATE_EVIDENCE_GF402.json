@@ -1,0 +1,53 @@
+{
+  "artifact_type": "f4_gate_evidence_gf402",
+  "gate": "G-F4-02",
+  "title": "Tenant Ready — Dedicated Staging",
+  "reference": "IP-2.0.1 §11 Gate G-F4-02",
+  "status": "PENDING_STAGING_SIGN_OFF",
+  "timestamp_utc": "2026-06-25T00:00:00Z",
+  "checklist": {
+    "GF4-02-01": {
+      "description": "PR-F4-06…09 merged",
+      "status": "COMPLETE",
+      "evidence": "Git history PR-F4-06 through PR-F4-09"
+    },
+    "GF4-02-02": {
+      "description": "Dedicated seed en DP verificado",
+      "status": "PENDING_STAGING",
+      "evidence": "Manual: admin login + empresa seed en BD tenant_*"
+    },
+    "GF4-02-03": {
+      "description": "Metadata + cache + smoke OK",
+      "status": "PARTIAL",
+      "evidence": "tests/integration/test_hybrid_provisioning_e2e.py::TestDedicatedProvisioningE2ESmokeReady"
+    },
+    "GF4-02-04": {
+      "description": "Tenant staging ready — activación real",
+      "status": "PENDING_STAGING",
+      "evidence": "Runbook §3 — POST /clientes/ dedicated + GET status ready"
+    },
+    "GF4-02-05": {
+      "description": "SHARED_ONBOARDING + shared-regression green",
+      "status": "CI_AUTOMATED",
+      "evidence": "scripts/validate_shared_onboarding_required_check.py + validate_shared_regression.py"
+    },
+    "GF4-02-06": {
+      "description": "Runbook manual interim failed tenants ack SRE",
+      "status": "COMPLETE",
+      "evidence": "docs/implementation/HYBRID_F4_PROVISIONING_RUNBOOK.md §6"
+    },
+    "GF4-02-07": {
+      "description": "Tag hybrid-gate-f4-02",
+      "status": "PENDING",
+      "evidence": "git tag hybrid-gate-f4-02 post GF4-02-04 sign-off"
+    }
+  },
+  "staging_tenant_record": {
+    "cliente_id": null,
+    "codigo_cliente": null,
+    "provisioning_run_id": null,
+    "ready_at": null,
+    "signed_by": null
+  },
+  "notes": "Completar staging_tenant_record tras primer tenant Ready manual en staging."
+}

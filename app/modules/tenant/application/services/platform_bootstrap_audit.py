@@ -74,13 +74,9 @@ async def audit_platform_ready(session: AsyncSession) -> Dict[str, Any]:
         ).first()
         usuario_rol_ok = ur is not None
 
-    auth_config_row = (
-        await session.execute(
-            text("SELECT 1 FROM cliente_auth_config WHERE cliente_id = :cid").bindparams(
-                cid=cid_str
-            )
-        )
-    ).first()
+    from app.core.auth.auth_config_gateway import AuthConfigGateway
+
+    auth_config_exists = await AuthConfigGateway.config_exists(cid)
 
     rp_count = 0
     has_core_rp = False
@@ -168,7 +164,7 @@ async def audit_platform_ready(session: AsyncSession) -> Dict[str, Any]:
         "superadmin_usuario_activo": bool(usuario_row and usuario_row[2]),
         "superadmin_usuario_id": str(usuario_row[0]) if usuario_row else None,
         "usuario_rol_admin_platform": usuario_rol_ok,
-        "cliente_auth_config_exists": auth_config_row is not None,
+        "cliente_auth_config_exists": auth_config_exists,
         "rol_permiso_admin_platform_count": rp_count,
         "cliente_modulo_sysadmin_count": cm_sysadmin,
         "admin_platform_access_es_activo": bool(perm_platform and perm_platform[0]),

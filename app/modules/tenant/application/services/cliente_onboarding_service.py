@@ -401,14 +401,11 @@ class ClienteOnboardingService:
     async def _insertar_auth_config_si_no_existe(
         session: AsyncSession, cliente_id: UUID
     ) -> None:
-        sql = text("""
-            IF NOT EXISTS (
-                SELECT 1 FROM cliente_auth_config WHERE cliente_id = :cliente_id
-            )
-            INSERT INTO cliente_auth_config (cliente_id)
-            VALUES (:cliente_id)
-        """).bindparams(cliente_id=cliente_id)
-        await session.execute(sql)
+        from app.core.auth.auth_config_gateway import AuthConfigGateway
+
+        if await AuthConfigGateway.config_exists(cliente_id):
+            return
+        await AuthConfigGateway.insert_config({"cliente_id": cliente_id})
 
     @staticmethod
     async def _insertar_secuencias_codigo(

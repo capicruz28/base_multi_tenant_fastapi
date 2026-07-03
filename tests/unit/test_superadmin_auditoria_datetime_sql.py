@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+from sqlalchemy.sql.elements import TextClause
 
 from app.modules.superadmin.application.datetime_sql import (
     normalize_datetime_for_sql_server,
@@ -12,6 +13,23 @@ from app.modules.superadmin.application.datetime_sql import (
 from app.modules.superadmin.application.services.superadmin_auditoria_service import (
     SuperadminAuditoriaService,
 )
+
+
+def _query_sql(query) -> str:
+    return str(query)
+
+
+def _bound_values(query) -> tuple:
+    if isinstance(query, TextClause):
+        params = query.compile().params
+        if not params:
+            return ()
+        keys = sorted(
+            params.keys(),
+            key=lambda k: int(k[1:]) if k.startswith("p") and k[1:].isdigit() else k,
+        )
+        return tuple(params[k] for k in keys)
+    return ()
 
 
 def test_normalize_datetime_for_sql_server_strips_utc_offset():
@@ -39,17 +57,18 @@ def test_sql_int_or_zero_coerces_null():
 async def test_obtener_estadisticas_passes_naive_datetimes_to_execute_query():
     fecha_desde = datetime(2026, 6, 2, 0, 0, 0, tzinfo=timezone.utc)
     fecha_hasta = datetime(2026, 6, 3, 23, 59, 59, tzinfo=timezone.utc)
-    captured_params: list[tuple] = []
+    captured_queries: list = []
 
-    async def fake_execute_query(query, params, client_id=None):
-        captured_params.append(params)
-        if "GROUP BY evento" in query:
+    async def fake_execute_query(query, params=None, client_id=None):
+        captured_queries.append(query)
+        q = _query_sql(query)
+        if "GROUP BY evento" in q:
             return []
-        if "GROUP BY tipo_sincronizacion" in query:
+        if "GROUP BY tipo_sincronizacion" in q:
             return []
-        if "GROUP BY ip_address" in query:
+        if "GROUP BY ip_address" in q:
             return []
-        if "GROUP BY u.usuario_id" in query:
+        if "GROUP BY u.usuario_id" in q:
             return []
         return []
 
@@ -63,9 +82,9 @@ async def test_obtener_estadisticas_passes_naive_datetimes_to_execute_query():
         )
 
     assert result["autenticacion"]["total_eventos"] == 0
-    assert captured_params, "expected execute_query calls"
-    for params in captured_params:
-        for param in params:
+    assert captured_queries, "expected execute_query calls"
+    for query in captured_queries:
+        for param in _bound_values(query):
             if isinstance(param, datetime):
                 assert param.tzinfo is None, f"expected naive datetime, got {param!r}"
 
@@ -80,8 +99,8 @@ async def test_obtener_estadisticas_null_aggregates_coerced_to_zero():
         "eventos_por_tipo": None,
     }
 
-    async def fake_execute_query(query, params, client_id=None):
-        if "GROUP BY evento" in query:
+    async def fake_execute_query(query, params=None, client_id=None):
+        if "GROUP BY evento" in _query_sql(query):
             return [auth_row]
         return []
 
@@ -99,11 +118,11 @@ async def test_obtener_estadisticas_null_aggregates_coerced_to_zero():
 async def test_get_logs_autenticacion_passes_naive_datetimes():
     fecha_desde = datetime(2026, 6, 2, 0, 0, 0, tzinfo=timezone.utc)
     fecha_hasta = datetime(2026, 6, 3, 0, 0, 0, tzinfo=timezone.utc)
-    captured: list[tuple] = []
+    captured: list = []
 
-    async def fake_execute_query(query, params, client_id=None):
-        captured.append(params)
-        if "COUNT(*)" in query:
+    async def fake_execute_query(query, params=None, client_id=None):
+        captured.append(query)
+        if "COUNT(*)" in _query_sql(query):
             return [{"total": 0}]
         return []
 
@@ -119,7 +138,9 @@ async def test_get_logs_autenticacion_passes_naive_datetimes():
         )
 
     assert captured
-    date_params = [p for params in captured for p in params if isinstance(p, datetime)]
+    date_params = [
+        p for query in captured for p in _bound_values(query) if isinstance(p, datetime)
+    ]
     assert len(date_params) == 4  # count + data queries, each with 2 dates
     assert all(p.tzinfo is None for p in date_params)
 
@@ -128,11 +149,11 @@ async def test_get_logs_autenticacion_passes_naive_datetimes():
 async def test_get_logs_sincronizacion_passes_naive_datetimes():
     fecha_desde = datetime(2026, 6, 2, 0, 0, 0, tzinfo=timezone.utc)
     fecha_hasta = datetime(2026, 6, 3, 0, 0, 0, tzinfo=timezone.utc)
-    captured: list[tuple] = []
+    captured: list = []
 
-    async def fake_execute_query(query, params, client_id=None):
-        captured.append(params)
-        if "COUNT(*)" in query:
+    async def fake_execute_query(query, params=None, client_id=None):
+        captured.append(query)
+        if "COUNT(*)" in _query_sql(query):
             return [{"total": 0}]
         return []
 
@@ -148,6 +169,8 @@ async def test_get_logs_sincronizacion_passes_naive_datetimes():
         )
 
     assert captured
-    date_params = [p for params in captured for p in params if isinstance(p, datetime)]
+    date_params = [
+        p for query in captured for p in _bound_values(query) if isinstance(p, datetime)
+    ]
     assert len(date_params) == 4
     assert all(p.tzinfo is None for p in date_params)

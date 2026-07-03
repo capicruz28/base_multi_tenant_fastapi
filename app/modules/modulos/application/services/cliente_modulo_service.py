@@ -37,6 +37,9 @@ from app.modules.modulos.presentation.schemas import (
 )
 from app.modules.modulos.application.helpers.rol_plantilla_applier import aplicar_plantillas_roles
 from app.infrastructure.database.connection_async import DatabaseConnection
+from app.core.tenant.platform_tenant_data_store import (
+    resolve_platform_tenant_data_execute_kwargs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,10 @@ class ClienteModuloService(BaseService):
     """
     Servicio central para la administración de activación de módulos por cliente.
     """
+
+    @staticmethod
+    async def _tenant_data_query_kwargs(cliente_id: UUID) -> dict:
+        return await resolve_platform_tenant_data_execute_kwargs(cliente_id)
     
     @staticmethod
     def _deserializar_configuracion_json(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,7 +73,7 @@ class ClienteModuloService(BaseService):
         """
         Obtiene todos los módulos activos para un cliente específico.
         """
-        logger.info(f"Obteniendo módulos activos para cliente ID: {cliente_id}")
+        logger.debug(f"Obteniendo módulos activos para cliente ID: {cliente_id}")
 
         query = select(
             ClienteModuloTable,
@@ -83,11 +90,9 @@ class ClienteModuloService(BaseService):
         
         resultados = await execute_query(
             query,
-            connection_type=DatabaseConnection.ADMIN,
-            client_id=None
+            **await ClienteModuloService._tenant_data_query_kwargs(cliente_id),
         )
         
-        # Deserializar configuracion_json y construir objetos
         modulos_deserializados = [
             ClienteModuloService._deserializar_configuracion_json(dict(modulo)) 
             for modulo in resultados
@@ -122,7 +127,11 @@ class ClienteModuloService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
-    async def obtener_modulo_activo_por_id(cliente_modulo_id: UUID) -> Optional[ClienteModuloRead]:
+    async def obtener_modulo_activo_por_id(
+        cliente_modulo_id: UUID,
+        *,
+        cliente_id: Optional[UUID] = None,
+    ) -> Optional[ClienteModuloRead]:
         """
         Obtiene un módulo activo específico por su ID.
         """
@@ -133,12 +142,22 @@ class ClienteModuloService(BaseService):
         ).select_from(
             ClienteModuloTable.join(ModuloTable, ClienteModuloTable.c.modulo_id == ModuloTable.c.modulo_id)
         ).where(ClienteModuloTable.c.cliente_modulo_id == cliente_modulo_id)
+
+        if cliente_id is not None:
+            query_kwargs = await ClienteModuloService._tenant_data_query_kwargs(cliente_id)
+        else:
+            from app.core.tenant.context import try_get_current_client_id
+
+            ctx_cliente_id = try_get_current_client_id()
+            if ctx_cliente_id is not None:
+                query_kwargs = await ClienteModuloService._tenant_data_query_kwargs(ctx_cliente_id)
+            else:
+                query_kwargs = {
+                    "connection_type": DatabaseConnection.ADMIN,
+                    "client_id": None,
+                }
         
-        resultado = await execute_query(
-            query,
-            connection_type=DatabaseConnection.ADMIN,
-            client_id=None
-        )
+        resultado = await execute_query(query, **query_kwargs)
         if not resultado:
             return None
         
@@ -189,8 +208,7 @@ class ClienteModuloService(BaseService):
         
         resultado = await execute_query(
             query,
-            connection_type=DatabaseConnection.ADMIN,
-            client_id=None
+            **await ClienteModuloService._tenant_data_query_kwargs(cliente_id),
         )
         if not resultado:
             return None
@@ -264,7 +282,7 @@ class ClienteModuloService(BaseService):
         4. Insertar o actualizar registro en cliente_modulo
         5. **APLICAR PLANTILLAS DE ROLES AUTOMÁTICAMENTE**
         """
-        logger.info(f"Activando módulo {modulo_data.modulo_id} para cliente {modulo_data.cliente_id}")
+        logger.debug(f"Activando módulo {modulo_data.modulo_id} para cliente {modulo_data.cliente_id}")
 
         # Validar que el módulo existe y está activo
         from app.modules.modulos.application.services.modulo_service import ModuloService
@@ -330,7 +348,7 @@ class ClienteModuloService(BaseService):
         if existe_raw:
             # El registro ya existe: hacer UPDATE
             cliente_modulo_id = existe_raw[0]['cliente_modulo_id']
-            logger.info(f"[ACTIVAR] Registro existente encontrado (ID: {cliente_modulo_id}), actualizando a activo")
+            logger.debug(f"[ACTIVAR] Registro existente encontrado (ID: {cliente_modulo_id}), actualizando a activo")
             
             stmt = (
                 update(ClienteModuloTable)
@@ -363,11 +381,11 @@ class ClienteModuloService(BaseService):
                     internal_code="MODULE_ACTIVATION_FAILED"
                 )
             
-            logger.info(f"[ACTIVAR] Módulo reactivado exitosamente (ID: {cliente_modulo_id})")
+            logger.debug(f"[ACTIVAR] Módulo reactivado exitosamente (ID: {cliente_modulo_id})")
             cliente_modulo_id_resultado = cliente_modulo_id
         else:
             # El registro NO existe: hacer INSERT
-            logger.info(f"[ACTIVAR] Registro no existe, creando nuevo registro")
+            logger.debug(f"[ACTIVAR] Registro no existe, creando nuevo registro")
             
             insert_data = {
                 'cliente_id': modulo_data.cliente_id,
@@ -398,7 +416,7 @@ class ClienteModuloService(BaseService):
                     internal_code="MODULE_ACTIVATION_FAILED"
                 )
             
-            logger.info(f"[ACTIVAR] Módulo activado exitosamente con ID: {resultado['cliente_modulo_id']}")
+            logger.debug(f"[ACTIVAR] Módulo activado exitosamente con ID: {resultado['cliente_modulo_id']}")
             cliente_modulo_id_resultado = resultado['cliente_modulo_id']
         
         # ⚠️ CRÍTICO: Aplicar plantillas de roles automáticamente
@@ -408,7 +426,7 @@ class ClienteModuloService(BaseService):
                 modulo_id=modulo_data.modulo_id,
                 activado_por_usuario_id=modulo_data.activado_por_usuario_id
             )
-            logger.info(f"[ACTIVAR] Plantillas aplicadas: {len(roles_creados)} roles creados automáticamente")
+            logger.debug(f"[ACTIVAR] Plantillas aplicadas: {len(roles_creados)} roles creados automáticamente")
         except Exception as e:
             logger.error(f"[ACTIVAR] Error aplicando plantillas de roles: {str(e)}", exc_info=True)
             # No fallar la activación si las plantillas fallan, pero registrar el error
@@ -422,7 +440,10 @@ class ClienteModuloService(BaseService):
             logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
         
         # Obtener el módulo activo completo con información del módulo
-        return await ClienteModuloService.obtener_modulo_activo_por_id(cliente_modulo_id_resultado)
+        return await ClienteModuloService.obtener_modulo_activo_por_id(
+            cliente_modulo_id_resultado,
+            cliente_id=modulo_data.cliente_id,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -466,7 +487,7 @@ class ClienteModuloService(BaseService):
         Desactiva un módulo para un cliente.
         Implementa desactivación lógica (soft delete).
         """
-        logger.info(f"Desactivando módulo {modulo_id} para cliente {cliente_id}")
+        logger.debug(f"Desactivando módulo {modulo_id} para cliente {cliente_id}")
 
         # Obtener el módulo activo
         modulo_activo = await ClienteModuloService.obtener_modulo_activo_por_cliente_y_modulo(
@@ -499,7 +520,7 @@ class ClienteModuloService(BaseService):
             connection_type=DatabaseConnection.ADMIN,
             client_id=None
         )
-        logger.info(f"Módulo {modulo_id} desactivado para cliente {cliente_id} exitosamente.")
+        logger.debug(f"Módulo {modulo_id} desactivado para cliente {cliente_id} exitosamente.")
         from app.modules.modulos.application.services.modulo_service import ModuloService
         modulo_info = await ModuloService.obtener_modulo_por_id(modulo_id)
         modulo_codigo = modulo_info.codigo if modulo_info else str(modulo_id)
@@ -556,7 +577,10 @@ class ClienteModuloService(BaseService):
                 internal_code="CONFIG_UPDATE_FAILED"
             )
         
-        return await ClienteModuloService.obtener_modulo_activo_por_id(modulo_activo.cliente_modulo_id)
+        return await ClienteModuloService.obtener_modulo_activo_por_id(
+            modulo_activo.cliente_modulo_id,
+            cliente_id=cliente_id,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -614,7 +638,10 @@ class ClienteModuloService(BaseService):
                 internal_code="LIMITS_UPDATE_FAILED"
             )
         
-        return await ClienteModuloService.obtener_modulo_activo_por_id(modulo_activo.cliente_modulo_id)
+        return await ClienteModuloService.obtener_modulo_activo_por_id(
+            modulo_activo.cliente_modulo_id,
+            cliente_id=cliente_id,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors
@@ -670,7 +697,10 @@ class ClienteModuloService(BaseService):
             get_permission_resolver().invalidate_for_tenant(cliente_id)
         except Exception as inv:
             logger.debug("Permission resolver invalidation (no bloqueante): %s", inv)
-        return await ClienteModuloService.obtener_modulo_activo_por_id(modulo_activo.cliente_modulo_id)
+        return await ClienteModuloService.obtener_modulo_activo_por_id(
+            modulo_activo.cliente_modulo_id,
+            cliente_id=cliente_id,
+        )
 
     @staticmethod
     @BaseService.handle_service_errors

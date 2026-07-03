@@ -24,6 +24,7 @@ from app.modules.tenant.presentation import endpoints_clientes, endpoints_conexi
 from app.modules.superadmin.presentation import endpoints_usuarios as superadmin_usuarios_endpoints
 from app.modules.superadmin.presentation import endpoints_auditoria as superadmin_auditoria_endpoints
 from app.modules.superadmin.presentation import endpoints_catalogos_globales as superadmin_catalogos_endpoints
+from app.modules.superadmin.presentation import endpoints_catalog_sync as superadmin_catalog_sync_endpoints
 from app.modules.org.presentation import endpoints as org_endpoints
 from app.modules.inv.presentation import endpoints as inv_endpoints
 from app.modules.pur.presentation import endpoints as pur_endpoints
@@ -133,6 +134,12 @@ api_router.include_router(
 
 api_router.include_router(
     superadmin_catalogos_endpoints.router,
+    prefix="/catalogos-globales",
+    tags=["Catálogos Globales (Super Admin)"]
+)
+
+api_router.include_router(
+    superadmin_catalog_sync_endpoints.router,
     prefix="/catalogos-globales",
     tags=["Catálogos Globales (Super Admin)"]
 )

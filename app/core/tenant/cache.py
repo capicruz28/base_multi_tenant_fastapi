@@ -229,8 +229,16 @@ class ConnectionMetadataCache:
 # INSTANCIA GLOBAL DEL CACHE
 # ============================================
 
-# Instancia singleton del cache (5 minutos TTL por defecto)
-connection_cache = ConnectionMetadataCache(ttl_seconds=300)
+def _connection_metadata_cache_ttl_seconds() -> int:
+    """TTL L-B desde settings (TD-02). Default 300 s — paridad AS-IS."""
+    from app.core.config import settings
+
+    return settings.CONNECTION_METADATA_CACHE_TTL
+
+
+connection_cache = ConnectionMetadataCache(
+    ttl_seconds=_connection_metadata_cache_ttl_seconds()
+)
 
 # Para testing o configuración custom, puedes crear instancias adicionales:
 # custom_cache = ConnectionMetadataCache(ttl_seconds=600)  # 10 minutos
@@ -255,6 +263,27 @@ def get_cache_stats() -> Dict[str, Any]:
         {'size': 5, 'ttl_seconds': 300, ...}
     """
     return connection_cache.get_stats()
+
+
+# RD-08 amended (F1-WP07): métrica in-process fallback shared
+_metadata_fallback_shared_total: int = 0
+
+
+def record_metadata_fallback_shared() -> None:
+    """Incrementa contador `metadata_fallback_shared_total` (RD-08 amended)."""
+    global _metadata_fallback_shared_total
+    _metadata_fallback_shared_total += 1
+
+
+def get_metadata_fallback_shared_total() -> int:
+    """Total acumulado de ejecuciones fallback shared (RD-08 amended)."""
+    return _metadata_fallback_shared_total
+
+
+def reset_metadata_fallback_shared_total() -> None:
+    """Reinicia contador — uso en tests o diagnóstico interno."""
+    global _metadata_fallback_shared_total
+    _metadata_fallback_shared_total = 0
 
 
 def invalidate_client_cache(client_id: int) -> bool:

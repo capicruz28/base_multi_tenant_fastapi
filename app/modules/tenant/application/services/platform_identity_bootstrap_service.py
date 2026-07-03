@@ -371,29 +371,16 @@ class PlatformIdentityBootstrapService:
     async def _ensure_auth_config(
         session: AsyncSession, result: PlatformIdentityBootstrapResult
     ) -> None:
+        from app.core.auth.auth_config_gateway import AuthConfigGateway
+
         cid_str = result.cliente_id or str(PlatformRbacBootstrapService.resolve_platform_cliente_id())
+        cliente_id = UUID(cid_str)
 
-        row = (
-            await session.execute(
-                text("SELECT 1 FROM cliente_auth_config WHERE cliente_id = :cid").bindparams(
-                    cid=cid_str
-                )
-            )
-        ).first()
-
-        if row:
+        if await AuthConfigGateway.config_exists(cliente_id):
             result.actions.append("auth_config_reused")
             return
 
-        await session.execute(
-            text("""
-                IF NOT EXISTS (
-                    SELECT 1 FROM cliente_auth_config WHERE cliente_id = :cid
-                )
-                INSERT INTO cliente_auth_config (cliente_id)
-                VALUES (:cid)
-            """).bindparams(cid=cid_str)
-        )
+        await AuthConfigGateway.insert_config({"cliente_id": cliente_id})
         result.auth_config_created = True
         result.actions.append("auth_config_created")
 
@@ -462,13 +449,9 @@ class PlatformIdentityBootstrapService:
                 result.actions.append("would_reuse_usuario")
             if not usuario_exists or not rol_exists:
                 result.actions.append("would_ensure_usuario_rol")
-            auth_exists = (
-                await session.execute(
-                    text("SELECT 1 FROM cliente_auth_config WHERE cliente_id = :cid").bindparams(
-                        cid=cid_str
-                    )
-                )
-            ).first() is not None
+            from app.core.auth.auth_config_gateway import AuthConfigGateway
+
+            auth_exists = await AuthConfigGateway.config_exists(UUID(cid_str))
             if not auth_exists:
                 result.actions.append("would_create_auth_config")
             return result

@@ -1,0 +1,47 @@
+{
+  "artifact_type": "f4_provisioning_metrics",
+  "reference": "DEDICATED_PROVISIONING_API_CONTRACT.md \u00a716 / DOD-F4-10",
+  "description": "Cinco se\u00f1ales m\u00ednimas de ciclo de vida provisioning dedicated",
+  "signals": {
+    "dedicated.provisioning.started": {
+      "when": "POST /clientes/ dedicated 201",
+      "fields": [
+        "cliente_id",
+        "run_id",
+        "actor_user_id"
+      ]
+    },
+    "dedicated.provisioning.step.completed": {
+      "when": "Cada step saga OK",
+      "fields": [
+        "cliente_id",
+        "run_id",
+        "step_code"
+      ]
+    },
+    "dedicated.provisioning.ready": {
+      "when": "S10 mark_ready",
+      "fields": [
+        "cliente_id",
+        "run_id",
+        "duration_seconds"
+      ]
+    },
+    "dedicated.provisioning.failed": {
+      "when": "Estado failed / abort",
+      "fields": [
+        "cliente_id",
+        "run_id",
+        "error_code"
+      ]
+    },
+    "dedicated.provisioning.retry": {
+      "when": "POST retry",
+      "fields": [
+        "cliente_id",
+        "actor_user_id"
+      ]
+    }
+  },
+  "staging_dashboard_note": "Exportar a Prometheus/Datadog en F5b; E2E mock valida contrato."
+}

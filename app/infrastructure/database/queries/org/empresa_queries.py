@@ -117,6 +117,27 @@ async def get_empresa_by_id(client_id: UUID, empresa_id: UUID) -> Optional[Dict[
     return rows[0] if rows else None
 
 
+async def get_empresas_by_ids(
+    client_id: UUID,
+    empresa_ids: List[UUID],
+) -> List[Dict[str, Any]]:
+    """Batch lookup de empresas por IDs dentro del tenant."""
+    if not empresa_ids:
+        return []
+    query = select(
+        OrgEmpresaTable.c.empresa_id,
+        OrgEmpresaTable.c.nombre_comercial,
+        OrgEmpresaTable.c.razon_social,
+        OrgEmpresaTable.c.es_activo,
+    ).where(
+        and_(
+            OrgEmpresaTable.c.cliente_id == client_id,
+            OrgEmpresaTable.c.empresa_id.in_(empresa_ids),
+        )
+    )
+    return await execute_query(query, client_id=client_id)
+
+
 async def create_empresa(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     """Inserta una empresa. cliente_id se fuerza desde contexto de sesión."""
     from uuid import uuid4

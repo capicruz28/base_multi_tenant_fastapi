@@ -34,7 +34,8 @@ IS_USER_SUPER_ADMIN = """
 SELECT COUNT(*) as is_super_admin
 FROM usuario_rol ur
 INNER JOIN rol r ON ur.rol_id = r.rol_id
-WHERE ur.usuario_id = :usuario_id 
+WHERE ur.usuario_id = :usuario_id
+  AND ur.cliente_id = :cliente_id
   AND ur.es_activo = 1
   AND r.es_activo = 1
   AND r.codigo_rol = 'SUPER_ADMIN'

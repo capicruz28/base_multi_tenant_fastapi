@@ -124,7 +124,7 @@ async def activar_modulo_cliente(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Activa un módulo para un cliente específico. Aplica automáticamente plantillas de roles."""
-    logger.info(f"Solicitud POST /cliente-modulo/activar/ - cliente: {modulo_data.cliente_id}, módulo: {modulo_data.modulo_id}")
+    logger.debug(f"Solicitud POST /cliente-modulo/activar/ - cliente: {modulo_data.cliente_id}, módulo: {modulo_data.modulo_id}")
     
     try:
         # Agregar usuario que activa
@@ -132,7 +132,7 @@ async def activar_modulo_cliente(
         
         modulo_activo = await ClienteModuloService.activar_modulo_cliente(modulo_data)
         
-        logger.info(f"Módulo {modulo_data.modulo_id} activado exitosamente para cliente {modulo_data.cliente_id}")
+        logger.debug(f"Módulo {modulo_data.modulo_id} activado exitosamente para cliente {modulo_data.cliente_id}")
         
         return {
             "success": True,
@@ -181,12 +181,12 @@ async def desactivar_modulo_cliente(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user)
 ):
     """Desactiva un módulo para un cliente específico."""
-    logger.info(f"Solicitud DELETE /cliente-modulo/cliente/{cliente_id}/modulo/{modulo_id}/ recibida")
+    logger.debug(f"Solicitud DELETE /cliente-modulo/cliente/{cliente_id}/modulo/{modulo_id}/ recibida")
     
     try:
         await ClienteModuloService.desactivar_modulo_cliente(cliente_id, modulo_id)
         
-        logger.info(f"Módulo {modulo_id} desactivado exitosamente para cliente {cliente_id}")
+        logger.debug(f"Módulo {modulo_id} desactivado exitosamente para cliente {cliente_id}")
         
         return {
             "success": True,

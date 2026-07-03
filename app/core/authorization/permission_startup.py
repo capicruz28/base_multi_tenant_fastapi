@@ -15,6 +15,7 @@ from app.core.authorization.permission_registry import (
     get_all as get_all_permissions,
 )
 from app.core.authorization.permission_sync_service import sync as sync_permissions
+from app.core.config import settings
 from app.infrastructure.database.queries_async import execute_query
 from app.infrastructure.database.connection_async import DatabaseConnection
 from sqlalchemy import text
@@ -57,7 +58,8 @@ def _iter_routes(app: Any) -> Generator[tuple[str, set, Any], None, None]:
                 methods = route.methods or set()
                 dependant = getattr(route, "dependant", None)
                 try:
-                    print("[RBAC DEBUG] APIRoute detected:", path)
+                    if settings.ENABLE_RBAC_TRACE:
+                        print("[RBAC DEBUG] APIRoute detected:", path)
                 except Exception:
                     pass
                 yield path, methods, dependant
@@ -212,8 +214,9 @@ def ensure_registry_from_routes(app: Any) -> None:
     for path, methods, dependant in _iter_routes(app):
         # DEBUG: loggear cada ruta detectada para validar timing del startup
         try:
-            for m in sorted(methods or []):
-                print(f"[RBAC DEBUG] route found: {m} {path}")
+            if settings.ENABLE_RBAC_TRACE:
+                for m in sorted(methods or []):
+                    print(f"[RBAC DEBUG] route found: {m} {path}")
         except Exception:
             pass
         for call in _get_dependency_callables(dependant):
@@ -316,6 +319,18 @@ def ensure_registry_from_routes(app: Any) -> None:
     # 3) Asegurar también registro para dependencias con __permission_codigo__ sin metadata
     for _path, _methods, dependant in _iter_routes(app):
         _register_from_route_dependencies(dependant)
+
+
+def populate_permission_registry(app: Any) -> list[Any]:
+    """
+    Rellena PermissionRegistry sin enforcement ni sync (F12-B — input DP catalog sync).
+    Orden: register_core_permissions → ensure_registry_from_routes.
+    """
+    from app.core.authorization.core_permissions import register_core_permissions
+
+    register_core_permissions()
+    ensure_registry_from_routes(app)
+    return get_all_permissions()
 
 
 def warn_routes_without_permission(app: Any) -> None:
@@ -426,7 +441,8 @@ async def run_rbac_startup(app: Any) -> None:
     try:
         # DEBUG: verificar cantidad de rutas registradas al momento del startup RBAC
         try:
-            print("[RBAC DEBUG] total routes:", len(getattr(app, "routes", [])))
+            if settings.ENABLE_RBAC_TRACE:
+                print("[RBAC DEBUG] total routes:", len(getattr(app, "routes", [])))
         except Exception:
             pass
 

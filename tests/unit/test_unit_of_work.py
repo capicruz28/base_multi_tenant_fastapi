@@ -5,11 +5,87 @@ Tests unitarios para Unit of Work Pattern.
 """
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 from app.core.application.unit_of_work import UnitOfWork
 from app.infrastructure.database.connection_async import DatabaseConnection
 from app.core.exceptions import DatabaseError
 from sqlalchemy import text
+from sqlalchemy.sql.elements import TextClause
+
+
+def _mock_session_with_row(column: str, value):
+    """Sesión async mock que devuelve una fila SELECT."""
+    mock_result = MagicMock()
+    mock_result.returns_rows = True
+    mock_result.fetchall.return_value = [(value,)]
+    mock_result.keys.return_value = [column]
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=mock_result)
+    return session
+
+
+class TestUnitOfWorkExecuteParams:
+    """Cobertura de enlace de parámetros en execute() — str vs TextClause."""
+
+    @pytest.mark.asyncio
+    async def test_execute_str_with_params(self):
+        uow = UnitOfWork(client_id=UUID("00000000-0000-0000-0000-000000000001"))
+        uow.session = _mock_session_with_row("test", 42)
+
+        result = await uow.execute("SELECT :value as test", params={"value": 42})
+
+        uow.session.execute.assert_awaited_once()
+        call_args = uow.session.execute.await_args
+        assert isinstance(call_args.args[0], TextClause)
+        assert call_args.args[1] == {"value": 42}
+        assert result == [{"test": 42}]
+
+    @pytest.mark.asyncio
+    async def test_execute_textclause_with_params(self):
+        uow = UnitOfWork(client_id=UUID("00000000-0000-0000-0000-000000000001"))
+        uow.session = _mock_session_with_row("provisioning_run_id", "run-1")
+        stmt = text(
+            "SELECT provisioning_run_id FROM tenant_provisioning_run "
+            "WHERE provisioning_run_id = :provisioning_run_id"
+        )
+
+        result = await uow.execute(
+            stmt,
+            params={"provisioning_run_id": "run-1", "cliente_id": "client-1"},
+        )
+
+        uow.session.execute.assert_awaited_once()
+        call_args = uow.session.execute.await_args
+        assert call_args.args[0] is stmt
+        assert call_args.args[1] == {
+            "provisioning_run_id": "run-1",
+            "cliente_id": "client-1",
+        }
+        assert result == [{"provisioning_run_id": "run-1"}]
+
+    @pytest.mark.asyncio
+    async def test_execute_str_without_params(self):
+        uow = UnitOfWork(client_id=UUID("00000000-0000-0000-0000-000000000001"))
+        uow.session = _mock_session_with_row("test", 1)
+
+        result = await uow.execute("SELECT 1 as test")
+
+        uow.session.execute.assert_awaited_once()
+        call_args = uow.session.execute.await_args
+        assert len(call_args.args) == 1
+        assert result == [{"test": 1}]
+
+    @pytest.mark.asyncio
+    async def test_execute_textclause_without_params(self):
+        uow = UnitOfWork(client_id=UUID("00000000-0000-0000-0000-000000000001"))
+        uow.session = _mock_session_with_row("test", 7)
+        stmt = text("SELECT 7 as test")
+
+        result = await uow.execute(stmt)
+
+        uow.session.execute.assert_awaited_once_with(stmt)
+        assert result == [{"test": 7}]
 
 
 class TestUnitOfWork:

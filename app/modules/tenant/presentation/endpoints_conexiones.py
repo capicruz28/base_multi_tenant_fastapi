@@ -57,9 +57,9 @@ async def listar_conexiones_cliente(
     """
     Lista todas las conexiones de BD para un cliente específico.
     """
-    logger.info(f"Solicitud GET /conexiones/clientes/{cliente_id} recibida")
+    logger.debug(f"Solicitud GET /conexiones/clientes/{cliente_id} recibida")
     conexiones = await ConexionService.obtener_conexiones_cliente(cliente_id)
-    logger.info(f"Conexiones recuperadas para cliente {cliente_id}: {len(conexiones)} conexiones")
+    logger.debug(f"Conexiones recuperadas para cliente {cliente_id}: {len(conexiones)} conexiones")
     return conexiones
 
 
@@ -91,12 +91,12 @@ async def obtener_conexion_principal(
     """
     Obtiene la conexión principal para un cliente específico.
     """
-    logger.info(f"Solicitud GET /conexiones/clientes/{cliente_id}/principal recibida")
+    logger.debug(f"Solicitud GET /conexiones/clientes/{cliente_id}/principal recibida")
     conexion = await ConexionService.obtener_conexion_principal(cliente_id)
     if conexion:
-        logger.info(f"Conexión principal encontrada para cliente {cliente_id}")
+        logger.debug(f"Conexión principal encontrada para cliente {cliente_id}")
     else:
-        logger.info(f"No se encontró conexión principal para cliente {cliente_id}")
+        logger.debug(f"No se encontró conexión principal para cliente {cliente_id}")
     return conexion
 
 
@@ -132,12 +132,12 @@ async def crear_conexion(
     """
     Crea una nueva conexión de BD para un cliente.
     """
-    logger.info(f"Solicitud POST /conexiones/clientes/{cliente_id} recibida")
+    logger.debug(f"Solicitud POST /conexiones/clientes/{cliente_id} recibida")
     conexion_creada = await ConexionService.crear_conexion(
         conexion_data=conexion_data,
         creado_por_usuario_id=current_user.usuario_id
     )
-    logger.info(f"Conexión creada exitosamente con ID: {conexion_creada.conexion_id}")
+    logger.debug(f"Conexión creada exitosamente con ID: {conexion_creada.conexion_id}")
     return conexion_creada
 
 
@@ -173,9 +173,9 @@ async def actualizar_conexion(
     """
     Actualiza una conexión existente.
     """
-    logger.info(f"Solicitud PUT /conexiones/{conexion_id} recibida")
+    logger.debug(f"Solicitud PUT /conexiones/{conexion_id} recibida")
     conexion_actualizada = await ConexionService.actualizar_conexion(conexion_id, conexion_data)
-    logger.info(f"Conexión {conexion_id} actualizada exitosamente")
+    logger.debug(f"Conexión {conexion_id} actualizada exitosamente")
     return conexion_actualizada
 
 
@@ -208,9 +208,9 @@ async def desactivar_conexion(
     """
     Desactiva una conexión (eliminación lógica).
     """
-    logger.info(f"Solicitud DELETE /conexiones/{conexion_id} recibida")
+    logger.debug(f"Solicitud DELETE /conexiones/{conexion_id} recibida")
     await ConexionService.desactivar_conexion(conexion_id)
-    logger.info(f"Conexión {conexion_id} desactivada exitosamente")
+    logger.debug(f"Conexión {conexion_id} desactivada exitosamente")
     return None
 
 
@@ -239,5 +239,5 @@ async def test_conexion(
     """
     Testea la conectividad de una configuración de conexión.
     """
-    logger.info(f"Solicitud POST /conexiones/test recibida para servidor: {conexion_test.servidor}")
+    logger.debug(f"Solicitud POST /conexiones/test recibida para servidor: {conexion_test.servidor}")
     return await ConexionService.test_conexion(conexion_test)

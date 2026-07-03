@@ -4,16 +4,16 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-# ✅ CRÍTICO: Configurar logging ANTES de cualquier import que pueda hacer logging
-# Esto asegura que los emojis y caracteres Unicode funcionen correctamente en Windows
+# ✅ CRÍTICO: Configurar logging tras cargar settings (LOG_LEVEL desde entorno)
+from app.core.config import settings
 from app.core.logging_config import setup_logging
-setup_logging()
+
+setup_logging(settings.LOG_LEVEL)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.core.config import settings
 from app.core.exceptions import configure_exception_handlers, CustomException 
 from app.api.v1.api import api_router
 from app.infrastructure.database.connection_async import get_db_connection
@@ -217,12 +217,14 @@ def create_application() -> FastAPI:
         except Exception:
              pass # Si no hay contexto, usamos el default
              
-        logger.info(f"[{client_id_log}] {request.client.host} -> {request.method} {request.url.path}")
+        if settings.ENABLE_HTTP_TRACE:
+            logger.info(f"[{client_id_log}] {request.client.host} -> {request.method} {request.url.path}")
         try:
             response = await call_next(request)
         finally:
             duration_ms = (time.perf_counter() - start) * 1000
-            logger.info(f"[{client_id_log}] {request.client.host} <- {request.method} {request.url.path} {response.status_code if 'response' in locals() else 'N/A'} {duration_ms:.1f}ms")
+            if settings.ENABLE_HTTP_TRACE:
+                logger.info(f"[{client_id_log}] {request.client.host} <- {request.method} {request.url.path} {response.status_code if 'response' in locals() else 'N/A'} {duration_ms:.1f}ms")
         return response
 
     # 4. Middleware para añadir headers de seguridad básicos
@@ -252,7 +254,8 @@ async def rbac_lifespan(app: FastAPI):
     from app.core.authorization.permission_startup import run_rbac_startup
 
     try:
-        print("[RBAC] Lifespan executing. Routes:", len(getattr(app, "routes", [])))
+        if settings.ENABLE_RBAC_TRACE:
+            print("[RBAC] Lifespan executing. Routes:", len(getattr(app, "routes", [])))
     except Exception:
         pass
 
@@ -419,11 +422,19 @@ async def debug_detailed(request: Request):
 @app.on_event("shutdown")
 async def shutdown_event():
     """
-    Cierra pools de conexión al apagar la aplicación.
-    
+    Cierra AsyncEngines y pools de conexión al apagar la aplicación.
+
+    Orden normativo (EM §4.5): async engines → sync pools legacy.
     ✅ CORRECCIÓN: Manejo robusto de errores durante shutdown.
     Suprime errores de compatibilidad SQLAlchemy + Python 3.13.
     """
+    try:
+        from app.infrastructure.database.connection_async import close_all_async_engines
+
+        await close_all_async_engines()
+    except Exception as e:
+        logger.warning(f"Error cerrando AsyncEngines: {e}")
+
     try:
         from app.infrastructure.database.connection_pool import close_all_pools
         close_all_pools()
@@ -452,5 +463,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level=settings.LOG_LEVEL.lower()
+        log_level=settings.UVICORN_LOG_LEVEL
     )

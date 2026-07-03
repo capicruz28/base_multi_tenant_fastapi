@@ -1,0 +1,16 @@
+{
+  "artifact_type": "f4_provisioning_e2e_gate",
+  "gate": "G-F4-03",
+  "reference": "IP-2.0.1 F4-WP12 / DOD-F4-12",
+  "timestamp_utc": "2026-06-26T06:52:23.343191+00:00",
+  "exit_code": 0,
+  "passed": true,
+  "test_counts": {
+    "passed": 9,
+    "failed": 0
+  },
+  "targets": [
+    "tests/integration/test_hybrid_provisioning_e2e.py"
+  ],
+  "tag_preparation": "hybrid-gate-f4-complete"
+}

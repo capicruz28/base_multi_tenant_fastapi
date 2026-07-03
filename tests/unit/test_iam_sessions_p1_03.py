@@ -229,15 +229,15 @@ async def test_leer_max_active_sessions_null_and_zero_disabled():
     )
 
     with patch(
-        "app.modules.auth.application.services.auth_config_service.execute_query",
-        AsyncMock(side_effect=[[{"max_active_sessions": None}], []]),
+        "app.core.auth.auth_config_gateway.select_config_by_cliente_id_core",
+        AsyncMock(side_effect=[{"max_active_sessions": None}, None]),
     ):
         assert await leer_max_active_sessions(CLIENTE_ID) is None
         assert await leer_max_active_sessions(uuid4()) is None
 
     with patch(
-        "app.modules.auth.application.services.auth_config_service.execute_query",
-        AsyncMock(return_value=[{"max_active_sessions": 0}]),
+        "app.core.auth.auth_config_gateway.select_config_by_cliente_id_core",
+        AsyncMock(return_value={"max_active_sessions": 0}),
     ):
         assert await leer_max_active_sessions(CLIENTE_ID) is None
 
@@ -249,8 +249,8 @@ async def test_leer_max_active_sessions_returns_positive():
     )
 
     with patch(
-        "app.modules.auth.application.services.auth_config_service.execute_query",
-        AsyncMock(return_value=[{"max_active_sessions": 3}]),
+        "app.core.auth.auth_config_gateway.select_config_by_cliente_id_core",
+        AsyncMock(return_value={"max_active_sessions": 3}),
     ):
         assert await leer_max_active_sessions(CLIENTE_ID) == 3
 

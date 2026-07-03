@@ -24,7 +24,6 @@ async def test_needs_bootstrap_when_identity_missing():
             _mock_result(None),  # cliente
             _mock_result(None),  # rol
             _mock_result(None),  # usuario
-            _mock_result(None),  # auth_config
             _mock_result(scalar=0),  # cm_sysadmin
             _mock_result((1,)),  # perm_platform active
         ]
@@ -37,6 +36,11 @@ async def test_needs_bootstrap_when_identity_missing():
         patch(
             "app.modules.tenant.application.services.platform_bootstrap_audit.PlatformRbacBootstrapService.resolve_platform_cliente_id",
             return_value=PLATFORM_CID,
+        ),
+        patch(
+            "app.core.auth.auth_config_gateway.AuthConfigGateway.config_exists",
+            new_callable=AsyncMock,
+            return_value=False,
         ),
     ):
         snap = await audit_platform_ready(session)
@@ -54,7 +58,6 @@ async def test_ready_when_identity_and_rbac_ok():
             _mock_result((rol_id,)),
             _mock_result(("user-id", "superadmin", True)),
             _mock_result((1,)),  # usuario_rol
-            _mock_result((1,)),  # auth_config
             _mock_result(scalar=10),  # rp_count
             _mock_result((1,)),  # has_core_rp
             _mock_result((1,)),  # has_tenant_cliente_crear
@@ -70,6 +73,11 @@ async def test_ready_when_identity_and_rbac_ok():
         patch(
             "app.modules.tenant.application.services.platform_bootstrap_audit.PlatformRbacBootstrapService.resolve_platform_cliente_id",
             return_value=PLATFORM_CID,
+        ),
+        patch(
+            "app.core.auth.auth_config_gateway.AuthConfigGateway.config_exists",
+            new_callable=AsyncMock,
+            return_value=True,
         ),
     ):
         snap = await audit_platform_ready(session)

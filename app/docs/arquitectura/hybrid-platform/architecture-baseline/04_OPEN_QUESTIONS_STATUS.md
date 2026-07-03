@@ -29,40 +29,60 @@
 | Q-002 | Data plane data | ✅ E3 | **Closed** | E3 §DP |
 | Q-010 | Session persist dedicated | 🟡 | **Closed (MVP)** | ADR-002-A central CP |
 | Q-020 | Roles/grants location | ✅ E3 | **Closed** | ADR-003-A DP |
-| Q-030 | Saga contract | P0 abierta | **Open** | Gate F4 — spec 1-pager requerida |
-| Q-031 | Metadata installation timing | P0 abierta | **Closed** | Saga Step 1b post-registry |
+| Q-030 | Saga contract | P0 abierta | **Closed** | Spec pública: `docs/contracts/DEDICATED_PROVISIONING_API_CONTRACT.md` + IP-2.0.1 §8 saga S1–S10; ver §4 |
+| Q-031 | Metadata installation timing | P0 abierta | **Closed** | Saga F4: `cliente_conexion` en S8 post seed S7; ver §3 |
 
 ---
 
-## 3. Q-031 — Resolución BL-1.0 (cerrada)
+## 3. Q-031 — Resolución BL-1.0 (cerrada; alineada saga F4 S1–S10)
 
 **Contrato metadata installation (congela C-05):**
 
-| Step | Acción | Almacén |
-|------|--------|---------|
-| 1a | Crear Tenant Registry entry | CP |
-| 1b | Crear Installation Mode + Storage Metadata (shared default o dedicated endpoint) | CP |
-| 2+ | Seed DP / DDL dedicated | DP resuelto |
+| Paso saga F4 | Acción | Almacén | Notas |
+|--------------|--------|---------|-------|
+| S1 | Registry tenant | CP | Tras `POST /clientes/` dedicated |
+| S2–S7 | Allocate, DDL, bootstrap, catálogos, seed tenant | DP | Seed S7 usa conexión DP directa de provisioning (no requiere `cliente_conexion` en CP) |
+| **S8** | Registrar `cliente_conexion` (metadata routing) | CP | **Automático** — no `POST /conexiones/` en happy path |
+| S9–S10 | Invalidación cache, smoke, `provisioning_state=ready` | CP | Tráfico ERP vía Gateway solo post-Ready |
 
-**Reglas:**
-- Metadata **debe existir** antes de primera operación tenant_data dedicated
-- Onboarding shared: mode=shared; metadata mínima (implícita settings globales)
-- Onboarding dedicated: mode=dedicated + Storage Endpoint row obligatoria antes Step 3
+**Reglas (sin contradicción con Q-030 / contrato provisioning):**
+
+- Metadata (`cliente_conexion` principal activa) **debe existir** antes de la primera operación **tenant_data vía Hybrid Gateway** en runtime (post S10 Ready).
+- **No** exige metadata CP antes del seed interno S7: el provisioning accede al Data Plane con credenciales de plataforma durante la saga.
+- Onboarding **shared:** mode=shared; metadata mínima (implícita settings globales); conexión opcional vía `POST /conexiones/`.
+- Onboarding **dedicated F4+:** metadata se crea en **S8**, después de S7 — conforme `DEDICATED_PROVISIONING_API_CONTRACT.md` RN-03.
+
+**Referencia cruzada:** IP-2.0.1 PA-16, BLF4-R05; ADR-F4-02 (pendiente versionado repo — ver §11).
 
 ---
 
-## 4. Q-030 — Open (gate F4)
+## 4. Q-030 — Closed (spec pública F4)
 
-Permanece **Open** para detalle implementación. **Behavioral** cerrado por ADR-004 + RD-12.
+**Estado:** **Closed** — spec de saga disponible para implementación F4.
 
-**Mínimo requerido pre-F4 (BL-PEND-01):**
-- Lista pasos saga numerados
-- Idempotency key por paso
-- Estados Provisioning → Activo | Error
-- Compensación semi-automática (TD-12)
-- POST /clientes/ response invariant
+**Fuentes normativas vigentes (en repo):**
 
-**No bloquea F0–F3.**
+| Documento | Ruta | Contenido |
+|-----------|------|-----------|
+| Contrato API provisioning | `docs/contracts/DEDICATED_PROVISIONING_API_CONTRACT.md` | Flujo producto, estados, endpoints, saga S1–S10 expuesta al FE |
+| Plan implementación | `app/docs/arquitectura/hybrid-platform/implementation-planning/IP-2.0_F4_IMPLEMENTATION_PLAN.md` | WPs, 12 PRs, DoD, gates |
+| Contrato conexión manual | `docs/contracts/CONNECTION_CREATION_API_CONTRACT.md` | Legacy/manual Dedicated; Shared opcional |
+
+**Saga F4 (resumen alineado Q-031):** S1 registry CP → S2 allocate → S3 CREATE DATABASE → S4–S5 bootstrap → S6 catálogos → S7 seed DP → **S8 `cliente_conexion` automático CP** → S9 cache/smoke → S10 Ready.
+
+**Criterios Q-030 satisfechos:**
+
+| Requisito BL-PEND-01 | Resolución |
+|----------------------|------------|
+| Lista pasos saga numerados | S1–S10 en contrato provisioning §3 y IP-2.0.1 §8 |
+| Idempotency key por paso | Contrato provisioning §6; IP-2.0.1 PA-09 |
+| Estados Provisioning → Ready \| Failed | Contrato provisioning §7–8 |
+| Compensación semi-automática | IP-2.0.1 F4-10; ADR-F4-04 (pendiente versionado) |
+| POST /clientes/ response invariant | Contrato provisioning §4–5; IP-2.0.1 BLF4-R02 |
+
+**No bloquea F0–F3.** **No bloquea PR-F4-01** — spec pública cerrada.
+
+**Comportamiento behavioral** previamente cerrado por ADR-004 + RD-12 (BL-1.0).
 
 ---
 
@@ -118,8 +138,8 @@ Permanece **Open** para detalle implementación. **Behavioral** cerrado por ADR-
 
 | Estado | P0 | P1 | Total aprox |
 |--------|----|----|-------------|
-| Closed | 5 | 12 | ~17 |
-| Open | 1 | 3 | 4 |
+| Closed | 6 | 12 | ~18 |
+| Open | 0 | 3 | 3 |
 | Deferred | 0 | 8+ | ~10 |
 
 ---
@@ -129,7 +149,7 @@ Permanece **Open** para detalle implementación. **Behavioral** cerrado por ADR-
 | Fase | Open Questions que bloquean |
 |------|----------------------------|
 | F0–F3 | **Ninguna P0** |
-| F4 | Q-030 (spec), Q-061 |
+| F4 | Q-061 |
 | F6 | Q-060, Q-011 (operational hardening) |
 | F7 | Q-052 |
 
@@ -137,4 +157,23 @@ Permanece **Open** para detalle implementación. **Behavioral** cerrado por ADR-
 
 ## 10. Conclusión
 
-**P0 ownership y routing:** cerradas. **Única P0 Open:** Q-030 detalle saga (gate F4, no F0). Documento `05_OPEN_QUESTIONS.md` queda **SUPERSEDED**.
+**P0 ownership y routing:** cerradas. **Q-030** cerrada — spec saga en contrato provisioning + IP-2.0.1. **Q-031** alineada saga S8 post S7. Documento `05_OPEN_QUESTIONS.md` queda **SUPERSEDED**.
+
+---
+
+## 11. Artefactos arquitectura F4 — referencias (sin crear nuevas arquitecturas)
+
+Artefactos citados en IP-2.0.1 y contratos F4 **pendientes de versionado físico en repo**. La implementación F4 debe seguir los documentos versionados listados en §4 Q-030 hasta que existan.
+
+| ID | Artefacto | Estado repo | Referencia vigente mientras tanto |
+|----|-----------|-------------|-----------------------------------|
+| BL-F4-1.0 | Baseline arquitectónico F4 (saga, CP/DP, compensación) | **Pendiente** — no existe archivo `BL-F4-*.md` | IP-2.0.1; `HYBRID_F4_HANDOFF.md`; contrato provisioning |
+| AR-F01 | Decisión flujo canónico Dedicated (`POST /clientes/` → S1–S10) | **Pendiente** — no existe acta archivada | Incorporada en `DEDICATED_PROVISIONING_API_CONTRACT.md` §3, §23 |
+| ADR-F4-01 | Credenciales DDL platform segregadas | **Pendiente** | IP-2.0.1 PA-14, F4-04 |
+| ADR-F4-02 | Seed tenant en Data Plane | **Pendiente** | IP-2.0.1 F4-07; Q-031 §3 |
+| ADR-F4-03 | OpenAPI stability POST /clientes/ | **Pendiente** | IP-2.0.1 PA-07; contrato provisioning §19 |
+| ADR-F4-04 | Compensación semi-automática | **Pendiente** | IP-2.0.1 F4-10 |
+| ADR-F4-05 | Job dispatcher async in-process | **Pendiente** | IP-2.0.1 F4-03 |
+| ADR-F4-06 | Flujo canónico vs legacy conexión manual | **Pendiente** | `CONNECTION_CREATION_API_CONTRACT.md` banner; contrato provisioning §1 |
+
+**Acción futura (fuera alcance P0):** versionar BL-F4-1.0, AR-F01 y ADR-F4-01…06 en `architecture-baseline/` sin alterar decisiones ya incorporadas en contratos e IP-2.0.1.

@@ -14,9 +14,11 @@ Características clave:
 """
 from typing import List, Optional, Dict, Any
 import logging
+import time
 from sqlalchemy import select, update, delete, and_, or_, func as sql_func, Integer, case, text
 from uuid import UUID
 
+from app.core.config import settings
 from app.infrastructure.database.tables_modulos import ModuloMenuTable, ModuloTable, ModuloSeccionTable, ClienteModuloTable
 from app.infrastructure.database.tables import RolMenuPermisoTable, UsuarioRolTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update, execute_procedure_params
@@ -49,6 +51,55 @@ def _normalize_uuid(v: Any) -> Optional[UUID]:
         return None
 
 
+def _menu_usuario_auth_verbose() -> bool:
+    return settings.ENABLE_AUTH_VERBOSE
+
+
+def _menu_usuario_log_diagnostic(message: str, *args) -> None:
+    if _menu_usuario_auth_verbose():
+        logger.info(message, *args)
+
+
+def _menu_usuario_log_diagnostic_warning(message: str, *args) -> None:
+    if _menu_usuario_auth_verbose():
+        logger.warning(message, *args)
+
+
+def _menu_usuario_log_item(message: str, *args) -> None:
+    logger.debug(message, *args)
+
+
+def _menu_usuario_log_start(usuario_id: UUID, cliente_id: UUID) -> float:
+    logger.info(
+        "[MENU_USUARIO] Inicio usuario=%s cliente=%s",
+        usuario_id,
+        cliente_id,
+    )
+    return time.monotonic()
+
+
+def _menu_usuario_log_finish(
+    started: float,
+    *,
+    modulos: int,
+    modo: str = "",
+) -> None:
+    elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+    if modo:
+        logger.info(
+            "[MENU_USUARIO] Fin modulos=%s duracion_ms=%s modo=%s",
+            modulos,
+            elapsed_ms,
+            modo,
+        )
+    else:
+        logger.info(
+            "[MENU_USUARIO] Fin modulos=%s duracion_ms=%s",
+            modulos,
+            elapsed_ms,
+        )
+
+
 class ModuloMenuService(BaseService):
     """
     Servicio central para la administración de menús de módulos.
@@ -59,9 +110,10 @@ class ModuloMenuService(BaseService):
     @staticmethod
     async def _get_required_permissions_by_modulo(
         modulo_ids: List[UUID],
+        cliente_id: UUID,
     ) -> Dict[UUID, List[str]]:
         """
-        Obtiene códigos de permiso RBAC (tabla permiso) por modulo_id desde BD central.
+        Obtiene códigos de permiso RBAC (tabla permiso) por modulo_id.
         Usado para required_permissions en cada ítem de menú. Si un módulo no tiene
         permisos asociados, devuelve lista vacía.
         """
@@ -69,7 +121,13 @@ class ModuloMenuService(BaseService):
             return {}
         out: Dict[UUID, List[str]] = {mid: [] for mid in modulo_ids}
         try:
-            # permiso está en BD central (ADMIN)
+            from app.core.authorization.permission_catalog_store import (
+                resolve_permission_catalog_target,
+            )
+
+            catalog_conn, catalog_client_id = await resolve_permission_catalog_target(
+                cliente_id
+            )
             placeholders = ",".join([f":m{i}" for i in range(len(modulo_ids))])
             sql = text(
                 f"""
@@ -81,8 +139,8 @@ class ModuloMenuService(BaseService):
             params = {f"m{i}": str(mid) for i, mid in enumerate(modulo_ids)}
             rows = await execute_query(
                 sql.bindparams(**params),
-                connection_type=DatabaseConnection.ADMIN,
-                client_id=None,
+                connection_type=catalog_conn,
+                client_id=catalog_client_id,
             )
             for row in (rows or []):
                 mid = _normalize_uuid(row.get("modulo_id"))
@@ -121,7 +179,7 @@ class ModuloMenuService(BaseService):
         """
         Crea un nuevo menú en un módulo.
         """
-        logger.info(f"Creando nuevo menú: {menu_data.nombre} para módulo {menu_data.modulo_id}")
+        logger.debug(f"Creando nuevo menú: {menu_data.nombre} para módulo {menu_data.modulo_id}")
 
         # Validar que el módulo existe
         from app.modules.modulos.application.services.modulo_service import ModuloService
@@ -212,7 +270,7 @@ class ModuloMenuService(BaseService):
                 internal_code="MENU_CREATION_FAILED"
             )
 
-        logger.info(f"Menú creado exitosamente con ID: {resultado['menu_id']}")
+        logger.debug(f"Menú creado exitosamente con ID: {resultado['menu_id']}")
         menu_dict = ModuloMenuService._normalizar_menu_dict(resultado)
         return ModuloMenuRead(**menu_dict)
 
@@ -312,7 +370,7 @@ class ModuloMenuService(BaseService):
         
         Nota: Incluye menús globales (cliente_id IS NULL) y menús personalizados por cliente.
         """
-        logger.info(f"Obteniendo menús para módulo {modulo_id}, seccion_id={seccion_id}, solo_activos={solo_activos}")
+        logger.debug(f"Obteniendo menús para módulo {modulo_id}, seccion_id={seccion_id}, solo_activos={solo_activos}")
         
         # Intentar con query raw SQL primero para verificar que la conexión funciona
         from sqlalchemy import text
@@ -326,9 +384,9 @@ class ModuloMenuService(BaseService):
             connection_type=DatabaseConnection.ADMIN,
             client_id=None
         )
-        logger.info(f"Query RAW SQL retornó {len(resultados_raw)} resultados")
+        logger.debug(f"Query RAW SQL retornó {len(resultados_raw)} resultados")
         if resultados_raw:
-            logger.info(f"Primeros resultados RAW: {[r.get('nombre') for r in resultados_raw[:3]]}")
+            logger.debug(f"Primeros resultados RAW: {[r.get('nombre') for r in resultados_raw[:3]]}")
         
         # Usar el mismo patrón que funciona en ModuloSeccionService
         query = select(ModuloMenuTable).where(ModuloMenuTable.c.modulo_id == modulo_id)
@@ -347,7 +405,7 @@ class ModuloMenuService(BaseService):
             client_id=None
         )
         
-        logger.info(f"Query SQLAlchemy retornó {len(resultados)} resultados para módulo {modulo_id}")
+        logger.debug(f"Query SQLAlchemy retornó {len(resultados)} resultados para módulo {modulo_id}")
         
         if not resultados:
             logger.warning(f"No se encontraron menús para módulo {modulo_id} con filtros: seccion_id={seccion_id}, solo_activos={solo_activos}")
@@ -437,7 +495,7 @@ class ModuloMenuService(BaseService):
                         logger.error(f"Error al convertir menú RAW a schema: {e}, datos: {row}")
                         continue
                 
-                logger.info(f"Usando {len(menus_raw)} menús de fallback RAW")
+                logger.debug(f"Usando {len(menus_raw)} menús de fallback RAW")
                 return menus_raw
             return []
         
@@ -452,7 +510,7 @@ class ModuloMenuService(BaseService):
                 logger.exception(e)
                 continue
         
-        logger.info(f"Convertidos {len(menus)} menús a schema ModuloMenuRead")
+        logger.debug(f"Convertidos {len(menus)} menús a schema ModuloMenuRead")
         
         if estructura_jerarquica:
             # Construir jerarquía
@@ -514,7 +572,7 @@ class ModuloMenuService(BaseService):
                 logger.warning(f"Menú con ID {menu_id} no encontrado (ni con SQLAlchemy ni con RAW)")
                 return None
             
-            logger.info(f"Menú encontrado usando query RAW: {menu_id}")
+            logger.debug(f"Menú encontrado usando query RAW: {menu_id}")
         
         if not resultado:
             return None
@@ -552,7 +610,7 @@ class ModuloMenuService(BaseService):
         """
         Actualiza un menú existente.
         """
-        logger.info(f"Actualizando menú ID: {menu_id}")
+        logger.debug(f"Actualizando menú ID: {menu_id}")
 
         # Verificar que el menú existe
         menu_existente = await ModuloMenuService.obtener_menu_por_id(menu_id)
@@ -637,7 +695,7 @@ class ModuloMenuService(BaseService):
                 internal_code="MENU_RETRIEVE_AFTER_UPDATE_FAILED"
             )
 
-        logger.info(f"Menú ID {menu_id} actualizado exitosamente.")
+        logger.debug(f"Menú ID {menu_id} actualizado exitosamente.")
         return menu_actualizado
 
     @staticmethod
@@ -646,7 +704,7 @@ class ModuloMenuService(BaseService):
         """
         Elimina un menú (validando que no tenga submenús o permisos).
         """
-        logger.info(f"Intentando eliminar menú ID: {menu_id}")
+        logger.debug(f"Intentando eliminar menú ID: {menu_id}")
 
         # Verificar que el menú existe
         menu = await ModuloMenuService.obtener_menu_por_id(menu_id)
@@ -691,7 +749,7 @@ class ModuloMenuService(BaseService):
             connection_type=DatabaseConnection.ADMIN,
             client_id=None
         )
-        logger.info(f"Menú ID {menu_id} eliminado exitosamente.")
+        logger.debug(f"Menú ID {menu_id} eliminado exitosamente.")
         return True
 
     @staticmethod
@@ -764,7 +822,7 @@ class ModuloMenuService(BaseService):
         """
         Reordena los menús dentro de una sección.
         """
-        logger.info(f"Reordenando menús de la sección {seccion_id}")
+        logger.debug(f"Reordenando menús de la sección {seccion_id}")
 
         # Validar que todas las secciones pertenecen a la sección
         query_menus = select(ModuloMenuTable).where(ModuloMenuTable.c.seccion_id == seccion_id)
@@ -808,7 +866,7 @@ class ModuloMenuService(BaseService):
         """
         Duplica un menú para crear una versión personalizada para un cliente.
         """
-        logger.info(f"Duplicando menú {menu_id} para cliente {cliente_id}")
+        logger.debug(f"Duplicando menú {menu_id} para cliente {cliente_id}")
 
         # Obtener menú original
         menu_original = await ModuloMenuService.obtener_menu_por_id(menu_id)
@@ -879,7 +937,7 @@ class ModuloMenuService(BaseService):
         """
         admin_rol_id = await ModuloMenuService.resolve_admin_tenant_rol_id(cliente_id)
         if not admin_rol_id:
-            logger.warning(
+            _menu_usuario_log_diagnostic_warning(
                 "[MENU_USUARIO] Impersonación: ADMIN_TENANT no encontrado cliente=%s",
                 cliente_id,
             )
@@ -919,28 +977,33 @@ class ModuloMenuService(BaseService):
         """
         from app.core.tenant.empresa_context import (
             resolve_empresa_id,
-            sql_empresa_filter_usuario_rol_qmark,
+            sql_empresa_filter_usuario_rol,
         )
 
         resolved_empresa_id = resolve_empresa_id(empresa_id)
         use_elevated_menu = is_super_admin
         if as_tenant_admin and not is_super_admin:
-            logger.debug(
+            _menu_usuario_log_item(
                 "[MENU_USUARIO] as_tenant_admin ignorado (Modelo Owner); usando rol_menu_permiso"
             )
-        logger.info(
-            f"Obteniendo menú para usuario {usuario_id} del cliente {cliente_id} "
-            f"(is_super_admin={is_super_admin}, permisos_rol_id={permisos_rol_id}, "
-            f"empresa_id={resolved_empresa_id})"
+        menu_started = _menu_usuario_log_start(usuario_id, cliente_id)
+        _menu_usuario_log_diagnostic(
+            "[MENU_USUARIO] Contexto is_super_admin=%s permisos_rol_id=%s empresa_id=%s",
+            is_super_admin,
+            permisos_rol_id,
+            resolved_empresa_id,
         )
 
         try:
             # ============================================================
-            # QUERY 1: Obtener módulos, secciones y menús desde BD CENTRAL
+            # QUERY 1: Catálogo menú + módulos contratados (ADMIN Shared / DEFAULT Dedicated)
             # ============================================================
             from datetime import datetime
+            from app.core.authorization.menu_catalog_store import (
+                resolve_menu_catalog_query1_target,
+            )
             
-            # Query para obtener menús de módulos activos del cliente desde BD CENTRAL
+            # Menús de módulos activos del cliente (store según installation mode)
             query_menus_central = select(
                 # Datos del módulo
                 ModuloTable.c.modulo_id,
@@ -1015,15 +1078,18 @@ class ModuloMenuService(BaseService):
                 ModuloMenuTable.c.orden.asc()
             )
             
-            # Ejecutar query en BD CENTRAL
+            catalog_connection, catalog_client_id = await resolve_menu_catalog_query1_target(
+                cliente_id
+            )
+
             menus_central = await execute_query(
                 query_menus_central,
-                connection_type=DatabaseConnection.ADMIN,
-                client_id=None
+                connection_type=catalog_connection,
+                client_id=catalog_client_id,
             )
             
             if not menus_central:
-                logger.info(f"No se encontraron menús activos para el cliente {cliente_id}")
+                _menu_usuario_log_finish(menu_started, modulos=0, modo="sin_catalogo")
                 return MenuUsuarioResponse(modulos=[])
 
             # Permisos RBAC por módulo (permiso → required_permissions). Una sola consulta central.
@@ -1032,14 +1098,17 @@ class ModuloMenuService(BaseService):
                 if (mid := _normalize_uuid(r.get("modulo_id"))) is not None
             ]
             modulo_ids_distinct = list(dict.fromkeys(modulo_ids_distinct))
-            required_permissions_by_modulo = await ModuloMenuService._get_required_permissions_by_modulo(modulo_ids_distinct)
+            required_permissions_by_modulo = await ModuloMenuService._get_required_permissions_by_modulo(
+                modulo_ids_distinct,
+                cliente_id,
+            )
 
             # ============================================================
             # SUPER_ADMIN platform: menús contratados con permisos UI completos
             # ============================================================
             if use_elevated_menu:
                 elevated_rows = menus_central
-                logger.info(
+                _menu_usuario_log_diagnostic(
                     "[MENU_USUARIO] Elevado super_admin: %s ítems (sin rol_menu_permiso)",
                     len(elevated_rows),
                 )
@@ -1060,14 +1129,18 @@ class ModuloMenuService(BaseService):
                     resultado_combinado,
                     required_permissions_by_modulo=required_permissions_by_modulo,
                 )
-                logger.info(f"[MENU_USUARIO] Menú elevado: {len(menu_response.modulos)} módulos")
+                _menu_usuario_log_finish(
+                    menu_started,
+                    modulos=len(menu_response.modulos),
+                    modo="elevated",
+                )
                 return menu_response
             
             # Obtener IDs de menús para filtrar permisos
             menu_ids = [row['menu_id'] for row in menus_central if row.get('menu_id')]
             
             if not menu_ids:
-                logger.info(f"No hay menús para obtener permisos")
+                _menu_usuario_log_finish(menu_started, modulos=0, modo="sin_menu_ids")
                 return MenuUsuarioResponse(modulos=[])
             
             # ============================================================
@@ -1080,15 +1153,18 @@ class ModuloMenuService(BaseService):
             # - solo menús con puede_ver = 1
             # - solo roles activos y no expirados
             
-            logger.info(f"[MENU_USUARIO] Ejecutando query de permisos para usuario {usuario_id} en cliente {cliente_id}")
-            logger.debug(f"[MENU_USUARIO] Query de permisos: usuario_id={usuario_id}, cliente_id={cliente_id}, menu_ids={len(menu_ids)} menús")
+            _menu_usuario_log_diagnostic(
+                "[MENU_USUARIO] Ejecutando query de permisos usuario=%s cliente=%s menu_ids=%s",
+                usuario_id,
+                cliente_id,
+                len(menu_ids),
+            )
             
-            if not menu_ids:
-                logger.warning(f"[MENU_USUARIO] No hay menu_ids para filtrar permisos")
-                permisos_cliente = []
-            elif permisos_rol_id is not None:
-                menu_ids_placeholders = ','.join(['?' for _ in menu_ids])
-                query_raw = f"""
+            if permisos_rol_id is not None:
+                menu_ids_placeholders = ",".join(
+                    [f":menu_id_{i}" for i in range(len(menu_ids))]
+                )
+                query_raw = text(f"""
                 SELECT p.menu_id,
                        MAX(CAST(p.puede_ver AS INT)) AS puede_ver,
                        MAX(CAST(p.puede_crear AS INT)) AS puede_crear,
@@ -1098,34 +1174,35 @@ class ModuloMenuService(BaseService):
                        MAX(CAST(p.puede_imprimir AS INT)) AS puede_imprimir,
                        MAX(CAST(p.puede_aprobar AS INT)) AS puede_aprobar
                 FROM rol_menu_permiso p
-                WHERE p.rol_id = ?
-                  AND p.cliente_id = ?
+                WHERE p.rol_id = :rol_id
+                  AND p.cliente_id = :cliente_id
                   AND p.menu_id IN ({menu_ids_placeholders})
                   AND p.puede_ver = 1
                 GROUP BY p.menu_id
-                """
-                params_raw = (str(permisos_rol_id), str(cliente_id)) + tuple(
-                    str(mid) for mid in menu_ids
+                """).bindparams(
+                    rol_id=str(permisos_rol_id),
+                    cliente_id=str(cliente_id),
+                    **{f"menu_id_{i}": str(mid) for i, mid in enumerate(menu_ids)},
                 )
-                logger.info(
+                _menu_usuario_log_diagnostic(
                     "[MENU_USUARIO] Query impersonación/admin_rol rol_id=%s",
                     permisos_rol_id,
                 )
                 permisos_cliente = await execute_query(
                     query_raw,
-                    params=params_raw,
                     connection_type=DatabaseConnection.DEFAULT,
                     client_id=cliente_id,
                 )
             else:
-                # Construir lista de menu_ids para IN clause
-                menu_ids_placeholders = ','.join(['?' for _ in menu_ids])
+                menu_ids_placeholders = ",".join(
+                    [f":menu_id_{i}" for i in range(len(menu_ids))]
+                )
                 empresa_sql = (
-                    sql_empresa_filter_usuario_rol_qmark("ur")
+                    sql_empresa_filter_usuario_rol("ur")
                     if resolved_empresa_id
                     else ""
                 )
-                query_raw = f"""
+                query_raw = text(f"""
                 SELECT p.menu_id,
                        MAX(CAST(p.puede_ver AS INT)) AS puede_ver,
                        MAX(CAST(p.puede_crear AS INT)) AS puede_crear,
@@ -1136,40 +1213,62 @@ class ModuloMenuService(BaseService):
                        MAX(CAST(p.puede_aprobar AS INT)) AS puede_aprobar
                 FROM rol_menu_permiso p
                 INNER JOIN usuario_rol ur ON p.rol_id = ur.rol_id
-                WHERE ur.usuario_id = ?
-                  AND ur.cliente_id = ?
+                WHERE ur.usuario_id = :usuario_id
+                  AND ur.cliente_id = :cliente_id
                   AND ur.es_activo = 1
                   AND (ur.fecha_expiracion IS NULL OR ur.fecha_expiracion > GETDATE())
                   {empresa_sql}
-                  AND p.cliente_id = ?
+                  AND p.cliente_id = :p_cliente_id
                   AND p.menu_id IN ({menu_ids_placeholders})
                   AND p.puede_ver = 1
                 GROUP BY p.menu_id
-                """
-                params_raw = (str(usuario_id), str(cliente_id))
+                """)
+                bind_params = {
+                    "usuario_id": str(usuario_id),
+                    "cliente_id": str(cliente_id),
+                    "p_cliente_id": str(cliente_id),
+                    **{f"menu_id_{i}": str(mid) for i, mid in enumerate(menu_ids)},
+                }
                 if resolved_empresa_id:
-                    params_raw += (str(resolved_empresa_id),)
-                params_raw += (str(cliente_id),) + tuple(str(mid) for mid in menu_ids)
+                    bind_params["empresa_id"] = str(resolved_empresa_id)
+                query_raw = query_raw.bindparams(**bind_params)
                 
-                logger.info(f"[MENU_USUARIO] Query RAW SQL generada con {len(menu_ids)} menu_ids en IN clause")
-                logger.debug(f"[MENU_USUARIO] Parámetros RAW: usuario_id={usuario_id}, cliente_id={cliente_id}")
+                _menu_usuario_log_diagnostic(
+                    "[MENU_USUARIO] Query RAW SQL generada con %s menu_ids en IN clause",
+                    len(menu_ids),
+                )
                 
                 permisos_cliente = await execute_query(
                     query_raw,
-                    params=params_raw,
                     connection_type=DatabaseConnection.DEFAULT,
-                    client_id=cliente_id
+                    client_id=cliente_id,
                 )
                 
-                logger.info(f"[MENU_USUARIO] Query RAW SQL retornó {len(permisos_cliente)} registros")
+                _menu_usuario_log_diagnostic(
+                    "[MENU_USUARIO] Query RAW SQL retornó %s registros",
+                    len(permisos_cliente),
+                )
                 if permisos_cliente:
-                    logger.info(f"[MENU_USUARIO] Menu IDs con permisos: {[str(p['menu_id']) for p in permisos_cliente]}")
+                    _menu_usuario_log_diagnostic(
+                        "[MENU_USUARIO] Menu IDs con permisos: %s",
+                        [str(p['menu_id']) for p in permisos_cliente],
+                    )
                 else:
-                    logger.warning(f"[MENU_USUARIO] No se encontraron permisos para usuario {usuario_id} en cliente {cliente_id}")
+                    _menu_usuario_log_diagnostic_warning(
+                        "[MENU_USUARIO] No se encontraron permisos para usuario %s en cliente %s",
+                        usuario_id,
+                        cliente_id,
+                    )
             
-            logger.info(f"[MENU_USUARIO] Query de permisos retornó {len(permisos_cliente)} registros")
+            _menu_usuario_log_diagnostic(
+                "[MENU_USUARIO] Query de permisos retornó %s registros",
+                len(permisos_cliente),
+            )
             if permisos_cliente:
-                logger.debug(f"[MENU_USUARIO] Primeros permisos obtenidos: {permisos_cliente[:3]}")
+                _menu_usuario_log_item(
+                    "[MENU_USUARIO] Primeros permisos obtenidos: %s",
+                    permisos_cliente[:3],
+                )
             
             # Crear diccionario de permisos por menu_id (ya agregados por MAX en la query)
             # ✅ CRÍTICO: Normalizar menu_id a UUID para comparación correcta
@@ -1181,12 +1280,19 @@ class ModuloMenuService(BaseService):
                     try:
                         menu_id = UUID(menu_id_raw)
                     except (ValueError, AttributeError):
-                        logger.warning(f"[MENU_USUARIO] Menu ID inválido en permisos: {menu_id_raw}")
+                        _menu_usuario_log_item(
+                            "[MENU_USUARIO] Menu ID inválido en permisos: %s",
+                            menu_id_raw,
+                        )
                         continue
                 elif isinstance(menu_id_raw, UUID):
                     menu_id = menu_id_raw
                 else:
-                    logger.warning(f"[MENU_USUARIO] Menu ID tipo desconocido: {type(menu_id_raw)}, valor: {menu_id_raw}")
+                    _menu_usuario_log_item(
+                        "[MENU_USUARIO] Menu ID tipo desconocido: %s valor=%s",
+                        type(menu_id_raw),
+                        menu_id_raw,
+                    )
                     continue
                 
                 permisos_por_menu[menu_id] = {
@@ -1199,10 +1305,21 @@ class ModuloMenuService(BaseService):
                     'puede_aprobar': bool(perm.get('puede_aprobar', 0)),
                 }
             
-            logger.debug(f"[MENU_USUARIO] Permisos normalizados: {len(permisos_por_menu)} menús con permisos (keys: {list(permisos_por_menu.keys())[:3]}...)")
+            _menu_usuario_log_item(
+                "[MENU_USUARIO] Permisos normalizados: %s menús (sample keys=%s)",
+                len(permisos_por_menu),
+                list(permisos_por_menu.keys())[:3],
+            )
             
-            logger.info(f"[MENU_USUARIO] Permisos procesados: {len(permisos_por_menu)} menús con permisos de {len(menu_ids)} menús disponibles")
-            logger.debug(f"[MENU_USUARIO] Menu IDs con permisos: {list(permisos_por_menu.keys())}")
+            _menu_usuario_log_diagnostic(
+                "[MENU_USUARIO] Permisos procesados: %s menús con permisos de %s menús disponibles",
+                len(permisos_por_menu),
+                len(menu_ids),
+            )
+            _menu_usuario_log_item(
+                "[MENU_USUARIO] Menu IDs con permisos: %s",
+                list(permisos_por_menu.keys()),
+            )
             
             # ✅ DIAGNÓSTICO: Verificar si hay roles asignados al usuario (mismo scope empresa)
             role_diag_conditions = [
@@ -1226,7 +1343,12 @@ class ModuloMenuService(BaseService):
                 connection_type=DatabaseConnection.DEFAULT,
                 client_id=cliente_id
             )
-            logger.info(f"[MENU_USUARIO] Usuario {usuario_id} tiene {len(roles_usuario)} roles activos: {[r['rol_id'] for r in roles_usuario]}")
+            _menu_usuario_log_diagnostic(
+                "[MENU_USUARIO] Usuario %s tiene %s roles activos: %s",
+                usuario_id,
+                len(roles_usuario),
+                [r['rol_id'] for r in roles_usuario],
+            )
             
             # ============================================================
             # COMBINAR RESULTADOS: Agregar permisos a cada menú
@@ -1243,13 +1365,20 @@ class ModuloMenuService(BaseService):
                     try:
                         menu_id = UUID(menu_id_raw)
                     except (ValueError, AttributeError):
-                        logger.warning(f"[MENU_USUARIO] Menu ID inválido en menus_central: {menu_id_raw}")
+                        _menu_usuario_log_item(
+                            "[MENU_USUARIO] Menu ID inválido en menus_central: %s",
+                            menu_id_raw,
+                        )
                         menus_sin_permisos.append(menu_id_raw)
                         continue
                 elif isinstance(menu_id_raw, UUID):
                     menu_id = menu_id_raw
                 else:
-                    logger.warning(f"[MENU_USUARIO] Menu ID tipo desconocido en menus_central: {type(menu_id_raw)}, valor: {menu_id_raw}")
+                    _menu_usuario_log_item(
+                        "[MENU_USUARIO] Menu ID tipo desconocido en menus_central: %s valor=%s",
+                        type(menu_id_raw),
+                        menu_id_raw,
+                    )
                     menus_sin_permisos.append(menu_id_raw)
                     continue
                 
@@ -1258,7 +1387,11 @@ class ModuloMenuService(BaseService):
                 # y que tenga puede_ver == True
                 if menu_id in permisos_por_menu:
                     permisos = permisos_por_menu[menu_id]
-                    logger.debug(f"[MENU_USUARIO] Menú {menu_id} encontrado en permisos_por_menu, puede_ver={permisos.get('puede_ver')} (tipo: {type(permisos.get('puede_ver'))})")
+                    _menu_usuario_log_item(
+                        "[MENU_USUARIO] Menú %s en permisos_por_menu puede_ver=%s",
+                        menu_id,
+                        permisos.get('puede_ver'),
+                    )
                     # Solo incluir si tiene permiso de ver
                     puede_ver_value = permisos.get('puede_ver', False)
                     if puede_ver_value:
@@ -1274,13 +1407,19 @@ class ModuloMenuService(BaseService):
                             'permisos_extra': None  # TODO: Implementar si es necesario
                         })
                         menus_con_permisos.append(menu_id)
-                        logger.info(f"[MENU_USUARIO] ✅ Menú {menu_id} INCLUIDO: tiene permiso puede_ver=True")
+                        _menu_usuario_log_item(
+                            "[MENU_USUARIO] Menú %s INCLUIDO: puede_ver=True",
+                            menu_id,
+                        )
                     else:
                         menus_sin_permisos.append(menu_id)
-                        logger.warning(f"[MENU_USUARIO] ⚠️ Menú {menu_id} excluido: tiene registro en permisos pero puede_ver={puede_ver_value} (tipo: {type(puede_ver_value)})")
+                        _menu_usuario_log_item(
+                            "[MENU_USUARIO] Menú %s excluido: puede_ver=%s",
+                            menu_id,
+                            puede_ver_value,
+                        )
                 else:
                     menus_sin_permisos.append(menu_id)
-                    # Loggear específicamente los 4 menu_ids que deberían tener permisos
                     menu_ids_esperados = [
                         'a6942632-d39b-4660-8207-0aedfb42d17d',
                         '59753cb5-5480-4034-baed-117f8531be02',
@@ -1289,12 +1428,21 @@ class ModuloMenuService(BaseService):
                     ]
                     menu_id_str = str(menu_id).lower()
                     if any(mid in menu_id_str for mid in menu_ids_esperados):
-                        logger.warning(f"[MENU_USUARIO] ⚠️ Menú {menu_id} NO encontrado en permisos_por_menu. Keys disponibles: {[str(k) for k in list(permisos_por_menu.keys())[:10]]}")
+                        _menu_usuario_log_diagnostic_warning(
+                            "[MENU_USUARIO] Menú %s NO encontrado en permisos_por_menu. Keys sample=%s",
+                            menu_id,
+                            [str(k) for k in list(permisos_por_menu.keys())[:10]],
+                        )
             
-            logger.info(f"[MENU_USUARIO] Resumen: {len(menus_con_permisos)} menús incluidos, {len(menus_sin_permisos)} menús excluidos de {len(menus_central)} menús disponibles")
+            _menu_usuario_log_diagnostic(
+                "[MENU_USUARIO] Resumen: %s incluidos, %s excluidos de %s disponibles",
+                len(menus_con_permisos),
+                len(menus_sin_permisos),
+                len(menus_central),
+            )
             
             if not resultado_combinado:
-                logger.info(f"Usuario {usuario_id} no tiene permisos para ver ningún menú")
+                _menu_usuario_log_finish(menu_started, modulos=0, modo="sin_permisos")
                 return MenuUsuarioResponse(modulos=[])
 
             # Transformar resultado combinado a estructura jerárquica
@@ -1303,7 +1451,11 @@ class ModuloMenuService(BaseService):
                 required_permissions_by_modulo=required_permissions_by_modulo,
             )
 
-            logger.info(f"Menú obtenido: {len(menu_response.modulos)} módulos con permisos")
+            _menu_usuario_log_finish(
+                menu_started,
+                modulos=len(menu_response.modulos),
+                modo="permisos",
+            )
             return menu_response
             
         except DatabaseError as db_err:

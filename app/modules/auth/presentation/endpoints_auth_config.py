@@ -55,10 +55,10 @@ async def obtener_config_auth_cliente(
     """
     Obtiene la configuración de autenticación para un cliente.
     """
-    logger.info(f"Solicitud GET /auth-config/clientes/{cliente_id} recibida")
+    logger.debug(f"Solicitud GET /auth-config/clientes/{cliente_id} recibida")
     try:
         config = await AuthConfigService.obtener_config_cliente(cliente_id)
-        logger.info(f"Configuración de autenticación recuperada para cliente {cliente_id}")
+        logger.debug(f"Configuración de autenticación recuperada para cliente {cliente_id}")
         return config
     except Exception as e:
         logger.exception(f"Error inesperado en obtener_config_auth_cliente: {str(e)}")
@@ -98,10 +98,10 @@ async def actualizar_config_auth_cliente(
     """
     Actualiza la configuración de autenticación para un cliente.
     """
-    logger.info(f"Solicitud PUT /auth-config/clientes/{cliente_id} recibida")
+    logger.debug(f"Solicitud PUT /auth-config/clientes/{cliente_id} recibida")
     try:
         config_actualizada = await AuthConfigService.actualizar_config_cliente(cliente_id, config_data)
-        logger.info(f"Configuración de autenticación actualizada para cliente {cliente_id}")
+        logger.debug(f"Configuración de autenticación actualizada para cliente {cliente_id}")
         return config_actualizada
     except HTTPException:
         raise
@@ -136,10 +136,10 @@ async def obtener_config_auth_global(
     """
     Obtiene la configuración de autenticación global por defecto.
     """
-    logger.info("Solicitud GET /auth-config/global recibida")
+    logger.debug("Solicitud GET /auth-config/global recibida")
     try:
         config_global = await AuthConfigService.obtener_config_global()
-        logger.info("Configuración global de autenticación recuperada")
+        logger.debug("Configuración global de autenticación recuperada")
         return config_global
     except Exception as e:
         logger.exception(f"Error inesperado en obtener_config_auth_global: {str(e)}")

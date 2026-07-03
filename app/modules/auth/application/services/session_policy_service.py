@@ -3,24 +3,19 @@ Políticas de administración de sesiones IAM V2 (C04).
 
 Evalúa límites, idle, TTL absoluto y remember_me. Solo devuelve decisiones;
 no persiste, no audita, no interactúa con Redis ni JWT.
+Lecturas de user_session vía query cores (ADR-002-A → SESSION_STORE_CONNECTION).
+Lecturas de cliente_auth_config vía AuthConfigGateway (ADR-012).
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional
 from uuid import UUID
 
-from sqlalchemy import text
-
-from app.infrastructure.database.connection_async import DatabaseConnection
+from app.core.auth.auth_config_gateway import AuthConfigGateway
 from app.infrastructure.database.queries.auth.session import user_session_queries_core as usq
-from app.infrastructure.database.queries_async import execute_query
-from app.modules.auth.application.services.auth_config_service import (
-    leer_max_active_sessions,
-    leer_session_idle_timeout_minutos,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +41,7 @@ class SessionPolicyService:
         """
         Resuelve límite efectivo. NULL/<=0 en config → default 3 (COMPONENT-SPEC §17).
         """
-        limit = await leer_max_active_sessions(cliente_id)
+        limit = await AuthConfigGateway.get_max_active_sessions(cliente_id)
         if limit is None:
             return DEFAULT_MAX_ACTIVE_SESSIONS
         return limit
@@ -101,7 +96,7 @@ class SessionPolicyService:
         cliente_id: UUID,
     ) -> bool:
         """True si la sesión excedió session_idle_timeout_minutes (idle auth)."""
-        idle_minutes = await leer_session_idle_timeout_minutos(cliente_id)
+        idle_minutes = await AuthConfigGateway.get_session_idle_timeout_minutes(cliente_id)
         if idle_minutes is None:
             return False
         return await usq.is_session_idle_expired_core(
@@ -169,42 +164,8 @@ class SessionPolicyService:
 
     @staticmethod
     async def _read_session_ttl_config(cliente_id: UUID) -> Dict[str, Any]:
-        """Lee políticas TTL sesión desde cliente_auth_config (solo lectura)."""
-        defaults: Dict[str, Any] = {
-            "allow_remember_me": True,
-            "remember_me_days": DEFAULT_REMEMBER_ME_DAYS,
-            "session_timeout_minutes": DEFAULT_SESSION_TIMEOUT_MINUTES,
-        }
-        try:
-            query = text(
-                """
-                SELECT allow_remember_me, remember_me_days, access_token_minutes
-                FROM cliente_auth_config
-                WHERE cliente_id = :cliente_id
-                """
-            )
-            rows = await execute_query(
-                query.bindparams(cliente_id=cliente_id),
-                connection_type=DatabaseConnection.ADMIN,
-                client_id=None,
-            )
-            if not rows:
-                return defaults
-            row = rows[0]
-            if row.get("allow_remember_me") is not None:
-                defaults["allow_remember_me"] = bool(row["allow_remember_me"])
-            if row.get("remember_me_days") is not None:
-                defaults["remember_me_days"] = int(row["remember_me_days"])
-            access_minutes = row.get("access_token_minutes")
-            if access_minutes is not None and int(access_minutes) > 0:
-                defaults["session_timeout_minutes"] = int(access_minutes) * 32
-        except Exception as exc:
-            logger.warning(
-                "[SESSION-POLICY] No se pudo leer TTL sesión cliente=%s: %s",
-                cliente_id,
-                exc,
-            )
-        return defaults
+        """Delega lectura TTL sesión en AuthConfigGateway (ADR-012)."""
+        return await AuthConfigGateway.get_session_ttl_config(cliente_id)
 
 
 __all__ = [

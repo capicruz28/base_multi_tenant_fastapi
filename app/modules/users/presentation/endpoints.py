@@ -113,7 +113,7 @@ async def list_usuarios(
     Raises:
         HTTPException: En caso de error en los parámetros o error interno
     """
-    logger.info(
+    logger.debug(
         f"Solicitud GET /usuarios/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} - "
         f"Paginación: page={page}, limit={limit}, "
         f"Búsqueda: '{search}', solo_activos={solo_activos}, solo_inactivos={solo_inactivos}"
@@ -129,7 +129,7 @@ async def list_usuarios(
             solo_inactivos=solo_inactivos,
         )
         
-        logger.info(
+        logger.debug(
             f"Lista paginada de usuarios recuperada para cliente {current_user.cliente_id} - "
             f"Total: {paginated_data['total_usuarios']}, "
             f"Página: {paginated_data['pagina_actual']}"
@@ -192,7 +192,7 @@ async def crear_usuario(
     Raises:
         HTTPException: En caso de error de validación, conflicto o error interno
     """
-    logger.info(f"Solicitud POST /usuarios/ recibida para crear usuario: '{usuario_in.nombre_usuario}' en cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud POST /usuarios/ recibida para crear usuario: '{usuario_in.nombre_usuario}' en cliente {current_user.cliente_id}")
     
     try:
         # ✅ MULTI-TENANT: Agregar cliente_id al payload
@@ -203,7 +203,7 @@ async def crear_usuario(
             current_user.cliente_id, usuario_dict
         )
         
-        logger.info(f"Usuario '{created_usuario['nombre_usuario']}' creado exitosamente en cliente {current_user.cliente_id} con ID: {created_usuario['usuario_id']}")
+        logger.debug(f"Usuario '{created_usuario['nombre_usuario']}' creado exitosamente en cliente {current_user.cliente_id} con ID: {created_usuario['usuario_id']}")
         return created_usuario
         
     except CustomException as ce:
@@ -354,7 +354,7 @@ async def actualizar_usuario(
     Raises:
         HTTPException: En caso de error de validación, no encontrado o conflicto
     """
-    logger.info(f"Solicitud PUT /usuarios/{usuario_id}/ recibida para actualizar en cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud PUT /usuarios/{usuario_id}/ recibida para actualizar en cliente {current_user.cliente_id}")
 
     # Validar que hay datos para actualizar
     update_data = usuario_in.model_dump(exclude_unset=True)
@@ -371,7 +371,7 @@ async def actualizar_usuario(
             usuario_id=usuario_id,
             usuario_data=update_data,
         )
-        logger.info(f"Usuario ID {usuario_id} actualizado exitosamente: '{updated_usuario['nombre_usuario']}'")
+        logger.debug(f"Usuario ID {usuario_id} actualizado exitosamente: '{updated_usuario['nombre_usuario']}'")
         return updated_usuario
         
     except CustomException as ce:
@@ -432,14 +432,14 @@ async def eliminar_usuario(
     Raises:
         HTTPException: Si el usuario no existe, es de otro cliente o hay error interno
     """
-    logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/ recibida (eliminar lógicamente) en cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud DELETE /usuarios/{usuario_id}/ recibida (eliminar lógicamente) en cliente {current_user.cliente_id}")
 
     try:
         result = await UsuarioService.eliminar_usuario(
             cliente_id=current_user.cliente_id, # ✅ Pasar cliente_id para validación
             usuario_id=usuario_id
         )
-        logger.info(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente en cliente {current_user.cliente_id}")
+        logger.debug(f"Usuario ID {usuario_id} eliminado lógicamente exitosamente en cliente {current_user.cliente_id}")
         return result
         
     except CustomException as ce:
@@ -481,7 +481,7 @@ async def reactivate_usuario(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
 ):
     """Reactiva un usuario inactivo o eliminado lógicamente del tenant."""
-    logger.info(
+    logger.debug(
         f"Solicitud POST /usuarios/{usuario_id}/reactivate/ recibida en cliente {current_user.cliente_id}"
     )
     try:
@@ -489,7 +489,7 @@ async def reactivate_usuario(
             cliente_id=current_user.cliente_id,
             usuario_id=usuario_id,
         )
-        logger.info(f"Usuario ID {usuario_id} reactivado exitosamente en cliente {current_user.cliente_id}")
+        logger.debug(f"Usuario ID {usuario_id} reactivado exitosamente en cliente {current_user.cliente_id}")
         return reactivated
     except CustomException as ce:
         logger.warning(
@@ -544,7 +544,7 @@ async def reset_usuario_password_admin(
     current_user: UsuarioReadWithRoles = Depends(get_current_active_user),
 ):
     """Reset administrativo de contraseña con entrega única de credencial temporal."""
-    logger.info(
+    logger.debug(
         "Solicitud POST /usuarios/%s/reset-password/ por admin %s en cliente %s",
         usuario_id,
         current_user.usuario_id,
@@ -633,7 +633,7 @@ async def assign_rol_to_usuario(
     Raises:
         HTTPException: Si el usuario/rol no existen o hay error interno
     """
-    logger.info(f"Solicitud POST /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud POST /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
 
     try:
         assign_body = body or UsuarioRolAssignBody()
@@ -658,7 +658,7 @@ async def assign_rol_to_usuario(
             allow_global_promotion=platform and target.is_global,
             allow_scope_change_on_reactivate=platform,
         )
-        logger.info(f"Rol {rol_id} asignado exitosamente al usuario {usuario_id} en cliente {current_user.cliente_id}")
+        logger.debug(f"Rol {rol_id} asignado exitosamente al usuario {usuario_id} en cliente {current_user.cliente_id}")
         return UsuarioRolRead.model_validate(assignment)
         
     except CustomException as ce:
@@ -722,7 +722,7 @@ async def revoke_rol_from_usuario(
     Raises:
         HTTPException: Si la asignación no existe o hay error interno
     """
-    logger.info(f"Solicitud DELETE /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud DELETE /usuarios/{usuario_id}/roles/{rol_id}/ recibida en cliente {current_user.cliente_id}")
     
     try:
         list_scope = await resolve_role_list_scope(
@@ -736,7 +736,7 @@ async def revoke_rol_from_usuario(
             rol_id=rol_id,
             list_scope=list_scope,
         )
-        logger.info(f"Rol {rol_id} revocado exitosamente del usuario {usuario_id} en cliente {current_user.cliente_id}")
+        logger.debug(f"Rol {rol_id} revocado exitosamente del usuario {usuario_id} en cliente {current_user.cliente_id}")
         return UsuarioRolRead.model_validate(assignment)
         
     except CustomException as ce:

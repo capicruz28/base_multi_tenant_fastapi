@@ -276,18 +276,23 @@ async def test_leer_session_idle_timeout_minutos_null_and_zero_are_disabled():
         leer_session_idle_timeout_minutos,
     )
 
-    mock_query = AsyncMock(side_effect=[[{"session_idle_timeout_minutes": None}], []])
+    mock_query = AsyncMock(
+        side_effect=[
+            {"session_idle_timeout_minutes": None},
+            None,
+        ]
+    )
 
     with patch(
-        "app.modules.auth.application.services.auth_config_service.execute_query",
+        "app.core.auth.auth_config_gateway.select_config_by_cliente_id_core",
         mock_query,
     ):
         assert await leer_session_idle_timeout_minutos(CLIENTE_ID) is None
         assert await leer_session_idle_timeout_minutos(uuid4()) is None
 
-    mock_query_zero = AsyncMock(return_value=[{"session_idle_timeout_minutes": 0}])
+    mock_query_zero = AsyncMock(return_value={"session_idle_timeout_minutes": 0})
     with patch(
-        "app.modules.auth.application.services.auth_config_service.execute_query",
+        "app.core.auth.auth_config_gateway.select_config_by_cliente_id_core",
         mock_query_zero,
     ):
         assert await leer_session_idle_timeout_minutos(CLIENTE_ID) is None
@@ -317,9 +322,9 @@ async def test_leer_session_idle_timeout_minutos_returns_positive_value():
         leer_session_idle_timeout_minutos,
     )
 
-    mock_query = AsyncMock(return_value=[{"session_idle_timeout_minutes": 45}])
+    mock_query = AsyncMock(return_value={"session_idle_timeout_minutes": 45})
     with patch(
-        "app.modules.auth.application.services.auth_config_service.execute_query",
+        "app.core.auth.auth_config_gateway.select_config_by_cliente_id_core",
         mock_query,
     ):
         assert await leer_session_idle_timeout_minutos(CLIENTE_ID) == 45

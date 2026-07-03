@@ -1,0 +1,17 @@
+{
+  "artifact_type": "f4_shared_onboarding_required_check",
+  "gate": "SHARED_ONBOARDING_REQUIRED_CHECK",
+  "reference": "IP-2.0.1 \u00a710.1",
+  "timestamp_utc": "2026-06-26T06:52:06.429164+00:00",
+  "exit_code": 0,
+  "passed": true,
+  "targets": [
+    "tests/unit/test_onboarding_rbac_bootstrap.py",
+    "tests/unit/test_onboarding_menu_bootstrap.py",
+    "tests/unit/test_minimal_erp_tenant_bootstrap.py",
+    "tests/unit/test_platform_identity_bootstrap.py",
+    "tests/unit/test_tenant_exception_propagation.py",
+    "tests/unit/test_base_operative_t1.py"
+  ],
+  "output_tail": "============================= test session starts =============================\nplatform win32 -- Python 3.12.10, pytest-9.0.1, pluggy-1.6.0\nrootdir: D:\\base_multi_tenant_fastapi\nconfigfile: pytest.ini\nplugins: anyio-4.7.0, asyncio-1.3.0\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 29 items\n\ntests\\unit\\test_onboarding_rbac_bootstrap.py ....                        [ 13%]\ntests\\unit\\test_onboarding_menu_bootstrap.py ..                          [ 20%]\ntests\\unit\\test_minimal_erp_tenant_bootstrap.py ....                     [ 34%]\ntests\\unit\\test_platform_identity_bootstrap.py ....                      [ 48%]\ntests\\unit\\test_tenant_exception_propagation.py .......                  [ 72%]\ntests\\unit\\test_base_operative_t1.py ........                            [100%]\n\n====================== 29 passed, 126 warnings in 0.93s =======================\n"
+}

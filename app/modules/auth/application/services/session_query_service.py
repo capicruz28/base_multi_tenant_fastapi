@@ -2,6 +2,7 @@
 Servicio de consulta read-only IAM Session V2 (C08).
 
 Compone C15 + C16 + C17 sin mutaciones ni side effects.
+Persistencia session store vía query cores (ADR-002-A → SESSION_STORE_CONNECTION).
 """
 from __future__ import annotations
 

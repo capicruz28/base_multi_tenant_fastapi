@@ -71,7 +71,7 @@ class MenuService(BaseService):
         procedure_name = "sp_GetMenuForUser"
         params_dict = {'UsuarioID': usuario_id}
 
-        logger.info(f"Obteniendo menú filtrado para usuario_id: {usuario_id}")
+        logger.debug(f"Obteniendo menú filtrado para usuario_id: {usuario_id}")
         
         try:
             # 🗄️ EJECUTAR STORED PROCEDURE
@@ -79,12 +79,12 @@ class MenuService(BaseService):
             resultado_sp = await execute_procedure_params(procedure_name, params_dict)
 
             if not resultado_sp:
-                logger.info(f"No se encontraron menús permitidos para el usuario ID: {usuario_id}.")
+                logger.debug(f"No se encontraron menús permitidos para el usuario ID: {usuario_id}.")
                 return MenuResponse(menu=[])
 
             # 🌳 CONSTRUIR ESTRUCTURA JERÁRQUICA
             menu_tree: List[MenuItem] = build_menu_tree(resultado_sp)
-            logger.info(f"Árbol de menú construido para usuario {usuario_id} con {len(menu_tree)} items raíz.")
+            logger.debug(f"Árbol de menú construido para usuario {usuario_id} con {len(menu_tree)} items raíz.")
 
             return MenuResponse(menu=menu_tree)
 
@@ -123,7 +123,7 @@ class MenuService(BaseService):
         Raises:
             ServiceError: Si hay errores al obtener la estructura
         """
-        logger.info(f"Obteniendo estructura completa de menús para cliente {cliente_id}")
+        logger.debug(f"Obteniendo estructura completa de menús para cliente {cliente_id}")
         
         try:
             # ✅ NUEVO: Pasar cliente_id al SP
@@ -135,7 +135,7 @@ class MenuService(BaseService):
                 return MenuResponse(menu=[])
             
             menu_tree: List[MenuItem] = build_menu_tree(resultado_sp)
-            logger.info(f"Estructura de menú para cliente {cliente_id} construida con {len(menu_tree)} items raíz.")
+            logger.debug(f"Estructura de menú para cliente {cliente_id} construida con {len(menu_tree)} items raíz.")
             
             return MenuResponse(menu=menu_tree)
 
@@ -242,7 +242,7 @@ class MenuService(BaseService):
             ValidationError: Si los datos son inválidos
             ServiceError: Si la creación falla
         """
-        logger.info(f"Intentando crear menú para cliente {cliente_id}: {menu_data.nombre}")
+        logger.debug(f"Intentando crear menú para cliente {cliente_id}: {menu_data.nombre}")
         
         try:
             # 🚫 VALIDACIONES PREVIAS
@@ -341,7 +341,7 @@ class MenuService(BaseService):
                     area_nombre = area_info[0]['nombre']
 
             created_menu = MenuReadSingle(**resultado, area_nombre=area_nombre)
-            logger.info(f"Menú '{created_menu.nombre}' creado para cliente {cliente_id} con ID: {created_menu.menu_id}")
+            logger.debug(f"Menú '{created_menu.nombre}' creado para cliente {cliente_id} con ID: {created_menu.menu_id}")
             
             return created_menu
 
@@ -390,7 +390,7 @@ class MenuService(BaseService):
             ValidationError: Si los datos son inválidos o el menú no pertenece al cliente
             ServiceError: Si la actualización falla
         """
-        logger.info(f"Intentando actualizar menú ID: {menu_id}, cliente_id: {cliente_id}")
+        logger.debug(f"Intentando actualizar menú ID: {menu_id}, cliente_id: {cliente_id}")
 
         update_payload = menu_data.model_dump(exclude_unset=True)
         
@@ -497,7 +497,7 @@ class MenuService(BaseService):
                     area_nombre = area_info[0]['nombre']
 
             updated_menu = MenuReadSingle(**resultado, area_nombre=area_nombre)
-            logger.info(f"Menú ID: {menu_id} del cliente {cliente_id_validacion} actualizado exitosamente.")
+            logger.debug(f"Menú ID: {menu_id} del cliente {cliente_id_validacion} actualizado exitosamente.")
             
             return updated_menu
 
@@ -539,7 +539,7 @@ class MenuService(BaseService):
             NotFoundError: Si el menú no existe
             ServiceError: Si la desactivación falla
         """
-        logger.info(f"Intentando desactivar menú ID: {menu_id}")
+        logger.debug(f"Intentando desactivar menú ID: {menu_id}")
         
         try:
             # ✅ FASE 2: Usar await
@@ -560,7 +560,7 @@ class MenuService(BaseService):
                         internal_code="MENU_ALREADY_INACTIVE"
                     )
 
-            logger.info(f"Menú ID: {menu_id} desactivado exitosamente.")
+            logger.debug(f"Menú ID: {menu_id} desactivado exitosamente.")
             return {
                 "menu_id": resultado.get('menu_id'), 
                 "es_activo": resultado.get('es_activo')
@@ -604,7 +604,7 @@ class MenuService(BaseService):
             NotFoundError: Si el menú no existe
             ServiceError: Si la reactivación falla
         """
-        logger.info(f"Intentando reactivar menú ID: {menu_id}")
+        logger.debug(f"Intentando reactivar menú ID: {menu_id}")
         
         try:
             # ✅ FASE 2: Usar await
@@ -616,7 +616,7 @@ class MenuService(BaseService):
                     internal_code="MENU_NOT_FOUND_OR_ACTIVE"
                 )
 
-            logger.info(f"Menú ID: {menu_id} reactivado exitosamente.")
+            logger.debug(f"Menú ID: {menu_id} reactivado exitosamente.")
             return {
                 "menu_id": resultado.get('menu_id'), 
                 "es_activo": resultado.get('es_activo')
@@ -660,7 +660,7 @@ class MenuService(BaseService):
         Raises:
             ServiceError: Si hay errores al obtener el árbol
         """
-        logger.info(f"Obteniendo árbol de menú para cliente {cliente_id}, area_id: {area_id}")
+        logger.debug(f"Obteniendo árbol de menú para cliente {cliente_id}, area_id: {area_id}")
         
         try:
             params = (area_id, cliente_id)
@@ -668,11 +668,11 @@ class MenuService(BaseService):
             menu_items_raw_list = await execute_query(GET_MENUS_BY_AREA_FOR_TREE_QUERY, params)
 
             if not menu_items_raw_list:
-                logger.info(f"No se encontraron menús para el cliente {cliente_id}, área ID: {area_id}.")
+                logger.debug(f"No se encontraron menús para el cliente {cliente_id}, área ID: {area_id}.")
                 return MenuResponse(menu=[])
 
             menu_tree = build_menu_tree(menu_items_raw_list)
-            logger.info(f"Árbol de menú del cliente {cliente_id}, área {area_id} construido con {len(menu_tree)} items raíz.")
+            logger.debug(f"Árbol de menú del cliente {cliente_id}, área {area_id} construido con {len(menu_tree)} items raíz.")
             
             return MenuResponse(menu=menu_tree)
 

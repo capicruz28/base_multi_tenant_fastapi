@@ -24,6 +24,9 @@ from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, func, and_, or_
 
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.infrastructure.database.tables import RefreshTokensTable
 # Importaciones tardías para evitar circular imports
 import logging
@@ -58,7 +61,7 @@ async def record_refresh_token_activity_core(
         )
     )
 
-    result = await execute_update(query, client_id=cliente_id)
+    result = await execute_update(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return result.get("rows_affected", 0) > 0
 
 
@@ -98,7 +101,7 @@ async def is_refresh_token_session_idle_expired_core(
         idle_timeout_minutes=idle_timeout_minutes,
     )
 
-    results = await execute_query(query, client_id=cliente_id)
+    results = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if not results:
         return False
     return bool(results[0].get("idle_expired", 0))
@@ -130,7 +133,7 @@ async def get_refresh_token_by_hash_any_state_core(
         )
     )
 
-    results = await execute_query(query, client_id=cliente_id)
+    results = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if results:
         return results[0]
     return None
@@ -182,7 +185,7 @@ async def get_refresh_token_by_hash_core(
         )
     )
     
-    results = await execute_query(query, client_id=cliente_id)
+    results = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     
     if results and len(results) > 0:
         return results[0]
@@ -266,7 +269,7 @@ async def insert_refresh_token_core(
         device_id=device_id
     )
     
-    result = await execute_insert(query, client_id=cliente_id)
+    result = await execute_insert(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return result
 
 
@@ -312,7 +315,7 @@ async def revoke_refresh_token_core(
         revoked_reason=revoked_reason,
     )
     
-    result = await execute_update(query, client_id=cliente_id)
+    result = await execute_update(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     
     # execute_update con OUTPUT retorna los datos del OUTPUT cuando result.returns_rows es True
     # Si hay OUTPUT, los datos están en el dict result directamente
@@ -373,7 +376,7 @@ async def revoke_all_user_tokens_core(
         revoked_reason=revoked_reason,
     )
     
-    result = await execute_update(query, client_id=cliente_id)
+    result = await execute_update(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return result.get("rows_affected", 0)
 
 
@@ -417,7 +420,7 @@ async def get_active_sessions_by_user_core(
         RefreshTokensTable.c.last_used_at.desc()
     )
     
-    results = await execute_query(query, client_id=cliente_id)
+    results = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return results
 
 
@@ -447,7 +450,7 @@ async def get_active_sessions_by_user_oldest_first_core(
         RefreshTokensTable.c.token_id.asc(),
     )
 
-    return await execute_query(query, client_id=cliente_id)
+    return await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
 
 
 async def delete_expired_tokens_core(
@@ -482,7 +485,7 @@ async def delete_expired_tokens_core(
         )
     )
     
-    result = await execute_query(query, client_id=cliente_id)
+    result = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     # execute_query para DELETE retorna [{"rows_affected": N}]
     if result and len(result) > 0:
         return result[0].get("rows_affected", 0)
@@ -516,7 +519,7 @@ async def revoke_refresh_token_by_id_core(
         revoked_reason=revoked_reason,
     )
 
-    result = await execute_update(query, client_id=cliente_id)
+    result = await execute_update(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     if result and result.get("token_id"):
         return {
             "token_id": result.get("token_id"),

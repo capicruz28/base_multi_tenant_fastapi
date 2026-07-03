@@ -4,6 +4,8 @@ Rotación atómica de refresh tokens (IAM-BE-SESSIONS-P1-04).
 Ejecuta lock + idle + activity + insert + revoke en una única UnitOfWork.
 Patrón alineado con INV estorno (UPDLOCK, ROWLOCK + commit único).
 
+Persistencia ADR-002-A: el caller debe abrir UnitOfWork con SESSION_STORE_CONNECTION.
+
 ⚠️ Dark code: no invocado por endpoints legacy hasta fase de conexión.
 """
 from __future__ import annotations

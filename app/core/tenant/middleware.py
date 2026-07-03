@@ -1,24 +1,19 @@
 # app/middleware/tenant_middleware.py
 """
-Middleware para identificación y contextualización del cliente (tenant)
-con soporte para arquitectura HÍBRIDA (Single-DB + Multi-DB).
+Middleware para identificación y contextualización del cliente (tenant).
 
-MEJORAS EN ESTA VERSIÓN:
-- Carga metadata de conexión desde cliente_conexion
-- Determina database_type (single/multi) automáticamente
-- Establece contexto enriquecido con información de BD
-- Mantiene compatibilidad con código existente
-- 🔧 FIX: Soporte para proxies de desarrollo (extrae host de origin/referer)
+RD-03 / PR-F3-01: resuelve metadata de conexión (Installation Mode) en L6
+y la almacena en ``connection_metadata`` del TenantContext. L5 recibe solo
+identidad de tenant (client_id, subdominio, codigo_cliente).
 
 FLUJO:
-1. Extraer host real (con fallback a origin/referer para proxies)
+1. Extraer host real (con fallback a origin/referer para proxies en dev)
 2. Extraer subdominio del Host header
 3. Resolver cliente_id desde BD (bd_sistema)
-4. Cargar metadata de conexión para el cliente
-5. Determinar database_type (single/multi)
-6. Establecer TenantContext enriquecido
-7. Procesar request
-8. Limpiar contexto
+4. Cargar metadata de conexión (infra — no expuesta a L5)
+5. Establecer TenantContext vía from_middleware_resolution
+6. Procesar request
+7. Limpiar contexto
 """
 
 import logging
@@ -44,6 +39,12 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
+def _middleware_trace(level: str, msg, *args, **kwargs) -> None:
+    """F12-E2B2.1: emite log solo si ENABLE_MIDDLEWARE_TRACE."""
+    if settings.ENABLE_MIDDLEWARE_TRACE:
+        getattr(logger, level)(msg, *args, **kwargs)
+
+
 class TenantMiddleware(BaseHTTPMiddleware):
     """
     Middleware que resuelve el ID del cliente y establece contexto híbrido.
@@ -57,11 +58,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         self.default_client_id = settings.SUPERADMIN_CLIENTE_ID
         self.base_domain = settings.BASE_DOMAIN
         self.superadmin_subdominio = settings.SUPERADMIN_SUBDOMINIO
-        logger.info(
+        _middleware_trace(
+            "info",
             f"[TENANT_MW] Inicializado - "
             f"BASE_DOMAIN={self.base_domain}, "
             f"SYSTEM_ID={self.default_client_id}, "
-            f"EXCLUDED_SUBDOMAINS={self.EXCLUDED_SUBDOMAINS}"
+            f"EXCLUDED_SUBDOMAINS={self.EXCLUDED_SUBDOMAINS}",
         )
 
     async def _get_host_from_request(self, request: Request) -> str:
@@ -85,11 +87,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
         host = request.headers.get("host", "")
         
         # 🔍 DEBUG: Mostrar headers relevantes
-        logger.debug(f"[HOST_DETECTION] Headers recibidos:")
-        logger.debug(f"  - host: {host}")
-        logger.debug(f"  - origin: {request.headers.get('origin', 'N/A')}")
-        logger.debug(f"  - referer: {request.headers.get('referer', 'N/A')}")
-        logger.debug(f"  - environment: {settings.ENVIRONMENT}")
+        _middleware_trace("debug", f"[HOST_DETECTION] Headers recibidos:")
+        _middleware_trace("debug", f"  - host: {host}")
+        _middleware_trace("debug", f"  - origin: {request.headers.get('origin', 'N/A')}")
+        _middleware_trace("debug", f"  - referer: {request.headers.get('referer', 'N/A')}")
+        _middleware_trace("debug", f"  - environment: {settings.ENVIRONMENT}")
         
         # ✅ SEGURIDAD: En producción, SOLO confiar en Host header
         if settings.ENVIRONMENT == "production":
@@ -105,7 +107,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 )
             
             # En producción, usar directamente el Host (ya validado)
-            logger.debug(f"[HOST_DETECTION] Producción: usando Host directamente: {host}")
+            _middleware_trace("debug", f"[HOST_DETECTION] Producción: usando Host directamente: {host}")
             return host
         
         # ✅ DESARROLLO: Permitir fallback a Origin/Referer para proxies
@@ -121,9 +123,10 @@ class TenantMiddleware(BaseHTTPMiddleware):
         )
         
         if should_extract_from_origin:
-            logger.info(
+            _middleware_trace(
+                "info",
                 f"[HOST_DETECTION] Desarrollo: Host '{host}' es localhost/infraestructura, "
-                f"buscando tenant real en origin/referer"
+                f"buscando tenant real en origin/referer",
             )
             
             # Intentar primero con origin
@@ -135,8 +138,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     origin_subdomain = parsed.netloc.split(':')[0].split('.')[0]
                     if origin_subdomain not in self.EXCLUDED_SUBDOMAINS:
                         extracted_host = parsed.netloc
-                        logger.info(
-                            f"[HOST_DETECTION] Desarrollo: Tenant extraído de 'origin': {extracted_host}"
+                        _middleware_trace(
+                            "info",
+                            f"[HOST_DETECTION] Desarrollo: Tenant extraído de 'origin': {extracted_host}",
                         )
                         # ✅ VALIDACIÓN ADICIONAL: Verificar que el subdominio existe en BD
                         # Esto previene spoofing incluso en desarrollo
@@ -146,26 +150,30 @@ class TenantMiddleware(BaseHTTPMiddleware):
                             if subdomain:
                                 # ✅ CORRECCIÓN: Reconocer 'platform' como subdominio del superadmin
                                 if subdomain.lower() == self.superadmin_subdominio.lower():
-                                    logger.debug(
-                                        f"[HOST_DETECTION] Subdominio '{subdomain}' reconocido como SUPERADMIN"
+                                    _middleware_trace(
+                                        "debug",
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' reconocido como SUPERADMIN",
                                     )
                                     return extracted_host
                                 
                                 # Para otros subdominios, validar en BD
                                 client_data = await self._get_client_data_by_subdomain(subdomain)
                                 if client_data:
-                                    logger.debug(
-                                        f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD"
+                                    _middleware_trace(
+                                        "debug",
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD",
                                     )
                                     return extracted_host
                                 else:
-                                    logger.warning(
+                                    _middleware_trace(
+                                        "warning",
                                         f"[HOST_DETECTION] Subdominio '{subdomain}' no existe en BD, "
-                                        f"rechazando origin"
+                                        f"rechazando origin",
                                     )
                         except Exception as e:
-                            logger.warning(
-                                f"[HOST_DETECTION] Error validando subdominio de origin: {e}"
+                            _middleware_trace(
+                                "warning",
+                                f"[HOST_DETECTION] Error validando subdominio de origin: {e}",
                             )
             
             # Si no, intentar con referer
@@ -177,8 +185,9 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     referer_subdomain = parsed.netloc.split(':')[0].split('.')[0]
                     if referer_subdomain not in self.EXCLUDED_SUBDOMAINS:
                         extracted_host = parsed.netloc
-                        logger.info(
-                            f"[HOST_DETECTION] Desarrollo: Tenant extraído de 'referer': {extracted_host}"
+                        _middleware_trace(
+                            "info",
+                            f"[HOST_DETECTION] Desarrollo: Tenant extraído de 'referer': {extracted_host}",
                         )
                         # ✅ VALIDACIÓN ADICIONAL: Verificar que el subdominio existe en BD
                         # EXCEPCIÓN: 'platform' es el subdominio del superadmin y no está en BD
@@ -187,34 +196,39 @@ class TenantMiddleware(BaseHTTPMiddleware):
                             if subdomain:
                                 # ✅ CORRECCIÓN: Reconocer 'platform' como subdominio del superadmin
                                 if subdomain.lower() == self.superadmin_subdominio.lower():
-                                    logger.debug(
-                                        f"[HOST_DETECTION] Subdominio '{subdomain}' reconocido como SUPERADMIN"
+                                    _middleware_trace(
+                                        "debug",
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' reconocido como SUPERADMIN",
                                     )
                                     return extracted_host
                                 
                                 # Para otros subdominios, validar en BD
                                 client_data = await self._get_client_data_by_subdomain(subdomain)
                                 if client_data:
-                                    logger.debug(
-                                        f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD"
+                                    _middleware_trace(
+                                        "debug",
+                                        f"[HOST_DETECTION] Subdominio '{subdomain}' validado en BD",
                                     )
                                     return extracted_host
                                 else:
-                                    logger.warning(
+                                    _middleware_trace(
+                                        "warning",
                                         f"[HOST_DETECTION] Subdominio '{subdomain}' no existe en BD, "
-                                        f"rechazando referer"
+                                        f"rechazando referer",
                                     )
                         except Exception as e:
-                            logger.warning(
-                                f"[HOST_DETECTION] Error validando subdominio de referer: {e}"
+                            _middleware_trace(
+                                "warning",
+                                f"[HOST_DETECTION] Error validando subdominio de referer: {e}",
                             )
             
-            logger.warning(
+            _middleware_trace(
+                "warning",
                 f"[HOST_DETECTION] No se pudo extraer tenant real de origin/referer, "
-                f"usando cliente por defecto (SYSTEM)"
+                f"usando cliente por defecto (SYSTEM)",
             )
         
-        logger.debug(f"[HOST_DETECTION] Host final: {host}")
+        _middleware_trace("debug", f"[HOST_DETECTION] Host final: {host}")
         return host
 
     async def dispatch(
@@ -286,32 +300,34 @@ class TenantMiddleware(BaseHTTPMiddleware):
             "codigo_cliente": settings.SUPERADMIN_CLIENTE_CODIGO
         }
         
-        logger.debug(f"[TENANT] Host: {host}, Subdominio: {subdomain}")
+        _middleware_trace("debug", f"[TENANT] Host: {host}, Subdominio: {subdomain}")
         
         # Resolver cliente por subdominio
         if subdomain:
             if subdomain.lower() == settings.SUPERADMIN_SUBDOMINIO.lower():
                 # Caso 1: Subdominio SUPERADMIN
                 client_id = default_client_id_uuid
-                logger.info(
+                _middleware_trace(
+                    "info",
                     f"[TENANT] Subdominio SUPERADMIN: {subdomain} -> "
-                    f"Cliente ID: {client_id}"
+                    f"Cliente ID: {client_id}",
                 )
             else:
                 # Caso 2: Buscar cliente en BD
                 try:
-                    logger.debug(f"[TENANT] Buscando cliente: '{subdomain}'")
+                    _middleware_trace("debug", f"[TENANT] Buscando cliente: '{subdomain}'")
                     
                     client_data_db = await self._get_client_data_by_subdomain(subdomain)
                     
                     if client_data_db:
                         client_data = client_data_db
                         client_id = client_data["cliente_id"]
-                        logger.info(
+                        _middleware_trace(
+                            "info",
                             f"[TENANT] Cliente resuelto: "
                             f"Subdominio='{subdomain}', "
                             f"Código='{client_data['codigo_cliente']}', "
-                            f"ID={client_id}"
+                            f"ID={client_id}",
                         )
                     else:
                         logger.error(
@@ -354,82 +370,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
                         "detail": "Request sin subdominio válido rechazado por seguridad."
                     }
                 )
-            logger.warning(
+            _middleware_trace(
+                "warning",
                 f"[TENANT] Sin subdominio en Host: {host} (DESARROLLO). "
-                f"Usando Cliente ID por defecto: {client_id} (SYSTEM)"
+                f"Usando Cliente ID por defecto: {client_id} (SYSTEM)",
             )
         
         # ============================================
-        # FASE 2: CARGA DE METADATA DE CONEXIÓN (NUEVO)
+        # FASE 2: METADATA DE CONEXIÓN (L6 — RD-03, no expuesta a L5)
         # ============================================
-        
-        connection_metadata: Dict[str, Any] = {}
-        database_type: str = "single"
-        nombre_bd: Optional[str] = settings.DB_DATABASE
-        servidor: Optional[str] = None
-        puerto: Optional[int] = None
-        tipo_instalacion: str = "cloud"
-        
-        try:
-            # CRÍTICO: Cargar metadata de conexión (async)
-            logger.debug(f"[TENANT] Cargando metadata de conexión para cliente {client_id}")
-            
-            conn_metadata = await get_connection_metadata_async(client_id)
-            
-            if conn_metadata:
-                connection_metadata = conn_metadata
-                database_type = conn_metadata.get("database_type", "single")
-                nombre_bd = conn_metadata.get("nombre_bd", settings.DB_DATABASE)
-                servidor = conn_metadata.get("servidor")
-                puerto = conn_metadata.get("puerto")
-                tipo_instalacion = conn_metadata.get("tipo_instalacion", "cloud")
-                
-                logger.info(
-                    f"[TENANT] Metadata cargada: "
-                    f"tipo_instalacion={tipo_instalacion}, "
-                    f"db_type={database_type}, "
-                    f"bd={nombre_bd}, "
-                    f"servidor={servidor or 'N/A'}"
-                )
-            else:
-                # Si no hay metadata, intentar obtener tipo_instalacion del cliente directamente
-                try:
-                    from app.modules.tenant.application.services.cliente_service import ClienteService
-                    cliente = await ClienteService.obtener_cliente_por_id(client_id)
-                    if cliente:
-                        tipo_instalacion = cliente.get("tipo_instalacion", "shared")
-                        logger.info(
-                            f"[TENANT] Tipo de instalación obtenido del cliente: {tipo_instalacion}"
-                        )
-                        
-                        # ✅ LÓGICA: Si tipo_instalacion es 'dedicated', debe usar Multi-DB
-                        if tipo_instalacion == "dedicated":
-                            database_type = "multi"
-                            logger.warning(
-                                f"[TENANT] Cliente {client_id} es 'dedicated' pero no tiene metadata de conexión. "
-                                f"Estableciendo database_type=multi (requiere configuración de conexión en cliente_conexion)."
-                            )
-                        else:
-                            database_type = "single"
-                except Exception:
-                    pass
-                
-                logger.warning(
-                    f"[TENANT] No se pudo cargar metadata para cliente {client_id}. "
-                    f"Usando {database_type.upper()}-DB por defecto. "
-                    f"tipo_instalacion={tipo_instalacion}"
-                )
-                
-        except Exception as metadata_err:
-            logger.error(
-                f"[TENANT] Error al cargar metadata para cliente {client_id}: {metadata_err}. "
-                f"Usando Single-DB como fallback.",
-                exc_info=True
-            )
-            # Valores por defecto ya están establecidos arriba
+
+        connection_metadata = await self._resolve_connection_metadata(client_id)
         
         # ============================================
-        # FASE 3: ESTABLECER CONTEXTO ENRIQUECIDO
+        # FASE 3: ESTABLECER CONTEXTO (identidad L5)
         # ============================================
         
         # Validar que client_id no sea None antes de crear TenantContext
@@ -446,31 +400,21 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 }
             )
         
-        tenant_ctx = TenantContext(
+        tenant_ctx = TenantContext.from_middleware_resolution(
             client_id=client_id,
             subdominio=subdomain,
-            codigo_cliente=client_data.get('codigo_cliente'),
-            # NUEVOS CAMPOS HÍBRIDOS:
-            database_type=database_type,
-            nombre_bd=nombre_bd,
+            codigo_cliente=client_data.get("codigo_cliente"),
             connection_metadata=connection_metadata,
-            servidor=servidor,
-            puerto=puerto,
-            tipo_instalacion=tipo_instalacion
         )
-        
-        # Establecer contexto
+
         tokens = set_tenant_context(tenant_ctx)
-        
-        # Logging de verificación
-        logger.info(
-            f"[TENANT] CONTEXTO ESTABLECIDO: "
-            f"cliente_id={client_id}, "
-            f"tipo_instalacion={tipo_instalacion}, "
-            f"db_type={database_type}, "
-            f"bd={nombre_bd}, "
-            f"servidor={servidor or 'N/A'}, "
-            f"path={request.url.path}"
+
+        _middleware_trace(
+            "info",
+            "[TENANT] CONTEXTO ESTABLECIDO: cliente_id=%s subdominio=%s path=%s",
+            client_id,
+            subdomain,
+            request.url.path,
         )
         
         # ============================================
@@ -482,9 +426,89 @@ class TenantMiddleware(BaseHTTPMiddleware):
         finally:
             # FASE 5: LIMPIAR CONTEXTO
             reset_tenant_context(tokens)
-            logger.debug(f"[TENANT] Contexto limpiado para cliente_id={client_id}")
+            _middleware_trace("debug", f"[TENANT] Contexto limpiado para cliente_id={client_id}")
         
         return response
+
+    async def _resolve_connection_metadata(self, client_id: UUID) -> Dict[str, Any]:
+        """
+        Resuelve metadata de routing (L6). Installation Mode no se expone a L5 (RD-03).
+        """
+        connection_metadata: Dict[str, Any] = {}
+        database_type: str = "single"
+        nombre_bd: Optional[str] = settings.DB_DATABASE
+        tipo_instalacion: str = "cloud"
+
+        try:
+            _middleware_trace("debug", "[TENANT] Cargando metadata de conexión para cliente %s", client_id)
+
+            conn_metadata = await get_connection_metadata_async(client_id)
+
+            if conn_metadata:
+                connection_metadata = dict(conn_metadata)
+                database_type = conn_metadata.get("database_type", "single")
+                nombre_bd = conn_metadata.get("nombre_bd", settings.DB_DATABASE)
+                tipo_instalacion = conn_metadata.get("tipo_instalacion", "cloud")
+
+                _middleware_trace(
+                    "debug",
+                    "[TENANT] Metadata routing resuelta: cliente_id=%s db_type=%s "
+                    "tipo_instalacion=%s bd=%s",
+                    client_id,
+                    database_type,
+                    tipo_instalacion,
+                    nombre_bd,
+                )
+            else:
+                try:
+                    from app.modules.tenant.application.services.cliente_service import ClienteService
+
+                    cliente = await ClienteService.obtener_cliente_por_id(client_id)
+                    if cliente:
+                        tipo_instalacion = cliente.get("tipo_instalacion", "shared")
+                        _middleware_trace(
+                            "debug",
+                            "[TENANT] tipo_instalacion desde cliente: %s",
+                            tipo_instalacion,
+                        )
+                        if tipo_instalacion == "dedicated":
+                            database_type = "multi"
+                            logger.warning(
+                                "[TENANT] Cliente %s dedicated sin metadata de conexión — "
+                                "requiere cliente_conexion",
+                                client_id,
+                            )
+                        else:
+                            database_type = "single"
+                except Exception:
+                    pass
+
+                logger.warning(
+                    "[TENANT] Sin metadata para cliente %s — fallback routing %s",
+                    client_id,
+                    database_type,
+                )
+
+        except Exception as metadata_err:
+            logger.error(
+                "[TENANT] Error metadata cliente %s: %s — fallback single",
+                client_id,
+                metadata_err,
+                exc_info=True,
+            )
+
+        if not connection_metadata:
+            connection_metadata = {
+                "database_type": database_type,
+                "nombre_bd": nombre_bd,
+                "tipo_instalacion": tipo_instalacion,
+            }
+        else:
+            connection_metadata.setdefault("database_type", database_type)
+            connection_metadata.setdefault("nombre_bd", nombre_bd)
+            connection_metadata.setdefault("tipo_instalacion", tipo_instalacion)
+
+        return connection_metadata
 
     def _extract_subdomain(self, host: str) -> Optional[str]:
         """
@@ -499,8 +523,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if ":" in host:
             host = host.split(":")[0]
         
-        logger.info(f"[SUBDOMAIN] Procesando host: '{host}'")
-        logger.info(f"[SUBDOMAIN] BASE_DOMAIN: '{self.base_domain}'")
+        _middleware_trace("info", f"[SUBDOMAIN] Procesando host: '{host}'")
+        _middleware_trace("info", f"[SUBDOMAIN] BASE_DOMAIN: '{self.base_domain}'")
         
         # Caso especial: localhost con subdominio
         if host.endswith('.localhost'):
@@ -510,19 +534,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 
                 # ✅ NUEVO: Verificar si es subdominio excluido
                 if subdomain in self.EXCLUDED_SUBDOMAINS:
-                    logger.info(
-                        f"[SUBDOMAIN] '{subdomain}' es infraestructura, ignorando (usando SYSTEM)"
+                    _middleware_trace(
+                        "info",
+                        f"[SUBDOMAIN] '{subdomain}' es infraestructura, ignorando (usando SYSTEM)",
                     )
                     return None  # Retornar None para usar cliente por defecto
                 
-                logger.info(f"[SUBDOMAIN] Detectado en localhost: '{subdomain}'")
+                _middleware_trace("info", f"[SUBDOMAIN] Detectado en localhost: '{subdomain}'")
                 return subdomain
         
         # Caso: dominios personalizados
         if host.endswith(f".{self.base_domain}") or host == self.base_domain:
             # Si es exactamente el base_domain (sin subdominio)
             if host == self.base_domain:
-                logger.info("[SUBDOMAIN] Host es el dominio base (sin subdominio)")
+                _middleware_trace("info", "[SUBDOMAIN] Host es el dominio base (sin subdominio)")
                 return None
             
             # Extraer subdominio
@@ -531,17 +556,19 @@ class TenantMiddleware(BaseHTTPMiddleware):
             if subdomain:
                 # ✅ NUEVO: Verificar si es subdominio excluido
                 if subdomain in self.EXCLUDED_SUBDOMAINS:
-                    logger.info(
-                        f"[SUBDOMAIN] '{subdomain}' es infraestructura, ignorando (usando SYSTEM)"
+                    _middleware_trace(
+                        "info",
+                        f"[SUBDOMAIN] '{subdomain}' es infraestructura, ignorando (usando SYSTEM)",
                     )
                     return None  # Retornar None para usar cliente por defecto
                 
-                logger.info(f"[SUBDOMAIN] Detectado: '{subdomain}'")
+                _middleware_trace("info", f"[SUBDOMAIN] Detectado: '{subdomain}'")
                 return subdomain
         
-        logger.warning(
+        _middleware_trace(
+            "warning",
             f"[SUBDOMAIN] No se detectó subdominio válido en: '{host}'. "
-            f"Verifica BASE_DOMAIN='{self.base_domain}'"
+            f"Verifica BASE_DOMAIN='{self.base_domain}'",
         )
         return None
 
@@ -566,7 +593,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
         )
         
         try:
-            logger.debug(f"[DB] Consultando subdominio: '{subdomain}'")
+            _middleware_trace("debug", f"[DB] Consultando subdominio: '{subdomain}'")
             
             # CRÍTICO: Usar conexión ADMIN async para evitar recursión
             # ✅ CORRECCIÓN: La tabla 'cliente' es global, no requiere filtro de tenant
@@ -582,11 +609,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     "cliente_id": results[0]["cliente_id"], 
                     "codigo_cliente": results[0]["codigo_cliente"]
                 }
-                logger.debug(f"[DB] Cliente encontrado: {result}")
+                _middleware_trace("debug", f"[DB] Cliente encontrado: {result}")
                 return result
             else:
-                logger.debug(
-                    f"[DB] No se encontró cliente para subdominio: '{subdomain}'"
+                _middleware_trace(
+                    "debug",
+                    f"[DB] No se encontró cliente para subdominio: '{subdomain}'",
                 )
                 return None
                     
@@ -602,4 +630,4 @@ class TenantMiddleware(BaseHTTPMiddleware):
 # LOGGING DE MÓDULO
 # ============================================
 
-logger.info("Módulo tenant_middleware cargado (versión híbrida con soporte para proxies)")
+_middleware_trace("info", "Módulo tenant_middleware cargado (versión híbrida con soporte para proxies)")

@@ -26,12 +26,18 @@ async def test_dry_run_reports_would_create_when_missing():
             _mock_result(None),  # cliente
             _mock_result(None),  # rol
             _mock_result(None),  # usuario
-            _mock_result(None),  # auth_config dry-run
         ]
     )
-    with patch(
-        "app.modules.tenant.application.services.platform_identity_bootstrap_service.settings"
-    ) as mock_settings:
+    with (
+        patch(
+            "app.modules.tenant.application.services.platform_identity_bootstrap_service.settings"
+        ) as mock_settings,
+        patch(
+            "app.core.auth.auth_config_gateway.AuthConfigGateway.config_exists",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
         mock_settings.PLATFORM_BOOTSTRAP_INITIAL_PASSWORD = "admin123"
         mock_settings.ENVIRONMENT = "development"
         mock_settings.SUPERADMIN_USERNAME = "superadmin"
@@ -56,7 +62,6 @@ async def test_reuse_existing_usuario_does_not_set_password():
             _mock_result((UUID(int=2),)),  # rol row
             _mock_result((UUID(int=3), True)),  # usuario row
             _mock_result((1,)),  # usuario_rol
-            _mock_result((1,)),  # auth_config
         ]
     )
     with (
@@ -66,6 +71,11 @@ async def test_reuse_existing_usuario_does_not_set_password():
         patch(
             "app.modules.tenant.application.services.platform_identity_bootstrap_service.PlatformRbacBootstrapService.resolve_platform_cliente_id",
             return_value=UUID("00000000-0000-0000-0000-000000000001"),
+        ),
+        patch(
+            "app.core.auth.auth_config_gateway.AuthConfigGateway.config_exists",
+            new_callable=AsyncMock,
+            return_value=True,
         ),
     ):
         mock_settings.SUPERADMIN_USERNAME = "superadmin"

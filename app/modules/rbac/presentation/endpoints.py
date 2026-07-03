@@ -109,7 +109,7 @@ async def create_rol(
     Raises:
         HTTPException: En caso de conflicto, error de validación o error interno.
     """
-    logger.info(f"Solicitud POST /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear rol: '{rol_in.nombre}'")
+    logger.debug(f"Solicitud POST /roles/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para crear rol: '{rol_in.nombre}'")
     
     rol_dict = rol_in.model_dump()
     
@@ -141,7 +141,7 @@ async def create_rol(
                 detail="No se pudo determinar el cliente_id para crear el rol."
             )
         created_rol = await RolService.crear_rol(cliente_id=cliente_id_rol, rol_data=rol_dict)
-        logger.info(f"Rol '{created_rol['nombre']}' creado exitosamente en cliente {current_user.cliente_id}.")
+        logger.debug(f"Rol '{created_rol['nombre']}' creado exitosamente en cliente {current_user.cliente_id}.")
         return created_rol
     except CustomException as ce:
         logger.warning(f"Error de negocio al crear rol '{rol_in.nombre}' en cliente {current_user.cliente_id}: {ce.detail}")
@@ -203,7 +203,7 @@ async def read_roles_paginated(
     Raises:
         HTTPException: En caso de error en los parámetros o error interno.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud GET /roles/ recibida por usuario {current_user.usuario_id} "
         f"del cliente {session_client_id} - Paginación: page={page}, limit={limit}, "
         f"Búsqueda: '{search}', solo_activos={solo_activos}, solo_inactivos={solo_inactivos}"
@@ -227,7 +227,7 @@ async def read_roles_paginated(
             solo_activos=solo_activos,
             solo_inactivos=solo_inactivos,
         )
-        logger.info(
+        logger.debug(
             f"Respuesta exitosa para GET /roles/ - Cliente: {session_client_id}, "
             f"Total roles: {paginated_response.get('total_roles', 0)}"
         )
@@ -276,7 +276,7 @@ async def read_all_active_roles(
     Raises:
         HTTPException: En caso de error interno del servidor.
     """
-    logger.info(
+    logger.debug(
         f"Solicitud GET /roles/all-active/ recibida por usuario {current_user.usuario_id} "
         f"del cliente {session_client_id} para lista simple"
     )
@@ -287,7 +287,7 @@ async def read_all_active_roles(
         from app.modules.rbac.presentation.schemas import RolRead
         active_roles = [RolRead(**rol_dict) for rol_dict in active_roles_dicts]
 
-        logger.info(
+        logger.debug(
             f"Lista simple de roles activos recuperada para cliente {session_client_id} "
             f"- Total: {len(active_roles)}"
         )
@@ -418,7 +418,7 @@ async def update_rol(
     Raises:
         HTTPException: En caso de cuerpo vacío, rol no encontrado, conflicto o error interno.
     """
-    logger.info(f"Solicitud PUT /roles/{rol_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para actualizar")
+    logger.debug(f"Solicitud PUT /roles/{rol_id}/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id} para actualizar")
     
     update_data = rol_in.model_dump(exclude_unset=True)
     if not update_data:
@@ -442,7 +442,7 @@ async def update_rol(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para editar roles del sistema.")
 
         updated_rol = await RolService.actualizar_rol(rol_id=rol_id, rol_data=update_data)
-        logger.info(f"Rol ID {rol_id} actualizado exitosamente: '{updated_rol['nombre']}'")
+        logger.debug(f"Rol ID {rol_id} actualizado exitosamente: '{updated_rol['nombre']}'")
         return updated_rol
     except CustomException as ce:
         logger.warning(f"Error de negocio al actualizar rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
@@ -496,7 +496,7 @@ async def deactivate_rol(
     Raises:
         HTTPException: Si el rol no existe, es de otro cliente o es del sistema.
     """
-    logger.info(f"Solicitud DELETE /roles/{rol_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud DELETE /roles/{rol_id}/ recibida (desactivar) por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         # ✅ VALIDAR antes de desactivar
         rol_existente = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
@@ -511,7 +511,7 @@ async def deactivate_rol(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden desactivar los roles del sistema.")
 
         deactivated_rol = await RolService.desactivar_rol(rol_id=rol_id)
-        logger.info(f"Rol ID {rol_id} desactivado exitosamente en cliente {current_user.cliente_id}")
+        logger.debug(f"Rol ID {rol_id} desactivado exitosamente en cliente {current_user.cliente_id}")
         return deactivated_rol
     except CustomException as ce:
         logger.warning(f"No se pudo desactivar rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
@@ -561,7 +561,7 @@ async def reactivate_rol(
     Raises:
         HTTPException: Si el rol no existe o es de otro cliente.
     """
-    logger.info(f"Solicitud POST /roles/{rol_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
+    logger.debug(f"Solicitud POST /roles/{rol_id}/reactivate/ recibida por usuario {current_user.usuario_id} del cliente {current_user.cliente_id}")
     try:
         # ✅ VALIDAR antes de reactivar
         rol_existente = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
@@ -576,7 +576,7 @@ async def reactivate_rol(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No se pueden reactivar los roles del sistema.")
 
         reactivated_rol = await RolService.reactivar_rol(rol_id=rol_id)
-        logger.info(f"Rol ID {rol_id} reactivado exitosamente en cliente {current_user.cliente_id}")
+        logger.debug(f"Rol ID {rol_id} reactivado exitosamente en cliente {current_user.cliente_id}")
         return reactivated_rol
     except CustomException as ce:
         logger.warning(f"No se pudo reactivar rol {rol_id} en cliente {current_user.cliente_id}: {ce.detail}")
@@ -624,7 +624,7 @@ async def get_permisos_por_rol(
     Raises:
         HTTPException: Si el rol no existe o hay error interno.
     """
-    logger.info(f"Solicitud recibida en GET /roles/{rol_id}/permisos/ por usuario {current_user.usuario_id}")
+    logger.debug(f"Solicitud recibida en GET /roles/{rol_id}/permisos/ por usuario {current_user.usuario_id}")
     try:
         # ✅ VALIDAR acceso al rol antes de obtener permisos
         rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
@@ -694,7 +694,7 @@ async def update_permisos_rol(
     Raises:
         HTTPException: Si el rol no existe, hay error de validación o error interno.
     """
-    logger.info(f"Solicitud recibida en PUT /roles/{rol_id}/permisos/ por usuario {current_user.usuario_id}")
+    logger.debug(f"Solicitud recibida en PUT /roles/{rol_id}/permisos/ por usuario {current_user.usuario_id}")
     try:
         # ✅ VALIDAR acceso al rol
         rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
@@ -709,7 +709,7 @@ async def update_permisos_rol(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tiene permisos para editar roles del sistema.")
 
         await RolService.actualizar_permisos_rol(rol_id=rol_id, permisos_payload=payload)
-        logger.info(f"Permisos para rol {rol_id} actualizados exitosamente")
+        logger.debug(f"Permisos para rol {rol_id} actualizados exitosamente")
         return None
     except CustomException as ce:
         logger.error(f"Error de servicio al actualizar permisos para rol {rol_id}: {ce.detail}")
@@ -742,9 +742,11 @@ async def get_permisos_negocio_rol(
     rol_id: UUID = Path(..., title="ID del Rol"),
     current_user: Any = Depends(get_current_active_user),
 ):
-    logger.info(f"Solicitud GET /roles/{rol_id}/permisos-negocio/ por usuario {current_user.usuario_id}")
+    logger.debug(f"Solicitud GET /roles/{rol_id}/permisos-negocio/ por usuario {current_user.usuario_id}")
     try:
-        rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
+        rol = await RolService.obtener_rol_por_id(
+            rol_id=rol_id, incluir_inactivos=True, cliente_id=current_user.cliente_id
+        )
         if rol is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Rol con ID {rol_id} no encontrado.")
         rol_cliente_id = rol.get("cliente_id")
@@ -786,7 +788,7 @@ async def update_permisos_negocio_rol(
     payload: PermisosNegocioUpdatePayload = Body(..., description="Lista de IDs de permisos a asignar"),
     current_user: Any = Depends(get_current_active_user),
 ):
-    logger.info(f"Solicitud PUT /roles/{rol_id}/permisos-negocio/ por usuario {current_user.usuario_id}")
+    logger.debug(f"Solicitud PUT /roles/{rol_id}/permisos-negocio/ por usuario {current_user.usuario_id}")
     try:
         rol = await RolService.obtener_rol_por_id(rol_id=rol_id, incluir_inactivos=True)
         if rol is None:

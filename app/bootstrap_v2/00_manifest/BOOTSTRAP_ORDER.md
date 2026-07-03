@@ -94,11 +94,19 @@ Omitir **S067** salvo verificación de dependencias legacy.
 
 Por cada BD dedicada (`tipo_instalacion = dedicated`):
 
-| Orden | Archivo | Dónde ejecutar |
-|------:|---------|----------------|
-| A1 | Repetir `V010` (ERP completo) en BD dedicada | BD dedicada |
-| A2 | `05_dedicated/V010__rbac_tablas_dedicated.sql` | BD dedicada |
-| A3 | Metadata `cliente_conexion` en central | BD central |
+| Orden | Archivo | Dónde ejecutar | Step saga |
+|------:|---------|----------------|-----------|
+| A1 | Repetir `V010` (ERP completo) en BD dedicada | BD dedicada | S4 `apply_schema_erp` |
+| A1b | `05_dedicated/V020__tenant_identity_rbac_store.sql` (DTSP) | BD dedicada | S5 `apply_schema_rbac` |
+| A2 | `05_dedicated/V010__rbac_tablas_dedicated.sql` | BD dedicada | S5 `apply_schema_rbac` |
+| A2b | `05_dedicated/V030__auth_audit_log_dedicated.sql` | BD dedicada | S5 `apply_schema_rbac` |
+| A3 | Metadata `cliente_conexion` en central | BD central | — |
+
+> **PR-F4-05b:** DTSP provisiona identity/RBAC/menú en Data Plane sin tablas Control Plane (`cliente`, `cliente_conexion`, …). Perfil manifiesto `dedicated_schema_v2`.
+
+> **F12-G3:** `auth_audit_log` forma parte del manifiesto v2.1 (`apply_schema_auth_audit_v030`). Gate post-bootstrap: `DEDICATED_RUNTIME_REQUIRED_TABLES` (DTSP + `rol_permiso` + `auth_audit_log` + `org_empresa` + `cfg_codigo_secuencia`).
+
+> **`log_sincronizacion_usuario`:** permanece **solo Control Plane** (operación cross-tenant; FK → `cliente`).
 
 > Seeds `SEED_BD_DEDICADA_*` no forman parte de bootstrap_v2 (ver G-042).
 

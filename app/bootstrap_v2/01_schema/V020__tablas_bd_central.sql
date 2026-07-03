@@ -449,19 +449,9 @@ CREATE TABLE user_session (
     created_at                  DATETIME            NOT NULL DEFAULT GETDATE(),
 	expires_at                  DATETIME            NOT NULL,
 
-    CONSTRAINT FK_session_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE CASCADE,                          
-
     CONSTRAINT FK_session_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION,                        
-
-    CONSTRAINT FK_session_empresa
-        FOREIGN KEY (empresa_id)
-        REFERENCES org_empresa(empresa_id)
         ON DELETE NO ACTION
 );
 
@@ -491,11 +481,6 @@ CREATE TABLE token_family (
         FOREIGN KEY (session_id)
         REFERENCES user_session(session_id)
         ON DELETE CASCADE,                          
-
-    CONSTRAINT FK_family_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE NO ACTION,                        
 
     CONSTRAINT FK_family_cliente
         FOREIGN KEY (cliente_id)
@@ -551,16 +536,6 @@ CREATE TABLE refresh_tokens (
     CONSTRAINT FK_token_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION,
-
-    CONSTRAINT FK_token_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE NO ACTION,
-
-    CONSTRAINT FK_token_empresa
-        FOREIGN KEY (empresa_id)
-        REFERENCES org_empresa(empresa_id)
         ON DELETE NO ACTION
 );
 

@@ -20,6 +20,33 @@ from app.core.exceptions import SecurityError
 logger = logging.getLogger(__name__)
 
 
+def _query_auditor_verbose() -> bool:
+    return settings.ENABLE_QUERY_AUDITOR_VERBOSE
+
+
+def _is_engine_scoped_identity() -> bool:
+    """Dedicated DP: aislamiento por engine — ausencia de cliente_id en WHERE es esperada."""
+    try:
+        from app.core.identity.identity_gateway import IdentityGateway
+        from app.core.identity.identity_scope import IdentityScope
+
+        return IdentityGateway.resolve_identity_scope() == IdentityScope.ENGINE_SCOPED
+    except Exception:
+        return False
+
+
+def _log_query_auditor_diagnostic(message: str) -> None:
+    """Eventos diagnósticos — solo con ENABLE_QUERY_AUDITOR_VERBOSE."""
+    if _query_auditor_verbose():
+        logger.warning(message)
+
+
+def _log_engine_scoped_expected(message: str) -> None:
+    """Falsos positivos ENGINE_SCOPED — como máximo DEBUG bajo flag verbose."""
+    if _query_auditor_verbose():
+        logger.debug(message)
+
+
 class QueryAuditor:
     """
     Auditor de queries para validar seguridad multi-tenant.
@@ -125,7 +152,7 @@ class QueryAuditor:
                         internal_code="TENANT_CONTEXT_REQUIRED"
                     )
                 else:
-                    logger.warning(
+                    _log_query_auditor_diagnostic(
                         "[QUERY_AUDITOR] Sin contexto de tenant (desarrollo)"
                     )
                     return True  # Permitir en desarrollo
@@ -138,7 +165,7 @@ class QueryAuditor:
         elif isinstance(query, str):
             return QueryAuditor._validate_string_query(query, table_name, client_id)
         else:
-            logger.warning(
+            _log_query_auditor_diagnostic(
                 f"[QUERY_AUDITOR] Tipo de query no reconocido: {type(query)}"
             )
             return True  # Por seguridad, permitir si no se puede validar
@@ -190,12 +217,17 @@ class QueryAuditor:
                     )
                     return True
                 else:
-                    # ⚠️ ADVERTENCIA: Query sin filtro de tenant
-                    logger.warning(
+                    msg = (
                         f"[QUERY_AUDITOR] Query SQLAlchemy Core sin filtro explícito de cliente_id. "
                         f"Tabla: {table_name}, Query: {str(query)[:200]}..."
                     )
-                    
+                    if _is_engine_scoped_identity():
+                        _log_engine_scoped_expected(
+                            f"[QUERY_AUDITOR] ENGINE_SCOPED (esperado): {msg}"
+                        )
+                    else:
+                        _log_query_auditor_diagnostic(msg)
+
                     # En producción, bloquear si está habilitado
                     if settings.ENVIRONMENT == "production" and settings.ENABLE_QUERY_TENANT_VALIDATION:
                         raise SecurityError(
@@ -208,12 +240,17 @@ class QueryAuditor:
                     
                     return True  # En desarrollo, solo loggear
             else:
-                # Query sin WHERE clause
-                logger.warning(
+                msg = (
                     f"[QUERY_AUDITOR] Query SQLAlchemy Core sin WHERE clause. "
                     f"Tabla: {table_name}"
                 )
-                
+                if _is_engine_scoped_identity():
+                    _log_engine_scoped_expected(
+                        f"[QUERY_AUDITOR] ENGINE_SCOPED (esperado): {msg}"
+                    )
+                else:
+                    _log_query_auditor_diagnostic(msg)
+
                 if settings.ENVIRONMENT == "production" and settings.ENABLE_QUERY_TENANT_VALIDATION:
                     raise SecurityError(
                         detail=(
@@ -304,12 +341,17 @@ class QueryAuditor:
                 )
                 return True
             else:
-                # ⚠️ ADVERTENCIA: Query sin filtro de tenant
-                logger.warning(
+                msg = (
                     f"[QUERY_AUDITOR] Query string sin filtro explícito de cliente_id. "
                     f"Tabla: {table_name}, Query: {query[:200]}..."
                 )
-                
+                if _is_engine_scoped_identity():
+                    _log_engine_scoped_expected(
+                        f"[QUERY_AUDITOR] ENGINE_SCOPED (esperado): {msg}"
+                    )
+                else:
+                    _log_query_auditor_diagnostic(msg)
+
                 # En producción, bloquear si está habilitado
                 if settings.ENVIRONMENT == "production" and settings.ENABLE_QUERY_TENANT_VALIDATION:
                     raise SecurityError(
@@ -322,12 +364,17 @@ class QueryAuditor:
                 
                 return True  # En desarrollo, solo loggear
         else:
-            # Query sin WHERE clause
-            logger.warning(
+            msg = (
                 f"[QUERY_AUDITOR] Query string sin WHERE clause. "
                 f"Tabla: {table_name}"
             )
-            
+            if _is_engine_scoped_identity():
+                _log_engine_scoped_expected(
+                    f"[QUERY_AUDITOR] ENGINE_SCOPED (esperado): {msg}"
+                )
+            else:
+                _log_query_auditor_diagnostic(msg)
+
             if settings.ENVIRONMENT == "production" and settings.ENABLE_QUERY_TENANT_VALIDATION:
                 raise SecurityError(
                     detail=(

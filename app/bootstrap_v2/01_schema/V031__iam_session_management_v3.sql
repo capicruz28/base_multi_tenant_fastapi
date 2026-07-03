@@ -202,20 +202,13 @@ CREATE TABLE user_session (
 	expires_at                  DATETIME            NOT NULL,
 
     -- ── Foreign keys ────────────────────────────────────────────────────────
-    CONSTRAINT FK_session_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE CASCADE,                          -- Borrar usuario elimina sus sesiones
+    -- usuario_id / empresa_id: referencias lógicas cross-plane (ADR-001/002, V033/V034).
+    -- Sin FK física CP → usuario (DP Identity) ni CP → org_empresa (DP Company).
 
     CONSTRAINT FK_session_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION,                        -- cliente_id desnormalizado; cascade viene por usuario
-
-    CONSTRAINT FK_session_empresa
-        FOREIGN KEY (empresa_id)
-        REFERENCES org_empresa(empresa_id)
-        ON DELETE NO ACTION
+        ON DELETE NO ACTION                         -- cliente_id desnormalizado; tenant registry CP
 );
 
 -- ── Índices user_session ─────────────────────────────────────────────────────
@@ -363,15 +356,10 @@ CREATE TABLE token_family (
         REFERENCES user_session(session_id)
         ON DELETE CASCADE,                          -- Cerrar sesión elimina sus familias
 
-    CONSTRAINT FK_family_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE NO ACTION,                        -- Desnormalizado; cascade viene por session_id
-
     CONSTRAINT FK_family_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION                         -- Ídem
+        ON DELETE NO ACTION                         -- tenant registry CP
 );
 
 -- ── Índices token_family ─────────────────────────────────────────────────────
@@ -520,16 +508,6 @@ CREATE TABLE refresh_tokens (
     CONSTRAINT FK_token_cliente
         FOREIGN KEY (cliente_id)
         REFERENCES cliente(cliente_id)
-        ON DELETE NO ACTION,
-
-    CONSTRAINT FK_token_usuario
-        FOREIGN KEY (usuario_id)
-        REFERENCES usuario(usuario_id)
-        ON DELETE NO ACTION,
-
-    CONSTRAINT FK_token_empresa
-        FOREIGN KEY (empresa_id)
-        REFERENCES org_empresa(empresa_id)
         ON DELETE NO ACTION
 );
 

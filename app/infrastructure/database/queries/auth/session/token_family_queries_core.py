@@ -13,6 +13,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, insert, select, update
 
 from app.core.exceptions import ValidationError
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.infrastructure.database.tables import TokenFamilyTable
 
 logger = logging.getLogger(__name__)
@@ -74,7 +77,7 @@ async def insert_token_family_core(
     stmt = insert(TokenFamilyTable).values(
         **{k: v for k, v in payload.items() if k in _FAMILY_COLUMNS}
     )
-    await execute_insert(stmt, client_id=cliente_id)
+    await execute_insert(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     row = await get_family_by_id_core(new_family_id, cliente_id)
     if row is None:
         raise ValidationError(
@@ -98,7 +101,7 @@ async def update_current_token_id_core(
         .where(_non_compromised_family_where(family_id, cliente_id))
         .values(current_token_id=current_token_id)
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -129,7 +132,7 @@ async def mark_family_compromised_core(
             invalidation_reason=invalidation_reason,
         )
     )
-    result = await execute_update(stmt, client_id=cliente_id)
+    result = await execute_update(stmt, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return int(result.get("rows_affected", 0))
 
 
@@ -141,7 +144,7 @@ async def get_family_by_id_core(
     from app.infrastructure.database.queries_async import execute_query
 
     query = select(TokenFamilyTable).where(_tenant_family_where(family_id, cliente_id))
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -159,7 +162,7 @@ async def get_family_by_session_id_core(
             TokenFamilyTable.c.is_compromised == False,  # noqa: E712
         )
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 
@@ -176,7 +179,7 @@ async def get_family_by_current_token_id_core(
             TokenFamilyTable.c.cliente_id == cliente_id,
         )
     )
-    rows = await execute_query(query, client_id=cliente_id)
+    rows = await execute_query(query, client_id=cliente_id, connection_type=SESSION_STORE_CONNECTION)
     return rows[0] if rows else None
 
 

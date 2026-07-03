@@ -81,11 +81,12 @@ async def get_current_user_data(
     from app.core.security.jwt import normalize_bearer_jwt_token
 
     if is_impersonate_diag_request():
-        logger.info(
-            "[IMPERSONATE-AUTH] get_current_user_data entry oauth2_scheme_ok "
-            "token_len=%s",
-            len(token) if token else 0,
-        )
+        if settings.ENABLE_IMPERSONATE_DIAG:
+            logger.info(
+                "[IMPERSONATE-AUTH] get_current_user_data entry oauth2_scheme_ok "
+                "token_len=%s",
+                len(token) if token else 0,
+            )
 
     try:
         token = normalize_bearer_jwt_token(token)
@@ -134,15 +135,16 @@ async def get_current_user_data(
             )
         
         if is_impersonate_diag_request():
-            log_impersonate_payload_summary(
-                payload, phase="get_current_user_data_ok"
-            )
+            if settings.ENABLE_IMPERSONATE_DIAG:
+                log_impersonate_payload_summary(
+                    payload, phase="get_current_user_data_ok"
+                )
 
         await _touch_business_activity_from_payload(payload)
 
         return payload
     except HTTPException as exc:
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.warning(
                 "[IMPERSONATE-AUTH] get_current_user_data HTTPException "
                 "status=%s detail=%s",
@@ -151,7 +153,7 @@ async def get_current_user_data(
             )
         raise
     except JWTError as e:
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.warning(
                 "[IMPERSONATE-AUTH] get_current_user_data JWTError=%s token_len=%s "
                 "→ credentials_exception",
@@ -190,7 +192,7 @@ async def get_current_active_user(
         log_impersonate_payload_summary,
     )
 
-    if is_impersonate_diag_request():
+    if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
         log_impersonate_payload_summary(payload, phase="get_current_active_user_entry")
         logger.info(
             "[IMPERSONATE-AUTH] get_current_active_user username=%s",
@@ -217,7 +219,7 @@ async def get_current_active_user(
         context = await get_user_auth_context(username, request_cliente_id)
         
         if not context:
-            if is_impersonate_diag_request():
+            if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
                 logger.warning(
                     "[IMPERSONATE-AUTH] get_current_active_user context=None "
                     "username=%s request_cliente_id=%s → credentials_exception",
@@ -273,14 +275,15 @@ async def get_current_active_user(
         usuario_completo = await build_user_with_roles(username, request_cliente_id)
         
         if not usuario_completo:
-            logger.error(
-                "[ME-ENDPOINT] build_user_with_roles=None username=%s request_cliente_id=%s "
-                "payload_user_type=%s es_superadmin=%s",
-                username,
-                request_cliente_id,
-                payload.get("user_type"),
-                payload.get("es_superadmin"),
-            )
+            if settings.ENABLE_AUTH_VERBOSE:
+                logger.error(
+                    "[ME-ENDPOINT] build_user_with_roles=None username=%s request_cliente_id=%s "
+                    "payload_user_type=%s es_superadmin=%s",
+                    username,
+                    request_cliente_id,
+                    payload.get("user_type"),
+                    payload.get("es_superadmin"),
+                )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Error interno al procesar datos del usuario"
@@ -317,9 +320,15 @@ async def get_current_active_user(
             apply_impersonation_effective_permissions_to_user,
             clear_impersonation_rbac_context,
             is_impersonation_effective_tenant_session,
+            resolve_impersonation_tenant_cliente_id,
         )
 
         if is_impersonation_effective_tenant_session(payload):
+            usuario_completo.cliente_id = resolve_impersonation_tenant_cliente_id(
+                payload,
+                user_cliente_id=usuario_completo.cliente_id,
+                request_cliente_id=request_cliente_id,
+            )
             tenant_context = try_get_tenant_context()
             database_type = (
                 tenant_context.database_type if tenant_context else "single"
@@ -341,7 +350,7 @@ async def get_current_active_user(
             impersonation_tenant_session=impersonation_tenant_session,
         )
 
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.info(
                 "[IMPERSONATE-AUTH] get_current_active_user ok username=%s "
                 "user_type=%s is_super_admin=%s access_level=%s",
@@ -353,7 +362,7 @@ async def get_current_active_user(
         yield usuario_completo
 
     except HTTPException as exc:
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.warning(
                 "[IMPERSONATE-AUTH] get_current_active_user HTTPException "
                 "status=%s detail=%s",
@@ -364,7 +373,7 @@ async def get_current_active_user(
     except Exception as e:
         from app.core.exceptions import CustomException
 
-        if is_impersonate_diag_request():
+        if settings.ENABLE_IMPERSONATE_DIAG and is_impersonate_diag_request():
             logger.error(
                 "[IMPERSONATE-AUTH] get_current_active_user exception=%s:%s",
                 type(e).__name__,

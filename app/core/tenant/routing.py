@@ -27,7 +27,8 @@ FALLBACK:
 
 import logging
 import json
-from typing import Dict, Any, Optional, AsyncIterator
+from contextvars import ContextVar
+from typing import Dict, Any, Optional, AsyncIterator, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from contextlib import asynccontextmanager
@@ -36,7 +37,7 @@ import pyodbc
 from app.core.config import settings
 from app.core.tenant.context import get_current_client_id
 from app.core.security.encryption import decrypt_credential
-from app.core.tenant.cache import connection_cache
+from app.core.tenant.cache import connection_cache, record_metadata_fallback_shared
 from app.core.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,90 @@ logger = logging.getLogger(__name__)
 DEFAULT_DATABASE_TYPE = "single"
 # Convertir SUPERADMIN_CLIENTE_ID de string a UUID
 SYSTEM_CLIENT_ID = UUID(settings.SUPERADMIN_CLIENTE_ID) if settings.SUPERADMIN_CLIENTE_ID else None
+
+OPERATION_CLASS_TENANT_DATA = "tenant_data"
+OPERATION_CLASS_CONTROL_PLANE = "control_plane"
+
+RouteCacheKey = Tuple[UUID, str]
+
+_intra_request_route_cache: ContextVar[Optional[Dict[RouteCacheKey, Dict[str, Any]]]] = (
+    ContextVar("intra_request_route_cache", default=None)
+)
+
+
+def clear_intra_request_route_cache() -> None:
+    """L-A teardown: limpia route bindings intra-request (TD-01)."""
+    _intra_request_route_cache.set(None)
+
+
+def _route_cache_bucket() -> Dict[RouteCacheKey, Dict[str, Any]]:
+    bucket = _intra_request_route_cache.get()
+    if bucket is None:
+        bucket = {}
+        _intra_request_route_cache.set(bucket)
+    return bucket
+
+
+def get_cached_route_binding(
+    client_id: UUID, operation_class: str
+) -> Optional[Dict[str, Any]]:
+    """Obtiene route binding L-A si existe para (tenant_id, operation_class)."""
+    return _route_cache_bucket().get((client_id, operation_class))
+
+
+def set_cached_route_binding(
+    client_id: UUID, operation_class: str, metadata: Dict[str, Any]
+) -> None:
+    """Almacena route binding L-A para el request actual."""
+    _route_cache_bucket()[(client_id, operation_class)] = metadata
+
+
+INSTALLATION_MODE_DEDICATED = "dedicated"
+DEDICATED_ROUTE_FAIL_CLOSED = "DEDICATED_ROUTE_FAIL_CLOSED"
+
+
+def _is_explicit_dedicated(installation_mode: Optional[str]) -> bool:
+    return installation_mode == INSTALLATION_MODE_DEDICATED
+
+
+def _validate_dedicated_route_metadata(
+    metadata: Dict[str, Any],
+    client_id: UUID,
+) -> None:
+    """RI-39 / BL-P07: dedicated explícito no enruta a shared silenciosamente."""
+    if not _is_explicit_dedicated(metadata.get("tipo_instalacion")):
+        return
+
+    database_type = metadata.get("database_type", DEFAULT_DATABASE_TYPE)
+    if database_type != "multi":
+        raise DatabaseError(
+            detail=(
+                f"Tenant {client_id} con Installation Mode dedicated no puede enrutar "
+                f"con database_type={database_type!r} (RI-39)."
+            ),
+            internal_code=DEDICATED_ROUTE_FAIL_CLOSED,
+        )
+
+    missing = [
+        field
+        for field in ("servidor", "nombre_bd", "usuario", "password")
+        if not metadata.get(field)
+    ]
+    if missing:
+        raise DatabaseError(
+            detail=(
+                f"Tenant {client_id} dedicated requiere Storage Endpoint completo (RI-39). "
+                f"Campos ausentes: {', '.join(missing)}"
+            ),
+            internal_code=DEDICATED_ROUTE_FAIL_CLOSED,
+        )
+
+
+def _raise_dedicated_route_fail_closed(client_id: UUID, reason: str) -> None:
+    raise DatabaseError(
+        detail=f"Tenant {client_id} dedicated (RI-39): {reason}",
+        internal_code=DEDICATED_ROUTE_FAIL_CLOSED,
+    )
 
 
 # ============================================
@@ -238,11 +323,17 @@ def _query_connection_metadata_from_db(client_id: UUID) -> Optional[Dict[str, An
         return asyncio.run(_query_connection_metadata_from_db_async(client_id))
 
 
-async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
+async def get_connection_metadata_async(
+    client_id: UUID,
+    operation_class: str = OPERATION_CLASS_TENANT_DATA,
+) -> Dict[str, Any]:
     """
     Obtiene metadata de conexión para un cliente (con cache) - ASYNC.
     
     ✅ FASE 2: Versión async que reemplaza la función síncrona.
+    
+    Cache L-A intra-request (TD-01): reutiliza binding `(tenant_id, operation_class)`
+    dentro del mismo request HTTP antes de consultar L-B/Redis/BD.
     
     Cache mejorado con Redis:
     - Intenta obtener de Redis primero (cache distribuido)
@@ -250,21 +341,39 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
     - Si no está en cache, consulta BD
     
     FLUJO:
-    1. Intentar obtener del cache Redis
-    2. Si no, intentar cache en memoria
-    3. Si no está en cache, consultar BD
-    4. Guardar en ambos caches
-    5. Si falla o no existe → Fallback a Single-DB
+    1. L-A intra-request hit
+    2. Intentar obtener del cache Redis
+    3. Si no, intentar cache en memoria
+    4. Si no está en cache, consultar BD
+    5. Guardar en ambos caches + L-A
+    6. Si falla o no existe → Fallback a Single-DB
     
     Args:
         client_id: ID del cliente
+        operation_class: Clasificación RD-07 (`tenant_data` | `control_plane`)
     
     Returns:
-        Dict con metadata (siempre retorna algo, nunca None)
+        Dict con metadata de ruta resuelta
     
-    Fallback garantizado:
-        Si cualquier cosa falla, retorna metadata para Single-DB
+    Fallback RD-08:
+        Shared/legacy sin metadata → Single-DB. Dedicated explícito → fail (RI-39).
     """
+    route_cached = get_cached_route_binding(client_id, operation_class)
+    if route_cached is not None:
+        logger.debug(
+            f"[ROUTE_CACHE] L-A HIT client={client_id} op={operation_class}"
+        )
+        _validate_dedicated_route_metadata(route_cached, client_id)
+        return route_cached
+
+    metadata = await _resolve_connection_metadata_uncached(client_id)
+    _validate_dedicated_route_metadata(metadata, client_id)
+    set_cached_route_binding(client_id, operation_class, metadata)
+    return metadata
+
+
+async def _resolve_connection_metadata_uncached(client_id: UUID) -> Dict[str, Any]:
+    """Resolución metadata sin L-A (L-B Redis/memoria + BD)."""
     # Caso especial: SYSTEM siempre usa Single-DB
     if SYSTEM_CLIENT_ID and client_id == SYSTEM_CLIENT_ID:
         logger.debug(f"[METADATA] Cliente {client_id} es SYSTEM, usando Single-DB")
@@ -281,6 +390,7 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
             redis_cached = get_cached(f"connection_metadata:{client_id}")
             if redis_cached:
                 logger.debug(f"[METADATA] Cache Redis HIT para cliente {client_id}")
+                _validate_dedicated_route_metadata(redis_cached, client_id)
                 # También actualizar cache en memoria (para compatibilidad)
                 connection_cache.set(client_id, redis_cached)
                 return redis_cached
@@ -292,6 +402,7 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
     
     if cached_metadata:
         logger.debug(f"[METADATA] Cache en memoria HIT para cliente {client_id}")
+        _validate_dedicated_route_metadata(cached_metadata, client_id)
         return cached_metadata
     
     # Si no está en cache, consultar BD (async)
@@ -308,7 +419,8 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
                 set_cached(f"connection_metadata:{client_id}", metadata, ttl=3600)
             except Exception as e:
                 logger.debug(f"[METADATA] Redis no disponible para guardar: {e}")
-        
+
+        _validate_dedicated_route_metadata(metadata, client_id)
         return metadata
     
     # Fallback: Determinar database_type basándose en tipo_instalacion
@@ -425,7 +537,8 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
                                         set_cached(f"connection_metadata:{client_id}", metadata_completa, ttl=3600)
                                     except Exception:
                                         pass
-                                
+
+                                _validate_dedicated_route_metadata(metadata_completa, client_id)
                                 return metadata_completa
                             else:
                                 logger.warning(
@@ -436,17 +549,10 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
                                 f"[METADATA] Error procesando conexión para cliente dedicated {client_id}: {e}"
                             )
                     
-                    # Si es dedicated pero no hay conexión válida o las credenciales fallan
-                    # Mantener database_type=multi pero sin credenciales (el sistema intentará conectar y fallará con error claro)
-                    database_type_fallback = "multi"
-                    logger.error(
-                        f"[METADATA] ⚠️ CRÍTICO: Cliente {client_id} es 'dedicated' pero: "
-                        f"1) No tiene conexión activa en cliente_conexion, O "
-                        f"2) Las credenciales no se pueden desencriptar. "
-                        f"El sistema intentará usar Multi-DB pero fallará sin credenciales válidas. "
-                        f"Verificar: 1) Registro en cliente_conexion con es_activo=1, "
-                        f"2) Credenciales encriptadas correctamente, "
-                        f"3) ENCRYPTION_KEY correcta en .env"
+                    # RI-39: dedicated explícito sin Storage Endpoint válido → fail-closed
+                    _raise_dedicated_route_fail_closed(
+                        client_id,
+                        "Storage Endpoint ausente o credenciales inválidas en cliente_conexion.",
                     )
                 elif tipo_instalacion_fallback in ["shared", "onpremise", "hybrid"]:
                     # Para shared/onpremise/hybrid, usar Single-DB por defecto
@@ -457,13 +563,18 @@ async def get_connection_metadata_async(client_id: UUID) -> Dict[str, Any]:
             f"Usando 'shared' y Single-DB por defecto."
         )
     
+    if _is_explicit_dedicated(tipo_instalacion_fallback):
+        _raise_dedicated_route_fail_closed(
+            client_id,
+            "metadata de conexión no disponible para Installation Mode dedicated.",
+        )
+
     logger.warning(
         f"[METADATA] No se encontró metadata para cliente {client_id}. "
-        f"Usando {database_type_fallback.upper()}-DB como fallback. "
+        f"Usando {database_type_fallback.upper()}-DB como fallback (RD-08). "
         f"tipo_instalacion={tipo_instalacion_fallback}"
     )
-    # ✅ CRÍTICO: Para clientes dedicated sin credenciales, NO incluir nombre_bd=None
-    # Esto hará que el sistema falle con error claro en lugar de hacer fallback silencioso
+    record_metadata_fallback_shared()
     fallback_metadata = {
         "database_type": database_type_fallback,
         "nombre_bd": settings.DB_DATABASE if database_type_fallback == "single" else None,
@@ -619,7 +730,14 @@ def get_client_db_connection_string(client_id: UUID) -> str:
             try:
                 return _build_multi_db_connection_string(metadata)
             except Exception as build_err:
-                # Fallback a Single-DB si falla construcción
+                if _is_explicit_dedicated(metadata.get("tipo_instalacion")):
+                    raise DatabaseError(
+                        detail=(
+                            f"Tenant {client_id} dedicated: no se pudo construir conexión "
+                            f"Multi-DB (RI-39)."
+                        ),
+                        internal_code=DEDICATED_ROUTE_FAIL_CLOSED,
+                    ) from build_err
                 logger.error(
                     f"[ROUTING] Error al construir conn_str Multi-DB para cliente {client_id}: {build_err}. "
                     f"Usando Single-DB como fallback.",
@@ -795,7 +913,8 @@ def get_database_type(client_id: UUID) -> str:
 
 @asynccontextmanager
 async def get_connection_for_tenant(
-    cliente_id: Optional[UUID] = None
+    cliente_id: Optional[UUID] = None,
+    operation_class: str = OPERATION_CLASS_TENANT_DATA,
 ) -> AsyncIterator[AsyncSession]:
     """
     ✅ FASE 5: Función centralizada para obtener conexión por tenant.
@@ -807,6 +926,7 @@ async def get_connection_for_tenant(
     
     Args:
         cliente_id: ID del cliente (opcional, usa contexto si no se proporciona)
+        operation_class: Clasificación RD-07 para cache L-A (TD-01)
     
     Yields:
         AsyncSession de SQLAlchemy configurada para el tenant apropiado
@@ -849,8 +969,8 @@ async def get_connection_for_tenant(
             yield session
         return
     
-    # 3. Obtener metadata de conexión (con cache)
-    metadata = await get_connection_metadata_async(cliente_id)
+    # 3. Obtener metadata de conexión (L-A + L-B + BD)
+    metadata = await get_connection_metadata_async(cliente_id, operation_class)
     
     # 4. Determinar tipo de conexión
     database_type = metadata.get("database_type", DEFAULT_DATABASE_TYPE)

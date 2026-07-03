@@ -76,7 +76,7 @@ async def configurar_azure_ad(config: AzureADConfig = Body(...)):
     """
     Configura Azure AD para el cliente del tenant actual.
     """
-    logger.info("Solicitud POST /sso/azure/config/ recibida")
+    logger.debug("Solicitud POST /sso/azure/config/ recibida")
     try:
         # Placeholder: El servicio real manejaría la encriptación del client_secret
         # y la validación de la configuración.
@@ -114,7 +114,7 @@ async def configurar_google(config: GoogleConfig = Body(...)):
     """
     Configura Google Workspace para el cliente del tenant actual.
     """
-    logger.info("Solicitud POST /sso/google/config/ recibida")
+    logger.debug("Solicitud POST /sso/google/config/ recibida")
     try:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -150,7 +150,7 @@ async def listar_proveedores_sso():
     """
     Lista los proveedores SSO del cliente del tenant actual.
     """
-    logger.info("Solicitud GET /sso/providers/ recibida")
+    logger.debug("Solicitud GET /sso/providers/ recibida")
     try:
         # Placeholder: Query a la tabla `federacion_identidad`
         query = """
@@ -198,7 +198,7 @@ async def eliminar_proveedor_sso(provider_id: int):
     """
     Elimina un proveedor SSO.
     """
-    logger.info(f"Solicitud DELETE /sso/{provider_id}/ recibida")
+    logger.debug(f"Solicitud DELETE /sso/{provider_id}/ recibida")
     try:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,

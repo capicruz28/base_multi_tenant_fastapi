@@ -12,6 +12,9 @@ from typing import Any, Optional
 from uuid import UUID
 
 from app.core.application.unit_of_work import UnitOfWork
+from app.infrastructure.database.queries.auth.session.session_store_connection import (
+    SESSION_STORE_CONNECTION,
+)
 from app.core.exceptions import ValidationError
 from app.infrastructure.database.queries.auth.session import session_transaction_core as stx
 from app.modules.auth.application.services.session_audit_emitter import SessionAuditEmitter
@@ -156,7 +159,10 @@ class SessionRotationService:
                 internal_code="REPLAY_USER_UNRESOLVABLE",
             )
 
-        async with UnitOfWork(client_id=cliente_id) as uow:
+        async with UnitOfWork(
+            client_id=cliente_id,
+            connection_type=SESSION_STORE_CONNECTION,
+        ) as uow:
             await stx.handle_replay_attack_tx(
                 uow,
                 session_id=context.session_id,
@@ -267,7 +273,10 @@ class SessionRotationService:
         effective_empresa_id = _resolve_empresa_id_for_rotation(context, empresa_id)
 
         try:
-            async with UnitOfWork(client_id=cliente_id) as uow:
+            async with UnitOfWork(
+                client_id=cliente_id,
+                connection_type=SESSION_STORE_CONNECTION,
+            ) as uow:
                 tx_kwargs: Dict[str, Any] = {
                     "uow": uow,
                     "old_token_hash": old_token_hash,

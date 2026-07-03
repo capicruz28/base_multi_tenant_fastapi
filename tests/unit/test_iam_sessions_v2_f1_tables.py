@@ -179,11 +179,12 @@ def test_f1_refresh_tokens_indexes_match_ddl():
 
 @pytest.mark.unit
 def test_f1_foreign_keys_defined():
+    """Session Store: solo FK intra-CP; usuario_id/empresa_id son referencias lógicas cross-plane."""
     user_session_fks = {fk.parent.name for fk in UserSessionTable.foreign_keys}
-    assert user_session_fks == {"usuario_id", "cliente_id", "empresa_id"}
+    assert user_session_fks == {"cliente_id"}
 
     token_family_fks = {fk.parent.name for fk in TokenFamilyTable.foreign_keys}
-    assert token_family_fks == {"session_id", "usuario_id", "cliente_id"}
+    assert token_family_fks == {"session_id", "cliente_id"}
 
     refresh_fks = {fk.parent.name for fk in RefreshTokensTable.foreign_keys}
     assert refresh_fks == {
@@ -191,9 +192,22 @@ def test_f1_foreign_keys_defined():
         "session_id",
         "parent_token_id",
         "cliente_id",
-        "empresa_id",
-        "usuario_id",
     }
+
+
+@pytest.mark.unit
+def test_f1_session_store_no_cross_plane_entity_fks():
+    """usuario_id y empresa_id no tienen FK ORM hacia tablas DP."""
+    for table in (UserSessionTable, TokenFamilyTable, RefreshTokensTable):
+        for col in ("usuario_id", "empresa_id"):
+            if col not in table.c:
+                continue
+            col_fks = [
+                fk
+                for fk in table.foreign_keys
+                if fk.parent.name == col
+            ]
+            assert col_fks == [], f"{table.name}.{col} must not have ORM ForeignKey"
 
 
 @pytest.mark.unit

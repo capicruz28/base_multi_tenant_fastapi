@@ -125,8 +125,14 @@ def _build_async_connection_string(
                     detail="No se pudo obtener cliente_id del contexto para conexión async",
                     internal_code="CLIENT_ID_MISSING"
                 )
-        
-        # Si no se proporciona metadata, construir desde settings (Single-DB por defecto)
+
+        if connection_metadata:
+            from app.core.tenant.routing import _validate_dedicated_route_metadata
+
+            client_uuid = client_id if isinstance(client_id, UUID) else None
+            if client_uuid is not None:
+                _validate_dedicated_route_metadata(connection_metadata, client_uuid)
+
         if connection_metadata:
             database_type = connection_metadata.get("database_type", "single")
             tipo_instalacion = connection_metadata.get("tipo_instalacion", "shared")
@@ -157,7 +163,7 @@ def _build_async_connection_string(
                     )
                     raise DatabaseError(
                         detail=error_msg,
-                        internal_code="DEDICATED_DB_CREDENTIALS_MISSING"
+                        internal_code="DEDICATED_ROUTE_FAIL_CLOSED",
                     )
                 
                 return (
@@ -168,8 +174,8 @@ def _build_async_connection_string(
                     f"driver={quote_plus(settings.DB_DRIVER)}&"
                     f"TrustServerCertificate=yes"
                 )
-        
-        # Single-DB o fallback: usar settings
+
+        # Single-DB o fallback RD-08 (shared/legacy)
         return (
             f"mssql+aioodbc://{quote_plus(settings.DB_USER)}:"
             f"{quote_plus(settings.DB_PASSWORD)}@"
@@ -302,9 +308,11 @@ async def get_db_connection(
                 if client_id_uuid:
                     connection_metadata = await get_connection_metadata_async(client_id_uuid)
                     logger.debug(f"[ASYNC_CONNECTION] Metadata obtenida del routing para cliente {client_id}")
+            except DatabaseError:
+                raise
             except Exception as routing_err:
                 logger.debug(f"[ASYNC_CONNECTION] No se pudo obtener metadata del routing: {routing_err}")
-                # Continuar sin metadata (usará Single-DB por defecto)
+                # Continuar sin metadata (Single-DB RD-08 solo shared/legacy implícito)
     
     engine = _get_async_engine(connection_type, client_id, connection_metadata)
     
@@ -328,8 +336,6 @@ async def get_db_connection(
             await session.rollback()
             logger.error(f"[ASYNC_CONNECTION] Error en sesión async: {e}", exc_info=True)
             raise
-        finally:
-            await session.close()
 
 
 # Alias para compatibilidad (deprecated)

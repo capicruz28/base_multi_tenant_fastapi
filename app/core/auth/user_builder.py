@@ -1,328 +1,181 @@
 """
 Servicio para construir objetos Pydantic completos de usuario.
 
-Este módulo se usa cuando se necesita el objeto completo UsuarioReadWithRoles,
-por ejemplo en endpoints que requieren toda la información del usuario.
-
-Separado de user_context.py para mantener la separación de responsabilidades:
-- user_context.py: Contexto mínimo para autorización
-- user_builder.py: Construcción de objetos completos cuando se necesitan
+F8-A: lecturas vía Identity Gateway (sin ramas database_type ni UsuarioTable directo).
 """
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-import json
 import logging
 from datetime import datetime
 
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.rbac.presentation.schemas import RolRead
+from app.core.config import settings
+from app.core.auth.auth_runtime_scope import resolve_rbac_database_type
 from app.core.auth.platform_user_lookup import (
-    fetch_usuario_auth_row,
     is_system_request_client,
     resolve_platform_superadmin_flag,
 )
-from app.infrastructure.database.queries_async import execute_auth_query
+from app.core.auth.user_context import determine_user_type
+from app.core.identity.identity_context import IdentityContext
+from app.core.identity.identity_gateway import IdentityGateway
 from app.shared.validators import sanitize_person_name
-from app.infrastructure.database.tables import UsuarioTable, UsuarioRolTable, RolTable
-from sqlalchemy import select, and_, or_
 
 logger = logging.getLogger(__name__)
+
+_NULL_CLIENTE_ID = UUID("00000000-0000-0000-0000-000000000000")
+_ROLES_GLOBALES_SISTEMA = frozenset(
+    {
+        "SUPER_ADMIN",
+        "SUPERADMIN",
+        "SYSTEM_ADMIN",
+        "ADMIN_PLATFORM",
+        "SUPPORT_PLATFORM",
+        "USER_PLATFORM",
+    }
+)
+
+
+def _normalize_cliente_id(raw: Any) -> Optional[UUID]:
+    if raw is None:
+        return None
+    if isinstance(raw, UUID):
+        return None if raw == _NULL_CLIENTE_ID else raw
+    if isinstance(raw, str):
+        try:
+            parsed = UUID(raw)
+        except (ValueError, AttributeError):
+            return None
+        return None if parsed == _NULL_CLIENTE_ID else parsed
+    return None
+
+
+def _prepare_usuario_read_dict(
+    user_result: Dict[str, Any],
+    *,
+    cliente_id: UUID,
+    nivel_acceso: int,
+    is_superadmin: bool,
+    user_type: str,
+) -> Dict[str, Any]:
+    """Completa campos mínimos exigidos por UsuarioReadWithRoles."""
+    prepared = dict(user_result)
+    prepared["cliente_id"] = cliente_id
+    prepared["nombre"] = sanitize_person_name(prepared.get("nombre"))
+    prepared["apellido"] = sanitize_person_name(prepared.get("apellido"))
+    prepared.setdefault("fecha_creacion", datetime.utcnow())
+    prepared.setdefault("fecha_ultimo_acceso", None)
+    prepared.setdefault("correo_confirmado", False)
+    prepared.setdefault("proveedor_autenticacion", "local")
+    prepared.setdefault("fecha_ultimo_cambio_contrasena", None)
+    prepared.setdefault("requiere_cambio_contrasena", False)
+    prepared.setdefault("intentos_fallidos", 0)
+    prepared.setdefault("fecha_bloqueo", None)
+    prepared.setdefault("es_eliminado", False)
+    prepared.setdefault("correo", prepared.get("correo") or "")
+    prepared["access_level"] = nivel_acceso
+    prepared["is_super_admin"] = is_superadmin
+    prepared["user_type"] = user_type
+    return prepared
+
+
+def _resolve_cliente_id(
+    user_result: Dict[str, Any],
+    request_cliente_id: Optional[UUID],
+) -> Optional[UUID]:
+    user_cliente_id = _normalize_cliente_id(user_result.get("cliente_id"))
+    if user_cliente_id:
+        return user_cliente_id
+    if request_cliente_id:
+        return request_cliente_id
+    from app.core.tenant.context import try_get_current_client_id
+
+    return try_get_current_client_id()
 
 
 async def build_user_with_roles(
     username: str,
-    request_cliente_id: Optional[UUID] = None
+    request_cliente_id: Optional[UUID] = None,
 ) -> Optional[UsuarioReadWithRoles]:
     """
     Construye un objeto UsuarioReadWithRoles completo con todos los datos del usuario.
-    
-    Esta función se usa cuando se necesita el objeto completo, no solo el contexto.
-    Para validación rápida, usar get_user_auth_context() en su lugar.
-    
-    Args:
-        username: Nombre de usuario
-        request_cliente_id: ID del cliente del request
-    
-    Returns:
-        UsuarioReadWithRoles si existe, None en caso contrario
     """
     try:
-        # ✅ Obtener database_type del contexto para determinar si es BD dedicada
-        from app.core.tenant.context import try_get_tenant_context
-        
-        tenant_context = try_get_tenant_context()
-        database_type = tenant_context.database_type if tenant_context else "single"
-
         from app.core.tenant.empresa_context import try_get_current_empresa_id
 
         empresa_id_ctx = try_get_current_empresa_id()
-        
-        # 1. Obtener usuario básico
-        # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los usuarios pertenecen al mismo cliente)
-        if database_type == "multi":
-            # BD dedicada: buscar solo por nombre_usuario (paridad con get_user_auth_context)
-            user_query = select(UsuarioTable).where(
-                and_(
-                    UsuarioTable.c.nombre_usuario == username,
-                    UsuarioTable.c.es_eliminado == False
-                )
-            )
-            user_result = await fetch_usuario_auth_row(
-                user_query,
-                username=username,
-                request_cliente_id=request_cliente_id,
-            )
-        elif request_cliente_id:
-            # BD compartida: primero intentar con cliente_id del tenant
-            user_query = select(UsuarioTable).where(
-                and_(
-                    UsuarioTable.c.nombre_usuario == username,
-                    UsuarioTable.c.es_eliminado == False,
-                    UsuarioTable.c.cliente_id == request_cliente_id
-                )
-            )
-            user_result = await fetch_usuario_auth_row(
-                user_query,
-                username=username,
-                request_cliente_id=request_cliente_id,
-            )
 
-            if not user_result:
-                logger.debug(
-                    "Usuario '%s' no encontrado con cliente_id %s, intentando sin filtro de cliente",
-                    username,
-                    request_cliente_id,
-                )
-                user_query_fallback = select(UsuarioTable).where(
-                    and_(
-                        UsuarioTable.c.nombre_usuario == username,
-                        UsuarioTable.c.es_eliminado == False,
-                    )
-                )
-                user_result = await fetch_usuario_auth_row(
-                    user_query_fallback,
-                    username=username,
-                    request_cliente_id=request_cliente_id,
-                )
-        else:
-            user_query = select(UsuarioTable).where(
-                and_(
-                    UsuarioTable.c.nombre_usuario == username,
-                    UsuarioTable.c.es_eliminado == False,
-                )
-            )
-            user_result = await fetch_usuario_auth_row(
-                user_query,
-                username=username,
-                request_cliente_id=request_cliente_id,
-            )
-        
-        if not user_result:
+        user_result = await IdentityGateway.lookup_user_for_auth_context(
+            username,
+            request_cliente_id,
+        )
+        if not user_result or not user_result.get("es_activo", False):
             return None
-        
-        if not user_result.get('es_activo', False):
+
+        usuario_id = user_result.get("usuario_id")
+        cliente_id = _resolve_cliente_id(user_result, request_cliente_id)
+        if not cliente_id:
+            logger.warning(
+                "[USER_BUILDER] No se pudo resolver cliente_id para usuario '%s'",
+                username,
+            )
             return None
-        
-        usuario_id = user_result.get('usuario_id')
-        cliente_id = user_result.get('cliente_id')
-        
-        # ✅ CORRECCIÓN CRÍTICA: Para BD dedicadas, el cliente_id del usuario puede ser NULL o UUID nulo
-        # Usar el cliente_id del contexto del tenant en su lugar
-        if database_type == "multi":
-            # Convertir cliente_id a UUID si es string para comparar
-            user_cliente_id = cliente_id
-            if user_cliente_id:
-                if isinstance(user_cliente_id, str):
-                    try:
-                        user_cliente_id = UUID(user_cliente_id)
-                    except (ValueError, AttributeError):
-                        user_cliente_id = None
-                elif not isinstance(user_cliente_id, UUID):
-                    user_cliente_id = None
-            
-            # Verificar si es None o UUID nulo
-            if not user_cliente_id or (isinstance(user_cliente_id, UUID) and user_cliente_id == UUID('00000000-0000-0000-0000-000000000000')):
-                # Usar request_cliente_id (del contexto del tenant) en lugar del cliente_id del usuario
-                if request_cliente_id:
-                    cliente_id = request_cliente_id
-                    logger.debug(
-                        f"[USER_BUILDER] BD dedicada: cliente_id del usuario era NULL/nulo, "
-                        f"usando cliente_id del contexto: {request_cliente_id}"
-                    )
-                else:
-                    # Si no hay request_cliente_id, intentar obtenerlo del contexto
-                    from app.core.tenant.context import try_get_current_client_id
-                    cliente_id = try_get_current_client_id()
-                    if cliente_id:
-                        logger.debug(
-                            f"[USER_BUILDER] BD dedicada: cliente_id del usuario era NULL/nulo, "
-                            f"usando cliente_id del contexto: {cliente_id}"
-                        )
-                    else:
-                        logger.warning(
-                            f"[USER_BUILDER] BD dedicada: No se pudo obtener cliente_id del contexto para usuario '{username}'"
-                        )
-            else:
-                cliente_id = user_cliente_id
-        
-        # 2. Obtener roles completos
-        # ✅ Para BD dedicadas, no filtrar por cliente_id (todos los roles pertenecen al mismo tenant)
-        if database_type == "multi":
-            # BD dedicada: buscar roles sin filtrar por cliente_id
-            roles_query = select(
-                RolTable.c.rol_id,
-                RolTable.c.nombre,
-                RolTable.c.descripcion,
-                RolTable.c.nivel_acceso,
-                RolTable.c.codigo_rol,
-                RolTable.c.es_activo,
-                RolTable.c.fecha_creacion,
-                RolTable.c.cliente_id
-            ).select_from(
-                UsuarioRolTable.join(RolTable, UsuarioRolTable.c.rol_id == RolTable.c.rol_id)
-            ).where(
-                and_(
-                    UsuarioRolTable.c.usuario_id == usuario_id,
-                    UsuarioRolTable.c.es_activo == True,
-                    RolTable.c.es_activo == True,
-                    *(
-                        [
-                            or_(
-                                UsuarioRolTable.c.empresa_id.is_(None),
-                                UsuarioRolTable.c.empresa_id == empresa_id_ctx,
-                            )
-                        ]
-                        if empresa_id_ctx
-                        else []
-                    ),
-                )
-            )
-        else:
-            # BD compartida: filtrar por cliente_id
-            roles_cliente_id = cliente_id or request_cliente_id
-            
-            roles_query = select(
-                RolTable.c.rol_id,
-                RolTable.c.nombre,
-                RolTable.c.descripcion,
-                RolTable.c.nivel_acceso,
-                RolTable.c.codigo_rol,
-                RolTable.c.es_activo,
-                RolTable.c.fecha_creacion,
-                RolTable.c.cliente_id
-            ).select_from(
-                UsuarioRolTable.join(RolTable, UsuarioRolTable.c.rol_id == RolTable.c.rol_id)
-            ).where(
-                and_(
-                    UsuarioRolTable.c.usuario_id == usuario_id,
-                    UsuarioRolTable.c.es_activo == True,
-                    RolTable.c.es_activo == True,
-                    or_(
-                        RolTable.c.cliente_id == roles_cliente_id if roles_cliente_id else False,
-                        RolTable.c.cliente_id.is_(None)
-                    ),
-                    *(
-                        [
-                            or_(
-                                UsuarioRolTable.c.empresa_id.is_(None),
-                                UsuarioRolTable.c.empresa_id == empresa_id_ctx,
-                            )
-                        ]
-                        if empresa_id_ctx
-                        else []
-                    ),
-                )
-            )
-        
-        from app.infrastructure.database.queries_async import execute_query
-        # ✅ CORRECCIÓN SEGURIDAD: Eliminado skip_tenant_validation=True
-        # - Para BD dedicadas (multi): La query no filtra por cliente_id (correcto, todos los roles son del mismo tenant)
-        # - Para BD compartidas (single): La query YA filtra por cliente_id (líneas 182-185)
-        # El sistema de validación automática detectará que las queries son seguras
-        roles_result = await execute_query(roles_query, client_id=cliente_id or request_cliente_id)
-        
-        # 3. Construir lista de RolRead
+
+        identity_ctx = IdentityContext(cliente_id=cliente_id)
+        roles_result = await IdentityGateway.get_user_roles_for_auth(
+            identity_ctx,
+            usuario_id,
+            empresa_id=empresa_id_ctx,
+        )
+
         roles_list: List[RolRead] = []
         nivel_acceso = 1
         is_superadmin = False
-        
+
         if roles_result:
             niveles = []
             for role_data in roles_result:
                 try:
-                    # Asegurar que fecha_creacion sea datetime
-                    fecha_creacion = role_data.get('fecha_creacion')
+                    fecha_creacion = role_data.get("fecha_creacion")
                     if isinstance(fecha_creacion, str):
                         try:
-                            fecha_creacion = datetime.fromisoformat(fecha_creacion.replace('Z', '+00:00'))
-                        except:
+                            fecha_creacion = datetime.fromisoformat(
+                                fecha_creacion.replace("Z", "+00:00")
+                            )
+                        except Exception:
                             fecha_creacion = datetime.now()
                     elif not isinstance(fecha_creacion, datetime):
                         fecha_creacion = datetime.now()
-                    
-                    # ✅ CORRECCIÓN: Normalizar cliente_id antes de crear RolRead
-                    # En BD dedicadas, cliente_id puede ser NULL o UUID nulo
-                    rol_cliente_id = role_data.get('cliente_id')
-                    if rol_cliente_id is not None:
-                        # Convertir a UUID si es string para comparar
-                        if isinstance(rol_cliente_id, str):
-                            try:
-                                rol_cliente_id = UUID(rol_cliente_id)
-                            except (ValueError, AttributeError):
-                                rol_cliente_id = None
-                        elif not isinstance(rol_cliente_id, UUID):
-                            rol_cliente_id = None
-                        
-                        # Si es UUID nulo, establecer como None
-                        if isinstance(rol_cliente_id, UUID) and rol_cliente_id == UUID('00000000-0000-0000-0000-000000000000'):
-                            rol_cliente_id = None
-                    
-                    # ✅ CORRECCIÓN CRÍTICA: Roles globales del sistema no deben tener cliente_id
-                    # Los roles como SUPER_ADMIN son globales y no pertenecen a un cliente específico
-                    # Esto previene errores de validación de Pydantic en RolRead
-                    codigo_rol = role_data.get('codigo_rol')
-                    roles_globales_sistema = {
-                        'SUPER_ADMIN',
-                        'SUPERADMIN',
-                        'SYSTEM_ADMIN',
-                        'ADMIN_PLATFORM',
-                        'SUPPORT_PLATFORM',
-                        'USER_PLATFORM',
-                    }
-                    if codigo_rol and codigo_rol.upper() in roles_globales_sistema:
-                        # Si es un rol global del sistema, forzar cliente_id=None
+
+                    rol_cliente_id = _normalize_cliente_id(role_data.get("cliente_id"))
+                    codigo_rol = role_data.get("codigo_rol")
+                    if codigo_rol and codigo_rol.upper() in _ROLES_GLOBALES_SISTEMA:
                         rol_cliente_id = None
-                        logger.debug(
-                            f"[USER_BUILDER] Rol global del sistema '{codigo_rol}' detectado, "
-                            f"estableciendo cliente_id=None para cumplir con validación de Pydantic"
-                        )
-                    
-                    # Crear RolRead
+
                     rol_read = RolRead(
-                        rol_id=role_data.get('rol_id'),
-                        nombre=role_data.get('nombre'),
-                        descripcion=role_data.get('descripcion'),
-                        nivel_acceso=role_data.get('nivel_acceso', 1),
+                        rol_id=role_data.get("rol_id"),
+                        nombre=role_data.get("nombre"),
+                        descripcion=role_data.get("descripcion"),
+                        nivel_acceso=role_data.get("nivel_acceso", 1),
                         codigo_rol=codigo_rol,
-                        es_activo=bool(role_data.get('es_activo', True)),
+                        es_activo=bool(role_data.get("es_activo", True)),
                         fecha_creacion=fecha_creacion,
-                        cliente_id=rol_cliente_id
+                        cliente_id=rol_cliente_id,
                     )
                     roles_list.append(rol_read)
-                    
-                    # Calcular nivel máximo
-                    nivel = role_data.get('nivel_acceso', 1)
+
+                    nivel = role_data.get("nivel_acceso", 1)
                     if nivel:
                         niveles.append(nivel)
-                    
-                    codigo = (role_data.get('codigo_rol') or '').upper()
-                    if codigo in ('SUPER_ADMIN', 'ADMIN_PLATFORM') and nivel >= 5:
+
+                    codigo = (codigo_rol or "").upper()
+                    if codigo in ("SUPER_ADMIN", "ADMIN_PLATFORM") and nivel >= 5:
                         is_superadmin = True
 
                 except Exception as e:
-                    logger.warning(f"Error construyendo RolRead: {e}")
+                    logger.warning("Error construyendo RolRead: %s", e)
                     continue
-            
+
             if niveles:
                 nivel_acceso = max(niveles)
 
@@ -334,21 +187,23 @@ async def build_user_with_roles(
             is_superadmin_from_roles=is_superadmin,
         )
 
-        # 4. Tipo de usuario (platform_admin, no super_admin legacy)
         if is_superadmin and is_system_request_client(request_cliente_id):
-            user_type = 'platform_admin'
+            user_type = "platform_admin"
         else:
             user_type = determine_user_type(nivel_acceso, is_superadmin)
 
-        # 5. Cargar códigos de permiso RBAC (tablas permiso + rol_permiso). No rompe si no existen.
+        database_type = resolve_rbac_database_type()
         permisos_codigos: List[str] = []
         try:
             from app.core.config import settings as _settings
+
             use_resolver = getattr(_settings, "USE_PERMISSION_RESOLVER", False)
             if use_resolver:
                 try:
-                    from app.core.authorization.permission_resolver import get_permission_resolver
-                    from app.core.config import settings as _settings
+                    from app.core.authorization.permission_resolver import (
+                        get_permission_resolver,
+                    )
+
                     resolver = get_permission_resolver()
                     effective = await resolver.get_effective_permissions(
                         usuario_id=usuario_id,
@@ -356,7 +211,9 @@ async def build_user_with_roles(
                         database_type=database_type,
                         is_super_admin=is_superadmin,
                         filter_by_subscription=getattr(
-                            _settings, "PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION", False
+                            _settings,
+                            "PERMISSION_RESOLVER_FILTER_BY_SUBSCRIPTION",
+                            False,
                         ),
                         empresa_id=empresa_id_ctx,
                     )
@@ -370,6 +227,7 @@ async def build_user_with_roles(
                     from app.modules.rbac.application.services.permisos_usuario_service import (
                         obtener_codigos_permiso_usuario,
                     )
+
                     permisos_codigos = await obtener_codigos_permiso_usuario(
                         usuario_id=usuario_id,
                         cliente_id=cliente_id,
@@ -380,6 +238,7 @@ async def build_user_with_roles(
                 from app.modules.rbac.application.services.permisos_usuario_service import (
                     obtener_codigos_permiso_usuario,
                 )
+
                 permisos_codigos = await obtener_codigos_permiso_usuario(
                     usuario_id=usuario_id,
                     cliente_id=cliente_id,
@@ -388,64 +247,33 @@ async def build_user_with_roles(
                 )
         except Exception as perm_err:
             logger.debug(
-                f"[USER_BUILDER] Permisos RBAC no cargados para {username}: {perm_err}. "
-                "Usando lista vacía (comportamiento previo)."
+                "[USER_BUILDER] Permisos RBAC no cargados para %s: %s",
+                username,
+                perm_err,
             )
 
-        logger.warning(
-            "[RBAC_DEBUG] usuario=%s cliente=%s permisos=%s",
-            username,
-            cliente_id,
-            permisos_codigos,
+        usuario_dict = _prepare_usuario_read_dict(
+            user_result,
+            cliente_id=cliente_id,
+            nivel_acceso=nivel_acceso,
+            is_superadmin=is_superadmin,
+            user_type=user_type,
         )
-
-        # 6. Construir UsuarioReadWithRoles
-        # ✅ Asegurar que cliente_id corregido se establezca explícitamente
-        usuario_dict = {
-            **user_result,
-            'cliente_id': cliente_id,  # ✅ Establecer explícitamente el cliente_id corregido
-            'nombre': sanitize_person_name(user_result.get('nombre')),
-            'apellido': sanitize_person_name(user_result.get('apellido')),
-            'access_level': nivel_acceso,
-            'is_super_admin': is_superadmin,
-            'user_type': user_type,
-        }
-        usuario_pydantic = UsuarioReadWithRoles(
+        return UsuarioReadWithRoles(
             **usuario_dict,
             roles=roles_list,
             permisos=permisos_codigos,
         )
 
-        return usuario_pydantic
-        
     except Exception as e:
-        logger.error(
-            "[ME-ENDPOINT] build_user_with_roles exception=%s:%s username=%s "
-            "request_cliente_id=%s",
-            type(e).__name__,
-            e,
-            username,
-            request_cliente_id,
-            exc_info=True,
-        )
+        if settings.ENABLE_AUTH_VERBOSE:
+            logger.error(
+                "[ME-ENDPOINT] build_user_with_roles exception=%s:%s username=%s "
+                "request_cliente_id=%s",
+                type(e).__name__,
+                e,
+                username,
+                request_cliente_id,
+                exc_info=True,
+            )
         return None
-
-
-def determine_user_type(access_level: int, is_super_admin: bool) -> str:
-    """
-    Determina el tipo de usuario basado en nivel de acceso.
-    
-    Args:
-        access_level: Nivel de acceso del usuario
-        is_super_admin: Si es super admin
-    
-    Returns:
-        str: Tipo de usuario: 'super_admin', 'tenant_admin', 'user'
-    """
-    if is_super_admin:
-        return 'super_admin'
-    elif access_level >= 4:
-        return 'tenant_admin'
-    else:
-        return 'user'
-

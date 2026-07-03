@@ -89,6 +89,101 @@ ClienteTable = Table(
 )
 
 # ============================================================================
+# TABLA: tenant_provisioning_run (CP — F4 PR-F4-01)
+# ============================================================================
+TenantProvisioningRunTable = Table(
+    'tenant_provisioning_run',
+    metadata,
+    Column('provisioning_run_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column(
+        'cliente_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('cliente.cliente_id', ondelete='CASCADE'),
+        nullable=False,
+    ),
+    Column('provisioning_state', String(20), nullable=False),
+    Column('is_current', Boolean, nullable=False, server_default='1'),
+    Column('attempt_number', Integer, nullable=False, server_default='1'),
+    Column('idempotency_key', String(64), nullable=True),
+    Column('current_step_code', String(40), nullable=True),
+    Column('started_at', DateTime, nullable=False, server_default=func.getdate()),
+    Column('updated_at', DateTime, nullable=False, server_default=func.getdate()),
+    Column('ready_at', DateTime, nullable=True),
+    Column('failed_at', DateTime, nullable=True),
+    Column('last_error_code', String(64), nullable=True),
+    Column('last_error_message', String(500), nullable=True),
+    Column('created_by_usuario_id', UNIQUEIDENTIFIER, nullable=True),
+    CheckConstraint(
+        "provisioning_state IN ('provisioning', 'ready', 'failed')",
+        name='CK_tpr_provisioning_state',
+    ),
+    Index('IDX_tpr_cliente', 'cliente_id', 'is_current', 'started_at'),
+)
+
+# ============================================================================
+# TABLA: tenant_provisioning_step (CP — F4 PR-F4-01)
+# ============================================================================
+TenantProvisioningStepTable = Table(
+    'tenant_provisioning_step',
+    metadata,
+    Column('provisioning_step_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column(
+        'provisioning_run_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('tenant_provisioning_run.provisioning_run_id', ondelete='CASCADE'),
+        nullable=False,
+    ),
+    Column(
+        'cliente_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('cliente.cliente_id', ondelete='NO ACTION'),
+        nullable=False,
+    ),
+    Column('step_code', String(40), nullable=False),
+    Column('saga_order', Integer, nullable=False),
+    Column('step_status', String(20), nullable=False, server_default='pending'),
+    Column('started_at', DateTime, nullable=True),
+    Column('completed_at', DateTime, nullable=True),
+    Column('error_code', String(64), nullable=True),
+    Column('error_message', String(500), nullable=True),
+    Column('idempotency_marker', String(128), nullable=True),
+    UniqueConstraint('provisioning_run_id', 'step_code', name='UQ_tps_run_step'),
+    CheckConstraint(
+        "step_code IN ("
+        "'registry', 'storage_allocation', 'create_database', "
+        "'apply_schema_erp', 'apply_schema_rbac', 'apply_catalogs', "
+        "'seed_tenant', 'register_metadata', 'activate_routing', 'mark_ready'"
+        ")",
+        name='CK_tps_step_code',
+    ),
+    CheckConstraint(
+        "step_status IN ('pending', 'running', 'completed', 'failed', 'skipped')",
+        name='CK_tps_step_status',
+    ),
+    Index('IDX_tps_run_order', 'provisioning_run_id', 'saga_order'),
+    Index('IDX_tps_cliente', 'cliente_id'),
+)
+
+# Denormalización cliente ↔ run activo (post-definición run para FK)
+ClienteTable.append_column(Column('provisioning_state', String(20), nullable=True))
+ClienteTable.append_column(
+    Column(
+        'current_provisioning_run_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('tenant_provisioning_run.provisioning_run_id'),
+        nullable=True,
+    )
+)
+ClienteTable.append_constraint(
+    CheckConstraint(
+        "provisioning_state IS NULL OR provisioning_state IN "
+        "('provisioning', 'ready', 'failed')",
+        name='CK_cliente_provisioning_state',
+    )
+)
+Index('IDX_cliente_provisioning_state', ClienteTable.c.provisioning_state)
+
+# ============================================================================
 # TABLA: usuario
 # ============================================================================
 UsuarioTable = Table(
@@ -196,7 +291,7 @@ UsuarioRolTable = Table(
         ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
         nullable=True,
     ),
-    
+
     # Control
     Column('fecha_asignacion', DateTime, nullable=False, server_default=func.getdate()),
     Column('fecha_expiracion', DateTime, nullable=True),
@@ -266,12 +361,11 @@ UserSessionTable = Table(
     'user_session',
     metadata,
     Column('session_id', UNIQUEIDENTIFIER, primary_key=True),
-    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='CASCADE'), nullable=False),
+    Column('usuario_id', UNIQUEIDENTIFIER, nullable=False),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
     Column(
         'empresa_id',
         UNIQUEIDENTIFIER,
-        ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
         nullable=True,
     ),
     Column('login_method', String(20), nullable=False, server_default='password'),
@@ -341,7 +435,7 @@ TokenFamilyTable = Table(
         ForeignKey('user_session.session_id', ondelete='CASCADE'),
         nullable=False,
     ),
-    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='NO ACTION'), nullable=False),
+    Column('usuario_id', UNIQUEIDENTIFIER, nullable=False),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='NO ACTION'), nullable=False),
     Column('current_token_id', UNIQUEIDENTIFIER, nullable=True),
     Column('is_compromised', Boolean, nullable=False, server_default='0'),
@@ -399,10 +493,9 @@ RefreshTokensTable = Table(
     Column(
         'empresa_id',
         UNIQUEIDENTIFIER,
-        ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
         nullable=True,
     ),
-    Column('usuario_id', UNIQUEIDENTIFIER, ForeignKey('usuario.usuario_id', ondelete='NO ACTION'), nullable=False),
+    Column('usuario_id', UNIQUEIDENTIFIER, nullable=False),
     Column('token_hash', String(255), nullable=False),
     Column('expires_at', DateTime, nullable=False),
     Column('created_at', DateTime, nullable=False, server_default=func.getdate()),
@@ -711,6 +804,8 @@ AuthAuditLogTable = Table(
 __all__ = [
     'metadata',
     'ClienteTable',
+    'TenantProvisioningRunTable',
+    'TenantProvisioningStepTable',
     'UsuarioTable',
     'RolTable',
     'UsuarioRolTable',

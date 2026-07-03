@@ -61,7 +61,9 @@ from app.core.authorization.rbac import has_permission
 from app.core.security.jwt import create_access_token, create_refresh_token
 from app.core.config import settings
 from app.core.logging_config import get_logger
-from app.modules.users.application.services.user_service import UsuarioService
+from app.core.auth.auth_runtime_scope import resolve_rbac_database_type
+from app.core.identity.identity_context import IdentityContext
+from app.core.identity.identity_gateway import IdentityGateway
 from app.modules.auth.application.services.auth_service import AuthService
 from app.modules.auth.application.services.password_change_service import PasswordChangeService
 from app.modules.auth.application.services.refresh_token_service import RefreshTokenService
@@ -233,7 +235,7 @@ async def login(
                 detail="El cliente asociado al subdominio no está activo."
             )
             
-        logger.info(f"Cliente {cliente_id} resuelto y validado para login.")
+        logger.debug(f"Cliente {cliente_id} resuelto y validado para login.")
 
         # 3. ✅ NUEVO: Detectar tipo de cliente
         client_type = get_client_type(request)
@@ -304,10 +306,12 @@ async def login(
         # Para superadmin, podría no tener roles en el cliente destino
         if es_superadmin:
             user_role_names = ["Super Administrador"]  # Rol implícito
-            logger.info(f"[LOGIN] Superadmin accediendo a cliente_id={target_cliente_id}")
+            logger.debug(f"[LOGIN] Superadmin accediendo a cliente_id={target_cliente_id}")
         else:
-            user_role_names = await UsuarioService.get_user_role_names(
-                cliente_id, user_id, empresa_id=empresa_activa
+            user_role_names = await IdentityGateway.get_user_role_names(
+                IdentityContext(cliente_id=target_cliente_id),
+                user_id,
+                empresa_id=empresa_activa,
             )
 
         # 6. Tokens con contexto correcto
@@ -380,7 +384,7 @@ async def login(
                 es_admin_cliente=es_admin_cliente,
                 access_token_expire_minutes=access_expire_minutes,
             )
-            logger.info(
+            logger.debug(
                 "[LOGIN] Usuario %s requiere selección de empresa (%s opciones)",
                 form_data.username,
                 len(empresas_disponibles),
@@ -411,7 +415,7 @@ async def login(
             )
 
         if empresa_activa is None and es_admin_sin_empresa and not empresas_disponibles:
-            logger.info(
+            logger.debug(
                 "[LOGIN] Usuario %s admin sin empresa (onboarding); continúa sin empresa_id",
                 form_data.username,
             )
@@ -474,7 +478,7 @@ async def login(
                 path="/",
                 domain=settings.COOKIE_DOMAIN,
             )
-            logger.info(f"Usuario {form_data.username} autenticado exitosamente (WEB) para cliente {cliente_id}")
+            logger.debug(f"Usuario {form_data.username} autenticado exitosamente (WEB) para cliente {cliente_id}")
             
         else:  # mobile
             response_data["refresh_token"] = refresh_token
@@ -719,76 +723,8 @@ async def cambiar_empresa(
 # ----
 # --- Impersonación (soporte plataforma) ---
 # ----
-
-@router.post(
-    "/impersonate/{cliente_id}/",
-    response_model=Union[Token, LoginEmpresaSelectionResponse],
-    summary="Iniciar sesión de soporte en un tenant (impersonación)",
-    description="""
-    Emite una sesión temporal (**120 min**, solo access token, sin refresh)
-    para operar en el tenant indicado como soporte de plataforma.
-
-    **Requisitos:** operador autenticado con privilegios de Super Administrador.
-    **Claims:** `is_impersonation`, `impersonated_by`, `impersonated_by_username`.
-
-    Si el tenant tiene más de una empresa activa, devuelve `selection_token`
-    (mismo contrato que login multi-empresa) para completar con
-    `POST /auth/empresa/seleccionar/`.
-    """,
-)
-async def iniciar_impersonacion(
-    request: Request,
-    cliente_id: UUID = Path(..., description="UUID del tenant destino"),
-    current_user=Depends(require_super_admin()),
-    parent_payload: Dict = Depends(get_current_user_data),
-):
-    from app.core.auth.impersonate_auth_diag import log_impersonate_request_headers
-
-    log_impersonate_request_headers(request, phase="endpoint_handler_deps_ok")
-    logger.info(
-        "[IMPERSONATE-AUTH] endpoint_handler target_cliente_id=%s operator=%s",
-        cliente_id,
-        getattr(current_user, "nombre_usuario", None),
-    )
-
-    if is_impersonation_payload(parent_payload):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No se permite impersonación anidada",
-        )
-
-    parent_access = _extract_bearer_from_request(request)
-    client_type = get_client_type(request)
-    parent_refresh = None
-    if client_type == "web":
-        parent_refresh = request.cookies.get(settings.REFRESH_COOKIE_NAME)
-
-    ip_address = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent")
-
-    try:
-        result = await ImpersonationService.iniciar_impersonacion(
-            target_cliente_id=cliente_id,
-            operator_usuario_id=current_user.usuario_id,
-            operator_username=current_user.nombre_usuario,
-            parent_access_token=parent_access,
-            parent_refresh_token=parent_refresh,
-            parent_payload=parent_payload,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        if result["kind"] == "selection":
-            return result["response"]
-        return _access_only_token_response(result)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error en POST /impersonate/{cliente_id}/: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al iniciar impersonación",
-        )
-
+# F13-N5: /impersonate/end/ DEBE registrarse ANTES de /impersonate/{cliente_id}/
+# para evitar que Starlette haga match con cliente_id="end" (403 require_super_admin).
 
 @router.post(
     "/impersonate/end/",
@@ -842,6 +778,77 @@ async def finalizar_impersonacion(
         )
 
 
+@router.post(
+    "/impersonate/{cliente_id}/",
+    response_model=Union[Token, LoginEmpresaSelectionResponse],
+    summary="Iniciar sesión de soporte en un tenant (impersonación)",
+    description="""
+    Emite una sesión temporal (**120 min**, solo access token, sin refresh)
+    para operar en el tenant indicado como soporte de plataforma.
+
+    **Requisitos:** operador autenticado con privilegios de Super Administrador.
+    **Claims:** `is_impersonation`, `impersonated_by`, `impersonated_by_username`.
+
+    Si el tenant tiene más de una empresa activa, devuelve `selection_token`
+    (mismo contrato que login multi-empresa) para completar con
+    `POST /auth/empresa/seleccionar/`.
+    """,
+)
+async def iniciar_impersonacion(
+    request: Request,
+    cliente_id: UUID = Path(..., description="UUID del tenant destino"),
+    current_user=Depends(require_super_admin()),
+    parent_payload: Dict = Depends(get_current_user_data),
+):
+    from app.core.auth.impersonate_auth_diag import log_impersonate_request_headers
+
+    log_impersonate_request_headers(request, phase="endpoint_handler_deps_ok")
+    if settings.ENABLE_IMPERSONATE_DIAG:
+        logger.info(
+            "[IMPERSONATE-AUTH] endpoint_handler target_cliente_id=%s operator=%s",
+            cliente_id,
+            getattr(current_user, "nombre_usuario", None),
+        )
+
+    if is_impersonation_payload(parent_payload):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No se permite impersonación anidada",
+        )
+
+    parent_access = _extract_bearer_from_request(request)
+    client_type = get_client_type(request)
+    parent_refresh = None
+    if client_type == "web":
+        parent_refresh = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
+    try:
+        result = await ImpersonationService.iniciar_impersonacion(
+            target_cliente_id=cliente_id,
+            operator_usuario_id=current_user.usuario_id,
+            operator_username=current_user.nombre_usuario,
+            parent_access_token=parent_access,
+            parent_refresh_token=parent_refresh,
+            parent_payload=parent_payload,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if result["kind"] == "selection":
+            return result["response"]
+        return _access_only_token_response(result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error en POST /impersonate/{cliente_id}/: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al iniciar impersonación",
+        )
+
+
 # ----
 # --- Endpoint para Obtener Usuario Actual (Me) ---
 # ----
@@ -873,28 +880,27 @@ async def get_me(
     except Exception:
         pass
 
-    logger.info(
-        "[ME-ENDPOINT] payload=%s user_type=%s is_super_admin=%s es_superadmin=%s "
-        "cliente_id=%s lookup_db=%s roles=%s",
-        {k: payload.get(k) for k in (
-            "sub", "user_type", "access_level", "cliente_id", "empresa_id",
-            "es_superadmin", "is_super_admin",
-        )},
-        payload.get("user_type"),
-        payload.get("is_super_admin"),
-        payload.get("es_superadmin"),
-        payload.get("cliente_id"),
-        lookup_db,
-        [
-            getattr(r, "nombre", None) or (r.get("nombre") if isinstance(r, dict) else None)
-            for r in (getattr(current_user, "roles", None) or [])
-        ],
-    )
-    logger.info(f"Solicitud /me/ recibida para usuario: {current_user.nombre_usuario}")
+    if settings.ENABLE_AUTH_VERBOSE:
+        logger.info(
+            "[ME-ENDPOINT] payload=%s user_type=%s is_super_admin=%s es_superadmin=%s "
+            "cliente_id=%s lookup_db=%s roles=%s",
+            {k: payload.get(k) for k in (
+                "sub", "user_type", "access_level", "cliente_id", "empresa_id",
+                "es_superadmin", "is_super_admin",
+            )},
+            payload.get("user_type"),
+            payload.get("is_super_admin"),
+            payload.get("es_superadmin"),
+            payload.get("cliente_id"),
+            lookup_db,
+            [
+                getattr(r, "nombre", None) or (r.get("nombre") if isinstance(r, dict) else None)
+                for r in (getattr(current_user, "roles", None) or [])
+            ],
+        )
+        logger.info(f"Solicitud /me/ recibida para usuario: {current_user.nombre_usuario}")
     try:
         from app.core.tenant.empresa_context import coerce_empresa_id
-
-        usuario_service = UsuarioService()
 
         user_id = current_user.usuario_id
         cliente_id = current_user.cliente_id
@@ -972,42 +978,28 @@ async def get_me(
                     else getattr(current_user, "is_super_admin", False)
                 )
 
-        logger.info(
-            f"[ME] Niveles - access_level={access_level_me}, "
-            f"user_type={user_type_me}, is_super_admin={is_super_admin_me}"
-        )
+        if settings.ENABLE_AUTH_VERBOSE:
+            logger.info(
+                f"[ME] Niveles - access_level={access_level_me}, "
+                f"user_type={user_type_me}, is_super_admin={is_super_admin_me}"
+            )
 
         from app.core.tenant.company_scope import resolve_role_list_scope
 
-        list_scope = await resolve_role_list_scope(
+        await resolve_role_list_scope(
             payload=payload,
             user_type=user_type_me,
             is_super_admin=is_super_admin_me,
         )
-        usuario_completo = await usuario_service.obtener_usuario_completo_por_id(
-            cliente_id,
-            user_id,
-            list_scope=list_scope,
-        )
 
-        if not usuario_completo:
-            logger.error(f"Usuario {user_id} no encontrado en cliente {cliente_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Usuario no encontrado"
-            )
-
-        # Extraer nombres de roles (desde modelo o desde usuario_completo)
         role_names = []
         if hasattr(current_user, "roles") and current_user.roles:
             for rol in current_user.roles:
-                name = getattr(rol, "nombre", None) or (rol.get("nombre") if isinstance(rol, dict) else None)
+                name = getattr(rol, "nombre", None) or (
+                    rol.get("nombre") if isinstance(rol, dict) else None
+                )
                 if name:
                     role_names.append(name)
-        if not role_names:
-            for rol in usuario_completo.get("roles", []):
-                if rol.get("nombre"):
-                    role_names.append(rol["nombre"])
         role_names = list(dict.fromkeys(role_names))
 
         requiere_seleccion_me = False
@@ -1030,10 +1022,6 @@ async def get_me(
                 )
             }
         )
-        if usuario_completo.get("requiere_cambio_contrasena") is not None:
-            requires_password_change_me = AuthService.resolve_requires_password_change(
-                usuario_completo
-            )
 
         user_profile = build_user_data_with_roles_dict(
             usuario_id=user_id,
@@ -1057,10 +1045,11 @@ async def get_me(
             str(empresa_activa_uuid) if empresa_activa_uuid is not None else None
         )
 
-        logger.info(
-            f"[ME] Datos completos enviados - Usuario: {current_user.nombre_usuario}, "
-            f"user_type: {user_type_me}, is_super_admin: {is_super_admin_me}, Roles: {len(role_names)}"
-        )
+        if settings.ENABLE_AUTH_VERBOSE:
+            logger.info(
+                f"[ME] Datos completos enviados - Usuario: {current_user.nombre_usuario}, "
+                f"user_type: {user_type_me}, is_super_admin: {is_super_admin_me}, Roles: {len(role_names)}"
+            )
         imp_by = payload.get("impersonated_by")
         current_token_id = None
         current_session_id = None
@@ -1099,21 +1088,22 @@ async def get_me(
     except Exception as e:
         from app.core.exceptions import CustomException
 
-        logger.error(
-            "[ME-ENDPOINT] exception=%s:%s payload=%s user_type=%s is_super_admin=%s "
-            "es_superadmin=%s cliente_id=%s lookup_db=%s",
-            type(e).__name__,
-            e,
-            {k: payload.get(k) for k in (
-                "sub", "user_type", "access_level", "cliente_id", "es_superadmin",
-            )},
-            payload.get("user_type"),
-            payload.get("is_super_admin"),
-            payload.get("es_superadmin"),
-            payload.get("cliente_id"),
-            lookup_db,
-            exc_info=True,
-        )
+        if settings.ENABLE_AUTH_VERBOSE:
+            logger.error(
+                "[ME-ENDPOINT] exception=%s:%s payload=%s user_type=%s is_super_admin=%s "
+                "es_superadmin=%s cliente_id=%s lookup_db=%s",
+                type(e).__name__,
+                e,
+                {k: payload.get(k) for k in (
+                    "sub", "user_type", "access_level", "cliente_id", "es_superadmin",
+                )},
+                payload.get("user_type"),
+                payload.get("is_super_admin"),
+                payload.get("es_superadmin"),
+                payload.get("cliente_id"),
+                lookup_db,
+                exc_info=True,
+            )
         if isinstance(e, CustomException):
             raise HTTPException(status_code=e.status_code, detail=e.detail) from e
         logger.exception(f"Error en /me/: {str(e)}")
@@ -1177,8 +1167,9 @@ async def get_permissions_me(
                 )
             cliente_id = request_cliente_id
 
-        tenant_context = try_get_tenant_context()
-        database_type = tenant_context.database_type if tenant_context else "single"
+        from app.core.auth.auth_runtime_scope import resolve_rbac_database_type
+
+        database_type = resolve_rbac_database_type()
         from app.core.auth.impersonation import suppress_platform_privileges
 
         is_super_admin, _, _ = suppress_platform_privileges(
@@ -1274,8 +1265,9 @@ async def get_menu(
                 detail="Contexto de tenant no disponible",
             )
 
-        tenant_context = try_get_tenant_context()
-        database_type = tenant_context.database_type if tenant_context else "single"
+        from app.core.auth.auth_runtime_scope import resolve_rbac_database_type
+
+        database_type = resolve_rbac_database_type()
         from app.core.auth.impersonation import suppress_platform_privileges
 
         is_super_admin, _, _access_level = suppress_platform_privileges(
@@ -1481,7 +1473,7 @@ async def refresh_access_token(
                 v2_session_id = rotate_result.session_id
 
             if rotate_result.outcome == RotateOutcome.IDLE_TIMEOUT:
-                logger.info(
+                logger.debug(
                     "[REFRESH-%s] Idle timeout en rotación atómica - Usuario: %s",
                     client_type.upper(),
                     username,
@@ -1492,7 +1484,7 @@ async def refresh_access_token(
                 )
 
             if rotate_result.outcome == RotateOutcome.ALREADY_ROTATED:
-                logger.info(
+                logger.debug(
                     "[REFRESH-%s] Rotación concurrente (already_rotated) - "
                     "Usuario: %s, access emitido sin actualizar refresh",
                     client_type.upper(),
@@ -1500,7 +1492,7 @@ async def refresh_access_token(
                 )
                 issue_refresh_in_response = False
             elif rotate_result.success:
-                logger.info(
+                logger.debug(
                     "[REFRESH-%s] Token rotado atómicamente - ID: %s",
                     client_type.upper(),
                     rotate_result.new_token_id,
@@ -1559,11 +1551,11 @@ async def refresh_access_token(
                     path="/",
                     domain=settings.COOKIE_DOMAIN,
                 )
-            logger.info(f"[REFRESH-WEB] Token refrescado exitosamente - Usuario: {username}")
+            logger.debug(f"[REFRESH-WEB] Token refrescado exitosamente - Usuario: {username}")
         else:  # mobile
             if issue_refresh_in_response:
                 response_data["refresh_token"] = new_refresh_token
-            logger.info(f"[REFRESH-MOBILE] Token refrescado exitosamente - Usuario: {username}")
+            logger.debug(f"[REFRESH-MOBILE] Token refrescado exitosamente - Usuario: {username}")
         
         # Registrar refresh exitoso en auditoría (no bloquear flujo si falla)
         try:
@@ -1776,7 +1768,7 @@ async def get_active_sessions_endpoint(
     user_id = current_user.usuario_id
     cliente_id = current_user.cliente_id
     username = current_user.nombre_usuario
-    logger.info(f"Solicitud /sessions/ recibida para usuario: {username}")
+    logger.debug(f"Solicitud /sessions/ recibida para usuario: {username}")
     try:
         client_type = get_client_type(request)
         current_token_id = await ActiveSessionsReadService.resolve_current_token_id(
@@ -1950,7 +1942,7 @@ async def admin_list_all_active_sessions(
     """
     cliente_id = current_user.cliente_id
     username = current_user.nombre_usuario or "N/A"
-    logger.info(
+    logger.debug(
         "[ADMIN] Solicitud /sessions/admin/ por usuario: %s (page=%s, search=%s)",
         username,
         pagination.page,
@@ -1967,14 +1959,14 @@ async def admin_list_all_active_sessions(
             usuario_id=usuario_id,
         )
         if pagination.is_paginated:
-            logger.info(
+            logger.debug(
                 "[ADMIN] Recuperadas %s sesiones (página %s/%s).",
                 len(result.items),
                 result.pagina_actual,
                 result.total_paginas,
             )
         else:
-            logger.info("[ADMIN] Recuperadas %s sesiones activas totales.", len(result))
+            logger.debug("[ADMIN] Recuperadas %s sesiones activas totales.", len(result))
         return result
 
     except CustomException as ce:
@@ -2390,7 +2382,10 @@ async def sso_azure_login(
         
         # Continuar con el flujo normal de generación de tokens
         user_id = user_base_data.get('usuario_id')
-        user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
+        user_role_names = await IdentityGateway.get_user_role_names(
+            IdentityContext(cliente_id=cliente_id),
+            user_id,
+        )
         user_full_data = {**user_base_data, "roles": user_role_names}
 
         # ✅ FASE 1: Construir payload completo con cliente_id y level_info (igual que login password)
@@ -2531,7 +2526,10 @@ async def sso_google_login(
         
         # Continuar con el flujo normal de generación de tokens
         user_id = user_base_data.get('usuario_id')
-        user_role_names = await UsuarioService.get_user_role_names(cliente_id, user_id)
+        user_role_names = await IdentityGateway.get_user_role_names(
+            IdentityContext(cliente_id=cliente_id),
+            user_id,
+        )
         user_full_data = {**user_base_data, "roles": user_role_names}
 
         # ✅ FASE 1: Construir payload completo con cliente_id y level_info (igual que login password)

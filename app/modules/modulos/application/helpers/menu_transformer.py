@@ -39,7 +39,7 @@ def transformar_sp_menu_usuario(
     Transforma el resultado plano del SP sp_obtener_menu_usuario a estructura jerárquica.
     """
     if not sp_result:
-        logger.info("SP sp_obtener_menu_usuario no retornó resultados")
+        logger.debug("[MENU_TRANSFORMER] SP sp_obtener_menu_usuario sin resultados")
         return MenuUsuarioResponse(modulos=[])
     
     # Estructura para agrupar: modulo -> seccion -> menu -> submenu
@@ -49,7 +49,7 @@ def transformar_sp_menu_usuario(
         # Extraer datos del módulo
         modulo_id = row.get('modulo_id')
         if not modulo_id:
-            logger.warning(f"Fila sin modulo_id, saltando: {row}")
+            logger.debug("[MENU_TRANSFORMER] Fila sin modulo_id, saltando: %s", row)
             continue
         
         # Inicializar módulo si no existe
@@ -99,7 +99,7 @@ def transformar_sp_menu_usuario(
         # Extraer datos del menú
         menu_id = row.get('menu_id')
         if not menu_id:
-            logger.warning(f"Fila sin menu_id, saltando: {row}")
+            logger.debug("[MENU_TRANSFORMER] Fila sin menu_id, saltando: %s", row)
             continue
         
         # permisos = UI actions (rol_menu_permiso). NO seguridad backend.
@@ -218,6 +218,10 @@ def transformar_sp_menu_usuario(
     # Ordenar módulos
     modulos_list.sort(key=lambda m: m.orden)
     
-    logger.info(f"Transformación completada: {len(modulos_list)} módulos, {sum(len(m.secciones) for m in modulos_list)} secciones")
+    logger.debug(
+        "[MENU_TRANSFORMER] Transformación completada: %s módulos, %s secciones",
+        len(modulos_list),
+        sum(len(m.secciones) for m in modulos_list),
+    )
     return MenuUsuarioResponse(modulos=modulos_list)
 

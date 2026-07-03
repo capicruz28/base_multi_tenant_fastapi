@@ -20,6 +20,7 @@ from uuid import UUID
 from app.modules.superadmin.presentation.schemas import (
     UsuarioSuperadminRead,
     PaginatedUsuarioSuperadminResponse,
+    PlatformUsuariosStatsResponse,
     UsuarioActividadResponse,
     UsuarioSesionesResponse
 )
@@ -85,7 +86,7 @@ async def list_usuarios_global(
     """
     Endpoint para obtener una lista paginada de usuarios de todos los clientes (Superadmin).
     """
-    logger.info(
+    logger.debug(
         f"Superadmin {current_user.usuario_id} solicitando listado global de usuarios - "
         f"cliente_id: {cliente_id}, page: {page}, limit: {limit}"
     )
@@ -102,7 +103,7 @@ async def list_usuarios_global(
             orden=orden
         )
         
-        logger.info(
+        logger.debug(
             f"Listado global de usuarios recuperado - "
             f"Total: {paginated_data['total_usuarios']}, "
             f"Página: {paginated_data['pagina_actual']}"
@@ -120,6 +121,68 @@ async def list_usuarios_global(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor al obtener la lista de usuarios."
+        )
+
+
+@router.get(
+    "/stats",
+    response_model=PlatformUsuariosStatsResponse,
+    summary="Estadísticas globales de usuarios (Superadmin)",
+    description="""
+    Devuelve conteos agregados de usuarios en la plataforma sin listado paginado
+    ni enriquecimiento por fila (roles, access level, reachability).
+
+    **Permisos requeridos:**
+    - Nivel de acceso 5 (Super Administrador)
+
+    **Parámetros de consulta:**
+    - cliente_id (opcional): acotar estadísticas a un tenant (shared o dedicated).
+    - search: filtro de búsqueda en nombre, apellido, correo o nombre_usuario.
+    - proveedor_autenticacion: filtrar por método de autenticación.
+
+    **Respuestas:**
+    - 200: Estadísticas agregadas
+    - 403: Acceso denegado
+    - 404: Cliente no encontrado (si cliente_id inválido)
+    - 500: Error interno
+    """,
+)
+@require_super_admin()
+async def get_usuarios_globales_stats(
+    current_user=Depends(get_current_active_user),
+    cliente_id: Optional[UUID] = Query(
+        None, description="Filtrar estadísticas por cliente específico (opcional)"
+    ),
+    search: Optional[str] = Query(
+        None, min_length=1, max_length=50, description="Término de búsqueda opcional"
+    ),
+    proveedor_autenticacion: Optional[str] = Query(
+        None, description="Filtrar por método de autenticación"
+    ),
+):
+    logger.debug(
+        "Superadmin %s solicitando estadísticas globales de usuarios — cliente_id=%s",
+        current_user.usuario_id,
+        cliente_id,
+    )
+    try:
+        stats = await SuperadminUsuarioService.obtener_estadisticas_globales_usuarios(
+            cliente_id=cliente_id,
+            search=search,
+            proveedor_autenticacion=proveedor_autenticacion,
+        )
+        return PlatformUsuariosStatsResponse.model_validate(stats)
+    except CustomException as ce:
+        logger.warning(
+            "Error de negocio al obtener estadísticas globales de usuarios: %s",
+            ce.detail,
+        )
+        raise HTTPException(status_code=ce.status_code, detail=ce.detail)
+    except Exception:
+        logger.exception("Error inesperado en endpoint GET /superadmin/usuarios/stats")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error interno del servidor al obtener estadísticas de usuarios.",
         )
 
 
@@ -356,7 +419,7 @@ async def list_usuarios_por_cliente(
     """
     Endpoint para obtener una lista paginada de usuarios de un cliente específico.
     """
-    logger.info(
+    logger.debug(
         f"Superadmin {current_user.usuario_id} solicitando usuarios del cliente {cliente_id} - "
         f"page: {page}, limit: {limit}"
     )
@@ -370,7 +433,7 @@ async def list_usuarios_por_cliente(
             es_activo=es_activo
         )
         
-        logger.info(
+        logger.debug(
             f"Usuarios del cliente {cliente_id} recuperados - "
             f"Total: {paginated_data['total_usuarios']}, "
             f"Página: {paginated_data['pagina_actual']}"

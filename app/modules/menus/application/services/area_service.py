@@ -118,7 +118,7 @@ class AreaService(BaseService):
             ConflictError: Si ya existe un área con el mismo nombre en el cliente
             ServiceError: Si la inserción falla por razones internas
         """
-        logger.info(f"Iniciando creación de área para cliente {cliente_id}: {area_data.nombre}")
+        logger.debug(f"Iniciando creación de área para cliente {cliente_id}: {area_data.nombre}")
         
         # 🚫 VALIDACIÓN DE NEGOCIO: Prevenir nombres duplicados en el cliente
         if await AreaService._verificar_nombre_existente(cliente_id, area_data.nombre):
@@ -150,7 +150,7 @@ class AreaService(BaseService):
 
         # ✅ CONVERSIÓN Y LOG DE ÉXITO
         created_area = AreaRead(**resultado_insert)
-        logger.info(f"Área '{created_area.nombre}' creada para cliente {cliente_id} con ID: {created_area.area_id}")
+        logger.debug(f"Área '{created_area.nombre}' creada para cliente {cliente_id} con ID: {created_area.area_id}")
         return created_area
 
     @staticmethod
@@ -207,7 +207,7 @@ class AreaService(BaseService):
         Returns:
             PaginatedAreaResponse: Respuesta con datos paginados y metadatos
         """
-        logger.info(f"Obteniendo áreas paginadas para cliente {cliente_id}: skip={skip}, limit={limit}, search='{search}'")
+        logger.debug(f"Obteniendo áreas paginadas para cliente {cliente_id}: skip={skip}, limit={limit}, search='{search}'")
         
         # 🔍 PREPARAR PARÁMETROS DE BÚSQUEDA
         search_param = f"%{search}%" if search else None
@@ -238,7 +238,7 @@ class AreaService(BaseService):
         total_pages = math.ceil(total_count / limit) if limit > 0 else 0
         current_page = (skip // limit) + 1 if limit > 0 else 1
 
-        logger.info(f"Paginación completada para cliente {cliente_id}: {len(areas_lista)} áreas de {total_count} totales")
+        logger.debug(f"Paginación completada para cliente {cliente_id}: {len(areas_lista)} áreas de {total_count} totales")
         
         return PaginatedAreaResponse(
             areas=areas_lista,
@@ -271,7 +271,7 @@ class AreaService(BaseService):
             ConflictError: Si el nuevo nombre ya está en uso en el cliente
             ValidationError: Si no se proporcionan datos para actualizar
         """
-        logger.info(f"Intentando actualizar área ID: {area_id}")
+        logger.debug(f"Intentando actualizar área ID: {area_id}")
 
         # 🚫 VALIDACIÓN: Debe haber datos para actualizar
         update_payload = area_data.model_dump(exclude_unset=True)
@@ -322,11 +322,11 @@ class AreaService(BaseService):
                     detail="Error crítico: Área actualizada pero no se pudo recuperar.",
                     internal_code="AREA_UPDATE_RETRIEVAL_FAILED"
                 )
-            logger.info(f"Área ID: {area_id} del cliente {cliente_id} actualizada (verificada post-actualización)")
+            logger.debug(f"Área ID: {area_id} del cliente {cliente_id} actualizada (verificada post-actualización)")
             return updated_area
             
         # ✅ ÉXITO: Retornar datos de la actualización
-        logger.info(f"Área ID: {area_id} del cliente {cliente_id} actualizada exitosamente")
+        logger.debug(f"Área ID: {area_id} del cliente {cliente_id} actualizada exitosamente")
         return AreaRead(**resultado_update)
 
     @staticmethod
@@ -351,7 +351,7 @@ class AreaService(BaseService):
             ValidationError: Si el área ya está en el estado deseado
         """
         accion = "reactivar" if activar else "desactivar"
-        logger.info(f"Intentando {accion} área ID: {area_id}")
+        logger.debug(f"Intentando {accion} área ID: {area_id}")
 
         # 🔍 VERIFICAR EXISTENCIA Y ESTADO ACTUAL
         area_existente = await AreaService.obtener_area_por_id(area_id)
@@ -383,11 +383,11 @@ class AreaService(BaseService):
                     detail=f"Error crítico: Área {accion}da pero no se pudo verificar el estado.",
                     internal_code="AREA_STATE_VERIFICATION_FAILED"
                 )
-            logger.info(f"Área ID: {area_id} {accion}da (verificada post-actualización)")
+            logger.debug(f"Área ID: {area_id} {accion}da (verificada post-actualización)")
             return toggled_area
             
         # ✅ ÉXITO: Retornar datos del cambio
-        logger.info(f"Área ID: {area_id} {accion}da exitosamente")
+        logger.debug(f"Área ID: {area_id} {accion}da exitosamente")
         return AreaRead(**resultado_toggle)
 
     @staticmethod
@@ -402,13 +402,13 @@ class AreaService(BaseService):
         Returns:
             List[AreaSimpleList]: Lista de áreas activas simplificadas del cliente
         """
-        logger.info(f"Obteniendo lista simple de áreas activas para cliente {cliente_id}")
+        logger.debug(f"Obteniendo lista simple de áreas activas para cliente {cliente_id}")
         
         params = (cliente_id,)
         # ✅ FASE 2: Usar await
         rows = await execute_query(GET_ACTIVE_AREAS_SIMPLE_LIST_QUERY, params)
         if not rows:
-            logger.info(f"No se encontraron áreas activas para el cliente {cliente_id} en la lista simple")
+            logger.debug(f"No se encontraron áreas activas para el cliente {cliente_id} en la lista simple")
             return []
 
         # 🎯 MAPEO SEGURO: Continuar incluso si algún registro falla
@@ -420,5 +420,5 @@ class AreaService(BaseService):
                 logger.error(f"Error mapeando área simple para cliente {cliente_id}: {map_err}")
                 continue
 
-        logger.info(f"Lista simple obtenida para cliente {cliente_id}: {len(areas_list)} áreas activas")
+        logger.debug(f"Lista simple obtenida para cliente {cliente_id}: {len(areas_list)} áreas activas")
         return areas_list
