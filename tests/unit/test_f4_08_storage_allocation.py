@@ -24,10 +24,14 @@ def test_f4_08_storage_allocation_deterministic(monkeypatch):
     cliente_id = uuid4()
     service = StorageAllocationService()
     result = service.allocate(
-        StorageAllocationRequest(cliente_id=cliente_id, codigo_cliente="ACME001"),
+        StorageAllocationRequest(
+            cliente_id=cliente_id,
+            codigo_cliente="ACME001",
+            subdominio="acme",
+        ),
     )
     assert result.servidor == "sql-staging.local"
-    assert result.database_name == "erp_acme001"
+    assert result.database_name == "caxis_tenant_acme"
     assert result.app_login_name == "erpapp_acme001"
 
 

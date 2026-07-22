@@ -21,15 +21,15 @@ def normalize_codigo_cliente(codigo_cliente: str) -> str:
     return cleaned.upper()
 
 
-def build_dedicated_database_name(codigo_cliente: str, *, cliente_id: UUID | None = None) -> str:
+def build_dedicated_database_name(subdominio: str, *, cliente_id: UUID | None = None) -> str:
     """
-    Política v1: ``{prefix}{codigo_normalizado}`` en minúsculas.
+    Política v1: ``{prefix}{subdominio_normalizado}`` en minúsculas.
 
     ``cliente_id`` reservado para evolución de colisiones (no usado en v1).
     """
     _ = cliente_id
     prefix = settings.PROVISIONING_DEDICATED_DB_NAME_PREFIX
-    normalized = normalize_codigo_cliente(codigo_cliente).lower()
+    normalized = normalize_codigo_cliente(subdominio).lower()
     name = f"{prefix}{normalized}"
     max_len = settings.PROVISIONING_DEDICATED_DB_NAME_MAX_LENGTH
     if len(name) > max_len:

@@ -164,6 +164,8 @@ async def test_bootstrap_global_grants_excludes_org_prefix():
 
     assert "org." not in grant_sql
 
+    assert "cfg.%" in grant_sql
+
 
 
 

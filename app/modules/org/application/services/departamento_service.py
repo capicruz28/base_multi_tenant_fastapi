@@ -3,12 +3,16 @@
 from typing import List, Optional
 from uuid import UUID
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError
 from app.core.tenant.company_scope import (
     assert_row_empresa,
     enforce_body_empresa_matches_session,
     ensure_empresa_in_tenant,
     require_session_empresa_id,
+)
+from app.core.tenant.routing import (
+    OPERATION_CLASS_TENANT_DATA,
+    get_connection_for_tenant,
 )
 from app.core.tenant.session_scope import (
     log_org_assert_empresa,
@@ -23,6 +27,9 @@ from app.infrastructure.database.queries.org import (
     create_departamento,
     update_departamento,
 )
+from app.modules.org.application.services.org_codigo_generation_service import (
+    OrgCodigoGenerationService,
+)
 from app.modules.org.presentation.schemas import (
     DepartamentoCreate,
     DepartamentoUpdate,
@@ -31,6 +38,7 @@ from app.modules.org.presentation.schemas import (
 
 _RESOURCE = "departamento"
 _NOT_FOUND = "Departamento no encontrado"
+_SEQUENCE_KEY = "org_departamento"
 
 
 def _row_to_read(row: dict) -> DepartamentoRead:
@@ -41,6 +49,13 @@ def _session_empresa(operation: str) -> UUID:
     empresa_id = require_session_empresa_id()
     log_org_session_empresa(operation=operation, empresa_id=empresa_id, resource=_RESOURCE)
     return empresa_id
+
+
+def _normalize_manual_codigo(codigo: Optional[str]) -> Optional[str]:
+    if codigo is None:
+        return None
+    stripped = codigo.strip()
+    return stripped if stripped else None
 
 
 async def list_departamentos_servicio(
@@ -101,13 +116,41 @@ async def create_departamento_servicio(
         resource=_RESOURCE,
     )
     await ensure_empresa_in_tenant(client_id=client_id, empresa_id=empresa_id)
-    if await get_departamento_by_codigo(client_id, empresa_id, data.codigo):
-        raise ConflictError(
-            detail=f"Ya existe un departamento con el código '{data.codigo}' en esta empresa.",
-        )
-    payload = data.model_dump()
-    payload["empresa_id"] = empresa_id
-    row = await create_departamento(client_id=client_id, data=payload)
+    manual_codigo = _normalize_manual_codigo(data.codigo)
+
+    async with get_connection_for_tenant(
+        client_id, OPERATION_CLASS_TENANT_DATA
+    ) as session:
+        async with session.begin():
+            if manual_codigo:
+                if await get_departamento_by_codigo(
+                    client_id,
+                    empresa_id,
+                    manual_codigo,
+                    session=session,
+                ):
+                    raise ConflictError(
+                        detail=(
+                            f"Ya existe un departamento con el código '{manual_codigo}' "
+                            "en esta empresa."
+                        ),
+                    )
+
+            codigo = await OrgCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=session,
+                client_id=client_id,
+                empresa_id=empresa_id,
+                manual_code=manual_codigo,
+            )
+
+            payload = data.model_dump()
+            payload["empresa_id"] = empresa_id
+            payload["codigo"] = codigo
+            row = await create_departamento(
+                client_id=client_id, data=payload, session=session
+            )
+
     assert_row_empresa(row, empresa_id, not_found_detail=_NOT_FOUND)
     return _row_to_read(row)
 
@@ -125,13 +168,6 @@ async def update_departamento_servicio(
     )
     assert_row_empresa(row, empresa_id, not_found_detail=_NOT_FOUND)
     payload = data.model_dump(exclude_unset=True)
-    if "codigo" in payload:
-        if await get_departamento_by_codigo(
-            client_id, empresa_id, payload["codigo"], exclude_id=departamento_id
-        ):
-            raise ConflictError(
-                detail=f"Ya existe un departamento con el código '{payload['codigo']}' en esta empresa.",
-            )
     updated = await update_departamento(
         client_id=client_id,
         departamento_id=departamento_id,

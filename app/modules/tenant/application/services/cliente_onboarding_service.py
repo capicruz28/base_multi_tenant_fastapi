@@ -18,14 +18,8 @@ from app.core.application.base_service import BaseService
 from app.core.exceptions import DatabaseError, ServiceError
 from app.core.security.password import get_password_hash
 from app.infrastructure.database.connection_async import DatabaseConnection, get_db_connection
-from app.infrastructure.database.repositories.cfg_codigo_secuencia_repository import (
-    CfgCodigoSecuenciaRepository,
-)
-from app.modules.tenant.application.services.minimal_erp_tenant_bootstrap_service import (
-    MinimalErpTenantBootstrapService,
-)
-from app.modules.tenant.application.services.onboarding_rbac_service import (
-    OnboardingRbacService,
+from app.modules.tenant.application.services.tenant_bootstrap_orchestrator import (
+    TenantBootstrapOrchestrator,
 )
 from app.modules.tenant.presentation.schemas import (
     ClienteCreate,
@@ -63,18 +57,6 @@ ROLES_BASE: List[Dict[str, Any]] = [
     },
 ]
 
-SECUENCIAS_CODIGO: List[Tuple[str, str, int, str, int]] = [
-    ("org_empresa", "EMP", 3, "", 0),
-    ("org_sucursal", "SUC", 3, "", 0),
-    ("org_departamento", "DEP", 3, "", 0),
-    ("org_cargo", "CAR", 3, "", 0),
-    ("org_centro_costo", "CC", 3, "", 0),
-    ("inv_almacen", "ALM", 3, "", 0),
-    ("inv_producto", "P", 5, "", 0),
-    ("inv_categoria", "CAT", 3, "", 0),
-    ("inv_movimiento", "MOV", 6, "", 0),
-]
-
 ADMIN_USERNAME = "admin"
 MENSAJE_CREACION_EXITOSA = (
     "Cliente creado exitosamente. Guarde las credenciales, no se volverán a mostrar."
@@ -107,51 +89,13 @@ class ClienteOnboardingService:
 
         async with get_db_connection(DatabaseConnection.ADMIN) as session:
             async with session.begin():
-                cliente_row = await ClienteOnboardingService._insertar_cliente(
-                    session, cliente_data
-                )
-                cliente_id = cliente_row["cliente_id"]
-
-                roles_ids = await ClienteOnboardingService._insertar_roles_base(
-                    session, cliente_id
-                )
-                admin_rol_id = roles_ids["ADMIN_TENANT"]
-
-                erp_seed = await MinimalErpTenantBootstrapService.ensure_empresa_inicial(
+                bootstrap = await TenantBootstrapOrchestrator.orchestrate_shared_onboarding(
                     session,
-                    cliente_id=cliente_id,
-                    cliente_data=cliente_data,
+                    cliente_data,
+                    contrasena_hash,
                 )
-                empresa_id = UUID(str(erp_seed["empresa_id"]))
-
-                usuario_id = await ClienteOnboardingService._insertar_usuario_admin(
-                    session,
-                    cliente_id=cliente_id,
-                    cliente_data=cliente_data,
-                    contrasena_hash=contrasena_hash,
-                    admin_rol_id=admin_rol_id,
-                    empresa_id=empresa_id,
-                )
-                await MinimalErpTenantBootstrapService.vincular_admin_empresa(
-                    session,
-                    cliente_id=cliente_id,
-                    usuario_id=usuario_id,
-                    admin_rol_id=admin_rol_id,
-                    empresa_id=empresa_id,
-                )
-                await OnboardingRbacService.bootstrap_cliente_rbac(
-                    session,
-                    cliente_id=cliente_id,
-                    admin_rol_id=admin_rol_id,
-                    activado_por_usuario_id=usuario_id,
-                    plan_suscripcion=cliente_data.plan_suscripcion,
-                )
-                await ClienteOnboardingService._insertar_auth_config_si_no_existe(
-                    session, cliente_id
-                )
-                await ClienteOnboardingService._insertar_secuencias_codigo(
-                    session, cliente_id
-                )
+                cliente_row = bootstrap.cliente_row
+                cliente_id = bootstrap.cliente_id
 
         cliente = ClienteRead(**cliente_row)
         credenciales = CredencialesInicialesRead(
@@ -403,23 +347,8 @@ class ClienteOnboardingService:
     ) -> None:
         from app.core.auth.auth_config_gateway import AuthConfigGateway
 
-        if await AuthConfigGateway.config_exists(cliente_id):
+        if await AuthConfigGateway.config_exists(cliente_id, session=session):
             return
-        await AuthConfigGateway.insert_config({"cliente_id": cliente_id})
-
-    @staticmethod
-    async def _insertar_secuencias_codigo(
-        session: AsyncSession, cliente_id: UUID
-    ) -> None:
-        repo = CfgCodigoSecuenciaRepository()
-        for entidad, prefijo, longitud_numero, separador, ultimo_numero in SECUENCIAS_CODIGO:
-            await repo.insert_secuencia(
-                cliente_id=cliente_id,
-                empresa_id=None,
-                entidad=entidad,
-                prefijo=prefijo,
-                longitud_numero=longitud_numero,
-                separador=separador,
-                session=session,
-                ultimo_numero=ultimo_numero,
-            )
+        await AuthConfigGateway.insert_config(
+            {"cliente_id": cliente_id}, session=session
+        )

@@ -7,7 +7,7 @@ from typing import Optional, Union
 from app.api.deps import get_current_active_user
 from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
-from app.core.exceptions import NotFoundError, AuthorizationError
+from app.core.exceptions import NotFoundError, AuthorizationError, CustomException
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.shared.pagination import erp_pagination_params, erp_sort_params, ErpPaginationParams, ErpSortParams
 from app.modules.inv.presentation.schemas import (
@@ -77,8 +77,8 @@ async def crear_categoria(
             data=data,
             usuario_id=current_user.usuario_id,
         )
-    except AuthorizationError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except (AuthorizationError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.put("/{categoria_id}", response_model=CategoriaRead, summary="Actualizar categoría")

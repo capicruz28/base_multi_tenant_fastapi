@@ -432,6 +432,8 @@ class OnboardingRbacService:
 
         Grants API globales (permiso.modulo_id IS NULL) para ADMIN_TENANT.
 
+        Incluye core.app.acceder, admin.*, modulos.*, cfg.*, tenant.* (exc. crear cliente).
+
         Permisos de módulo (org.*, inv.*, …) los sincroniza OwnerSyncService.
 
         """
@@ -491,6 +493,8 @@ class OnboardingRbacService:
                  OR p.codigo LIKE 'admin.%'
 
                  OR p.codigo LIKE 'modulos.%'
+
+                 OR p.codigo LIKE 'cfg.%'
 
                  OR (
 

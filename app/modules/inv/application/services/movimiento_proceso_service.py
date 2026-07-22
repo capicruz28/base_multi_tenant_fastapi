@@ -25,10 +25,12 @@ from app.modules.inv.application.services.inv_estorno_proceso import (
     build_compensatorio_cabecera_espejo,
     build_compensatorio_detalles,
     find_compensatorio_by_original,
-    gen_numero_movimiento_estorno,
     ESTORNO_NO_PROCESADO_CODE,
     ESTORNO_UPDATE_RACE_CODE,
     MOVIMIENTO_YA_ESTORNADO_CODE,
+)
+from app.modules.inv.application.services.inv_codigo_generation_service import (
+    InvCodigoGenerationService,
 )
 from app.modules.inv.application.services.inv_workflow_enforcement import (
     assert_movimiento_autorizable,
@@ -684,13 +686,21 @@ async def estornar_movimiento_servicio(
                 detail="usuario_estorno_id es requerido para estornar",
             )
 
+        assert uow.session is not None
+        numero_movimiento = await InvCodigoGenerationService.resolve_codigo_for_create(
+            "inv_movimiento",
+            session=uow.session,
+            client_id=client_id,
+            empresa_id=empresa_id,
+            manual_code=None,
+        )
         cabecera = build_compensatorio_cabecera_espejo(
             original=original,
             clase_movimiento=clase,
             motivo=motivo,
             usuario_estorno=usuario,
             compensatorio_movimiento_id=compensatorio_id,
-            numero_movimiento=gen_numero_movimiento_estorno(),
+            numero_movimiento=numero_movimiento,
             detalles_espejo=detalles_espejo,
             now=now,
         )

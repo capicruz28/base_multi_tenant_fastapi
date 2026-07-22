@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import OrgDepartamentoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -22,6 +23,18 @@ _SORT_COLUMN_MAP = {
     "fecha_creacion": OrgDepartamentoTable.c.fecha_creacion,
 }
 _DEFAULT_DEPARTAMENTO_ORDER = [(OrgDepartamentoTable.c.codigo, "asc")]
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_departamento_list_conditions(
@@ -75,6 +88,7 @@ async def get_departamento_by_id(
     client_id: UUID,
     departamento_id: UUID,
     empresa_id: UUID,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene un departamento por id. Triple filtro cliente + empresa + departamento."""
     query = select(OrgDepartamentoTable).where(
@@ -86,6 +100,9 @@ async def get_departamento_by_id(
             entity_id=departamento_id,
         )
     )
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -95,6 +112,7 @@ async def get_departamento_by_codigo(
     empresa_id: UUID,
     codigo: str,
     exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Lookup por codigo dentro del tenant+empresa."""
     query = select(OrgDepartamentoTable).where(
@@ -106,11 +124,19 @@ async def get_departamento_by_codigo(
     )
     if exclude_id is not None:
         query = query.where(OrgDepartamentoTable.c.departamento_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_departamento(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_departamento(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta un departamento. cliente_id y empresa_id desde contexto."""
     from uuid import uuid4
 
@@ -118,10 +144,19 @@ async def create_departamento(client_id: UUID, data: Dict[str, Any]) -> Dict[str
     payload["cliente_id"] = client_id
     payload.setdefault("departamento_id", uuid4())
     empresa_id = payload["empresa_id"]
+    departamento_id = payload["departamento_id"]
     stmt = insert(OrgDepartamentoTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        row = await get_departamento_by_id(
+            client_id, departamento_id, empresa_id=empresa_id, session=session
+        )
+        if row is None:
+            raise RuntimeError("No se pudo leer el departamento recién insertado.")
+        return row
     await execute_insert(stmt, client_id=client_id)
     return await get_departamento_by_id(
-        client_id, payload["departamento_id"], empresa_id=empresa_id
+        client_id, departamento_id, empresa_id=empresa_id
     )
 
 

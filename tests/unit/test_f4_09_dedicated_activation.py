@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import ConflictError
 from app.infrastructure.provisioning.dedicated_activation_service import (
     DedicatedActivationService,
 )
@@ -147,13 +147,14 @@ async def test_f4_09_s9_smoke_fail_closed_on_bad_database_type(activation_servic
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_f4_09_s10_transitions_to_ready(activation_service, activation_mocks):
+async def test_f4_09_s10_returns_marker_without_run_transition(
+    activation_service, activation_mocks
+):
     result = await activation_service.mark_ready(_activation_request())
-    activation_mocks["state"].transition_run_to_ready.assert_called_once_with(
-        cliente_id=CLIENTE_ID,
-        provisioning_run_id=RUN_ID,
-    )
+    # Opción B: la transición READY es acto terminal del Orchestrator, no del step.
+    activation_mocks["state"].transition_run_to_ready.assert_not_called()
     assert result.idempotency_marker == f"ready_run:{RUN_ID}"
+    assert result.idempotent is False
 
 
 @pytest.mark.unit
@@ -164,15 +165,4 @@ async def test_f4_09_s10_idempotent_when_already_ready(activation_service, activ
     )
     result = await activation_service.mark_ready(_activation_request())
     activation_mocks["state"].transition_run_to_ready.assert_not_called()
-    assert result.idempotent is True
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_f4_09_s10_handles_provisioning_state_noop(activation_service, activation_mocks):
-    activation_mocks["state"].transition_run_to_ready.side_effect = ValidationError(
-        detail="Ya ready",
-        internal_code="PROVISIONING_STATE_NOOP",
-    )
-    result = await activation_service.mark_ready(_activation_request())
     assert result.idempotent is True

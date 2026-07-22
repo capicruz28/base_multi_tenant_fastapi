@@ -16,7 +16,7 @@ El **Estándar Oficial de Generación de Códigos CAXIS ERP V1** establece que:
 3. Los **documentos de proceso** son AUTO_REQUIRED sin excepción en operación normal.
 4. Los **maestros operativos** son AUTO_DEFAULT en operación normal.
 5. La **numeración fiscal** es un dominio regulado aparte, con AUTO_REQUIRED en emisión y MANUAL_ONLY en alta de serie.
-6. Los códigos son **inmutables** tras el primer uso operativo referenciado.
+6. Los códigos gobernados por el Motor son **inmutables desde CREATE** (**BR-IMM-01**; ADR `code-immutability/`).
 
 Este estándar es **vinculante** para nuevos módulos ERP y para la Fase 2 de implementación del motor.
 
@@ -85,13 +85,16 @@ Este estándar es **vinculante** para nuevos módulos ERP y para la Fase 2 de im
 | **STD-P-02** | Preview nunca consume secuencia ni constituye reserva. |
 | **STD-P-03** | UI debe etiquetar como estimado; no usar en documentos fiscales impresos. |
 
-### 2.8 Edición posterior
+### 2.8 Inmutabilidad del código (BR-IMM)
 
 | Decisión ID | Decisión |
 |-------------|----------|
-| **STD-E-01** | Sin referencias: edición permitida con permiso y auditoría. |
-| **STD-E-02** | Con referencias: inmutable; cambio solo por proceso excepcional de migración. |
-| **STD-E-03** | Sin ventana temporal automática por días. |
+| **STD-E-01** | **SUPERSEDED** — “Sin referencias: edición permitida” (**BR-M-31**) → **prohibido**. Ver **BR-IMM-01**. |
+| **STD-E-02** | El código es **inmutable desde CREATE**. Cambio solo por proceso excepcional de re-maestro (**BR-IMM-05** / BR-M-33). |
+| **STD-E-03** | Sin ventana temporal ni ventana “antes del primer uso”. |
+| **STD-E-04** | UPDATE nunca invoca el Motor (**BR-IMM-04**). `generation_policy` solo en CREATE/IMPORT (**BR-IMM-02**). |
+
+Fuente oficial: `07_BUSINESS_RULES.md` §3.4 · `code-immutability/01_ARCHITECTURAL_DECISION.md`.
 
 ### 2.9 Reinicio de secuencias
 
@@ -195,7 +198,7 @@ F15A — Política funcional  ← ESTÁNDAR DE NEGOCIO
 |----------|-------------------------|
 | ¿Usuario envía número de OC? | **No** (AUTO_REQUIRED) |
 | ¿Usuario puede omitir código de sucursal? | **Sí** — sistema genera (AUTO_DEFAULT) |
-| ¿Se puede cambiar SKU con movimientos? | **No** (inmutable tras uso) |
+| ¿Se puede cambiar SKU / código maestro tras CREATE? | **No** (**BR-IMM-01** — inmutable desde CREATE) |
 | ¿Se reinicia secuencia cada año? | **No** por defecto |
 | ¿Preview reserva número? | **No** |
 | ¿RUC del proveedor lo genera el motor? | **No** (EXTERNAL / legal) |
@@ -207,10 +210,11 @@ F15A — Política funcional  ← ESTÁNDAR DE NEGOCIO
 
 ## 9. Aprobación y mantenimiento
 
-- **Versión:** 1.0 (F15A, 2026-07-02)
+- **Versión:** 1.1 (F15A + **BR-IMM** 2026-07-13)
 - **Próxima revisión:** solo ante cambio normativo SUNAT, nuevo módulo ERP con entidades de código no previstas en V010, o decisión explícita de arquitectura.
 - **Cambios a políticas base:** requieren actualización de `07`, `08` y este documento en la misma entrega.
+- **Inmutabilidad:** cualquier cambio a BR-IMM exige ADR en `code-immutability/` + actualización de `07` §3.4.
 
 ---
 
-*Estándar listo para diseño de `cfg_codigo_secuencia` definitivo y Gateway sin reabrir reglas de negocio.*
+*Estándar listo para enforcement runtime de BR-IMM (schemas/services Update) sin reabrir la decisión de inmutabilidad.*

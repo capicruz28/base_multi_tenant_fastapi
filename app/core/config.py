@@ -322,7 +322,7 @@ class Settings(BaseSettings):
     )
     _dedicated_enabled_raw: str = os.getenv("DEDICATED_ENABLED", "false")
     PROVISIONING_DEDICATED_DB_NAME_PREFIX: str = os.getenv(
-        "PROVISIONING_DEDICATED_DB_NAME_PREFIX", "erp_"
+        "PROVISIONING_DEDICATED_DB_NAME_PREFIX", "caxis_tenant_"
     )
     PROVISIONING_DEDICATED_LOGIN_PREFIX: str = os.getenv(
         "PROVISIONING_DEDICATED_LOGIN_PREFIX", "erpapp_"

@@ -6,7 +6,7 @@ from uuid import UUID
 from app.api.deps import get_current_active_user
 from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
-from app.core.exceptions import NotFoundError, AuthorizationError
+from app.core.exceptions import NotFoundError, AuthorizationError, CustomException
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import TipoMovimientoCreate, TipoMovimientoUpdate, TipoMovimientoRead
 from app.modules.inv.application.services import tipo_movimiento_service
@@ -57,9 +57,13 @@ async def crear_tipo_movimiento(
 ):
     """Crea un tipo de movimiento. empresa_id del body debe coincidir con la sesión."""
     try:
-        return await tipo_movimiento_service.create_tipo_movimiento_servicio(client_id=client_id, data=data)
-    except AuthorizationError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        return await tipo_movimiento_service.create_tipo_movimiento_servicio(
+            client_id=client_id,
+            data=data,
+            usuario_id=current_user.usuario_id,
+        )
+    except (AuthorizationError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.put("/{tipo_movimiento_id}", response_model=TipoMovimientoRead, summary="Actualizar tipo de movimiento")
@@ -76,6 +80,7 @@ async def actualizar_tipo_movimiento(
             client_id=client_id,
             tipo_movimiento_id=tipo_movimiento_id,
             data=data,
+            usuario_id=current_user.usuario_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

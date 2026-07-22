@@ -7,7 +7,7 @@ from typing import Optional
 from app.api.deps import get_current_active_user
 from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
-from app.core.exceptions import NotFoundError, AuthorizationError, ConflictError
+from app.core.exceptions import NotFoundError, AuthorizationError, CustomException
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import ProductoCreate, ProductoUpdate, ProductoRead
 from app.modules.inv.application.services import producto_service
@@ -64,11 +64,13 @@ async def crear_producto(
 ):
     """Crea un producto. empresa_id del body debe coincidir con la sesión."""
     try:
-        return await producto_service.create_producto_servicio(client_id=client_id, data=data)
-    except AuthorizationError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ConflictError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        return await producto_service.create_producto_servicio(
+            client_id=client_id,
+            data=data,
+            usuario_id=current_user.usuario_id,
+        )
+    except (AuthorizationError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.put("/{producto_id}", response_model=ProductoRead, summary="Actualizar producto")
@@ -85,11 +87,10 @@ async def actualizar_producto(
             client_id=client_id,
             producto_id=producto_id,
             data=data,
+            usuario_id=current_user.usuario_id,
         )
-    except NotFoundError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    except ConflictError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    except (NotFoundError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.delete(

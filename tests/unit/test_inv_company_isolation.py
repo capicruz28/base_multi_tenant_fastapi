@@ -4,7 +4,7 @@ Tests de aislamiento multi-empresa (INV — fase 0, 1 y 2).
 Valida company_scope y servicios INV con aislamiento por empresa de sesión.
 """
 from uuid import uuid4
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -246,9 +246,26 @@ async def test_create_tipo_movimiento_enforces_session_empresa():
       nombre="Entrada",
       clase_movimiento="entrada",
     )
+    session = AsyncMock()
+    begin_cm = AsyncMock()
+    begin_cm.__aenter__ = AsyncMock(return_value=None)
+    begin_cm.__aexit__ = AsyncMock(return_value=None)
+    session.begin = MagicMock(return_value=begin_cm)
+    conn_cm = AsyncMock()
+    conn_cm.__aenter__ = AsyncMock(return_value=session)
+    conn_cm.__aexit__ = AsyncMock(return_value=None)
     with patch(
       "app.modules.inv.application.services.tipo_movimiento_service.ensure_empresa_in_tenant",
       new=AsyncMock(),
+    ), patch(
+      "app.modules.inv.application.services.tipo_movimiento_service.get_connection_for_tenant",
+      return_value=conn_cm,
+    ), patch(
+      "app.modules.inv.application.services.tipo_movimiento_service.get_tipo_movimiento_by_codigo",
+      new=AsyncMock(return_value=None),
+    ), patch(
+      "app.modules.inv.application.services.tipo_movimiento_service.InvCodigoGenerationService.resolve_codigo_for_create",
+      new=AsyncMock(return_value="ENT"),
     ), patch(
       "app.modules.inv.application.services.tipo_movimiento_service.create_tipo_movimiento",
       new=AsyncMock(

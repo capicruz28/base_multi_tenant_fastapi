@@ -2,11 +2,13 @@
 Queries SQLAlchemy Core para inv_inventario_fisico.
 Filtro tenant estricto: todas las operaciones usan cliente_id.
 Aislamiento empresa: get/update/list por empresa_id (INV).
+Dual-path session: opcional AsyncSession para UoW (F2A Motor).
 """
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import date
 from sqlalchemy import select, insert, update, and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import (
     InvInventarioFisicoTable,
@@ -32,6 +34,18 @@ _SORT_COLUMN_MAP = {
 }
 _DEFAULT_INVENTARIO_FISICO_ORDER = [(InvInventarioFisicoTable.c.fecha_inventario, "desc")]
 _INVENTARIO_FISICO_COLUMN_DIR_defaults = {"fecha_inventario": "desc"}
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_inventario_fisico_list_conditions(
@@ -108,6 +122,7 @@ async def get_inventario_fisico_by_id(
     client_id: UUID,
     inventario_fisico_id: UUID,
     empresa_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene un inventario físico por id. Con empresa_id: triple filtro (INV)."""
     conds = [
@@ -117,11 +132,19 @@ async def get_inventario_fisico_by_id(
     if empresa_id is not None:
         conds.append(InvInventarioFisicoTable.c.empresa_id == empresa_id)
     query = select(InvInventarioFisicoTable).where(and_(*conds))
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_inventario_fisico(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_inventario_fisico(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta un inventario físico. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
 
@@ -129,10 +152,19 @@ async def create_inventario_fisico(client_id: UUID, data: Dict[str, Any]) -> Dic
     payload["cliente_id"] = client_id
     payload.setdefault("inventario_fisico_id", uuid4())
     empresa_id = payload["empresa_id"]
+    inventario_fisico_id = payload["inventario_fisico_id"]
     stmt = insert(InvInventarioFisicoTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        row = await get_inventario_fisico_by_id(
+            client_id, inventario_fisico_id, empresa_id=empresa_id, session=session
+        )
+        if row is None:
+            raise RuntimeError("No se pudo leer el inventario físico recién insertado.")
+        return row
     await execute_insert(stmt, client_id=client_id)
     return await get_inventario_fisico_by_id(
-        client_id, payload["inventario_fisico_id"], empresa_id=empresa_id
+        client_id, inventario_fisico_id, empresa_id=empresa_id
     )
 
 
@@ -147,7 +179,12 @@ async def update_inventario_fisico(
         k: v
         for k, v in data.items()
         if k in _COLUMNS
-        and k not in ("inventario_fisico_id", "cliente_id", "empresa_id")
+        and k not in (
+            "inventario_fisico_id",
+            "cliente_id",
+            "empresa_id",
+            "numero_inventario",  # BR-IMM-01
+        )
     }
     if not payload:
         return await get_inventario_fisico_by_id(

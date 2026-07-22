@@ -2,11 +2,13 @@
 Queries SQLAlchemy Core para inv_categoria_producto.
 Filtro tenant estricto: todas las operaciones usan cliente_id.
 Aislamiento empresa: get/update/list por empresa_id cuando se provee (INV).
+Dual-path session: opcional AsyncSession para UoW Dedicated/Shared (Fase A Motor).
 """
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import InvCategoriaProductoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -26,6 +28,18 @@ _SORT_COLUMN_MAP = {
     "fecha_creacion": InvCategoriaProductoTable.c.fecha_creacion,
 }
 _DEFAULT_CATEGORIA_ORDER = [(InvCategoriaProductoTable.c.nombre, "asc")]
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_categoria_list_conditions(
@@ -98,6 +112,7 @@ async def get_categoria_by_id(
     client_id: UUID,
     categoria_id: UUID,
     empresa_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene una categoría por id. Con empresa_id: triple filtro (INV)."""
     conds = [
@@ -107,11 +122,43 @@ async def get_categoria_by_id(
     if empresa_id is not None:
         conds.append(InvCategoriaProductoTable.c.empresa_id == empresa_id)
     query = select(InvCategoriaProductoTable).where(and_(*conds))
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_categoria(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def get_categoria_by_codigo(
+    client_id: UUID,
+    empresa_id: UUID,
+    codigo: str,
+    exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
+) -> Optional[Dict[str, Any]]:
+    """Lookup por codigo dentro del tenant+empresa."""
+    query = select(InvCategoriaProductoTable).where(
+        and_(
+            InvCategoriaProductoTable.c.cliente_id == client_id,
+            InvCategoriaProductoTable.c.empresa_id == empresa_id,
+            InvCategoriaProductoTable.c.codigo == codigo,
+        )
+    )
+    if exclude_id is not None:
+        query = query.where(InvCategoriaProductoTable.c.categoria_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
+    rows = await execute_query(query, client_id=client_id)
+    return rows[0] if rows else None
+
+
+async def create_categoria(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta una categoría. cliente_id se fuerza desde contexto, no desde data."""
     from uuid import uuid4
 
@@ -119,10 +166,19 @@ async def create_categoria(client_id: UUID, data: Dict[str, Any]) -> Dict[str, A
     payload["cliente_id"] = client_id
     payload.setdefault("categoria_id", uuid4())
     empresa_id = payload["empresa_id"]
+    categoria_id = payload["categoria_id"]
     stmt = insert(InvCategoriaProductoTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        row = await get_categoria_by_id(
+            client_id, categoria_id, empresa_id=empresa_id, session=session
+        )
+        if row is None:
+            raise RuntimeError("No se pudo leer la categoría recién insertada.")
+        return row
     await execute_insert(stmt, client_id=client_id)
     return await get_categoria_by_id(
-        client_id, payload["categoria_id"], empresa_id=empresa_id
+        client_id, categoria_id, empresa_id=empresa_id
     )
 
 

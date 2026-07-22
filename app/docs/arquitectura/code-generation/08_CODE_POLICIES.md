@@ -17,7 +17,7 @@
 | **Cuándo aplica** | Documentos de proceso (grupo C); numeración fiscal en emisión; cualquier entidad donde la integridad correlativa es crítica o legalmente regulada. |
 | **Entrada API (futuro)** | Campo omitido o ignorado si se envía; respuesta Read siempre incluye valor asignado. |
 | **Unicidad** | Garantizada por motor dentro del scope. |
-| **Edición** | Prohibida post-asignación. |
+| **Edición** | **Prohibida post-CREATE** (**BR-IMM-01**). El Motor no participa en UPDATE. |
 | **Migración** | Excepción controlada: importación histórica con correlativo explícito bajo rol de implantación. |
 
 **Ejemplos CAXIS:** `numero_movimiento`, `numero_oc`, `numero_pedido`, `numero_recepcion`, `numero_asiento`, `invbill_comprobante.numero` (en emisión), `pos_venta.numero_venta`.
@@ -33,7 +33,7 @@
 | **Cuándo aplica** | Maestros ERP (grupo B) en operación normal; fase de convivencia con datos legados; importaciones con huecos. |
 | **Entrada API (futuro)** | Campo opcional en Create; obligatorio en Read tras persistir. |
 | **Unicidad** | Validación explícita en manual; motor garantiza en automático. |
-| **Edición** | Permitida solo sin referencias operativas (BR-M-30). |
+| **Edición** | **Prohibida post-CREATE** (**BR-IMM-01…05**). `generation_policy` aplica solo a CREATE/IMPORT. Antes BR-M-30/31 — **superseded**. |
 | **Migración** | Política por defecto para maestros sin código en archivo fuente. |
 
 **Ejemplos CAXIS:** `org_sucursal.codigo`, `inv_producto.codigo_sku`, `pur_proveedor.codigo_proveedor`, `sls_cliente.codigo_cliente`, `hcm_empleado.codigo_empleado`.
@@ -49,7 +49,7 @@
 | **Cuándo aplica** | Identificadores con semántica externa o decisión humana deliberada; catálogos de configuración que no son secuenciales; series fiscales en **alta** de maestro serie. |
 | **Entrada API** | Campo obligatorio en Create. |
 | **Unicidad** | Validación de duplicados obligatoria. |
-| **Edición** | Según reglas del maestro; formato validado. |
+| **Edición** | Campo código Motor: **inmutable** post-CREATE (**BR-IMM**). Otros campos del maestro según reglas propias. |
 | **Migración** | Valor debe venir en archivo o ingresarse en UI. |
 
 **Ejemplos CAXIS:** `inv_producto.codigo_barra`, `invbill_serie_comprobante.serie` (alta), `org_parametro_sistema.codigo_parametro`, `prc_promocion.codigo_cupon` (opcional promocional), `dms_documento.codigo_documento` (si se usa).
@@ -90,7 +90,7 @@
 
 | Entidad | Campo | Política | Notas |
 |---------|-------|----------|-------|
-| `org_empresa` | `codigo_empresa` | AUTO_DEFAULT | Scope tenant; bootstrap fijo `EMP001` es caso inicial |
+| `org_empresa` | `codigo_empresa` | AUTO_DEFAULT | Scope tenant; bootstrap sede `EMP001` (sin motor); cfg TENANT con `ultimo_numero=1` (BR-BOOT-04); primer auto runtime = `EMP002` |
 | `org_sucursal` | `codigo` | AUTO_DEFAULT | |
 | `org_centro_costo` | `codigo` | AUTO_DEFAULT | |
 | `org_departamento` | `codigo` | AUTO_DEFAULT | |
@@ -201,7 +201,8 @@
 | Forzar código manual en maestro | Mismo | AUTO_DEFAULT |
 | Crear documento | `{mod}.{recurso}.crear` | AUTO_REQUIRED — sin override |
 | Importar con códigos históricos | `{mod}.{recurso}.importar` o rol implantación | Excepción migración |
-| Cambiar código maestro sin referencias | `{mod}.{recurso}.actualizar` | AUTO_DEFAULT |
+| ~~Cambiar código maestro sin referencias~~ | — | **Prohibido** — **BR-IMM-01**; BR-M-31 DEPRECATED |
+| Re-maestro / migración de código | Rol implantación (proceso excepcional) | **BR-IMM-05** / BR-M-33 — no UPDATE estándar |
 | Cambiar prefijo de secuencia | `cfg.secuencias.actualizar` (futuro) | Administración |
 | Reiniciar secuencia | `cfg.secuencias.administrar` (futuro) | Excepcional |
 | Preview próximo código | `{mod}.{recurso}.crear` o consulta | Sin consumo |
@@ -231,4 +232,4 @@
 
 ---
 
-*Complementa `07_BUSINESS_RULES.md`. Estándar consolidado en `10_FINAL_RECOMMENDATION.md`.*
+*Complementa `07_BUSINESS_RULES.md` (**BR-IMM** §3.4). Estándar consolidado en `10_FINAL_RECOMMENDATION.md`.*

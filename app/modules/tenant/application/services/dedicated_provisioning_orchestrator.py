@@ -309,6 +309,21 @@ class DedicatedProvisioningOrchestrator:
             job.provisioning_run_id,
         )
 
+        # Acto terminal del Orchestrator (simétrico con transition_run_to_failed
+        # en _fail_step_and_run): el RUN pasa a READY solo después de cerrar el
+        # step MARK_READY en COMPLETED, con el run aún en PROVISIONING. Si esta
+        # transición falla, el run permanece en PROVISIONING y el redispatch la
+        # reintenta de forma idempotente.
+        await self._state.transition_run_to_ready(
+            cliente_id=job.cliente_id,
+            provisioning_run_id=job.provisioning_run_id,
+        )
+        logger.info(
+            "Tenant dedicated ready cliente_id=%s run_id=%s",
+            job.cliente_id,
+            job.provisioning_run_id,
+        )
+
     async def abort_provisioning_run(
         self,
         *,
@@ -422,6 +437,7 @@ class DedicatedProvisioningOrchestrator:
             StorageAllocationRequest(
                 cliente_id=job.cliente_id,
                 codigo_cliente=profile["codigo_cliente"],
+                subdominio=profile["subdominio"],
             ),
         )
         runtime.allocation = result

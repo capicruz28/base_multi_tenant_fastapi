@@ -26,7 +26,7 @@ BOOTSTRAP_V2_ROOT = Path(__file__).resolve().parents[2] / "bootstrap_v2"
 
 _V010_ERP_SHA256 = (
 
-    "78733886529a88af139bde57af5e44a663d417cb5cab0835f7a45b87adda1237"
+    "e4f8169dce0761c80d43b00f34db154921e1b9af1535b561d53b7056c7000a8e"
 
 )
 

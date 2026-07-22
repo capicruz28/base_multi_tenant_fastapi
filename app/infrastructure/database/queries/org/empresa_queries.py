@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import OrgEmpresaTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -25,6 +26,18 @@ _SORT_COLUMN_MAP = {
     "fecha_creacion": OrgEmpresaTable.c.fecha_creacion,
 }
 _DEFAULT_EMPRESA_ORDER = [(OrgEmpresaTable.c.razon_social, "asc")]
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_empresa_list_conditions(
@@ -72,6 +85,7 @@ async def get_empresa_by_codigo(
     client_id: UUID,
     codigo_empresa: str,
     exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Lookup por codigo_empresa dentro del tenant."""
     query = select(OrgEmpresaTable).where(
@@ -82,6 +96,9 @@ async def get_empresa_by_codigo(
     )
     if exclude_id is not None:
         query = query.where(OrgEmpresaTable.c.empresa_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -90,6 +107,7 @@ async def get_empresa_by_ruc(
     client_id: UUID,
     ruc: str,
     exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Lookup por RUC dentro del tenant."""
     query = select(OrgEmpresaTable).where(
@@ -100,11 +118,18 @@ async def get_empresa_by_ruc(
     )
     if exclude_id is not None:
         query = query.where(OrgEmpresaTable.c.empresa_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def get_empresa_by_id(client_id: UUID, empresa_id: UUID) -> Optional[Dict[str, Any]]:
+async def get_empresa_by_id(
+    client_id: UUID,
+    empresa_id: UUID,
+    session: Optional[AsyncSession] = None,
+) -> Optional[Dict[str, Any]]:
     """Obtiene una empresa. Triple filtro implícito: cliente_id + empresa_id."""
     query = select(OrgEmpresaTable).where(
         tenant_empresa_scoped_conditions(
@@ -113,6 +138,9 @@ async def get_empresa_by_id(client_id: UUID, empresa_id: UUID) -> Optional[Dict[
             empresa_id=empresa_id,
         )
     )
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -138,7 +166,12 @@ async def get_empresas_by_ids(
     return await execute_query(query, client_id=client_id)
 
 
-async def create_empresa(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_empresa(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta una empresa. cliente_id se fuerza desde contexto de sesión."""
     from uuid import uuid4
 
@@ -147,6 +180,9 @@ async def create_empresa(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any
     payload.setdefault("empresa_id", uuid4())
     empresa_id = payload["empresa_id"]
     stmt = insert(OrgEmpresaTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        return await get_empresa_by_id(client_id, empresa_id, session=session)
     await execute_insert(stmt, client_id=client_id)
     return await get_empresa_by_id(client_id, empresa_id)
 

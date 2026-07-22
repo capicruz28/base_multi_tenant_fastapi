@@ -10,6 +10,10 @@ from uuid import UUID
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.tenant.company_scope import assert_row_tenant
+from app.core.tenant.routing import (
+    OPERATION_CLASS_TENANT_DATA,
+    get_connection_for_tenant,
+)
 from app.core.tenant.session_scope import (
     log_org_assert_tenant,
     log_org_empresa_scope,
@@ -24,14 +28,28 @@ from app.infrastructure.database.queries.org import (
     create_empresa,
     update_empresa,
 )
+from app.modules.org.application.services.org_codigo_generation_service import (
+    OrgCodigoGenerationService,
+)
 from app.modules.org.presentation.schemas import (
     EmpresaCreate,
     EmpresaUpdate,
     EmpresaRead,
 )
+from app.modules.tenant.application.services.empresa_bootstrap_service import (
+    EmpresaBootstrapService,
+)
 
 _RESOURCE = "empresa"
 _NOT_FOUND = "Empresa no encontrada"
+_SEQUENCE_KEY = "org_empresa"
+
+
+def _normalize_manual_codigo(codigo: Optional[str]) -> Optional[str]:
+    if codigo is None:
+        return None
+    stripped = codigo.strip()
+    return stripped if stripped else None
 
 
 def _row_to_read(row: dict) -> EmpresaRead:
@@ -95,16 +113,42 @@ async def create_empresa_servicio(
     data: EmpresaCreate,
 ) -> EmpresaRead:
     log_org_tenant_scope(operation="create", client_id=client_id, resource=_RESOURCE)
-    if await get_empresa_by_codigo(client_id, data.codigo_empresa):
-        raise ConflictError(
-            detail=f"Ya existe una empresa con el código '{data.codigo_empresa}' en este tenant.",
-        )
-    if await get_empresa_by_ruc(client_id, data.ruc):
-        raise ConflictError(
-            detail=f"Ya existe una empresa con el RUC '{data.ruc}' en este tenant.",
-        )
-    payload = data.model_dump()
-    row = await create_empresa(client_id=client_id, data=payload)
+    manual_codigo = _normalize_manual_codigo(data.codigo_empresa)
+    async with get_connection_for_tenant(
+        client_id, OPERATION_CLASS_TENANT_DATA
+    ) as session:
+        async with session.begin():
+            if manual_codigo:
+                if await get_empresa_by_codigo(
+                    client_id, manual_codigo, session=session
+                ):
+                    raise ConflictError(
+                        detail=(
+                            f"Ya existe una empresa con el código "
+                            f"'{manual_codigo}' en este tenant."
+                        ),
+                    )
+            if await get_empresa_by_ruc(client_id, data.ruc, session=session):
+                raise ConflictError(
+                    detail=(
+                        f"Ya existe una empresa con el RUC '{data.ruc}' en este tenant."
+                    ),
+                )
+            codigo_empresa = await OrgCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=session,
+                client_id=client_id,
+                empresa_id=None,
+                manual_code=manual_codigo,
+            )
+            payload = data.model_dump()
+            payload["codigo_empresa"] = codigo_empresa
+            row = await create_empresa(
+                client_id=client_id, data=payload, session=session
+            )
+            await EmpresaBootstrapService.insertar_secuencias_codigo(
+                session, client_id, row["empresa_id"]
+            )
     empresa_id = row["empresa_id"]
     log_org_empresa_scope(operation="create_ok", client_id=client_id, empresa_id=empresa_id)
     _assert_empresa_row(row, client_id, empresa_id)
@@ -120,13 +164,6 @@ async def update_empresa_servicio(
     row = await get_empresa_by_id(client_id=client_id, empresa_id=empresa_id)
     _assert_empresa_row(row, client_id, empresa_id)
     payload = data.model_dump(exclude_unset=True)
-    if "codigo_empresa" in payload:
-        if await get_empresa_by_codigo(
-            client_id, payload["codigo_empresa"], exclude_id=empresa_id
-        ):
-            raise ConflictError(
-                detail=f"Ya existe una empresa con el código '{payload['codigo_empresa']}' en este tenant.",
-            )
     if "ruc" in payload:
         if await get_empresa_by_ruc(client_id, payload["ruc"], exclude_id=empresa_id):
             raise ConflictError(

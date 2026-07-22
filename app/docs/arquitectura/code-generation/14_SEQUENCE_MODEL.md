@@ -126,7 +126,7 @@ Reemplaza `SECUENCIAS_CODIGO` onboarding. Valores iniciales **documentados** (no
 
 | sequence_key | scope_type | prefijo | longitud | separador | ultimo_inicial |
 |--------------|------------|---------|----------|-----------|----------------|
-| `org_empresa` | TENANT | EMP | 3 | — | 0 |
+| `org_empresa` | TENANT | EMP | 3 | — | **1**¹ |
 | `org_sucursal` | EMPRESA | SUC | 3 | — | 0 |
 | `org_departamento` | EMPRESA | DEP | 3 | — | 0 |
 | `org_cargo` | EMPRESA | CAR | 3 | — | 0 |
@@ -137,6 +137,8 @@ Reemplaza `SECUENCIAS_CODIGO` onboarding. Valores iniciales **documentados** (no
 | `inv_movimiento` | EMPRESA | MOV | 6 | — | 0 |
 
 **Corrección obligatoria:** `inv_categoria` → `inv_categoria_producto`; seeds empresa-scoped con `empresa_id` de empresa sede, no NULL (excepto `org_empresa` TENANT).
+
+> ¹ **`org_empresa`:** valor inicial post-onboarding (`ultimo_numero = 1`); resto de secuencias eager mantienen `0`. Ver BR-BOOT-04.
 
 ---
 

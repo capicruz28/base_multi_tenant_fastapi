@@ -1,9 +1,10 @@
 # F15A — Reglas de negocio del motor de generación de códigos
 
-**Fase:** F15A — Política funcional (solo documentación)  
+**Fase:** F15A — Política funcional (documentación normativa)  
 **Base normativa:** F15 (`01`–`06` en `app/docs/arquitectura/code-generation/`)  
-**Fecha:** 2026-07-02  
-**Alcance:** Comportamiento funcional que el motor **debe respetar** durante toda la vida del sistema. Sin diseño técnico ni implementación.
+**Fecha:** 2026-07-02 · **Rev. inmutabilidad:** 2026-07-13 (BR-IMM)  
+**Alcance:** Comportamiento funcional que el motor **debe respetar** durante toda la vida del sistema.  
+**Inmutabilidad:** fuente oficial [`code-immutability/`](code-immutability/) · reglas **BR-IMM-01…05** (§3.4)
 
 ---
 
@@ -34,7 +35,7 @@ Define las **reglas de negocio transversales** del motor de códigos CAXIS ERP. 
 | Regla ID | Regla |
 |----------|-------|
 | **BR-M-01** | En operación normal (post go-live), los maestros operativos estándar se crean con política **AUTO_DEFAULT**: si el usuario no ingresa código, el sistema lo asigna. |
-| **BR-M-02** | La primera empresa de un tenant (`org_empresa` con código `EMP001` en bootstrap) es excepción histórica; empresas adicionales siguen AUTO_DEFAULT con scope **tenant** (único por `cliente_id`). |
+| **BR-M-02** | La primera empresa de un tenant (`org_empresa` con código `EMP001`) se crea en **onboarding** fuera del motor (`ensure_empresa_inicial`). La fila cfg TENANT `org_empresa` debe sembrarse con **`ultimo_numero = 1`** (BR-BOOT-04). El primer `allocate` runtime produce **`EMP002`**. Empresas adicionales siguen AUTO_DEFAULT con scope **tenant** (único por `cliente_id`). **Prohibido:** repair runtime, `align_counter` en `create_empresa_servicio`, y scripts ENSURE en despliegue greenfield. |
 | **BR-M-03** | Maestros de **configuración deliberada** (`inv_tipo_movimiento`, `fin_plan_cuentas`, `hcm_concepto_planilla`) admiten AUTO_DEFAULT pero el implementador funcional puede exigir manual por gobernanza contable/nómina. |
 | **BR-M-04** | Maestros WMS (`wms_zona_almacen`, `wms_ubicacion`) generan dentro del scope **almacén**, no empresa. |
 | **BR-M-05** | `invbill_serie_comprobante.serie` es maestro fiscal: **MANUAL_ONLY** en alta (serie autorizada por SUNAT); el correlativo numérico es AUTO_REQUIRED en emisión. |
@@ -57,14 +58,27 @@ Define las **reglas de negocio transversales** del motor de códigos CAXIS ERP. 
 | **BR-M-22** | La comparación de códigos maestros es **case-insensitive** para búsqueda y unicidad (alineado a `normalize_upper` en schemas ORG/INV). |
 | **BR-M-23** | `numero_documento` de terceros (RUC/DNI) no comparte reglas con códigos maestros internos; política EXTERNAL. |
 
-### 3.4 Edición posterior
+### 3.4 Inmutabilidad del código (oficial — BR-IMM)
+
+> **Fuente normativa única:** `code-immutability/01_ARCHITECTURAL_DECISION.md` (ADR aprobado).  
+> Aplica a **toda** entidad administrada por el Motor de Códigos (ORG, INV, LOG, COM, POS, …).
 
 | Regla ID | Regla |
 |----------|-------|
-| **BR-M-30** | El código maestro es **inmutable** una vez que la entidad ha sido **referenciada** por cualquier documento procesado, movimiento de stock, asiento contable, comprobante fiscal o vínculo irreversible equivalente. |
-| **BR-M-31** | Sin referencias, el código puede editarse solo por usuarios con permiso explícito de actualización del maestro; cada cambio queda en auditoría. |
-| **BR-M-32** | No existe ventana temporal automática por días; la inmutabilidad la determina **el primer uso operativo**, no el calendario. |
-| **BR-M-33** | Cambiar un código maestro referenciado exige proceso excepcional fuera del motor (re-maestro / migración asistida), no UPDATE estándar. |
+| **BR-IMM-01** | El código funcional asignado en CREATE (auto o manual) es **inmutable** durante toda la vida del registro. |
+| **BR-IMM-02** | `generation_policy` (`AUTO_*`, `MANUAL_ONLY`) aplica **exclusivamente** a CREATE e IMPORT histórico controlado. |
+| **BR-IMM-03** | UPDATE de entidad de negocio **nunca** modifica el campo código gobernado por el Motor. |
+| **BR-IMM-04** | UPDATE **nunca** invoca `CodigoGeneracionGateway` ni adaptadores de módulo (`OrgCodigoGenerationService`, equivalentes futuros). |
+| **BR-IMM-05** | El único camino excepcional para “cambiar” un código es **re-maestro / migración asistida** (fuera del UPDATE estándar API). |
+
+#### Reglas legacy §3.4 (superseded / deprecated)
+
+| Regla ID | Estado | Nota |
+|----------|--------|------|
+| **BR-M-30** | **SUPERSEDED** por **BR-IMM-01** | Antes: inmutable *tras referencias operativas*. Ahora: inmutable *desde CREATE*. |
+| **BR-M-31** | **DEPRECATED** | Antes: editable sin referencias con permiso. **Prohibido** para entidades Motor. |
+| **BR-M-32** | **SUPERSEDED** por **BR-IMM-01** | Ya no aplica ventana “primer uso operativo”; no hay ventana de edición post-CREATE. |
+| **BR-M-33** | **VIGENTE** (aclarada) | Re-maestro / migración asistida = único escape excepcional; **no** es UPDATE estándar. Alineada con **BR-IMM-05**. |
 
 ### 3.5 Migraciones e implantación
 
@@ -141,7 +155,7 @@ Sin diseñar el motor fiscal. Solo negocio.
 | **Importación de terceros con RUC/DNI** | `numero_documento` EXTERNAL; `codigo_proveedor` / `codigo_cliente` interno puede venir en archivo o autogenerarse. |
 | **Importación de productos con EAN** | `codigo_barra` MANUAL_ONLY/EXTERNAL; `codigo_sku` según columna presente. |
 | **Modo migración inicial** | Permite lote con mezcla manual/autogenerado bajo supervisión de implantación; contador alineado al final del lote. |
-| **Reimportación / upsert** | No consume nueva secuencia si el código no cambia; cambio de código sujeto a BR-M-30. |
+| **Reimportación / upsert** | No consume nueva secuencia si el código no cambia; **cambio de código prohibido** en upsert estándar (**BR-IMM-01**); solo vía proceso excepcional **BR-IMM-05** / BR-M-33. |
 
 ---
 
@@ -227,7 +241,7 @@ Sin diseñar el motor fiscal. Solo negocio.
 ## 13. Jerarquía normativa
 
 1. Normativa legal fiscal (SUNAT)  
-2. Este documento y `08_CODE_POLICIES.md`  
+2. Este documento y `08_CODE_POLICIES.md` — **inmutabilidad:** **BR-IMM-01…05** (§3.4) + ADR `code-immutability/`  
 3. F15 arquitectura (`05`, `03`, `02`)  
 4. Estándar ERP Backend V4  
 5. Configuración por tenant/empresa (prefijos, no políticas base)
@@ -238,10 +252,12 @@ Sin diseñar el motor fiscal. Solo negocio.
 
 | Documento | Contenido relacionado |
 |-----------|----------------------|
+| `code-immutability/01_ARCHITECTURAL_DECISION.md` | **ADR oficial** inmutabilidad post-CREATE (BR-IMM) |
+| `code-immutability/07_NORMATIVE_APPROVAL.md` | Cierre Fase 1 normativa — listo para runtime |
 | `08_CODE_POLICIES.md` | Matriz política por entidad |
 | `09_ERP_BEST_PRACTICES.md` | Benchmark ERP mercado |
 | `10_FINAL_RECOMMENDATION.md` | Estándar oficial consolidado CAXIS |
 
 ---
 
-*F15A — Sin implementación. Listo para diseño DDL/gateway sin reabrir reglas de negocio.*
+*F15A — Reglas de negocio vinculantes. Inmutabilidad BR-IMM oficializada 2026-07-13. Runtime UPDATE: fase de implementación pendiente.*

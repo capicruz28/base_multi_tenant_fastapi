@@ -5,6 +5,8 @@ import logging
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.infrastructure.database.queries.auth.auth_config_queries_core import (
     insert_config_core,
     select_config_by_cliente_id_core,
@@ -26,13 +28,19 @@ class AuthConfigGateway:
         return await select_config_by_cliente_id_core(cliente_id)
 
     @staticmethod
-    async def config_exists(cliente_id: UUID) -> bool:
-        config_id = await select_config_id_by_cliente_id_core(cliente_id)
+    async def config_exists(
+        cliente_id: UUID,
+        session: Optional[AsyncSession] = None,
+    ) -> bool:
+        config_id = await select_config_id_by_cliente_id_core(cliente_id, session=session)
         return config_id is not None
 
     @staticmethod
-    async def insert_config(values: Dict[str, Any]) -> Dict[str, Any]:
-        return await insert_config_core(values)
+    async def insert_config(
+        values: Dict[str, Any],
+        session: Optional[AsyncSession] = None,
+    ) -> Dict[str, Any]:
+        return await insert_config_core(values, session=session)
 
     @staticmethod
     async def update_config(

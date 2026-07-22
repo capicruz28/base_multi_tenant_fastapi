@@ -602,7 +602,12 @@ ClienteConexionTable = Table(
 ClienteAuthConfigTable = Table(
     'cliente_auth_config',
     metadata,
-    Column('config_id', UNIQUEIDENTIFIER, primary_key=True),
+    Column(
+        'config_id',
+        UNIQUEIDENTIFIER,
+        primary_key=True,
+        server_default=text("NEWID()"),
+    ),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=False, unique=True),
     
     # Políticas de contraseña
@@ -744,21 +749,45 @@ CfgCodigoSecuenciaTable = Table(
     metadata,
     Column('secuencia_id', UNIQUEIDENTIFIER, primary_key=True),
     Column('cliente_id', UNIQUEIDENTIFIER, ForeignKey('cliente.cliente_id', ondelete='CASCADE'), nullable=False),
+    Column('sequence_key', String(64), nullable=False),
+    Column('scope_type', String(20), nullable=False),
+    Column('scope_fingerprint', String(64), nullable=False),
     Column(
         'empresa_id',
         UNIQUEIDENTIFIER,
         ForeignKey('org_empresa.empresa_id', ondelete='NO ACTION'),
         nullable=True,
     ),
-    Column('entidad', String(50), nullable=False),
-    Column('prefijo', String(5), nullable=False),
+    Column(
+        'almacen_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('inv_almacen.almacen_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
+    Column(
+        'punto_venta_id',
+        UNIQUEIDENTIFIER,
+        ForeignKey('pos_punto_venta.punto_venta_id', ondelete='NO ACTION'),
+        nullable=True,
+    ),
+    Column('prefijo', String(10), nullable=False),
+    Column('separador', String(2), nullable=True, server_default=''),
     Column('longitud_numero', Integer, nullable=False, server_default='3'),
     Column('ultimo_numero', Integer, nullable=False, server_default='0'),
-    Column('separador', String(2), nullable=True, server_default=''),
+    Column('numero_inicial', Integer, nullable=False, server_default='1'),
     Column('es_activo', Boolean, nullable=False, server_default='1'),
-    UniqueConstraint('cliente_id', 'empresa_id', 'entidad', name='UQ_cfg_codigo_secuencia_cliente_empresa_entidad'),
-    Index('IDX_cfg_codigo_secuencia_cliente', 'cliente_id', 'es_activo'),
-    Index('IDX_cfg_codigo_secuencia_entidad', 'cliente_id', 'entidad'),
+    Column('generation_policy', String(20), nullable=False, server_default='AUTO_DEFAULT'),
+    Column('fecha_creacion', DateTime, nullable=False, server_default=func.getdate()),
+    Column('fecha_actualizacion', DateTime, nullable=True),
+    Column('usuario_actualizacion_id', UNIQUEIDENTIFIER, nullable=True),
+    UniqueConstraint('cliente_id', 'sequence_key', 'scope_fingerprint', name='UQ_cfg_scope'),
+    CheckConstraint(
+        "generation_policy IN ('AUTO_REQUIRED', 'AUTO_DEFAULT', 'MANUAL_ONLY')",
+        name='CK_cfg_generation_policy',
+    ),
+    Index('IDX_cfg_cliente_activo', 'cliente_id', 'es_activo'),
+    Index('IDX_cfg_empresa', 'cliente_id', 'empresa_id', 'sequence_key'),
+    Index('IDX_cfg_almacen', 'cliente_id', 'almacen_id', 'sequence_key'),
 )
 
 # ============================================================================

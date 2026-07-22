@@ -76,7 +76,7 @@ _MODULE_TO_SCRIPT_CODES: dict[str, tuple[str, ...]] = {
 
 _CATALOG_CHECKSUMS: dict[str, str] = {
     "02_catalog/S010__seed_modulo_menu_completo.sql": (
-        "a60ab6d4b5726a39c3c9197a637256e28d2afae00218aba0cfc5c12d45e96aba"
+        "5f29f4b651667cebed8c23718dcdef538ee93497798617b3dfa978b91bb0b209"
     ),
     "02_catalog/S020__seed_admin_menu.sql": (
         "99e9eaf9cea80d03acb098f291aa781aed9a747183335acbaf93d7482f1dbe7d"
@@ -165,6 +165,9 @@ _CATALOG_CHECKSUMS: dict[str, str] = {
     "02_catalog/permisos_rbac/S066__permisos_rbac_fase4-candidatos.sql": (
         "6fc863d553a2873bfce283def456b3c6b3bd87b1e8256047963d61f4ac54eeac"
     ),
+    "02_catalog/permisos_rbac/S068__permisos_rbac_cfg.sql": (
+        "ff6752f1eca3085debb90925db3cf2034f1501201825b7ae9872c97cdb93cd5e"
+    ),
 }
 
 
@@ -195,6 +198,12 @@ def _build_catalog_registry() -> dict[str, CatalogSeedScriptEntry]:
         ("catalog_s010", "02_catalog/S010__seed_modulo_menu_completo.sql", 10, None),
         ("catalog_s020", "02_catalog/S020__seed_admin_menu.sql", 20, None),
         ("catalog_s030", "02_catalog/S030__seed_permisos_core.sql", 30, None),
+        (
+            "catalog_s068",
+            "02_catalog/permisos_rbac/S068__permisos_rbac_cfg.sql",
+            35,
+            None,
+        ),
         ("catalog_s040", "02_catalog/permisos_rbac/S040__permisos_rbac_org.sql", 40, "ORG"),
         ("catalog_s041", "02_catalog/permisos_rbac/S041__permisos_rbac_inv-fase4.sql", 41, "INV"),
         ("catalog_s042", "02_catalog/permisos_rbac/S042__permisos_rbac_inv-lifecycle.sql", 42, "INV"),
@@ -289,7 +298,7 @@ def resolve_catalog_seed_profile(
 ) -> CatalogSeedProfile:
     plan = normalize_plan_suscripcion(plan_suscripcion)
     module_codes = resolve_module_codes_for_plan(plan)
-    script_codes = ["catalog_s010", "catalog_s020", "catalog_s030"]
+    script_codes = ["catalog_s010", "catalog_s020", "catalog_s030", "catalog_s068"]
     script_codes.extend(_script_codes_for_modules(module_codes))
     if "LOG" in module_codes or "FIN" in module_codes:
         if "catalog_s066" not in script_codes:
@@ -323,7 +332,7 @@ def _row_expectations_for_plan(
     module_codes: Sequence[str],
 ) -> tuple[tuple[str, int], ...]:
     expectations: list[tuple[str, int]] = [
-        ("modulo", 27),
+        ("modulo", 28),
         ("permiso", 1),
     ]
     if "ORG" in module_codes:

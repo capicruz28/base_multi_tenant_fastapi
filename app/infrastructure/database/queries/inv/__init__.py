@@ -7,6 +7,7 @@ from app.infrastructure.database.queries.inv.categoria_queries import (
     list_categorias,
     count_categorias,
     get_categoria_by_id,
+    get_categoria_by_codigo,
     create_categoria,
     update_categoria,
 )
@@ -14,6 +15,7 @@ from app.infrastructure.database.queries.inv.unidad_medida_queries import (
     list_unidades_medida,
     count_unidades_medida,
     get_unidad_medida_by_id,
+    get_unidad_medida_by_codigo,
     create_unidad_medida,
     update_unidad_medida,
 )
@@ -29,6 +31,7 @@ from app.infrastructure.database.queries.inv.almacen_queries import (
     list_almacenes,
     count_almacenes,
     get_almacen_by_id,
+    get_almacen_by_codigo,
     create_almacen,
     update_almacen,
 )
@@ -46,6 +49,7 @@ from app.infrastructure.database.queries.inv.tipo_movimiento_queries import (
     list_tipos_movimiento,
     count_tipos_movimiento,
     get_tipo_movimiento_by_id,
+    get_tipo_movimiento_by_codigo,
     create_tipo_movimiento,
     update_tipo_movimiento,
 )
@@ -90,12 +94,14 @@ __all__ = [
     "list_categorias",
     "count_categorias",
     "get_categoria_by_id",
+    "get_categoria_by_codigo",
     "create_categoria",
     "update_categoria",
     # Unidades de medida
     "list_unidades_medida",
     "count_unidades_medida",
     "get_unidad_medida_by_id",
+    "get_unidad_medida_by_codigo",
     "create_unidad_medida",
     "update_unidad_medida",
     # Productos
@@ -109,6 +115,7 @@ __all__ = [
     "list_almacenes",
     "count_almacenes",
     "get_almacen_by_id",
+    "get_almacen_by_codigo",
     "create_almacen",
     "update_almacen",
     # Stock
@@ -124,6 +131,7 @@ __all__ = [
     "list_tipos_movimiento",
     "count_tipos_movimiento",
     "get_tipo_movimiento_by_id",
+    "get_tipo_movimiento_by_codigo",
     "create_tipo_movimiento",
     "update_tipo_movimiento",
     # Movimientos

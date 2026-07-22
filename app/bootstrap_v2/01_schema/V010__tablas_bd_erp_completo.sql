@@ -6807,17 +6807,46 @@ CREATE INDEX IDX_aud_accion ON aud_log_auditoria(accion, fecha_evento DESC);
 
 
 CREATE TABLE cfg_codigo_secuencia (
-    secuencia_id    UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    cliente_id      UNIQUEIDENTIFIER NOT NULL,
-    empresa_id      UNIQUEIDENTIFIER NULL,  -- NULL = nivel cliente (org_empresa)
-    entidad         NVARCHAR(50)     NOT NULL,
-    prefijo         NVARCHAR(5)      NOT NULL,
-    longitud_numero INT              NOT NULL DEFAULT 3,
-    ultimo_numero   INT              NOT NULL DEFAULT 0,
-	separador       NVARCHAR(2)      NULL DEFAULT '',  -- '' o '-'
-    es_activo       BIT              NOT NULL DEFAULT 1,
-    UNIQUE(cliente_id, empresa_id, entidad)
+    secuencia_id              UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    cliente_id                UNIQUEIDENTIFIER NOT NULL,
+    sequence_key              NVARCHAR(64)     NOT NULL,
+    scope_type                NVARCHAR(20)     NOT NULL,
+    scope_fingerprint         CHAR(64)         NOT NULL,
+    empresa_id                UNIQUEIDENTIFIER NULL,
+    almacen_id                UNIQUEIDENTIFIER NULL,
+    punto_venta_id            UNIQUEIDENTIFIER NULL,
+    prefijo                   NVARCHAR(10)     NOT NULL,
+    separador                 NVARCHAR(2)      NULL DEFAULT '',
+    longitud_numero           INT              NOT NULL DEFAULT 3,
+    ultimo_numero             INT              NOT NULL DEFAULT 0,
+    numero_inicial            INT              NOT NULL DEFAULT 1,
+    es_activo                 BIT              NOT NULL DEFAULT 1,
+    generation_policy         NVARCHAR(20)     NOT NULL DEFAULT 'AUTO_DEFAULT',
+    fecha_creacion            DATETIME         NOT NULL DEFAULT GETDATE(),
+    fecha_actualizacion       DATETIME         NULL,
+    usuario_actualizacion_id  UNIQUEIDENTIFIER NULL,
+    CONSTRAINT UQ_cfg_scope UNIQUE (cliente_id, sequence_key, scope_fingerprint),
+    CONSTRAINT CK_cfg_scope_type CHECK (scope_type IN ('TENANT', 'EMPRESA', 'ALMACEN', 'PUNTO_VENTA')),
+    CONSTRAINT CK_cfg_numeros CHECK (
+        ultimo_numero >= 0
+        AND numero_inicial >= 1
+        AND longitud_numero BETWEEN 1 AND 12
+    ),
+    CONSTRAINT CK_cfg_prefijo_len CHECK (LEN(prefijo) <= 10),
+    CONSTRAINT CK_cfg_generation_policy CHECK (
+        generation_policy IN ('AUTO_REQUIRED', 'AUTO_DEFAULT', 'MANUAL_ONLY')
+    ),
+    CONSTRAINT FK_cfg_empresa FOREIGN KEY (empresa_id)
+        REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cfg_almacen FOREIGN KEY (almacen_id)
+        REFERENCES inv_almacen(almacen_id) ON DELETE NO ACTION,
+    CONSTRAINT FK_cfg_punto_venta FOREIGN KEY (punto_venta_id)
+        REFERENCES pos_punto_venta(punto_venta_id) ON DELETE NO ACTION
 );
+
+CREATE INDEX IDX_cfg_cliente_activo ON cfg_codigo_secuencia(cliente_id, es_activo);
+CREATE INDEX IDX_cfg_empresa ON cfg_codigo_secuencia(cliente_id, empresa_id, sequence_key);
+CREATE INDEX IDX_cfg_almacen ON cfg_codigo_secuencia(cliente_id, almacen_id, sequence_key);
 
 -- ============================================================================
 -- FIN DEL SCRIPT - TODOS LOS MÓDULOS COMPLETADOS

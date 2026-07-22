@@ -15,6 +15,7 @@ _ALLOCATION_MARKER_VERSION = 1
 class StorageAllocationRequest:
     cliente_id: UUID
     codigo_cliente: str
+    subdominio: str
 
 
 @dataclass(frozen=True, slots=True)

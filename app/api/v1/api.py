@@ -27,6 +27,7 @@ from app.modules.superadmin.presentation import endpoints_catalogos_globales as 
 from app.modules.superadmin.presentation import endpoints_catalog_sync as superadmin_catalog_sync_endpoints
 from app.modules.org.presentation import endpoints as org_endpoints
 from app.modules.inv.presentation import endpoints as inv_endpoints
+from app.modules.cfg.presentation import router as cfg_router
 from app.modules.pur.presentation import endpoints as pur_endpoints
 from app.modules.sls.presentation import endpoints as sls_endpoints
 from app.modules.invbill.presentation import endpoints as invbill_endpoints
@@ -205,6 +206,15 @@ api_router.include_router(
     inv_endpoints.router,
     prefix="/inv",
     tags=["INV - Inventarios"]
+)
+
+# ========================================
+# ENDPOINTS CFG (SECUENCIAS DE CÓDIGO ERP)
+# ========================================
+api_router.include_router(
+    cfg_router.router,
+    prefix="/cfg",
+    tags=["CFG - Secuencias de código"],
 )
 
 # ========================================

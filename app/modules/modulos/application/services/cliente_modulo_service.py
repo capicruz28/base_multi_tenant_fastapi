@@ -127,6 +127,20 @@ class ClienteModuloService(BaseService):
 
     @staticmethod
     @BaseService.handle_service_errors
+    async def obtener_codigos_modulos_activos_cliente(cliente_id: UUID) -> set[str]:
+        """Códigos de módulos contratados y activos del tenant (proyección de lectura canónica).
+
+        Reutiliza ``obtener_modulos_activos_cliente`` — no ejecuta SQL adicional.
+        """
+        modulos = await ClienteModuloService.obtener_modulos_activos_cliente(cliente_id)
+        return {
+            m.modulo_codigo.strip().upper()
+            for m in modulos
+            if m.modulo_codigo
+        }
+
+    @staticmethod
+    @BaseService.handle_service_errors
     async def obtener_modulo_activo_por_id(
         cliente_modulo_id: UUID,
         *,

@@ -9,8 +9,8 @@
 -- DEPENDENCIAS: Ejecutar después de TABLAS_BD_CENTRAL.sql
 -- USO: Ejecutar UNA SOLA VEZ. modulo_menu depende de modulo y modulo_seccion.
 --      Si ya tiene datos en modulo (ej. SEED_BD_CENTRAL con ALMACEN/LOGISTICA/
---      PLANILLAS), no hay conflicto de codigo; este script agrega los 27
---      módulos del menú (ORG, INV, WMS, ...). Para BD nueva: ejecutar este
+--      PLANILLAS), no hay conflicto de codigo; este script agrega los 28
+--      módulos del menú (ORG, INV, WMS, ..., AUD, CFG). Para BD nueva: ejecutar este
 --      script completo.
 --
 -- IMPORTANTE: Para que el frontend MUESTRE estos módulos, hay que activarlos
@@ -23,7 +23,7 @@
 -- GO
 
 -- ============================================================================
--- SECCIÓN 1: MÓDULOS ERP (27 módulos según MENU_NAVEGACION.md)
+-- SECCIÓN 1: MÓDULOS ERP (28 módulos: 27 MENU_NAVEGACION.md + CFG)
 -- ============================================================================
 
 INSERT INTO modulo (modulo_id, codigo, nombre, descripcion, icono, color, categoria, es_core, requiere_licencia, orden, es_activo) VALUES
@@ -53,7 +53,8 @@ INSERT INTO modulo (modulo_id, codigo, nombre, descripcion, icono, color, catego
 ('E1000018-0000-4000-8000-000000000018', 'BI', 'Reportes y Analytics', 'Reportes Configurables, Dashboards', 'bar_chart', '#2196F3', 'reportes', 0, 1, 24, 1),
 ('E1000019-0000-4000-8000-000000000019', 'DMS', 'Gestión Documental', 'Documentos, Búsqueda', 'folder_open', '#795548', 'documentos', 0, 1, 25, 1),
 ('E100001A-0000-4000-8000-00000000001A', 'WFL', 'Flujos de Trabajo', 'Workflows, Seguimiento', 'account_tree', '#673AB7', 'configuracion', 0, 1, 26, 1),
-('E100001B-0000-4000-8000-00000000001B', 'AUD', 'Auditoría', 'Log de Auditoría, Reportes de Trazabilidad', 'history', '#607D8B', 'auditoria', 0, 1, 27, 1);
+('E100001B-0000-4000-8000-00000000001B', 'AUD', 'Auditoría', 'Log de Auditoría, Reportes de Trazabilidad', 'history', '#607D8B', 'auditoria', 0, 1, 27, 1),
+('E100001C-0000-4000-8000-00000000001C', 'CFG', 'Códigos y Secuencias', 'Administración de secuencias de código del Motor (prefijo, separador, padding, activo)', 'hash', '#00897B', 'configuracion', 1, 0, 0, 1);
 
 -- ============================================================================
 -- SECCIÓN 2: SECCIONES (una por módulo, para agrupar menús)
@@ -86,11 +87,13 @@ INSERT INTO modulo_seccion (seccion_id, modulo_id, codigo, nombre, descripcion, 
 ('E2000018-0000-4000-8000-000000000018', 'E1000018-0000-4000-8000-000000000018', 'PRINCIPAL', 'Principal', 'Opciones Reportes', 'bar_chart', 1, 1, 1),
 ('E2000019-0000-4000-8000-000000000019', 'E1000019-0000-4000-8000-000000000019', 'PRINCIPAL', 'Principal', 'Opciones Documentos', 'folder_open', 1, 1, 1),
 ('E200001A-0000-4000-8000-00000000001A', 'E100001A-0000-4000-8000-00000000001A', 'PRINCIPAL', 'Principal', 'Opciones Workflows', 'account_tree', 1, 1, 1),
-('E200001B-0000-4000-8000-00000000001B', 'E100001B-0000-4000-8000-00000000001B', 'PRINCIPAL', 'Principal', 'Opciones Auditoría', 'history', 1, 1, 1);
+('E200001B-0000-4000-8000-00000000001B', 'E100001B-0000-4000-8000-00000000001B', 'PRINCIPAL', 'Principal', 'Opciones Auditoría', 'history', 1, 1, 1),
+('E200001C-0000-4000-8000-00000000001C', 'E100001C-0000-4000-8000-00000000001C', 'PRINCIPAL', 'Principal', 'Opciones del módulo Códigos y Secuencias', 'hash', 1, 1, 1);
 
 -- ============================================================================
--- SECCIÓN 3: MENÚS POR MÓDULO (modulo_menu) — Según MENU_NAVEGACION.md
--- Rutas alineadas con API: /org/..., /inv/..., etc.
+-- SECCIÓN 3: MENÚS POR MÓDULO (modulo_menu) — Según MENU_NAVEGACION.md + CFG
+-- Rutas alineadas con API: /org/..., /inv/..., /cfg/..., etc.
+-- (S021 / normalizer anteponen /app a rutas legacy absolutas)
 -- ============================================================================
 
 -- ----- ORG (6 ítems: Mi Empresa, Sucursales, ...) -----
@@ -219,6 +222,10 @@ INSERT INTO modulo_menu (menu_id, modulo_id, seccion_id, cliente_id, codigo, nom
 ('E31A0002-0000-4000-8000-000000000002', 'E100001A-0000-4000-8000-00000000001A', 'E200001A-0000-4000-8000-00000000001A', NULL, 'WFL_SEGUIMIENTO', 'Seguimiento', 'Estado de aprobaciones pendientes', 'pending_actions', '/wfl/seguimiento', NULL, 1, 'pantalla', 2, 1, 1, 1, 1),
 ('E31B0001-0000-4000-8000-000000000001', 'E100001B-0000-4000-8000-00000000001B', 'E200001B-0000-4000-8000-00000000001B', NULL, 'AUD_LOG', 'Log de Auditoría', 'Registro de todos los cambios', 'history', '/aud/log', NULL, 1, 'pantalla', 1, 1, 1, 1, 1),
 ('E31B0002-0000-4000-8000-000000000002', 'E100001B-0000-4000-8000-00000000001B', 'E200001B-0000-4000-8000-00000000001B', NULL, 'AUD_TRAZABILIDAD', 'Reportes de Trazabilidad', 'Rastrear cambios en documentos críticos', 'track_changes', '/aud/trazabilidad', NULL, 1, 'pantalla', 2, 1, 1, 1, 1);
+
+-- ----- CFG (1 ítem: Secuencias de código) -----
+INSERT INTO modulo_menu (menu_id, modulo_id, seccion_id, cliente_id, codigo, nombre, descripcion, icono, ruta, menu_padre_id, nivel, tipo_menu, orden, requiere_autenticacion, es_visible, es_menu_sistema, es_activo) VALUES
+('E31C0001-0000-4000-8000-000000000001', 'E100001C-0000-4000-8000-00000000001C', 'E200001C-0000-4000-8000-00000000001C', NULL, 'CFG_SECUENCIAS', 'Secuencias de código', 'Consultar y configurar secuencias cfg_codigo_secuencia del tenant', 'hash', '/cfg/secuencias', NULL, 1, 'pantalla', 1, 1, 1, 1, 1);
 
 PRINT 'Seed modulo, modulo_seccion y modulo_menu completado.';
 GO

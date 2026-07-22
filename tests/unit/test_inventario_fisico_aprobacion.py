@@ -39,6 +39,17 @@ UM_ID = uuid4()
 MOVIMIENTO_AJUSTE_ID = uuid4()
 
 
+@pytest.fixture(autouse=True)
+def _mock_inv_codigo_generation():
+    """F2A: la aprobación numera el ajuste vía Gateway (inv_movimiento). En unit
+    tests se mockea InvCodigoGenerationService para no tocar el store/DB real."""
+    with patch(
+        "app.modules.inv.application.services.inventario_fisico_aprobacion_service.InvCodigoGenerationService.resolve_codigo_for_create",
+        new=AsyncMock(return_value="MOV-AJU-GEN"),
+    ):
+        yield
+
+
 class _FakeUowContext:
     def __init__(self, uow):
         self._uow = uow

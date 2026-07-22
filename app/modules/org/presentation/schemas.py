@@ -15,8 +15,13 @@ from app.shared.validators import normalize_upper, normalize_lower, normalize_st
 # ----- Mixins de normalización (solo Create / Update) -----
 
 class _EmpresaWriteMixin:
+    # codigo_empresa solo en Create (BR-IMM); check_fields=False permite Update sin el campo
+    @field_validator("codigo_empresa", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_empresa(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
     @field_validator(
-        "codigo_empresa",
         "razon_social",
         "ruc",
         "direccion_fiscal",
@@ -66,7 +71,13 @@ class _EmpresaWriteMixin:
 
 
 class _CentroCostoWriteMixin:
-    @field_validator("codigo", "tipo_centro_costo", "ruta_jerarquica", mode="before")
+    # codigo solo en Create (BR-IMM)
+    @field_validator("codigo", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_centro_costo(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("tipo_centro_costo", "ruta_jerarquica", mode="before")
     @classmethod
     def _upper_centro_costo(cls, v: Optional[str]) -> Optional[str]:
         return normalize_upper(v)
@@ -78,7 +89,13 @@ class _CentroCostoWriteMixin:
 
 
 class _SucursalWriteMixin:
-    @field_validator("codigo", "ubigeo", "codigo_postal", "tipo_sucursal", mode="before")
+    # codigo solo en Create (BR-IMM)
+    @field_validator("codigo", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_sucursal(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("ubigeo", "codigo_postal", "tipo_sucursal", mode="before")
     @classmethod
     def _upper_sucursal(cls, v: Optional[str]) -> Optional[str]:
         return normalize_upper(v)
@@ -105,7 +122,13 @@ class _SucursalWriteMixin:
 
 
 class _DepartamentoWriteMixin:
-    @field_validator("codigo", "ruta_jerarquica", mode="before")
+    # codigo solo en Create (BR-IMM)
+    @field_validator("codigo", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_departamento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("ruta_jerarquica", mode="before")
     @classmethod
     def _upper_departamento(cls, v: Optional[str]) -> Optional[str]:
         return normalize_upper(v)
@@ -123,9 +146,10 @@ class _DepartamentoWriteMixin:
 
 
 class _CargoWriteMixin:
-    @field_validator("codigo", mode="before")
+    # codigo solo en Create (BR-IMM)
+    @field_validator("codigo", mode="before", check_fields=False)
     @classmethod
-    def _upper_cargo(cls, v: Optional[str]) -> Optional[str]:
+    def _upper_codigo_cargo(cls, v: Optional[str]) -> Optional[str]:
         return normalize_upper(v)
 
     @field_validator(
@@ -144,7 +168,7 @@ class _CargoWriteMixin:
 
 # ----- Empresa -----
 class EmpresaCreate(_EmpresaWriteMixin, BaseModel):
-    codigo_empresa: str = Field(..., max_length=20)
+    codigo_empresa: Optional[str] = Field(None, max_length=20)
     razon_social: str = Field(..., max_length=200)
     nombre_comercial: Optional[str] = Field(None, max_length=150)
     ruc: str = Field(..., max_length=11)
@@ -185,7 +209,7 @@ class EmpresaCreate(_EmpresaWriteMixin, BaseModel):
 
 
 class EmpresaUpdate(_EmpresaWriteMixin, BaseModel):
-    codigo_empresa: Optional[str] = Field(None, max_length=20)
+    # codigo_empresa omitido — BR-IMM-01 (inmutable post-CREATE)
     razon_social: Optional[str] = Field(None, max_length=200)
     nombre_comercial: Optional[str] = None
     ruc: Optional[str] = None
@@ -278,7 +302,7 @@ class EmpresaRead(BaseModel):
 # ----- Centro de costo -----
 class CentroCostoCreate(_CentroCostoWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = None
     centro_costo_padre_id: Optional[UUID] = None
@@ -296,7 +320,7 @@ class CentroCostoCreate(_CentroCostoWriteMixin, BaseModel):
 
 
 class CentroCostoUpdate(_CentroCostoWriteMixin, BaseModel):
-    codigo: Optional[str] = None
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     centro_costo_padre_id: Optional[UUID] = None
@@ -343,7 +367,7 @@ class CentroCostoRead(BaseModel):
 # ----- Sucursal -----
 class SucursalCreate(_SucursalWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = None
     tipo_sucursal: Optional[str] = "sede"
@@ -374,7 +398,7 @@ class SucursalCreate(_SucursalWriteMixin, BaseModel):
 
 
 class SucursalUpdate(_SucursalWriteMixin, BaseModel):
-    codigo: Optional[str] = None
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     tipo_sucursal: Optional[str] = None
@@ -447,7 +471,7 @@ class SucursalRead(BaseModel):
 # ----- Departamento -----
 class DepartamentoCreate(_DepartamentoWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = None
     departamento_padre_id: Optional[UUID] = None
@@ -462,7 +486,7 @@ class DepartamentoCreate(_DepartamentoWriteMixin, BaseModel):
 
 
 class DepartamentoUpdate(_DepartamentoWriteMixin, BaseModel):
-    codigo: Optional[str] = None
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     departamento_padre_id: Optional[UUID] = None
@@ -503,7 +527,7 @@ class DepartamentoRead(BaseModel):
 # ----- Cargo -----
 class CargoCreate(_CargoWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = None
     nivel_jerarquico: Optional[int] = 1
@@ -521,7 +545,7 @@ class CargoCreate(_CargoWriteMixin, BaseModel):
 
 
 class CargoUpdate(_CargoWriteMixin, BaseModel):
-    codigo: Optional[str] = None
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = None
     descripcion: Optional[str] = None
     nivel_jerarquico: Optional[int] = None

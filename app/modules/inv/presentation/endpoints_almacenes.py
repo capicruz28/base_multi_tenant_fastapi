@@ -7,7 +7,7 @@ from typing import Optional
 from app.api.deps import get_current_active_user
 from app.modules.inv.presentation.inv_deps import get_inv_session_client_id
 from app.core.authorization.rbac import require_permission
-from app.core.exceptions import NotFoundError, AuthorizationError
+from app.core.exceptions import NotFoundError, AuthorizationError, CustomException
 from app.modules.users.presentation.schemas import UsuarioReadWithRoles
 from app.modules.inv.presentation.schemas import AlmacenCreate, AlmacenUpdate, AlmacenRead
 from app.modules.inv.application.services import almacen_service
@@ -60,9 +60,13 @@ async def crear_almacen(
 ):
     """Crea un almacén. empresa_id del body debe coincidir con la sesión."""
     try:
-        return await almacen_service.create_almacen_servicio(client_id=client_id, data=data)
-    except AuthorizationError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
+        return await almacen_service.create_almacen_servicio(
+            client_id=client_id,
+            data=data,
+            usuario_id=current_user.usuario_id,
+        )
+    except (AuthorizationError, CustomException) as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @router.put("/{almacen_id}", response_model=AlmacenRead, summary="Actualizar almacén")
@@ -79,6 +83,7 @@ async def actualizar_almacen(
             client_id=client_id,
             almacen_id=almacen_id,
             data=data,
+            usuario_id=current_user.usuario_id,
         )
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)

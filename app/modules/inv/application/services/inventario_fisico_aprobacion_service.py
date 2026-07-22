@@ -30,6 +30,9 @@ from app.infrastructure.database.queries.inv import (
     get_producto_by_id,
     get_almacen_by_id,
 )
+from app.modules.inv.application.services.inv_codigo_generation_service import (
+    InvCodigoGenerationService,
+)
 from app.modules.inv.application.services.movimiento_proceso_service import (
     procesar_movimiento_servicio,
 )
@@ -41,6 +44,7 @@ _MSG_APROBAR_SIN_DIFERENCIAS = (
     "No existen diferencias de inventario para aprobar. "
     "Utilice POST /inventario-fisico/{id}/finalizar para cerrar el conteo sin ajuste de stock."
 )
+_SEQUENCE_KEY_MOVIMIENTO = "inv_movimiento"
 
 
 def _dec(v: Optional[object]) -> Decimal:
@@ -49,12 +53,6 @@ def _dec(v: Optional[object]) -> Decimal:
     if isinstance(v, Decimal):
         return v
     return Decimal(str(v))
-
-
-def _gen_numero_movimiento(prefix: str = "INV-AJUS") -> str:
-    stamp = datetime.utcnow().strftime("%y%m%d")
-    micro = datetime.utcnow().strftime("%f")[-4:]
-    return f"{prefix}-{stamp}-{micro}"[:20]
 
 
 @dataclass(frozen=True)
@@ -207,7 +205,14 @@ async def aprobar_inventario_fisico_servicio(
                 detail=_MSG_APROBAR_SIN_DIFERENCIAS,
             )
 
-        numero_movimiento = _gen_numero_movimiento()
+        assert uow.session is not None
+        numero_movimiento = await InvCodigoGenerationService.resolve_codigo_for_create(
+            _SEQUENCE_KEY_MOVIMIENTO,
+            session=uow.session,
+            client_id=client_id,
+            empresa_id=empresa_id,
+            manual_code=None,
+        )
         movimiento_id = uuid.uuid4()
         await uow.execute(
             insert(InvMovimientoTable).values(

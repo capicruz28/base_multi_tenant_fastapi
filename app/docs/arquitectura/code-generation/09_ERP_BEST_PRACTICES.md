@@ -84,7 +84,7 @@ La política de **documento compensatorio con nuevo número** es estándar de me
 |---------|----------|------------|
 | Scope | Subsidiary | empresa_id — alineado |
 | SaaS multi-tenant | Aislamiento por cuenta | cliente_id — alineado |
-| Edición código | Bloqueada tras uso | BR-M-30 — alineado |
+| Edición código | Bloqueada **desde CREATE** | **BR-IMM-01** — alineado (más estricto que “post-uso”) |
 | Import CSV | Permite External ID + número | Reglas importación §7 `07` — alineado |
 
 ### 4.3 Lección para CAXIS
@@ -125,11 +125,13 @@ Odoo demuestra que la **flexibilidad excesiva** en secuencias genera deuda opera
 | Documento auto-numerado | ✅ | ✅ | ✅ | ✅ | ✅ AUTO_REQUIRED |
 | Maestro auto opcional | ✅ | ✅ | ✅ | ✅ | ✅ AUTO_DEFAULT |
 | Series fiscales aisladas | ✅ | ✅ | ✅ | ✅ | ✅ F3 |
-| Inmutabilidad post-uso | ✅ | ✅ | ✅ | ✅ | ✅ BR-M-30 |
+| Inmutabilidad post-CREATE | ✅* | ✅* | ✅* | ○ | ✅ **BR-IMM-01** |
 | Reversión = nuevo número | ✅ | ✅ | ✅ | ✅ | ✅ BR-D-04 |
 | Huecos permitidos | Generalmente sí | Sí | Sí | Sí | Sí (no fiscal arbitrario) |
 | Preview próximo | Limitado | Limitado | Limitado | Admin | Opcional maestros |
 | Reinicio secuencia | Excepcional | Excepcional | Excepcional | Posible | Excepcional BR-S |
+
+\* En SAP / Dynamics / NetSuite la práctica dominante es identificador de negocio estable; el umbral exacto (create vs posted) varía. CAXIS adopta el umbral más estricto y uniforme: **post-CREATE** (**BR-IMM-01**).
 
 ---
 

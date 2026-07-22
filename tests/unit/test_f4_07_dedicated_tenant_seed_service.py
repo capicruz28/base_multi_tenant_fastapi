@@ -19,9 +19,7 @@ from app.infrastructure.provisioning.tenant_seed_profiles import (
     resolve_tenant_seed_profile,
     validate_tenant_seed_profile_integrity,
 )
-from app.modules.tenant.application.services.cliente_onboarding_service import (
-    SECUENCIAS_CODIGO,
-)
+from app.core.codigo.onboarding_seed import EAGER_SEQUENCE_KEYS
 
 CLIENTE_ID = uuid4()
 ADMIN_ROL_ID = uuid4()
@@ -68,7 +66,7 @@ class MockSession:
             "rol": 3,
             "org_empresa": 1,
             "usuario": 1,
-            "cfg_codigo_secuencia": len(SECUENCIAS_CODIGO),
+            "cfg_codigo_secuencia": len(EAGER_SEQUENCE_KEYS),
         }
 
     async def execute(self, statement, params=None):

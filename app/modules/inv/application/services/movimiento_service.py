@@ -2,6 +2,8 @@
 """
 Servicio de Movimiento (INV). client_id siempre desde contexto, nunca desde body.
 Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
+CREATE: UoW + InvCodigoGenerationService (sequence_key inv_movimiento).
+UPDATE: BR-IMM — numero_movimiento inmutable.
 """
 from __future__ import annotations
 
@@ -40,6 +42,9 @@ from app.infrastructure.database.queries.inv import (
     get_unidad_medida_by_id,
 )
 from app.modules.inv.application.services.inv_audit_context import apply_create_audit
+from app.modules.inv.application.services.inv_codigo_generation_service import (
+    InvCodigoGenerationService,
+)
 from app.modules.inv.application.services.inv_workflow_enforcement import (
     reject_movimiento_workflow_in_update,
     sanitize_movimiento_create_payload,
@@ -56,6 +61,7 @@ from app.modules.inv.presentation.schemas import (
 
 _MOV_COLUMNS = {c.name for c in InvMovimientoTable.c}
 _MOV_DET_COLUMNS = {c.name for c in InvMovimientoDetalleTable.c}
+_SEQUENCE_KEY = "inv_movimiento"
 
 
 def _row_to_read(row: dict) -> MovimientoRead:
@@ -229,7 +235,21 @@ async def create_movimiento_servicio(
         moneda_codigo=payload.get("moneda"),
     )
     payload = apply_create_audit(payload, usuario_id)
-    row = await create_movimiento(client_id=client_id, data=payload)
+
+    async with unit_of_work(client_id=client_id) as uow:
+        assert uow.session is not None
+        payload["numero_movimiento"] = (
+            await InvCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=uow.session,
+                client_id=client_id,
+                empresa_id=empresa_id,
+                manual_code=None,
+            )
+        )
+        row = await create_movimiento(
+            client_id=client_id, data=payload, session=uow.session
+        )
     return _row_to_read(row)
 
 
@@ -382,9 +402,19 @@ async def create_movimiento_con_detalles_servicio(
         ),
         fecha_actualizacion=now,
     )
-    cab_filtered = {k: v for k, v in cab_payload.items() if k in _MOV_COLUMNS}
 
     async with unit_of_work(client_id=client_id) as uow:
+        assert uow.session is not None
+        cab_payload["numero_movimiento"] = (
+            await InvCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=uow.session,
+                client_id=client_id,
+                empresa_id=empresa_id,
+                manual_code=None,
+            )
+        )
+        cab_filtered = {k: v for k, v in cab_payload.items() if k in _MOV_COLUMNS}
         await uow.execute(insert(InvMovimientoTable).values(**cab_filtered))
 
         await _insert_movimiento_detalles(
@@ -513,7 +543,8 @@ async def update_movimiento_con_detalles_servicio(
             filtered = {
                 k: v
                 for k, v in cab_payload.items()
-                if k in _MOV_COLUMNS and k not in ("movimiento_id", "cliente_id")
+                if k in _MOV_COLUMNS
+                and k not in ("movimiento_id", "cliente_id", "numero_movimiento")
             }
             if filtered:
                 await uow.execute(

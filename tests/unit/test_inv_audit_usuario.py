@@ -3,14 +3,16 @@ Tests unitarios — INV-P0-004: helpers A-01–A-05, servicios A-10–A-17 (cobe
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.core.tenant.empresa_context import reset_current_empresa_id, set_current_empresa_id
+from app.core.tenant.routing import OPERATION_CLASS_TENANT_DATA
 from app.modules.inv.application.services import (
     categoria_service,
     inventario_fisico_service,
@@ -57,6 +59,24 @@ class _FakeUowContext:
 
     async def __aexit__(self, *args):
         return False
+
+
+def _session_context_manager(session):
+    @asynccontextmanager
+    async def _cm():
+        yield session
+
+    return _cm()
+
+
+def _make_uow_session():
+    """Sesión fake con `begin()` como context manager async no-op (patrón UoW)."""
+    session = AsyncMock()
+    begin_cm = AsyncMock()
+    begin_cm.__aenter__ = AsyncMock(return_value=None)
+    begin_cm.__aexit__ = AsyncMock(return_value=None)
+    session.begin = MagicMock(return_value=begin_cm)
+    return session
 
 
 def _set_empresa_ctx(empresa_id):
@@ -117,11 +137,24 @@ async def test_a10_create_categoria_servicio_persiste_usuario_creacion_id():
         "es_activo": True,
         "usuario_creacion_id": USUARIO_ID,
     }
+    session = _make_uow_session()
     try:
         with patch(
+            "app.modules.inv.application.services.categoria_service.enforce_body_empresa_matches_session",
+            return_value=EMPRESA_ID,
+        ), patch(
             "app.modules.inv.application.services.categoria_service.ensure_empresa_in_tenant",
             new=AsyncMock(),
         ), patch(
+            "app.modules.inv.application.services.categoria_service.get_connection_for_tenant",
+            return_value=_session_context_manager(session),
+        ) as mock_get_conn, patch(
+            "app.modules.inv.application.services.categoria_service.get_categoria_by_codigo",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.modules.inv.application.services.categoria_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="CAT-AUD"),
+        ) as mock_resolve, patch(
             "app.modules.inv.application.services.categoria_service.create_categoria",
             new=AsyncMock(return_value=row),
         ) as mock_create:
@@ -132,6 +165,18 @@ async def test_a10_create_categoria_servicio_persiste_usuario_creacion_id():
             )
             payload = mock_create.await_args.kwargs["data"]
             assert payload["usuario_creacion_id"] == USUARIO_ID
+            # UoW + Gateway observados (sin ejecutar Gateway real)
+            mock_get_conn.assert_called_once_with(CLIENT_ID, OPERATION_CLASS_TENANT_DATA)
+            session.begin.assert_called_once()
+            mock_resolve.assert_awaited_once_with(
+                "inv_categoria_producto",
+                session=session,
+                client_id=CLIENT_ID,
+                empresa_id=EMPRESA_ID,
+                manual_code="CAT-AUD",
+            )
+            assert mock_create.await_args.kwargs["session"] is session
+            assert payload["codigo"] == "CAT-AUD"
     finally:
         reset_current_empresa_id(token)
 
@@ -162,16 +207,26 @@ async def test_a11_create_producto_servicio_persiste_usuario_creacion_id():
         "es_activo": True,
         "usuario_creacion_id": USUARIO_ID,
     }
+    session = _make_uow_session()
     try:
         with patch(
+            "app.modules.inv.application.services.producto_service.enforce_body_empresa_matches_session",
+            return_value=EMPRESA_ID,
+        ), patch(
             "app.modules.inv.application.services.producto_service.ensure_empresa_in_tenant",
             new=AsyncMock(),
+        ), patch(
+            "app.modules.inv.application.services.producto_service._validate_producto_referencias_empresa",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.inv.application.services.producto_service.get_connection_for_tenant",
+            return_value=_session_context_manager(session),
         ), patch(
             "app.modules.inv.application.services.producto_service.get_producto_by_sku",
             new=AsyncMock(return_value=None),
         ), patch(
-            "app.modules.inv.application.services.producto_service._validate_producto_referencias_empresa",
-            new=AsyncMock(),
+            "app.modules.inv.application.services.producto_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="SKU-AUD"),
         ), patch(
             "app.modules.inv.application.services.producto_service.create_producto",
             new=AsyncMock(return_value=row),
@@ -183,6 +238,8 @@ async def test_a11_create_producto_servicio_persiste_usuario_creacion_id():
             )
             payload = mock_create.await_args.kwargs["data"]
             assert payload["usuario_creacion_id"] == USUARIO_ID
+            assert payload["codigo_sku"] == "SKU-AUD"
+            assert mock_create.await_args.kwargs["session"] is session
     finally:
         reset_current_empresa_id(token)
 
@@ -266,7 +323,6 @@ async def test_a13_create_movimiento_servicio_persiste_usuario_creacion_id():
     token = _set_empresa_ctx(EMPRESA_ID)
     data = MovimientoCreate(
         empresa_id=EMPRESA_ID,
-        numero_movimiento="MOV-AUD-001",
         tipo_movimiento_id=TIPO_MOVIMIENTO_ID,
         fecha_contable=date(2026, 6, 12),
     )
@@ -274,7 +330,7 @@ async def test_a13_create_movimiento_servicio_persiste_usuario_creacion_id():
         "movimiento_id": MOVIMIENTO_ID,
         "cliente_id": CLIENT_ID,
         "empresa_id": EMPRESA_ID,
-        "numero_movimiento": "MOV-AUD-001",
+        "numero_movimiento": "MOV000001",
         "tipo_movimiento_id": TIPO_MOVIMIENTO_ID,
         "fecha_movimiento": datetime.utcnow(),
         "fecha_contable": date(2026, 6, 12),
@@ -282,6 +338,11 @@ async def test_a13_create_movimiento_servicio_persiste_usuario_creacion_id():
         "moneda_id": MONEDA_ID,
         "usuario_creacion_id": USUARIO_ID,
     }
+    session = AsyncMock()
+    uow = AsyncMock()
+    uow.session = session
+    uow.__aenter__ = AsyncMock(return_value=uow)
+    uow.__aexit__ = AsyncMock(return_value=None)
     try:
         with patch(
             "app.modules.inv.application.services.movimiento_service.ensure_empresa_in_tenant",
@@ -292,6 +353,12 @@ async def test_a13_create_movimiento_servicio_persiste_usuario_creacion_id():
         ), patch(
             "app.modules.inv.application.services.movimiento_service._resolve_moneda_id",
             new=AsyncMock(return_value=MONEDA_ID),
+        ), patch(
+            "app.modules.inv.application.services.movimiento_service.unit_of_work",
+            return_value=uow,
+        ), patch(
+            "app.modules.inv.application.services.movimiento_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="MOV000001"),
         ), patch(
             "app.modules.inv.application.services.movimiento_service.create_movimiento",
             new=AsyncMock(return_value=row),
@@ -304,6 +371,7 @@ async def test_a13_create_movimiento_servicio_persiste_usuario_creacion_id():
             payload = mock_create.await_args.kwargs["data"]
             assert payload["usuario_creacion_id"] == USUARIO_ID
             assert payload["estado"] == "borrador"
+            assert payload["numero_movimiento"] == "MOV000001"
     finally:
         reset_current_empresa_id(token)
 
@@ -321,7 +389,6 @@ async def test_a15_create_movimiento_con_detalles_servicio_cabecera_usuario_crea
     )
     data = MovimientoConDetalleCreate(
         empresa_id=EMPRESA_ID,
-        numero_movimiento="MOV-AUD-002",
         tipo_movimiento_id=TIPO_MOVIMIENTO_ID,
         fecha_contable=date(2026, 6, 12),
         detalles=[detalle],
@@ -330,7 +397,7 @@ async def test_a15_create_movimiento_con_detalles_servicio_cabecera_usuario_crea
         "movimiento_id": MOVIMIENTO_ID,
         "cliente_id": CLIENT_ID,
         "empresa_id": EMPRESA_ID,
-        "numero_movimiento": "MOV-AUD-002",
+        "numero_movimiento": "MOV000002",
         "tipo_movimiento_id": TIPO_MOVIMIENTO_ID,
         "fecha_movimiento": datetime.utcnow(),
         "fecha_contable": date(2026, 6, 12),
@@ -374,6 +441,7 @@ async def test_a15_create_movimiento_con_detalles_servicio_cabecera_usuario_crea
         return [det_row]
 
     mock_uow = AsyncMock()
+    mock_uow.session = AsyncMock()
     mock_uow.execute = AsyncMock(side_effect=_fake_execute)
 
     try:
@@ -390,6 +458,9 @@ async def test_a15_create_movimiento_con_detalles_servicio_cabecera_usuario_crea
             "app.modules.inv.application.services.movimiento_service._resolve_moneda_id",
             new=AsyncMock(return_value=MONEDA_ID),
         ), patch(
+            "app.modules.inv.application.services.movimiento_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="MOV000002"),
+        ), patch(
             "app.modules.inv.application.services.movimiento_service.unit_of_work",
             return_value=_FakeUowContext(mock_uow),
         ):
@@ -400,6 +471,7 @@ async def test_a15_create_movimiento_con_detalles_servicio_cabecera_usuario_crea
             )
         assert inserted_cabecera["usuario_creacion_id"] == USUARIO_ID
         assert inserted_cabecera["estado"] == "borrador"
+        assert inserted_cabecera["numero_movimiento"] == "MOV000002"
     finally:
         reset_current_empresa_id(token)
 
@@ -410,7 +482,6 @@ async def test_a14_create_inventario_fisico_servicio_persiste_usuario_creacion_i
     token = _set_empresa_ctx(EMPRESA_ID)
     data = InventarioFisicoCreate(
         empresa_id=EMPRESA_ID,
-        numero_inventario="INV-AUD-001",
         fecha_inventario=date(2026, 6, 12),
         almacen_id=ALMACEN_ID,
         tipo_inventario="total",
@@ -419,13 +490,18 @@ async def test_a14_create_inventario_fisico_servicio_persiste_usuario_creacion_i
         "inventario_fisico_id": INVENTARIO_FISICO_ID,
         "cliente_id": CLIENT_ID,
         "empresa_id": EMPRESA_ID,
-        "numero_inventario": "INV-AUD-001",
+        "numero_inventario": "IF00001",
         "fecha_inventario": date(2026, 6, 12),
         "almacen_id": ALMACEN_ID,
         "tipo_inventario": "total",
         "estado": "en_proceso",
         "usuario_creacion_id": USUARIO_ID,
     }
+    session = AsyncMock()
+    uow = AsyncMock()
+    uow.session = session
+    uow.__aenter__ = AsyncMock(return_value=uow)
+    uow.__aexit__ = AsyncMock(return_value=None)
     try:
         with patch(
             "app.modules.inv.application.services.inventario_fisico_service.ensure_empresa_in_tenant",
@@ -433,6 +509,12 @@ async def test_a14_create_inventario_fisico_servicio_persiste_usuario_creacion_i
         ), patch(
             "app.modules.inv.application.services.inventario_fisico_service._validate_cabecera_refs",
             new=AsyncMock(),
+        ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.unit_of_work",
+            return_value=uow,
+        ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="IF00001"),
         ), patch(
             "app.modules.inv.application.services.inventario_fisico_service.create_inventario_fisico",
             new=AsyncMock(return_value=row),
@@ -445,6 +527,7 @@ async def test_a14_create_inventario_fisico_servicio_persiste_usuario_creacion_i
             payload = mock_create.await_args.kwargs["data"]
             assert payload["usuario_creacion_id"] == USUARIO_ID
             assert payload["estado"] == "en_proceso"
+            assert payload["numero_inventario"] == "IF00001"
     finally:
         reset_current_empresa_id(token)
 
@@ -460,7 +543,6 @@ async def test_a14_create_inventario_fisico_con_detalles_cabecera_usuario_creaci
     )
     data = InventarioFisicoConDetalleCreate(
         empresa_id=EMPRESA_ID,
-        numero_inventario="INV-AUD-002",
         fecha_inventario=date(2026, 6, 12),
         almacen_id=ALMACEN_ID,
         tipo_inventario="total",
@@ -470,7 +552,7 @@ async def test_a14_create_inventario_fisico_con_detalles_cabecera_usuario_creaci
         "inventario_fisico_id": INVENTARIO_FISICO_ID,
         "cliente_id": CLIENT_ID,
         "empresa_id": EMPRESA_ID,
-        "numero_inventario": "INV-AUD-002",
+        "numero_inventario": "IF00002",
         "fecha_inventario": date(2026, 6, 12),
         "almacen_id": ALMACEN_ID,
         "tipo_inventario": "total",
@@ -511,6 +593,7 @@ async def test_a14_create_inventario_fisico_con_detalles_cabecera_usuario_creaci
         return [det_row]
 
     mock_uow = AsyncMock()
+    mock_uow.session = AsyncMock()
     mock_uow.execute = AsyncMock(side_effect=_fake_execute)
 
     try:
@@ -524,6 +607,9 @@ async def test_a14_create_inventario_fisico_con_detalles_cabecera_usuario_creaci
             "app.modules.inv.application.services.inventario_fisico_service._validate_detalle_productos",
             new=AsyncMock(),
         ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="IF00002"),
+        ), patch(
             "app.modules.inv.application.services.inventario_fisico_service.unit_of_work",
             return_value=_FakeUowContext(mock_uow),
         ):
@@ -534,6 +620,7 @@ async def test_a14_create_inventario_fisico_con_detalles_cabecera_usuario_creaci
             )
         assert inserted_cabecera["usuario_creacion_id"] == USUARIO_ID
         assert inserted_cabecera["estado"] == "en_proceso"
+        assert inserted_cabecera["numero_inventario"] == "IF00002"
     finally:
         reset_current_empresa_id(token)
 
@@ -553,11 +640,24 @@ async def test_a17_create_categoria_servicio_sin_usuario_id_deja_usuario_creacio
         "es_activo": True,
         "usuario_creacion_id": None,
     }
+    session = _make_uow_session()
     try:
         with patch(
+            "app.modules.inv.application.services.categoria_service.enforce_body_empresa_matches_session",
+            return_value=EMPRESA_ID,
+        ), patch(
             "app.modules.inv.application.services.categoria_service.ensure_empresa_in_tenant",
             new=AsyncMock(),
         ), patch(
+            "app.modules.inv.application.services.categoria_service.get_connection_for_tenant",
+            return_value=_session_context_manager(session),
+        ) as mock_get_conn, patch(
+            "app.modules.inv.application.services.categoria_service.get_categoria_by_codigo",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.modules.inv.application.services.categoria_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="CAT-NULL"),
+        ) as mock_resolve, patch(
             "app.modules.inv.application.services.categoria_service.create_categoria",
             new=AsyncMock(return_value=row),
         ) as mock_create:
@@ -567,5 +667,17 @@ async def test_a17_create_categoria_servicio_sin_usuario_id_deja_usuario_creacio
             )
             payload = mock_create.await_args.kwargs["data"]
             assert payload["usuario_creacion_id"] is None
+            # UoW + Gateway observados (sin ejecutar Gateway real)
+            mock_get_conn.assert_called_once_with(CLIENT_ID, OPERATION_CLASS_TENANT_DATA)
+            session.begin.assert_called_once()
+            mock_resolve.assert_awaited_once_with(
+                "inv_categoria_producto",
+                session=session,
+                client_id=CLIENT_ID,
+                empresa_id=EMPRESA_ID,
+                manual_code="CAT-NULL",
+            )
+            assert mock_create.await_args.kwargs["session"] is session
+            assert payload["codigo"] == "CAT-NULL"
     finally:
         reset_current_empresa_id(token)

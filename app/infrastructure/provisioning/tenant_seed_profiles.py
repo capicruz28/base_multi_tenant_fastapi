@@ -5,11 +5,9 @@ import hashlib
 from dataclasses import dataclass
 from typing import Sequence
 
+from app.core.codigo.onboarding_seed import EAGER_SEQUENCE_KEYS
 from app.core.exceptions import ValidationError
 from app.infrastructure.provisioning.catalog_profiles import normalize_plan_suscripcion
-from app.modules.tenant.application.services.cliente_onboarding_service import (
-    SECUENCIAS_CODIGO,
-)
 
 TENANT_SEED_PROFILE_VERSION = "1.0.0"
 _STEP_CODE = "seed_tenant"
@@ -83,7 +81,7 @@ def _row_expectations_for_profile() -> tuple[tuple[str, int], ...]:
         ("rol", 3),
         ("org_empresa", 1),
         ("usuario", 1),
-        ("cfg_codigo_secuencia", len(SECUENCIAS_CODIGO)),
+        ("cfg_codigo_secuencia", len(EAGER_SEQUENCE_KEYS)),
     )
 
 

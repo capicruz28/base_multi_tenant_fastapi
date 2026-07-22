@@ -45,13 +45,22 @@ CREATE TABLE cliente (
     api_key_sincronizacion NVARCHAR(255) NULL,
     sincronizacion_habilitada BIT DEFAULT 0,
     ultima_sincronizacion DATETIME NULL,
-    metadata_json NVARCHAR(MAX) NULL
+    provisioning_state           NVARCHAR(20)        NULL,
+    current_provisioning_run_id  UNIQUEIDENTIFIER    NULL,
+    metadata_json NVARCHAR(MAX) NULL,
+
+    CONSTRAINT CK_cliente_provisioning_state
+        CHECK (
+            provisioning_state IS NULL
+            OR provisioning_state IN ('provisioning', 'ready', 'failed')
+        )
 );
 
 CREATE UNIQUE INDEX UQ_cliente_subdominio ON cliente(subdominio) WHERE es_activo = 1;
 CREATE INDEX IDX_cliente_codigo ON cliente(codigo_cliente);
 CREATE INDEX IDX_cliente_estado ON cliente(es_activo, estado_suscripcion);
 CREATE INDEX IDX_cliente_tipo ON cliente(tipo_instalacion);
+CREATE INDEX IDX_cliente_provisioning_state ON cliente (provisioning_state) WHERE provisioning_state IS NOT NULL;
 
 -- Tabla: cliente_conexion
 CREATE TABLE cliente_conexion (
@@ -565,6 +574,104 @@ CREATE TABLE auth_audit_log (
         REFERENCES org_empresa(empresa_id) ON DELETE NO ACTION
 );
 
+-- ---------------------------------------------------------------------------
+-- 1. tenant_provisioning_run — ejecución saga por tenant
+-- ---------------------------------------------------------------------------
+CREATE TABLE tenant_provisioning_run (
+    provisioning_run_id     UNIQUEIDENTIFIER    NOT NULL
+                            DEFAULT NEWID()
+                            CONSTRAINT PK_tenant_provisioning_run PRIMARY KEY,
+
+    cliente_id              UNIQUEIDENTIFIER    NOT NULL,
+
+    provisioning_state      NVARCHAR(20)        NOT NULL,
+    is_current              BIT                 NOT NULL DEFAULT 1,
+    attempt_number          INT                 NOT NULL DEFAULT 1,
+
+    idempotency_key         NVARCHAR(64)        NULL,
+    current_step_code       NVARCHAR(40)        NULL,
+
+    started_at              DATETIME2           NOT NULL DEFAULT SYSDATETIME(),
+    updated_at              DATETIME2           NOT NULL DEFAULT SYSDATETIME(),
+    ready_at                DATETIME2           NULL,
+    failed_at               DATETIME2           NULL,
+
+    last_error_code         NVARCHAR(64)        NULL,
+    last_error_message      NVARCHAR(500)       NULL,
+
+    created_by_usuario_id   UNIQUEIDENTIFIER    NULL,
+
+    CONSTRAINT FK_tpr_cliente
+        FOREIGN KEY (cliente_id)
+        REFERENCES cliente(cliente_id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT CK_tpr_provisioning_state
+        CHECK (provisioning_state IN ('provisioning', 'ready', 'failed'))
+);
+
+-- ---------------------------------------------------------------------------
+-- 2. tenant_provisioning_step — markers por paso saga (S1–S10)
+-- ---------------------------------------------------------------------------
+CREATE TABLE tenant_provisioning_step (
+    provisioning_step_id    UNIQUEIDENTIFIER    NOT NULL
+                            DEFAULT NEWID()
+                            CONSTRAINT PK_tenant_provisioning_step PRIMARY KEY,
+
+    provisioning_run_id     UNIQUEIDENTIFIER    NOT NULL,
+    cliente_id              UNIQUEIDENTIFIER    NOT NULL,
+
+    step_code               NVARCHAR(40)        NOT NULL,
+    saga_order              TINYINT             NOT NULL,
+    step_status             NVARCHAR(20)        NOT NULL DEFAULT 'pending',
+
+    started_at              DATETIME2           NULL,
+    completed_at            DATETIME2           NULL,
+
+    error_code              NVARCHAR(64)        NULL,
+    error_message           NVARCHAR(500)       NULL,
+    idempotency_marker      NVARCHAR(128)       NULL,
+
+    CONSTRAINT FK_tps_run
+        FOREIGN KEY (provisioning_run_id)
+        REFERENCES tenant_provisioning_run(provisioning_run_id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT FK_tps_cliente
+        FOREIGN KEY (cliente_id)
+        REFERENCES cliente(cliente_id)
+        ON DELETE NO ACTION,
+
+    CONSTRAINT UQ_tps_run_step
+        UNIQUE (provisioning_run_id, step_code),
+
+    CONSTRAINT CK_tps_step_code
+        CHECK (step_code IN (
+            'registry',
+            'storage_allocation',
+            'create_database',
+            'apply_schema_erp',
+            'apply_schema_rbac',
+            'apply_catalogs',
+            'seed_tenant',
+            'register_metadata',
+            'activate_routing',
+            'mark_ready'
+        )),
+
+    CONSTRAINT CK_tps_step_status
+        CHECK (step_status IN ('pending', 'running', 'completed', 'failed', 'skipped'))
+);
+
+-- ============================================================================
+-- 3. RESOLUCIÓN DE LA RELACIÓN CIRCULAR (Único ALTER necesario)
+-- ============================================================================
+-- Como ambas tablas ya existen en este punto, podemos crear el vínculo de la FK de forma segura.
+ALTER TABLE cliente ADD CONSTRAINT FK_cliente_current_provisioning_run
+    FOREIGN KEY (current_provisioning_run_id)
+    REFERENCES tenant_provisioning_run(provisioning_run_id)
+    ON DELETE NO ACTION;
+
 -- Ãndices para tablas operativas
 CREATE INDEX IDX_usuario_cliente ON usuario(cliente_id, es_activo) WHERE es_eliminado = 0;
 CREATE INDEX IDX_usuario_correo ON usuario(correo) WHERE correo IS NOT NULL;
@@ -615,6 +722,15 @@ CREATE INDEX IDX_audit_evento ON auth_audit_log(evento, fecha_evento DESC);
 CREATE INDEX IDX_audit_exito ON auth_audit_log(exito, fecha_evento DESC);
 CREATE INDEX IDX_audit_ip ON auth_audit_log(ip_address, fecha_evento DESC) WHERE ip_address IS NOT NULL;
 CREATE INDEX IDX_audit_empresa ON auth_audit_log(empresa_id, fecha_evento DESC) WHERE empresa_id IS NOT NULL;
+
+-- Índices de Provisioning Run
+CREATE INDEX IDX_tpr_cliente ON tenant_provisioning_run (cliente_id, is_current, started_at DESC);
+CREATE UNIQUE INDEX UQ_tpr_cliente_current ON tenant_provisioning_run (cliente_id) WHERE is_current = 1;
+CREATE UNIQUE INDEX UQ_tpr_cliente_idempotency ON tenant_provisioning_run (cliente_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+-- Índices de Provisioning Step
+CREATE INDEX IDX_tps_run_order ON tenant_provisioning_step (provisioning_run_id, saga_order);
+CREATE INDEX IDX_tps_cliente ON tenant_provisioning_step (cliente_id);
 
 -- ============================================================================
 -- SECCIÃ“N 4: AUDITORÃA Y SINCRONIZACIÃ“N

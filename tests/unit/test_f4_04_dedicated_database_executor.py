@@ -109,9 +109,9 @@ def executor(ddl_client: MockDdlClient) -> DedicatedDatabaseExecutor:
 
 @pytest.mark.unit
 def test_f4_04_naming_policy_builds_database_and_login():
-    db_name = build_dedicated_database_name("ACME-001", cliente_id=CLIENTE_ID)
+    db_name = build_dedicated_database_name("acme-corp", cliente_id=CLIENTE_ID)
     login_name = build_dedicated_app_login_name("ACME-001", cliente_id=CLIENTE_ID)
-    assert db_name == "erp_acme_001"
+    assert db_name == "caxis_tenant_acme_corp"
     assert login_name == "erpapp_acme_001"
 
 
@@ -137,7 +137,7 @@ async def test_f4_04_provision_creates_database_and_login(
 
     result = await executor.provision_physical_database(request)
 
-    assert result.database_name == "erp_acme001"
+    assert result.database_name == "caxis_tenant_acme001"
     assert result.app_login_name == "erpapp_acme001"
     assert result.servidor == "sql-staging.local"
     assert result.app_login_password == "Str0ngP@ssw0rd!"
@@ -157,7 +157,7 @@ async def test_f4_04_provision_idempotent_when_database_and_login_exist(
     executor: DedicatedDatabaseExecutor,
     ddl_client: MockDdlClient,
 ):
-    ddl_client.databases.add("erp_acme001")
+    ddl_client.databases.add("caxis_tenant_acme001")
     ddl_client.logins.add("erpapp_acme001")
 
     request = DedicatedDatabaseProvisionRequest(

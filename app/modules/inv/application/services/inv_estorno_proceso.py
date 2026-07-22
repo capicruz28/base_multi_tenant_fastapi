@@ -54,12 +54,6 @@ _MSG_UPDATE_RACE = (
 )
 
 
-def gen_numero_movimiento_estorno() -> str:
-    stamp = datetime.utcnow().strftime("%y%m%d")
-    micro = datetime.utcnow().strftime("%f")[-4:]
-    return f"INV-EST-{stamp}-{micro}"[:20]
-
-
 def _to_decimal(value: Any, default: str = "0") -> Decimal:
     if value is None:
         return Decimal(default)

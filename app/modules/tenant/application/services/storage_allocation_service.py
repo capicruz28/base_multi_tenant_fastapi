@@ -24,7 +24,7 @@ class StorageAllocationService:
                 internal_code="PROVISIONING_DDL_SERVER_MISSING",
             )
         database_name = build_dedicated_database_name(
-            request.codigo_cliente,
+            request.subdominio,
             cliente_id=request.cliente_id,
         )
         app_login_name = build_dedicated_app_login_name(

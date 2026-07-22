@@ -54,7 +54,7 @@ El gateway **no persiste entidades de negocio** (no INSERT en `org_sucursal`, et
 | Workflow (`borrador` → `procesado`) |
 | Unicidad de terceros (`numero_documento` RUC) |
 | Generación hash/QR SUNAT |
-| Decidir si la entidad puede editarse (reglas BR-M-30) |
+| Enforcement de inmutabilidad del código en UPDATE (**BR-IMM** — responsabilidad del **servicio ERP** / schemas Update; el Gateway **no** participa en UPDATE) |
 | Elegir conexión BD (la recibe o usa contexto UoW del caller) |
 | Crear empresa/sucursal en onboarding plataforma |
 

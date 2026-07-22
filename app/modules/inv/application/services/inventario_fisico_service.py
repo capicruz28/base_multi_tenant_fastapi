@@ -2,6 +2,8 @@
 """
 Servicio de Inventario Físico (INV). client_id siempre desde contexto, nunca desde body.
 Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
+CREATE: UoW + InvCodigoGenerationService (sequence_key inv_inventario_fisico).
+UPDATE: BR-IMM — numero_inventario inmutable.
 """
 from __future__ import annotations
 
@@ -36,6 +38,9 @@ from app.infrastructure.database.queries.inv import (
     get_producto_by_id,
 )
 from app.modules.inv.application.services.inv_audit_context import apply_create_audit
+from app.modules.inv.application.services.inv_codigo_generation_service import (
+    InvCodigoGenerationService,
+)
 from app.modules.inv.application.services.inv_workflow_enforcement import (
     reject_inventario_fisico_workflow_in_update,
     sanitize_inventario_fisico_create_payload,
@@ -52,7 +57,7 @@ from app.modules.inv.presentation.schemas import (
 
 _INV_COLUMNS = {c.name for c in InvInventarioFisicoTable.c}
 _INV_DET_COLUMNS = {c.name for c in InvInventarioFisicoDetalleTable.c}
-
+_SEQUENCE_KEY = "inv_inventario_fisico"
 _MSG_FINALIZAR_SIN_DETALLE = "No se puede finalizar inventario físico sin detalle."
 
 
@@ -188,7 +193,21 @@ async def create_inventario_fisico_servicio(
     payload = sanitize_inventario_fisico_create_payload(data.model_dump())
     payload["empresa_id"] = empresa_id
     payload = apply_create_audit(payload, usuario_id)
-    row = await create_inventario_fisico(client_id=client_id, data=payload)
+
+    async with unit_of_work(client_id=client_id) as uow:
+        assert uow.session is not None
+        payload["numero_inventario"] = (
+            await InvCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=uow.session,
+                client_id=client_id,
+                empresa_id=empresa_id,
+                manual_code=None,
+            )
+        )
+        row = await create_inventario_fisico(
+            client_id=client_id, data=payload, session=uow.session
+        )
     return _row_to_read(row)
 
 
@@ -381,9 +400,19 @@ async def create_inventario_fisico_con_detalles_servicio(
         cliente_id=client_id,
         empresa_id=empresa_id,
     )
-    cab_filtered = {k: v for k, v in cab_payload.items() if k in _INV_COLUMNS}
 
     async with unit_of_work(client_id=client_id) as uow:
+        assert uow.session is not None
+        cab_payload["numero_inventario"] = (
+            await InvCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=uow.session,
+                client_id=client_id,
+                empresa_id=empresa_id,
+                manual_code=None,
+            )
+        )
+        cab_filtered = {k: v for k, v in cab_payload.items() if k in _INV_COLUMNS}
         await uow.execute(insert(InvInventarioFisicoTable).values(**cab_filtered))
 
         if detalles_data:
@@ -482,7 +511,12 @@ async def update_inventario_fisico_con_detalles_servicio(
                 k: v
                 for k, v in cab_payload.items()
                 if k in _INV_COLUMNS
-                and k not in ("inventario_fisico_id", "cliente_id", "empresa_id")
+                and k not in (
+                    "inventario_fisico_id",
+                    "cliente_id",
+                    "empresa_id",
+                    "numero_inventario",
+                )
             }
             if filtered:
                 await uow.execute(

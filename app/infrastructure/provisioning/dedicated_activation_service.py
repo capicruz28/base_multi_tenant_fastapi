@@ -3,14 +3,14 @@ DedicatedActivationService — S8–S10 activación real (PR-F4-09).
 
 S8: metadata CP vía DedicatedStorageMetadataService.
 S9: invalidación cache + smoke routing fail-closed.
-S10: transition_run_to_ready (guard único).
+S10: marker del step (la transición READY es acto terminal del Orchestrator).
 """
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
-from app.core.exceptions import ConflictError, CustomException, DatabaseError, ValidationError
+from app.core.exceptions import ConflictError, CustomException, DatabaseError
 from app.core.tenant.routing import (
     DEDICATED_ROUTE_FAIL_CLOSED,
     get_connection_metadata_async,
@@ -109,56 +109,28 @@ class DedicatedActivationService:
         self,
         request: DedicatedActivationRequest,
     ) -> DedicatedActivationStepResult:
+        """S10 step body — no muta el estado del provisioning_run.
+
+        La transición ``provisioning`` → ``ready`` es acto terminal del
+        Orchestrator (simétrico con ``transition_run_to_failed``). Este step se
+        limita a producir el marker idempotente del paso.
+        """
         status = await self._query.get_provisioning_status(request.cliente_id)
-        if (
+        already_ready = (
             status is not None
             and status.provisioning_state == ProvisioningState.READY
             and status.provisioning_run_id == request.provisioning_run_id
-        ):
+        )
+        if already_ready:
             logger.info(
                 "S10 mark_ready idempotent skip cliente_id=%s run_id=%s",
                 request.cliente_id,
                 request.provisioning_run_id,
             )
-            return DedicatedActivationStepResult(
-                step_code=ProvisioningStepCode.MARK_READY.value,
-                idempotency_marker=self._ready_marker(request),
-                idempotent=True,
-            )
-
-        try:
-            await self._state.transition_run_to_ready(
-                cliente_id=request.cliente_id,
-                provisioning_run_id=request.provisioning_run_id,
-            )
-        except ValidationError as exc:
-            if exc.internal_code == "PROVISIONING_STATE_NOOP":
-                return DedicatedActivationStepResult(
-                    step_code=ProvisioningStepCode.MARK_READY.value,
-                    idempotency_marker=self._ready_marker(request),
-                    idempotent=True,
-                )
-            raise ConflictError(
-                detail=str(exc.detail),
-                internal_code="PROVISIONING_ACTIVATION_FAILED",
-            ) from exc
-        except CustomException:
-            raise
-        except Exception as exc:
-            raise ConflictError(
-                detail="Error al marcar tenant dedicated ready.",
-                internal_code="PROVISIONING_ACTIVATION_FAILED",
-            ) from exc
-
-        logger.info(
-            "Tenant dedicated ready cliente_id=%s run_id=%s",
-            request.cliente_id,
-            request.provisioning_run_id,
-        )
         return DedicatedActivationStepResult(
             step_code=ProvisioningStepCode.MARK_READY.value,
             idempotency_marker=self._ready_marker(request),
-            idempotent=False,
+            idempotent=already_ready,
         )
 
     async def _smoke_validate_routing(

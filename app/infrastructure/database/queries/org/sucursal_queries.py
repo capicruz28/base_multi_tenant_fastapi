@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import OrgSucursalTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -22,6 +23,18 @@ _SORT_COLUMN_MAP = {
     "fecha_creacion": OrgSucursalTable.c.fecha_creacion,
 }
 _DEFAULT_SUCURSAL_ORDER = [(OrgSucursalTable.c.codigo, "asc")]
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_sucursal_list_conditions(
@@ -76,6 +89,7 @@ async def get_sucursal_by_codigo(
     empresa_id: UUID,
     codigo: str,
     exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Lookup por codigo dentro del tenant+empresa."""
     query = select(OrgSucursalTable).where(
@@ -87,6 +101,9 @@ async def get_sucursal_by_codigo(
     )
     if exclude_id is not None:
         query = query.where(OrgSucursalTable.c.sucursal_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -95,6 +112,7 @@ async def get_sucursal_by_id(
     client_id: UUID,
     sucursal_id: UUID,
     empresa_id: UUID,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene una sucursal por id. Triple filtro cliente + empresa + sucursal."""
     query = select(OrgSucursalTable).where(
@@ -106,11 +124,19 @@ async def get_sucursal_by_id(
             entity_id=sucursal_id,
         )
     )
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_sucursal(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_sucursal(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta una sucursal. cliente_id y empresa_id se fuerzan desde contexto."""
     from uuid import uuid4
 
@@ -118,10 +144,19 @@ async def create_sucursal(client_id: UUID, data: Dict[str, Any]) -> Dict[str, An
     payload["cliente_id"] = client_id
     payload.setdefault("sucursal_id", uuid4())
     empresa_id = payload["empresa_id"]
+    sucursal_id = payload["sucursal_id"]
     stmt = insert(OrgSucursalTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        row = await get_sucursal_by_id(
+            client_id, sucursal_id, empresa_id=empresa_id, session=session
+        )
+        if row is None:
+            raise RuntimeError("No se pudo leer la sucursal recién insertada.")
+        return row
     await execute_insert(stmt, client_id=client_id)
     return await get_sucursal_by_id(
-        client_id, payload["sucursal_id"], empresa_id=empresa_id
+        client_id, sucursal_id, empresa_id=empresa_id
     )
 
 

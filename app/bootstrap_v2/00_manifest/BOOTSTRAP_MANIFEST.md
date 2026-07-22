@@ -74,6 +74,7 @@
 | `S065__permisos_rbac_aud.sql` | `SEED_PERMISOS_RBAC_AUD.sql` |
 | `S066__permisos_rbac_fase4-candidatos.sql` | `SEED_PERMISOS_RBAC_FASE4_CANDIDATOS.sql` |
 | `S067__permisos_rbac__legacy_empty_stub.sql` | `SEED_PERMISOS_RBAC.sql` (**vacío**, legacy) |
+| `S068__permisos_rbac_cfg.sql` | `SEED_PERMISOS_RBAC_CFG.sql` |
 
 ### 03_runtime — PROD (transitorio)
 
@@ -108,7 +109,7 @@ Documentación normativa DTSP: `app/docs/arquitectura/hybrid-platform/provisioni
 
 | Etiqueta | Archivos |
 |----------|----------|
-| **PROD** | `V010`, `V020`, `V030`, `S010`, `S020`, `S030`, `S040–S066`, app startup, `R010`, `R020`, dedicated `V020` (DTSP), dedicated `V010`, dedicated `V030` (auth audit) |
+| **PROD** | `V010`, `V020`, `V030`, `S010`, `S020`, `S030`, `S040–S066`, `S068` (CFG), app startup, `R010`, `R020`, dedicated `V020` (DTSP), dedicated `V010`, dedicated `V030` (auth audit) |
 | **QA** | `D010`, `D020`, `D030` |
 | **LEGACY (no ejecutar)** | `S067`, bloques comentados dentro de `D010`, `SEED_BD_DEDICADA_*` (fuera de v2) |
 
@@ -118,7 +119,7 @@ Documentación normativa DTSP: `app/docs/arquitectura/hybrid-platform/provisioni
 
 | Idempotente | Archivos |
 |-------------|----------|
-| Sí | `V030`, `S030`, `S040–S066` (MERGE), `R010`, `R020` (NOT EXISTS), `D020` |
+| Sí | `V030`, `S030`, `S040–S066` / `S068` (MERGE), `R010`, `R020` (NOT EXISTS), `D020` |
 | No | `V010`, `V020`, `S010`, `S020`, `D010`, `D030` |
 
 ---

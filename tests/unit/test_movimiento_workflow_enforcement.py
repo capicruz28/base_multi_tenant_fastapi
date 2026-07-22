@@ -159,7 +159,6 @@ async def test_t10_create_movimiento_servicio_fuerza_borrador():
     ahora = datetime.utcnow()
     data = MovimientoCreate(
         empresa_id=EMPRESA_ID,
-        numero_movimiento="MOV-WF-001",
         tipo_movimiento_id=TIPO_MOVIMIENTO_ID,
         fecha_contable=date(2026, 6, 12),
         estado="procesado",
@@ -170,6 +169,11 @@ async def test_t10_create_movimiento_servicio_fuerza_borrador():
     )
 
     try:
+        session = AsyncMock()
+        uow = AsyncMock()
+        uow.session = session
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
         with patch(
             "app.modules.inv.application.services.movimiento_service.ensure_empresa_in_tenant",
             new=AsyncMock(),
@@ -179,6 +183,12 @@ async def test_t10_create_movimiento_servicio_fuerza_borrador():
         ), patch(
             "app.modules.inv.application.services.movimiento_service._resolve_moneda_id",
             new=AsyncMock(return_value=MONEDA_ID),
+        ), patch(
+            "app.modules.inv.application.services.movimiento_service.unit_of_work",
+            return_value=uow,
+        ), patch(
+            "app.modules.inv.application.services.movimiento_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="MOV000001"),
         ), patch(
             "app.modules.inv.application.services.movimiento_service.create_movimiento",
             new=AsyncMock(return_value=_movimiento_row_borrador(movimiento_id=movimiento_id)),
@@ -215,7 +225,6 @@ async def test_t12_create_movimiento_con_detalles_servicio_fuerza_borrador():
     )
     data = MovimientoConDetalleCreate(
         empresa_id=EMPRESA_ID,
-        numero_movimiento="MOV-WF-002",
         tipo_movimiento_id=TIPO_MOVIMIENTO_ID,
         fecha_contable=date(2026, 6, 12),
         estado="autorizado",
@@ -224,7 +233,7 @@ async def test_t12_create_movimiento_con_detalles_servicio_fuerza_borrador():
         detalles=[detalle],
     )
     cab_row = _movimiento_row_borrador(movimiento_id=movimiento_id)
-    cab_row["numero_movimiento"] = "MOV-WF-002"
+    cab_row["numero_movimiento"] = "MOV000002"
     det_row = {
         "movimiento_detalle_id": uuid4(),
         "cliente_id": CLIENT_ID,
@@ -262,6 +271,7 @@ async def test_t12_create_movimiento_con_detalles_servicio_fuerza_borrador():
         return [det_row]
 
     mock_uow = AsyncMock()
+    mock_uow.session = AsyncMock()
     mock_uow.execute = AsyncMock(side_effect=_fake_execute)
 
     try:
@@ -277,6 +287,9 @@ async def test_t12_create_movimiento_con_detalles_servicio_fuerza_borrador():
         ), patch(
             "app.modules.inv.application.services.movimiento_service._resolve_moneda_id",
             new=AsyncMock(return_value=MONEDA_ID),
+        ), patch(
+            "app.modules.inv.application.services.movimiento_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="MOV000002"),
         ), patch(
             "app.modules.inv.application.services.movimiento_service.unit_of_work",
             return_value=_FakeUowContext(mock_uow),
@@ -591,12 +604,23 @@ async def test_t16_create_inventario_fisico_servicio_fuerza_en_proceso():
     )
 
     try:
+        session = AsyncMock()
+        uow = AsyncMock()
+        uow.session = session
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
         with patch(
             "app.modules.inv.application.services.inventario_fisico_service.ensure_empresa_in_tenant",
             new=AsyncMock(),
         ), patch(
             "app.modules.inv.application.services.inventario_fisico_service._validate_cabecera_refs",
             new=AsyncMock(),
+        ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.unit_of_work",
+            return_value=uow,
+        ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="INV-FIS-GEN"),
         ), patch(
             "app.modules.inv.application.services.inventario_fisico_service.create_inventario_fisico",
             new=AsyncMock(
@@ -716,12 +740,23 @@ async def test_t16_create_inventario_fisico_servicio_fuerza_en_proceso():
     )
 
     try:
+        session = AsyncMock()
+        uow = AsyncMock()
+        uow.session = session
+        uow.__aenter__ = AsyncMock(return_value=uow)
+        uow.__aexit__ = AsyncMock(return_value=None)
         with patch(
             "app.modules.inv.application.services.inventario_fisico_service.ensure_empresa_in_tenant",
             new=AsyncMock(),
         ), patch(
             "app.modules.inv.application.services.inventario_fisico_service._validate_cabecera_refs",
             new=AsyncMock(),
+        ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.unit_of_work",
+            return_value=uow,
+        ), patch(
+            "app.modules.inv.application.services.inventario_fisico_service.InvCodigoGenerationService.resolve_codigo_for_create",
+            new=AsyncMock(return_value="INV-FIS-GEN"),
         ), patch(
             "app.modules.inv.application.services.inventario_fisico_service.create_inventario_fisico",
             new=AsyncMock(

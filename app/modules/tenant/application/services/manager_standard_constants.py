@@ -28,8 +28,8 @@ MANAGER_STANDARD_MENU_GRANTS: tuple[tuple[UUID, dict], ...] = (
     (UUID("E3010006-0000-4000-8000-000000000006"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # ORG_PARAMETROS
 
     # INV (catálogos)
-    (UUID("E3020002-0000-4000-8000-000000000001"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_CATEGORIAS
-    (UUID("E3020001-0000-4000-8000-000000000002"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_PRODUCTOS
+    (UUID("E3020001-0000-4000-8000-000000000001"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_CATEGORIAS
+    (UUID("E3020002-0000-4000-8000-000000000002"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_PRODUCTOS
     (UUID("E3020003-0000-4000-8000-000000000003"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_UNIDADES
     (UUID("E3020004-0000-4000-8000-000000000004"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_ALMACENES
     (UUID("E3020006-0000-4000-8000-000000000006"), {"ver": 1, "crear": 1, "editar": 1, "eliminar": 0, "exportar": 1, "imprimir": 0, "aprobar": 0}),  # INV_TIPOS_MOV

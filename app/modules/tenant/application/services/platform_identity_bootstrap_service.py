@@ -376,11 +376,11 @@ class PlatformIdentityBootstrapService:
         cid_str = result.cliente_id or str(PlatformRbacBootstrapService.resolve_platform_cliente_id())
         cliente_id = UUID(cid_str)
 
-        if await AuthConfigGateway.config_exists(cliente_id):
+        if await AuthConfigGateway.config_exists(cliente_id, session=session):
             result.actions.append("auth_config_reused")
             return
 
-        await AuthConfigGateway.insert_config({"cliente_id": cliente_id})
+        await AuthConfigGateway.insert_config({"cliente_id": cliente_id}, session=session)
         result.auth_config_created = True
         result.actions.append("auth_config_created")
 

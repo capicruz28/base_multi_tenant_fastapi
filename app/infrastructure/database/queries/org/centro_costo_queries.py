@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import OrgCentroCostoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -28,6 +29,18 @@ _SORT_COLUMN_MAP = {
     "fecha_creacion": OrgCentroCostoTable.c.fecha_creacion,
 }
 _DEFAULT_CENTRO_COSTO_ORDER = [(OrgCentroCostoTable.c.codigo, "asc")]
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_centro_costo_list_conditions(
@@ -98,6 +111,7 @@ async def get_centro_costo_by_id(
     client_id: UUID,
     centro_costo_id: UUID,
     empresa_id: UUID,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene un centro de costo por id. Triple filtro."""
     query = select(OrgCentroCostoTable).where(
@@ -109,6 +123,9 @@ async def get_centro_costo_by_id(
             entity_id=centro_costo_id,
         )
     )
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -118,6 +135,7 @@ async def get_centro_costo_by_codigo(
     empresa_id: UUID,
     codigo: str,
     exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Lookup por codigo dentro del tenant+empresa."""
     query = select(OrgCentroCostoTable).where(
@@ -129,11 +147,19 @@ async def get_centro_costo_by_codigo(
     )
     if exclude_id is not None:
         query = query.where(OrgCentroCostoTable.c.centro_costo_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_centro_costo(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_centro_costo(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta un centro de costo. cliente_id y empresa_id desde contexto."""
     from uuid import uuid4
 
@@ -141,10 +167,19 @@ async def create_centro_costo(client_id: UUID, data: Dict[str, Any]) -> Dict[str
     payload["cliente_id"] = client_id
     payload.setdefault("centro_costo_id", uuid4())
     empresa_id = payload["empresa_id"]
+    centro_costo_id = payload["centro_costo_id"]
     stmt = insert(OrgCentroCostoTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        row = await get_centro_costo_by_id(
+            client_id, centro_costo_id, empresa_id=empresa_id, session=session
+        )
+        if row is None:
+            raise RuntimeError("No se pudo leer el centro de costo recién insertado.")
+        return row
     await execute_insert(stmt, client_id=client_id)
     return await get_centro_costo_by_id(
-        client_id, payload["centro_costo_id"], empresa_id=empresa_id
+        client_id, centro_costo_id, empresa_id=empresa_id
     )
 
 

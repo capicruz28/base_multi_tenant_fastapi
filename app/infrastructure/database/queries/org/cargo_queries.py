@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy import select, insert, update, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.tables_erp import OrgCargoTable
 from app.infrastructure.database.queries_async import execute_query, execute_insert, execute_update
@@ -22,6 +23,18 @@ _SORT_COLUMN_MAP = {
     "fecha_creacion": OrgCargoTable.c.fecha_creacion,
 }
 _DEFAULT_CARGO_ORDER = [(OrgCargoTable.c.codigo, "asc")]
+
+
+def _row_to_dict(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "_mapping"):
+        mapping = row._mapping
+        if mapping is not None:
+            return dict(mapping)
+    if isinstance(row, dict):
+        return row
+    return dict(row)
 
 
 def _build_cargo_list_conditions(
@@ -75,6 +88,7 @@ async def get_cargo_by_id(
     client_id: UUID,
     cargo_id: UUID,
     empresa_id: UUID,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Obtiene un cargo por id. Triple filtro cliente + empresa + cargo."""
     query = select(OrgCargoTable).where(
@@ -86,6 +100,9 @@ async def get_cargo_by_id(
             entity_id=cargo_id,
         )
     )
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
@@ -95,6 +112,7 @@ async def get_cargo_by_codigo(
     empresa_id: UUID,
     codigo: str,
     exclude_id: Optional[UUID] = None,
+    session: Optional[AsyncSession] = None,
 ) -> Optional[Dict[str, Any]]:
     """Lookup por codigo dentro del tenant+empresa."""
     query = select(OrgCargoTable).where(
@@ -106,11 +124,19 @@ async def get_cargo_by_codigo(
     )
     if exclude_id is not None:
         query = query.where(OrgCargoTable.c.cargo_id != exclude_id)
+    if session is not None:
+        result = await session.execute(query)
+        return _row_to_dict(result.fetchone())
     rows = await execute_query(query, client_id=client_id)
     return rows[0] if rows else None
 
 
-async def create_cargo(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_cargo(
+    client_id: UUID,
+    data: Dict[str, Any],
+    *,
+    session: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
     """Inserta un cargo. cliente_id y empresa_id desde contexto."""
     from uuid import uuid4
 
@@ -118,9 +144,18 @@ async def create_cargo(client_id: UUID, data: Dict[str, Any]) -> Dict[str, Any]:
     payload["cliente_id"] = client_id
     payload.setdefault("cargo_id", uuid4())
     empresa_id = payload["empresa_id"]
+    cargo_id = payload["cargo_id"]
     stmt = insert(OrgCargoTable).values(**payload)
+    if session is not None:
+        await session.execute(stmt)
+        row = await get_cargo_by_id(
+            client_id, cargo_id, empresa_id=empresa_id, session=session
+        )
+        if row is None:
+            raise RuntimeError("No se pudo leer el cargo recién insertado.")
+        return row
     await execute_insert(stmt, client_id=client_id)
-    return await get_cargo_by_id(client_id, payload["cargo_id"], empresa_id=empresa_id)
+    return await get_cargo_by_id(client_id, cargo_id, empresa_id=empresa_id)
 
 
 async def update_cargo(

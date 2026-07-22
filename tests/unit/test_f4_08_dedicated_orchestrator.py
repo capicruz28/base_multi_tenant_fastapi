@@ -228,7 +228,11 @@ async def test_f4_08_saga_runs_s1_through_s10_stub(orchestrator, orchestrator_mo
             )
             await orchestrator.handle_job(job)
 
-    mocks["state"].transition_run_to_ready.assert_not_called()
+    # Opción B: la transición READY es acto terminal del Orchestrator tras cerrar S10.
+    mocks["state"].transition_run_to_ready.assert_called_once_with(
+        cliente_id=CLIENTE_ID,
+        provisioning_run_id=RUN_ID,
+    )
     mocks["activation"].register_metadata.assert_called_once()
     mocks["activation"].activate_routing.assert_called_once()
     mocks["activation"].mark_ready.assert_called_once()

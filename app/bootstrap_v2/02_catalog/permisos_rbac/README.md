@@ -32,5 +32,8 @@ Ejecutar después de `S030__seed_permisos_core.sql` y antes de `03_runtime/`.
 | 65 | `S065__permisos_rbac_aud.sql` | AUD |
 | 66 | `S066__permisos_rbac_fase4-candidatos.sql` | LOG/FIN extras |
 | 67 | `S067__permisos_rbac__legacy_empty_stub.sql` | **SKIP** (legacy vacío) |
+| 68 | `S068__permisos_rbac_cfg.sql` | CFG (Motor de Códigos — admin tenant) |
 
 **Nota:** `SEED_PERMISOS_RBAC_PRC.sql` no existe en repo; módulo PRC solo tiene menú en `S010`.
+
+**CFG (S068):** permisos `cfg.secuencias.*` con `modulo_id IS NULL` (transversal); grant a `ADMIN_TENANT`. Onboarding también otorga vía `bootstrap_global_grants_admin_tenant` (`cfg.%`).

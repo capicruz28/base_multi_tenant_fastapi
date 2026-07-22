@@ -2,15 +2,22 @@
 """
 Servicio de Producto (INV). client_id siempre desde contexto, nunca desde body.
 Aislamiento multi-empresa: empresa_id desde sesión JWT (company_scope).
+CREATE: UoW + InvCodigoGenerationService (sequence_key inv_producto → codigo_sku).
+UPDATE: BR-IMM — codigo_sku inmutable (omitido del schema; sin lógica de Motor).
+Otros códigos (barra/interno/fabricante/sunat) permanecen fuera del Motor.
 """
 from typing import List, Optional, Union
 from uuid import UUID
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.core.tenant.company_scope import (
     require_session_empresa_id,
     enforce_body_empresa_matches_session,
     ensure_empresa_in_tenant,
+)
+from app.core.tenant.routing import (
+    OPERATION_CLASS_TENANT_DATA,
+    get_connection_for_tenant,
 )
 from app.shared.pagination import ErpPaginationParams, ErpSortParams, build_paginated_response
 from app.shared.pagination.schemas import ErpPaginatedResponse
@@ -28,15 +35,27 @@ from app.modules.inv.application.services.inv_audit_context import (
     apply_create_audit,
     apply_producto_update_audit,
 )
+from app.modules.inv.application.services.inv_codigo_generation_service import (
+    InvCodigoGenerationService,
+)
 from app.modules.inv.presentation.schemas import (
     ProductoCreate,
     ProductoUpdate,
     ProductoRead,
 )
 
+_SEQUENCE_KEY = "inv_producto"
+
 
 def _row_to_read(row: dict) -> ProductoRead:
     return ProductoRead(**row)
+
+
+def _normalize_manual_codigo(codigo: Optional[str]) -> Optional[str]:
+    if codigo is None:
+        return None
+    stripped = codigo.strip()
+    return stripped if stripped else None
 
 
 async def _validate_producto_referencias_empresa(
@@ -142,21 +161,42 @@ async def create_producto_servicio(
         unidad_medida_compra_id=data.unidad_medida_compra_id,
         unidad_medida_venta_id=data.unidad_medida_venta_id,
     )
-    existing = await get_producto_by_sku(
-        client_id=client_id,
-        empresa_id=empresa_id,
-        codigo_sku=data.codigo_sku,
-    )
-    if existing:
-        from app.core.exceptions import ConflictError
+    manual_codigo = _normalize_manual_codigo(data.codigo_sku)
 
-        raise ConflictError(
-            detail=f"Ya existe un producto con SKU '{data.codigo_sku}' en esta empresa.",
-        )
-    payload = data.model_dump()
-    payload["empresa_id"] = empresa_id
-    payload = apply_create_audit(payload, usuario_id)
-    row = await create_producto(client_id=client_id, data=payload)
+    async with get_connection_for_tenant(
+        client_id, OPERATION_CLASS_TENANT_DATA
+    ) as session:
+        async with session.begin():
+            if manual_codigo:
+                if await get_producto_by_sku(
+                    client_id,
+                    empresa_id,
+                    manual_codigo,
+                    session=session,
+                ):
+                    raise ConflictError(
+                        detail=(
+                            f"Ya existe un producto con SKU '{manual_codigo}' "
+                            "en esta empresa."
+                        ),
+                    )
+
+            codigo_sku = await InvCodigoGenerationService.resolve_codigo_for_create(
+                _SEQUENCE_KEY,
+                session=session,
+                client_id=client_id,
+                empresa_id=empresa_id,
+                manual_code=manual_codigo,
+            )
+
+            payload = data.model_dump()
+            payload["empresa_id"] = empresa_id
+            payload["codigo_sku"] = codigo_sku
+            payload = apply_create_audit(payload, usuario_id)
+            row = await create_producto(
+                client_id=client_id, data=payload, session=session
+            )
+
     return _row_to_read(row)
 
 
@@ -175,18 +215,6 @@ async def update_producto_servicio(
     if not row:
         raise NotFoundError(detail="Producto no encontrado")
     payload = data.model_dump(exclude_unset=True)
-    if "codigo_sku" in payload and payload["codigo_sku"] != row.get("codigo_sku"):
-        dup = await get_producto_by_sku(
-            client_id=client_id,
-            empresa_id=empresa_id,
-            codigo_sku=payload["codigo_sku"],
-        )
-        if dup and dup.get("producto_id") != producto_id:
-            from app.core.exceptions import ConflictError
-
-            raise ConflictError(
-                detail=f"Ya existe un producto con SKU '{payload['codigo_sku']}' en esta empresa.",
-            )
     await _validate_producto_referencias_empresa(
         client_id,
         empresa_id,

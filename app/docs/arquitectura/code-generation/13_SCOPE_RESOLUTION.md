@@ -208,12 +208,13 @@ flowchart TD
 
 ## 8. Casos especiales
 
-### 8.1 `org_empresa` post primera empresa
+### 8.1 `org_empresa` — bootstrap sede y runtime
 
-| Caso | Scope |
-|------|-------|
-| Primera empresa bootstrap `EMP001` | Puede omitir allocate (constante onboarding) |
-| Segunda empresa en tenant | TENANT scope; mismo contador `org_empresa` para todo el tenant |
+| Caso | Comportamiento |
+|------|----------------|
+| Primera empresa bootstrap `EMP001` | Creada en onboarding **sin** `allocate`; cfg TENANT sembrada con **`ultimo_numero = 1`** (BR-BOOT-04) |
+| Segunda empresa en tenant (runtime) | TENANT scope; `allocate` → **`EMP002`**; mismo contador `org_empresa` para todo el tenant |
+| Repair / ENSURE / guard en ORG create | **Prohibido** en despliegue greenfield |
 
 ### 8.2 WMS con `empresa_id` en tabla pero UNIQUE por almacén
 

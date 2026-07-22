@@ -16,8 +16,13 @@ from app.shared.validators import normalize_upper, normalize_lower, normalize_st
 # ----- Mixins de normalización (solo Create / Update) -----
 
 class _CategoriaWriteMixin:
+    # codigo solo en Create (BR-IMM); check_fields=False permite Update sin el campo
+    @field_validator("codigo", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_categoria(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
     @field_validator(
-        "codigo",
         "ruta_jerarquica",
         "cuenta_contable_inventario",
         "cuenta_contable_costo_venta",
@@ -35,9 +40,15 @@ class _CategoriaWriteMixin:
 
 
 class _UnidadMedidaWriteMixin:
-    @field_validator("codigo", "tipo_unidad", mode="before")
+    # codigo solo en Create (BR-IMM); check_fields=False permite Update sin el campo
+    @field_validator("codigo", mode="before", check_fields=False)
     @classmethod
-    def _upper_unidad_medida(cls, v: Optional[str]) -> Optional[str]:
+    def _upper_codigo_unidad_medida(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("tipo_unidad", mode="before")
+    @classmethod
+    def _upper_tipo_unidad(cls, v: Optional[str]) -> Optional[str]:
         return normalize_upper(v)
 
     @field_validator("nombre", "simbolo", mode="before")
@@ -47,8 +58,13 @@ class _UnidadMedidaWriteMixin:
 
 
 class _ProductoWriteMixin:
+    # codigo_sku solo en Create (BR-IMM); check_fields=False permite Update sin el campo
+    @field_validator("codigo_sku", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_sku(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
     @field_validator(
-        "codigo_sku",
         "codigo_barra",
         "codigo_interno",
         "codigo_fabricante",
@@ -91,9 +107,15 @@ class _ProductoWriteMixin:
 
 
 class _AlmacenWriteMixin:
-    @field_validator("codigo", "tipo_almacen", mode="before")
+    # codigo solo en Create (BR-IMM); check_fields=False permite Update sin el campo
+    @field_validator("codigo", mode="before", check_fields=False)
     @classmethod
-    def _upper_almacen(cls, v: Optional[str]) -> Optional[str]:
+    def _upper_codigo_almacen(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
+    @field_validator("tipo_almacen", mode="before")
+    @classmethod
+    def _upper_tipo_almacen(cls, v: Optional[str]) -> Optional[str]:
         return normalize_upper(v)
 
     @field_validator(
@@ -109,8 +131,13 @@ class _AlmacenWriteMixin:
 
 
 class _TipoMovimientoWriteMixin:
+    # codigo solo en Create (BR-IMM); check_fields=False permite Update sin el campo
+    @field_validator("codigo", mode="before", check_fields=False)
+    @classmethod
+    def _upper_codigo_tipo_movimiento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
     @field_validator(
-        "codigo",
         "clase_movimiento",
         "cuenta_contable_debito",
         "cuenta_contable_credito",
@@ -128,8 +155,13 @@ class _TipoMovimientoWriteMixin:
 
 
 class _MovimientoWriteMixin:
+    # numero_movimiento solo vía Motor (AUTO_REQUIRED); check_fields=False permite Create/Update sin el campo
+    @field_validator("numero_movimiento", mode="before", check_fields=False)
+    @classmethod
+    def _upper_numero_movimiento(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
     @field_validator(
-        "numero_movimiento",
         "modulo_origen",
         "documento_referencia_tipo",
         "documento_referencia_numero",
@@ -179,8 +211,13 @@ class _StockWriteMixin:
 
 
 class _InventarioFisicoWriteMixin:
+    # numero_inventario solo vía Motor (AUTO_REQUIRED); check_fields=False permite Create/Update sin el campo
+    @field_validator("numero_inventario", mode="before", check_fields=False)
+    @classmethod
+    def _upper_numero_inventario(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_upper(v)
+
     @field_validator(
-        "numero_inventario",
         "tipo_inventario",
         "ubicacion_almacen",
         "estado",
@@ -223,7 +260,7 @@ class _InventarioFisicoDetalleWriteMixin:
 # ============================================================================
 class CategoriaCreate(_CategoriaWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     categoria_padre_id: Optional[UUID] = None
@@ -236,7 +273,7 @@ class CategoriaCreate(_CategoriaWriteMixin, BaseModel):
 
 
 class CategoriaUpdate(_CategoriaWriteMixin, BaseModel):
-    codigo: Optional[str] = Field(None, max_length=20)
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     categoria_padre_id: Optional[UUID] = None
@@ -275,7 +312,7 @@ class CategoriaRead(BaseModel):
 # ============================================================================
 class UnidadMedidaCreate(_UnidadMedidaWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=10)
+    codigo: Optional[str] = Field(None, max_length=10)
     nombre: str = Field(..., max_length=50)
     simbolo: Optional[str] = Field(None, max_length=10)
     tipo_unidad: str = Field(..., max_length=20)  # 'cantidad', 'peso', 'volumen', etc.
@@ -286,7 +323,7 @@ class UnidadMedidaCreate(_UnidadMedidaWriteMixin, BaseModel):
 
 
 class UnidadMedidaUpdate(_UnidadMedidaWriteMixin, BaseModel):
-    codigo: Optional[str] = Field(None, max_length=10)
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = Field(None, max_length=50)
     simbolo: Optional[str] = Field(None, max_length=10)
     tipo_unidad: Optional[str] = Field(None, max_length=20)
@@ -321,7 +358,7 @@ class UnidadMedidaRead(BaseModel):
 # ============================================================================
 class ProductoCreate(_ProductoWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo_sku: str = Field(..., max_length=50)
+    codigo_sku: Optional[str] = Field(None, max_length=50)
     codigo_barra: Optional[str] = Field(None, max_length=50)
     codigo_interno: Optional[str] = Field(None, max_length=30)
     codigo_fabricante: Optional[str] = Field(None, max_length=50)
@@ -389,7 +426,7 @@ class ProductoCreate(_ProductoWriteMixin, BaseModel):
 
 
 class ProductoUpdate(_ProductoWriteMixin, BaseModel):
-    codigo_sku: Optional[str] = Field(None, max_length=50)
+    # codigo_sku omitido — BR-IMM-01 (inmutable post-CREATE); solo codigo_sku pertenece al Motor
     codigo_barra: Optional[str] = Field(None, max_length=50)
     codigo_interno: Optional[str] = Field(None, max_length=30)
     codigo_fabricante: Optional[str] = Field(None, max_length=50)
@@ -540,7 +577,7 @@ class ProductoRead(BaseModel):
 class AlmacenCreate(_AlmacenWriteMixin, BaseModel):
     empresa_id: UUID
     sucursal_id: Optional[UUID] = None
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     tipo_almacen: str = Field(..., max_length=30)
@@ -560,7 +597,7 @@ class AlmacenCreate(_AlmacenWriteMixin, BaseModel):
 
 class AlmacenUpdate(_AlmacenWriteMixin, BaseModel):
     sucursal_id: Optional[UUID] = None
-    codigo: Optional[str] = Field(None, max_length=20)
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     tipo_almacen: Optional[str] = Field(None, max_length=30)
@@ -694,7 +731,7 @@ class KardexLineaRead(BaseModel):
 # ============================================================================
 class TipoMovimientoCreate(_TipoMovimientoWriteMixin, BaseModel):
     empresa_id: UUID
-    codigo: str = Field(..., max_length=20)
+    codigo: Optional[str] = Field(None, max_length=20)
     nombre: str = Field(..., max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     clase_movimiento: str = Field(..., max_length=20)  # 'entrada', 'salida', 'transferencia', 'ajuste'
@@ -710,7 +747,7 @@ class TipoMovimientoCreate(_TipoMovimientoWriteMixin, BaseModel):
 
 
 class TipoMovimientoUpdate(_TipoMovimientoWriteMixin, BaseModel):
-    codigo: Optional[str] = Field(None, max_length=20)
+    # codigo omitido — BR-IMM-01 (inmutable post-CREATE)
     nombre: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = Field(None, max_length=255)
     clase_movimiento: Optional[str] = Field(None, max_length=20)
@@ -755,7 +792,7 @@ class TipoMovimientoRead(BaseModel):
 # ============================================================================
 class MovimientoCreate(_MovimientoWriteMixin, BaseModel):
     empresa_id: UUID
-    numero_movimiento: str = Field(..., max_length=20)
+    # numero_movimiento omitido — AUTO_REQUIRED vía Motor (inv_movimiento)
     tipo_movimiento_id: UUID
     fecha_movimiento: Optional[datetime] = None
     fecha_contable: date
@@ -792,7 +829,7 @@ class MovimientoCreate(_MovimientoWriteMixin, BaseModel):
 
 
 class MovimientoUpdate(_MovimientoWriteMixin, BaseModel):
-    numero_movimiento: Optional[str] = Field(None, max_length=20)
+    # numero_movimiento omitido — BR-IMM-01 (inmutable post-CREATE)
     tipo_movimiento_id: Optional[UUID] = None
     fecha_movimiento: Optional[datetime] = None
     fecha_contable: Optional[date] = None
@@ -871,7 +908,7 @@ class MovimientoRead(BaseModel):
 # ============================================================================
 class InventarioFisicoCreate(_InventarioFisicoWriteMixin, BaseModel):
     empresa_id: UUID
-    numero_inventario: str = Field(..., max_length=20)
+    # numero_inventario omitido — AUTO_REQUIRED vía Motor (inv_inventario_fisico)
     fecha_inventario: date
     almacen_id: UUID
     tipo_inventario: str = Field(..., max_length=20)  # 'total', 'ciclico', 'selectivo'
@@ -889,7 +926,7 @@ class InventarioFisicoCreate(_InventarioFisicoWriteMixin, BaseModel):
 
 
 class InventarioFisicoUpdate(_InventarioFisicoWriteMixin, BaseModel):
-    numero_inventario: Optional[str] = Field(None, max_length=20)
+    # numero_inventario omitido — BR-IMM-01 (inmutable post-CREATE)
     fecha_inventario: Optional[date] = None
     almacen_id: Optional[UUID] = None
     tipo_inventario: Optional[str] = Field(None, max_length=20)

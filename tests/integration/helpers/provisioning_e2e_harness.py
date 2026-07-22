@@ -317,10 +317,7 @@ def build_provisioning_e2e_stack(
             )
 
         async def _mark_ready(request):
-            await state.transition_run_to_ready(
-                cliente_id=request.cliente_id,
-                provisioning_run_id=request.provisioning_run_id,
-            )
+            # Opción B: el step ya no transiciona el run; lo hace el Orchestrator.
             return DedicatedActivationStepResult(
                 step_code="mark_ready",
                 idempotency_marker=f"ready_run:{run_id}",

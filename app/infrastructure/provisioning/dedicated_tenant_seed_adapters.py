@@ -17,16 +17,14 @@ from app.infrastructure.provisioning.dedicated_tenant_seed_types import (
 )
 from app.modules.tenant.application.services.cliente_onboarding_service import (
     ADMIN_USERNAME,
-    ClienteOnboardingService,
-    SECUENCIAS_CODIGO,
 )
 from app.modules.tenant.application.services.minimal_erp_tenant_bootstrap_service import (
     MinimalErpTenantBootstrapService,
 )
-from app.modules.tenant.application.services.onboarding_rbac_service import (
-    OnboardingRbacService,
-)
 from app.modules.tenant.application.services.owner_sync_constants import ADMIN_ROL_CODIGO
+from app.modules.tenant.application.services.tenant_bootstrap_orchestrator import (
+    TenantBootstrapOrchestrator,
+)
 from app.modules.tenant.presentation.schemas import ClienteCreate
 
 logger = logging.getLogger(__name__)
@@ -119,9 +117,11 @@ async def execute_tenant_seed_step(
     step_code: str,
     state: TenantSeedState,
 ) -> None:
+    """Capa de compatibilidad S7 — delega pasos a TenantBootstrapOrchestrator."""
     cliente_data = build_cliente_create_payload(request)
+
     if step_code == "seed_base_roles":
-        state.roles_ids = await ClienteOnboardingService._insertar_roles_base(
+        state.roles_ids = await TenantBootstrapOrchestrator.run_seed_base_roles(
             session,
             request.cliente_id,
         )
@@ -129,13 +129,12 @@ async def execute_tenant_seed_step(
         return
 
     if step_code == "seed_org_empresa":
-        result = await MinimalErpTenantBootstrapService.ensure_empresa_inicial(
+        state.empresa_id = await TenantBootstrapOrchestrator.run_seed_org_empresa(
             session,
             cliente_id=request.cliente_id,
             cliente_data=cliente_data,
             usuario_creacion_id=state.admin_usuario_id,
         )
-        state.empresa_id = UUID(str(result["empresa_id"]))
         return
 
     if step_code == "seed_admin_user":
@@ -146,7 +145,7 @@ async def execute_tenant_seed_step(
             )
         password_plain = request.admin_password or generar_contrasena_segura(12)
         state.admin_password_plain = password_plain
-        state.admin_usuario_id = await ClienteOnboardingService._insertar_usuario_admin(
+        state.admin_usuario_id = await TenantBootstrapOrchestrator.run_seed_admin_user(
             session,
             cliente_id=request.cliente_id,
             cliente_data=cliente_data,
@@ -162,7 +161,7 @@ async def execute_tenant_seed_step(
                 detail="Datos admin/empresa incompletos para seed_admin_empresa_link.",
                 internal_code="TENANT_SEED_ADMIN_LINK_PREREQ",
             )
-        await MinimalErpTenantBootstrapService.vincular_admin_empresa(
+        await TenantBootstrapOrchestrator.run_seed_admin_empresa_link(
             session,
             cliente_id=request.cliente_id,
             usuario_id=state.admin_usuario_id,
@@ -177,7 +176,7 @@ async def execute_tenant_seed_step(
                 detail="Admin requerido antes de seed_tenant_rbac.",
                 internal_code="TENANT_SEED_RBAC_PREREQ",
             )
-        await OnboardingRbacService.bootstrap_cliente_rbac(
+        await TenantBootstrapOrchestrator.run_seed_tenant_rbac(
             session,
             cliente_id=request.cliente_id,
             admin_rol_id=state.admin_rol_id,
@@ -187,9 +186,15 @@ async def execute_tenant_seed_step(
         return
 
     if step_code == "seed_codigo_secuencias":
-        await ClienteOnboardingService._insertar_secuencias_codigo(
+        if not state.empresa_id:
+            raise ValidationError(
+                detail="empresa_id requerido antes de seed_codigo_secuencias.",
+                internal_code="TENANT_SEED_SECUENCIAS_PREREQ",
+            )
+        await TenantBootstrapOrchestrator.run_seed_codigo_secuencias(
             session,
-            request.cliente_id,
+            cliente_id=request.cliente_id,
+            empresa_id=state.empresa_id,
         )
         return
 

@@ -31,6 +31,17 @@ ALMACEN_O = uuid4()
 ALMACEN_T = uuid4()
 
 
+@pytest.fixture(autouse=True)
+def _mock_inv_codigo_generation():
+    """F2A: el estorno numera vía Gateway (inv_movimiento). En unit tests se
+    mockea InvCodigoGenerationService para no tocar el store/DB real."""
+    with patch(
+        "app.modules.inv.application.services.movimiento_proceso_service.InvCodigoGenerationService.resolve_codigo_for_create",
+        new=AsyncMock(return_value="MOV-EST-GEN"),
+    ):
+        yield
+
+
 class _FakeUowContext:
     def __init__(self, uow):
         self._uow = uow

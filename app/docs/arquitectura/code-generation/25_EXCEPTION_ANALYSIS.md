@@ -23,10 +23,10 @@ Se documenta una excepción solo si:
 |----------|-------|
 | **Entidad** | `org_empresa` |
 | **Regla** | BR-M-02 (F15A `07`) |
-| **Comportamiento** | La primera empresa puede crearse con código fijo de onboarding sin allocate |
+| **Comportamiento** | La primera empresa se crea con código fijo `EMP001` en onboarding (sin `allocate`). El seed cfg TENANT `org_empresa` debe inicializarse con **`ultimo_numero = 1`** (BR-BOOT-04). Empresas subsecuentes usan motor (`allocate` → `EMP002+`). |
 | **Scope** | TENANT |
-| **Tratamiento motor** | Servicio ORG puede omitir `allocate` en bootstrap; empresas subsecuentes usan motor |
-| **Riesgo si ignorada** | Bajo; caso único por tenant |
+| **Tratamiento motor** | Bootstrap no consume contador; seed cfg refleja EMP001 emitido. Runtime ORG: `allocate` estándar **sin** guard ni `align_counter`. |
+| **Riesgo si ignorada** | Alto en greenfield — primer auto generaría `EMP001` → colisión UNIQUE |
 
 ---
 

@@ -83,13 +83,13 @@ Una **SequenceDefinition** es la unidad atómica del SequenceCatalog: describe *
 
 ## 7. Edición y ciclo de vida
 
-| Campo | Descripción | Fuente negocio |
-|-------|-------------|----------------|
-| **editable_before_usage** | ¿Permite UPDATE código sin referencias? | F15A BR-M-31 |
-| **editable_after_usage** | Siempre `false` para códigos motor | F15A BR-M-30 |
-| **immutable_after_allocate** | `true` documentos; maestros según uso | Política |
+| Campo | Valor oficial | Fuente |
+|-------|---------------|--------|
+| **editable_before_usage** | **`false`** | **BR-IMM-01** (BR-M-31 DEPRECATED) |
+| **editable_after_usage** | **`false`** | **BR-IMM-01** (BR-M-30 SUPERSEDED) |
+| **immutable_after_allocate** | **`true`** para toda entidad Motor | **BR-IMM-01…05** |
 
-**Decisión SC-DEF-05:** El catálogo documenta expectativa; el enforcement sigue en servicios ERP.
+**Decisión SC-DEF-05 (rev. 2026-07-13):** El catálogo documenta expectativa de **inmutabilidad total post-CREATE**. El enforcement runtime está en **servicios ERP + schemas Update** (no en Gateway, no en cfg BD). Ver ADR `code-immutability/`.
 
 ---
 
@@ -158,9 +158,9 @@ SequenceDefinition
 ├── Contexto
 │   └── required_context[]
 └── Ciclo de vida
-    ├── editable_before_usage
-    ├── editable_after_usage
-    └── immutable_after_allocate
+    ├── editable_before_usage = false   # BR-IMM-01
+    ├── editable_after_usage = false    # BR-IMM-01
+    └── immutable_after_allocate = true # BR-IMM-01…05
 ```
 
 ---
